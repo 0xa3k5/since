@@ -136,7 +136,7 @@ const reads = {
   reflog: (s) => git.getReflog(s.repo.root),
   config: (s) => git.getConfig(s.repo.root),
   remotes: (s) => git.getRemotes(s.repo.root),
-  history: (s) => s.journal.list(),
+  history: (s, limit) => s.journal.list(limit),
 };
 
 const W = { GIT_OPTIONAL_LOCKS: '1' };
@@ -375,7 +375,7 @@ const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webConten
 function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
   const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
-  const nextUndo = journal?.undo.at(-1), nextRedo = journal?.redo.at(-1);
+  const nextUndo = journal?.undo.top, nextRedo = journal?.redo.top;
   const template = [
     ...(isMac ? [{
       label: app.name,
