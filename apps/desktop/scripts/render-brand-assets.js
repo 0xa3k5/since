@@ -1,7 +1,7 @@
 'use strict';
 // Rasterises build/icon.svg and build/background.svg into the files electron-builder packs:
 // build/icon.icns and build/background.tiff (1x + 2x in one file, so the DMG window is sharp on Retina).
-// Run after editing either SVG: `npm run brand-assets -w @gitlanes/desktop`. Needs macOS (iconutil).
+// Run after editing either SVG: `pnpm --filter @gitlanes/desktop brand-assets`. Needs macOS (iconutil).
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');

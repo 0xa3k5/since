@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Windows installer tooling pulled in by electron-builder; its install script isn't needed for macOS builds.
+ignoredBuiltDependencies:
+  - electron-winstaller
