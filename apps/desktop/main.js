@@ -7,6 +7,7 @@ const git = require('./git');
 const { Journal, workOps, worktreeOps } = require('./journal');
 
 const isMac = process.platform === 'darwin';
+const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
 const sessions = new Map(); // webContents.id -> RepoSession
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,9 @@ class RepoSession {
     this.pending = { refs: false, workdir: false };
     this.timer = null;
     this.busy = 0;
+    this.logs = new Map(); // id -> open log stream
+    this.logSeq = 0;
+    this.graphChecked = false;
     this.watch();
   }
 
@@ -118,7 +122,42 @@ class RepoSession {
     }, 120);
   }
 
+  // Log streams are pulled by the renderer chunk by chunk (see renderer/log.js).
+  async openLog(opts) {
+    const fast = await git.hasCommitGraph(this.repo.root);
+    const stream = git.streamLog(this.repo.root, opts);
+    const id = ++this.logSeq;
+    this.logs.set(id, { stream, opts, fast });
+    for (const [old, l] of this.logs) if (this.logs.size > 6 && old !== id) { l.stream.close(); this.logs.delete(old); }
+    return { id, fast };
+  }
+
+  async readLog(id) {
+    const l = this.logs.get(id);
+    if (!l) return null;
+    const text = await l.stream.read();
+    if (text === null) {
+      this.logs.delete(id);
+      if (!l.fast && !l.opts.preview && !this.graphChecked) this.writeCommitGraph();
+    }
+    return text;
+  }
+
+  closeLog(id) {
+    this.logs.get(id)?.stream.close();
+    this.logs.delete(id);
+  }
+
+  // Once per session, after a full log without git's commit-graph cache, write it in the
+  // background so the next load streams immediately.
+  async writeCommitGraph() {
+    this.graphChecked = true;
+    try { if (!(await git.hasCommitGraph(this.repo.root))) await git.writeCommitGraph(this.repo.root); } catch (e) { console.warn('commit-graph write failed', e.message); }
+  }
+
   dispose() {
+    for (const l of this.logs.values()) l.stream.close();
+    this.logs.clear();
     clearTimeout(this.timer);
     for (const w of this.watchers) w.close();
     this.watchers = [];
@@ -129,13 +168,18 @@ class RepoSession {
 // Git API exposed to the renderer. Mutations that move refs or destroy
 // uncommitted work are recorded in the journal, giving unlimited undo/redo.
 
+async function detachedHeads(s) {
+  return (await git.getWorktrees(s.repo.root).catch(() => [])).filter((w) => !w.current && w.detached && w.head).map((w) => w.head);
+}
+
 const reads = {
   refs: (s) => git.getRefs(s.repo.root),
   // Other worktrees' detached HEADs are on no branch; include them so the graph can show them.
-  log: async (s, opts) => {
-    const heads = (await git.getWorktrees(s.repo.root).catch(() => [])).filter((w) => !w.current && w.detached && w.head).map((w) => w.head);
-    return git.getLog(s.repo.root, { ...opts, heads });
-  },
+  log: async (s, opts) => git.getLog(s.repo.root, { ...opts, heads: await detachedHeads(s) }),
+  logOpen: async (s, opts) => s.openLog({ ...opts, heads: await detachedHeads(s) }),
+  logRead: (s, id) => s.readLog(id),
+  logClose: (s, id) => s.closeLog(id),
+  logDetails: (s, shas) => git.getLogDetails(s.repo.root, shas),
   commit: (s, sha) => git.getCommit(s.repo.root, sha),
   commitFileDiff: (s, sha, file, parent) => git.commitFileDiff(s.repo.root, sha, file, parent),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
@@ -390,6 +434,7 @@ function createWindow(repoDir) {
       spellcheck: false,
     },
   });
+  bench?.attach(win);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), repoDir ? { query: { repo: repoDir } } : undefined);
   win.once('ready-to-show', () => win.show());
   const id = win.webContents.id;
