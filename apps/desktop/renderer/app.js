@@ -1,6 +1,8 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
-import { layout, paint, graphWidth, laneColor, readPalette } from './graph.js';
+import { paint, graphWidth, laneColor, readPalette } from './graph.js';
+import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName } from './diff.js';
+import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -13,9 +15,10 @@ const state = {
   sidebar: true,
   refs: [],
   head: { branch: null, oid: null, detached: false },
+  hist: createHistory(), // the history on screen; commits/index/graph below are its parts
   commits: [],
   logKey: '',
-  graph: { rows: [], maxLanes: 1 },
+  graph: null,
   index: new Map(),
   byRef: new Map(),
   selected: null,
@@ -36,7 +39,10 @@ const state = {
   amend: false,
   collapsed: loadPref('collapsed', {}),
   theme: 'system',
+  licence: null,
 };
+
+state.graph = state.hist.graph;
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
 function savePref(k, v) { try { localStorage.setItem('pref:' + k, JSON.stringify(v)); } catch { /* ignore */ } }
@@ -46,6 +52,7 @@ function savePref(k, v) { try { localStorage.setItem('pref:' + k, JSON.stringify
 
 async function git(method, ...args) {
   const r = await api.git(method, ...args);
+  if (r.error?.code === 'READ_ONLY') { openLicence({ blocked: true }); const e = new Error(r.error.message); e.readOnly = true; throw e; }
   if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; throw e; }
   return r.ok;
 }
@@ -62,14 +69,14 @@ async function act(label, method, args = [], { busy, success, undoable = true, q
     return true;
   } catch (e) {
     t?.close();
-    toast(`${label} failed`, { kind: 'error', detail: e.message });
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return false;
   }
 }
 
 async function quiet(method, ...args) {
-  try { await git(method, ...args); } catch (e) { toast('Git error', { kind: 'error', detail: e.message }); }
+  try { await git(method, ...args); } catch (e) { if (!e.readOnly) toast('Git error', { kind: 'error', detail: e.message }); }
   await refreshStatus();
 }
 
@@ -77,7 +84,7 @@ async function undo() {
   try {
     const label = await git('undo');
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
-  } catch (e) { toast('Undo failed', { kind: 'error', detail: e.message }); }
+  } catch (e) { if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message }); }
   await refreshAll();
 }
 // "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
@@ -89,7 +96,7 @@ async function redo() {
   try {
     const label = await git('redo');
     toast(label ? `Redid “${label}”` : 'Nothing to redo');
-  } catch (e) { toast('Redo failed', { kind: 'error', detail: e.message }); }
+  } catch (e) { if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message }); }
   await refreshAll();
 }
 
@@ -111,9 +118,10 @@ function coalesce(fn) {
 
 const refreshHistory = coalesce(async () => {
   if (!state.repo) return;
-  const [{ refs, head }, commits, opState, history, worktrees] = await Promise.all([
+  // On a first load, start reading the newest commits while the refs load.
+  if (!state.logKey && !previewAhead) previewAhead = readPreview(logOpts()).catch(() => null);
+  const [{ refs, head }, opState, history, worktrees] = await Promise.all([
     git('refs'),
-    git('log', { remotes: state.show.remotes, tags: state.show.tags }),
     git('opState'),
     git('history'),
     git('worktrees').catch(() => []),
@@ -124,16 +132,16 @@ const refreshHistory = coalesce(async () => {
   state.head = head;
   state.opState = opState;
   state.history = history;
-  const key = commits.length + ':' + commits.map((c) => c.sha).join('');
+  // The log is fully determined by the tips it starts from, so only reload when they move.
+  const key = tipsKey(refs, head, worktrees);
   const logChanged = key !== state.logKey;
   if (logChanged) {
     state.logKey = key;
-    state.commits = commits;
-    state.graph = layout(commits);
-    state.index = new Map(commits.map((c, i) => [c.sha, i]));
+    await loadHistory().catch((e) => { state.logKey = ''; toast('Could not load history', { kind: 'error', detail: e.message }); });
   }
+  previewAhead = null;
   indexRefs();
-  if (!state.selected || !state.index.has(state.selected)) state.selected = head.oid && state.index.has(head.oid) ? head.oid : commits[0]?.sha || null;
+  fixSelection();
   renderSidebar();
   renderTopbar();
   renderBanner();
@@ -141,6 +149,197 @@ const refreshHistory = coalesce(async () => {
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
 });
+
+function tipsKey(refs, head, worktrees = []) {
+  const kinds = new Set(['branch', ...(state.show.tags ? ['tag'] : []), ...(state.show.remotes ? ['remote'] : [])]);
+  const detached = worktrees.filter((w) => !w.current && w.detached && w.head).map((w) => w.head);
+  return [state.show.tags, state.show.remotes, head.oid, ...[...refs.filter((r) => kinds.has(r.kind)).map((r) => r.target), ...detached].sort()].join(' ');
+}
+
+function fixSelection() {
+  if (state.selected && state.index.has(state.selected)) return;
+  if (state.selected && !state.hist.complete) return; // may still be on its way
+  const head = state.head.oid;
+  state.selected = head && state.index.has(head) ? head : state.commits[0]?.sha || null;
+}
+
+// ---------------------------------------------------------------------------
+// History loading
+//
+// The log streams in from git in chunks and is laid out as it arrives, so the first screen
+// shows up long before a large history has finished loading.
+//  - First load: git's newest commits are shown at once (a short, unordered "preview" that needs
+//    no full-history walk), then the ordered topology stream builds the real history, swapped in
+//    as soon as it covers the screen. Subjects and authors follow in a second stream.
+//  - Reloads replay the topology stream against the current history: the unchanged prefix is
+//    kept as is, and only missing details are fetched.
+const PREVIEW = 1000;
+let loadSeq = 0;
+let previewAhead = null;
+
+const logOpts = () => ({ remotes: state.show.remotes, tags: state.show.tags });
+
+// The newest commits in plain date order, with details: shown before the ordered log arrives.
+async function readPreview(opts) {
+  const preview = createHistory();
+  preview.repo = state.repo;
+  const { id } = await git('logOpen', { ...opts, kind: 'full', preview: true, limit: PREVIEW });
+  for (let text; (text = await git('logRead', id)) !== null;) {
+    if (text === false) return null; // closed: another repository was opened
+    preview.add(parseLog(text, 'full'));
+  }
+  preview.opts = JSON.stringify(opts);
+  return preview;
+}
+
+function setHistory(hist) {
+  state.hist = hist;
+  state.commits = hist.commits;
+  state.index = hist.index;
+  state.graph = hist.graph;
+  markLoading();
+}
+
+function markLoading(details) {
+  const ds = document.documentElement.dataset;
+  ds.history = state.hist.complete ? 'ready' : 'loading';
+  if (details) ds.details = details;
+  ds.commits = state.commits.length;
+  const note = $('#history-note');
+  if (note) note.textContent = state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`;
+}
+
+// Pull a log stream from the main process, passing each chunk to fn, until it ends or a newer
+// load starts. Resolves true if the stream was read to the end. Main answers false for a stream
+// it has closed (the repository was replaced or closed): that is not the end of the log, so the
+// history is left incomplete and reloads on the next refresh.
+async function readLog(opts, seq, fn) {
+  const { id } = await git('logOpen', opts);
+  let done = false;
+  try {
+    while (seq === loadSeq) {
+      const text = await git('logRead', id);
+      if (text === false) { if (seq === loadSeq) state.logKey = ''; break; }
+      if (text === null) { done = true; break; }
+      if (seq === loadSeq) fn(text);
+    }
+  } finally {
+    if (!done) git('logClose', id).catch(() => {});
+  }
+  return done;
+}
+
+// Rows the history must cover before it can replace what is on screen.
+const needed = () => Math.min(mapView?.lastVisible() ?? 0, state.commits.length) + 1;
+
+// Resolves once the first screen is ready; loading continues in the background.
+function loadHistory() {
+  const seq = ++loadSeq;
+  const opts = logOpts();
+  const fresh = !state.hist.complete;
+  let shown;
+  const firstScreen = new Promise((r) => { shown = r; });
+  let live = false; // is the history being built already on screen?
+  let target = null;
+
+  const grew = () => {
+    markLoading();
+    if (state.view === 'map') mapView?.grow();
+  };
+  const show = (hist) => {
+    live = hist === target;
+    setHistory(hist);
+    fixSelection();
+    if (state.view === 'map') mapView?.refresh();
+    shown();
+  };
+
+  const run = async () => {
+    if (fresh) {
+      const ahead = previewAhead && (await previewAhead);
+      previewAhead = null;
+      const preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
+      if (seq !== loadSeq) return;
+      if (!preview) { state.logKey = ''; return; }
+      if (preview.length < PREVIEW) preview.complete = true; // that was all of it, though maybe unordered
+      show(preview);
+      // The ordered history, with the preview's details carried over.
+      target = createHistory();
+      for (const c of preview.commits) target.seed(c);
+      // Rows without details stay placeholders until fetched on demand, so a failure here only
+      // leaves the loading marker up; it must not surface as an unhandled rejection.
+      const details = readLog({ ...opts, kind: 'details' }, seq, (text) => {
+        if (target.fill(text) && live) mapView?.refreshPending();
+      }).catch(() => false);
+      markLoading('loading');
+      const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
+        target.add(parseLog(text, 'topo'));
+        if (live) grew();
+        else if (target.length >= needed()) show(target);
+      });
+      if (!ok || seq !== loadSeq) return;
+      target.complete = true;
+      show(target);
+      if (await details && seq === loadSeq) markLoading('ready');
+      return;
+    }
+    // Reload: keep showing the current history while the new one is replayed against it.
+    shown();
+    const merge = createMerge(state.hist);
+    const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
+      merge.push(parseLog(text, 'topo'));
+      const next = merge.next;
+      if (!next) return;
+      if (live) grew();
+      else if (next.length >= needed()) { target = next; show(next); }
+    });
+    if (!ok || seq !== loadSeq) return;
+    target = merge.finish();
+    if (target) show(target); else { markLoading(); shown(); }
+    // Fill in details for the commits that are new to us, a batch at a time.
+    markLoading('loading');
+    const hist = state.hist;
+    let from = 0;
+    for (;;) {
+      const missing = hist.missingDetails(from, 2000);
+      if (!missing.length || seq !== loadSeq) break;
+      from = hist.index.get(missing[missing.length - 1]) + 1;
+      if (hist.fill(await git('logDetails', missing))) mapView?.refreshPending();
+    }
+    if (seq === loadSeq) markLoading('ready');
+  };
+  run().then(() => shown(), (e) => { shown(); if (seq === loadSeq) { state.logKey = ''; toast('Could not load history', { kind: 'error', detail: e.message }); } });
+  return firstScreen;
+}
+
+// Details for rows on screen that the streams have not reached yet (e.g. after jumping to the end).
+const wanted = new Set();
+let wantTimer = 0;
+function wantDetails(sha) {
+  if (wanted.has(sha)) return;
+  wanted.add(sha);
+  if (!wantTimer) wantTimer = setTimeout(fetchWanted, 40);
+}
+async function fetchWanted() {
+  const hist = state.hist;
+  // Take the batch before waiting: rows drawn during the fetch go into the next one.
+  const shas = [...wanted].filter((sha) => mapView?.isVisible(sha));
+  wanted.clear();
+  try {
+    if (shas.length && hist.fill(await git('logDetails', shas))) mapView?.refreshPending();
+  } catch { /* the row stays a placeholder until the stream reaches it */ }
+  wantTimer = wanted.size ? setTimeout(fetchWanted, 40) : 0;
+}
+
+// Stop the history load in flight (and anything queued for it) before another repository is
+// opened or the current one closed, so none of it lands in the next repository's view.
+function cancelHistory() {
+  loadSeq++;
+  previewAhead = null;
+  wanted.clear();
+  clearTimeout(wantTimer);
+  wantTimer = 0;
+}
 
 const refreshStatus = coalesce(async () => {
   if (!state.repo) return;
@@ -334,6 +533,7 @@ function renderTopbar() {
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.quick ? 'Quick View' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
+    h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
   if (state.view === 'map' && !state.quick) {
@@ -355,6 +555,8 @@ function renderTopbar() {
   if (state.view === 'commit') {
     right.append(h('button.btn.subtle', { onclick: stashSave }, icon('stash', 14), 'Stash'));
   }
+  const chip = licenceChip(state.licence, () => openLicence());
+  if (chip) right.append(chip);
   right.append(
     h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
@@ -372,7 +574,6 @@ function toggleChip(label, key) {
 function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
-  state.logKey = '';
   refreshHistory();
   renderTopbar();
 }
@@ -455,7 +656,9 @@ function createMapView(container) {
     const c = results ? results[i] : state.commits[i];
     const refs = state.byRef.get(c.sha) || [];
     const isSel = c.sha === state.selected;
-    const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : ''), {
+    const pending = c.subject === null;
+    if (pending) wantDetails(c.sha);
+    const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
       onmousedown: (e) => { if (e.button === 0) { if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha); } },
       ondblclick: () => openQuick(c.sha),
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
@@ -463,8 +666,8 @@ function createMapView(container) {
       results ? null : h('span.graph-space', { style: { width: gw + 'px' } }),
       results ? h('span.result-dot', { style: { background: laneColor(state.graph, state.index.get(c.sha)) } }) : null,
       refs.length ? h('span.pills', null, refs.slice(0, 4).map(refPill), refs.length > 4 ? h('span.pill.more', null, `+${refs.length - 4}`) : null) : null,
-      h('span.subject', null, c.subject),
-      h('span.meta', null,
+      h('span.subject', null, pending ? '' : c.subject),
+      pending ? h('span.meta', null, h('span.sha', null, c.sha.slice(0, 7))) : h('span.meta', null,
         avatar(c.author, c.email),
         h('span.author', null, c.author),
         h('span.sha', null, c.sha.slice(0, 7)),
@@ -496,7 +699,7 @@ function createMapView(container) {
     const out = [];
     const refHit = new Set(state.refs.filter((r) => r.short.toLowerCase().includes(q)).map((r) => r.target));
     for (const c of state.commits) {
-      if (c.sha.startsWith(q) || refHit.has(c.sha) || c.subject.toLowerCase().includes(q) || c.author.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)) {
+      if (c.sha.startsWith(q) || refHit.has(c.sha) || (c.subject !== null && (c.subject.toLowerCase().includes(q) || c.author.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)))) {
         out.push(c);
         if (out.length >= 2000) break;
       }
@@ -511,6 +714,7 @@ function createMapView(container) {
     colors = readPalette();
     listWrap.classList.toggle('searching', !!results);
     vl.setCount(results ? results.length : state.commits.length);
+    shownGraph = state.graph;
     vl.layer.querySelector('.vl-empty')?.remove();
     if (results && !results.length) {
       vl.layer.append(h('div.vl-empty', null, `No commits match “${state.search}”`));
@@ -519,6 +723,23 @@ function createMapView(container) {
       vl.layer.append(h('div.vl-empty', null, 'This repository has no commits yet. Make one in the Commit view.'));
     }
     renderDetail();
+  }
+
+  // More of the same history arrived: extend the list without re-rendering what is on screen.
+  let shownGraph = null;
+  function grow() {
+    if (results || shownGraph !== state.graph) return refresh();
+    const w = graphWidth(state.graph.maxLanes);
+    if (w !== gw) { gw = w; vl.invalidate(); }
+    vl.setCount(state.commits.length, { keep: true });
+  }
+
+  // Re-render rows that were drawn before their subject and author arrived.
+  function refreshPending() {
+    for (const [i, el] of vl.rows) {
+      const c = results ? results[i] : state.commits[i];
+      if (el.classList.contains('pending') && c && c.subject !== null) vl.refreshRow(i);
+    }
   }
 
   function select(sha, align = 'nearest') {
@@ -589,6 +810,10 @@ function createMapView(container) {
 
   return {
     refresh,
+    grow,
+    refreshPending,
+    lastVisible: () => (results ? 0 : vl.range().last),
+    isVisible: (sha) => { const i = state.index.get(sha); return !results && i != null && vl.rows.has(i); },
     select,
     pickFirstResult: () => { if (results?.length) { const sha = results[0].sha; clearSearch(); select(sha, 'center'); scroller.focus(); } },
     focus: () => scroller.focus(),
@@ -1423,6 +1648,8 @@ function openPalette() {
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
     add('App', 'Close repository', closeRepo, { icon: 'x' });
+    add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
+    if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     for (const r of state.refs) {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
     }
@@ -1430,7 +1657,7 @@ function openPalette() {
       add('Refs', `Go to ${r.short}`, () => { setView('map'); selectCommit(r.target, 'center'); }, { icon: r.kind === 'tag' ? 'tag' : r.kind === 'remote' ? 'cloud' : 'branch' });
     }
     for (const c of state.commits.slice(0, 5000)) {
-      add('Commits', c.subject, () => { setView('map'); selectCommit(c.sha, 'center'); }, { icon: 'commit', detail: c.sha.slice(0, 7), keywords: c.sha.slice(0, 10) + ' ' + c.author });
+      add('Commits', c.subject ?? c.sha.slice(0, 7), () => { setView('map'); selectCommit(c.sha, 'center'); }, { icon: 'commit', detail: c.sha.slice(0, 7), keywords: c.sha.slice(0, 10) + ' ' + c.author });
     }
     return items;
   });
@@ -1485,6 +1712,7 @@ async function renderWelcome() {
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
       h('h1', null, 'GitLanes'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
+      trialLine(state.licence) ? h('button.licence-line', { onclick: () => openLicence() }, icon('key', 12), trialLine(state.licence), kbd(...LICENCE_KBD)) : null,
       h('div.welcome-actions', null,
         h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(MOD, 'O')),
         h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(MOD, '⇧', 'O')),
@@ -1518,6 +1746,8 @@ async function loadRepo(repo) {
   if (!sameRepo) { state.view = 'map'; state.worktrees = []; }
   state.selected = null;
   state.logKey = '';
+  cancelHistory();
+  setHistory(createHistory());
   state.quick = null;
   state.search = '';
   state.configFilter = '';
@@ -1542,6 +1772,7 @@ async function cloneRepo() {
   t.close();
 }
 async function closeRepo() {
+  cancelHistory();
   await api.app('close-repo');
   state.repo = null;
   sidebarEl = topbarEl = bannerEl = contentEl = null;
@@ -1580,6 +1811,8 @@ const commands = {
   hosting: () => state.repo && openHosting(),
   worktreeAdd: () => state.repo && addWorktree(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
+  licence: () => openLicence(),
+  buy,
 };
 api.on('command', (cmd, ...args) => {
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
@@ -1624,10 +1857,19 @@ api.on('theme', (mode, { announce } = {}) => {
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 
+// ---------------------------------------------------------------------------
+// Trial & licence. The main process owns the state and refuses changes once the app is read-only.
+
+api.on('licence', (s) => {
+  state.licence = s;
+  if (state.repo) renderTopbar(); else if (!document.querySelector('.overlay')) renderShell();
+});
+
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
+  state.licence = await api.app('licence');
   const params = new URLSearchParams(location.search);
   const dir = params.get('repo');
   if (dir) await openRepo(dir);

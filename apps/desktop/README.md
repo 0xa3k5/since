@@ -22,7 +22,13 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 ## Architecture
 - `git.js`: dependency-free git CLI layer (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
 - `main.js`: windows, menu, IPC, FSEvents watcher (live refresh), unlimited undo/redo journal (`.git/gitlanes-history.json`).
-- `renderer/`: buildless ES modules. Canvas commit graph + virtualized list, so 20k+ commits stay smooth.
+- `renderer/`: buildless ES modules. Canvas commit graph + virtualized list. The log streams in from git
+  (topology first, subjects and authors behind it) and the graph is laid out incrementally, so there is no
+  commit cap: the 1.5M-commit Linux kernel opens in well under a second. See [docs/performance.md](../../docs/performance.md).
+
+## Benchmark
+`npm run bench` opens large repositories in the real app and records first paint, full graph, scroll frame rate and
+memory. It generates synthetic 100k/250k-commit repos; pass `--linux <path>` (or `--clone`) for the Linux kernel.
 
 ## Features
 Map (graph, branch/tag/remote pills, search, quick view, diff with HEAD) · commit actions: checkout, branch, tag,
@@ -34,5 +40,25 @@ dirty, undoable); other worktrees' branches and detached HEADs are marked on the
 Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
 Not yet: commit splitter, external diff/merge tools, submodules, auto-updates.
+
+## Trial and licence
+`licence/` (main process) owns the 14-day local trial and licence keys; `renderer/licence.js` is the UI
+(topbar chip, licence window, ⌥⌘L, ⌘K). After the trial GitLanes stays read-only: reads and fetch work,
+changes are refused until a licence is added (undo, redo, restore and abort still work). Keys are Polar
+licence keys, activated per Mac and validated at launch, about daily while running, and before a change is
+refused; the last good validation is cached (signed) so the app works offline for 30 days. Only Polar's own
+error replies can revoke a key, and a revoked key is kept (marked revoked) so it can be re-checked or
+deactivated. A clock set far forward is remembered and can end the trial early; that's a known trade-off of
+not letting a rolled-back clock extend it.
+
+- Store profile (unpackaged): `GITLANES_STORE=sandbox` (default) `| production | mock`. Values live in `licence/config.js`.
+- Packaged builds ignore `GITLANES_STORE` at run time and never use `mock`; they use the profile baked in by
+  `npm run dist`: `production` by default (the build fails until its values are filled in), or
+  `GITLANES_STORE=sandbox npm run dist` for a test build. CI bakes `sandbox` except for final release tags.
+- `GITLANES_TRIAL_MIRROR=<file>` (unpackaged only) moves the trial mirror; e2e uses it so runs don't touch your real trial.
+- `GITLANES_STORE=mock npm run desktop` accepts any `GL-TEST-…` key (`GL-TEST-REVOKED…`, `GL-TEST-FULL…`,
+  `GL-TEST-OFFLINE…` exercise the failure paths).
+- `GITLANES_CLOCK_OFFSET_DAYS=20` (unpackaged builds only) moves the clock forward to see later trial days.
+  The trial starts on first launch, so launch once without it first.
 
 Packaging and releases: see the [root README](../../README.md#building-the-dmg).
