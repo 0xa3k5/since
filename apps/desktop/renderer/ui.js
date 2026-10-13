@@ -74,6 +74,9 @@ const P = {
   restore: '<path d="M2.5 8a5.5 5.5 0 1 0 1.8-4.1"/><path d="M2.5 2.5v3h3"/>',
   command: '<path d="M5.5 5.5h5v5h-5z"/><path d="M5.5 5.5H4a1.5 1.5 0 1 1 1.5-1.5zM10.5 5.5V4A1.5 1.5 0 1 1 12 5.5zM10.5 10.5H12a1.5 1.5 0 1 1-1.5 1.5zM5.5 10.5V12A1.5 1.5 0 1 1 4 10.5z"/>',
   split: '<path d="M8 2v12M3 5h3M3 8h3M10 8h3M10 11h3"/>',
+  theme: '<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor" stroke="none"/>',
+  sun: '<circle cx="8" cy="8" r="2.6"/><path d="M8 1.8v1.4M8 12.8v1.4M14.2 8h-1.4M3.2 8H1.8M12.4 3.6l-1 1M4.6 11.4l-1 1M12.4 12.4l-1-1M4.6 4.6l-1-1"/>',
+  moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
   key: '<circle cx="5" cy="11" r="2.5"/><path d="m6.8 9.2 6-6M11 5l1.5 1.5"/>',
 };
 
@@ -99,10 +102,9 @@ export function timeAgo(t) {
 export const fullDate = (t) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 function hash(s) { let x = 0; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return Math.abs(x); }
-const AV = ['#5e6ad2', '#26b5ce', '#4cb782', '#d9a33b', '#f2994a', '#e5484d', '#9b6ee8', '#3a8ff0', '#d6587a', '#7aa53e'];
 export function avatar(name, email, size = 18) {
   const initials = (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
-  return h('span.avatar', { title: `${name} <${email}>`, style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px', background: AV[hash(email || name) % AV.length] } }, initials);
+  return h('span.avatar', { title: `${name} <${email}>`, style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px', background: `var(--lane-${hash(email || name) % 10})` } }, initials);
 }
 
 export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd', null, k)));
