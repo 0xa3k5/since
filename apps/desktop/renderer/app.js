@@ -1,5 +1,5 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
-import { layout, paint, graphWidth, laneColor } from './graph.js';
+import { layout, paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { renderDiff, hunkKeys, statusBadge, fileName } from './diff.js';
 
 const api = window.gitlanes;
@@ -33,6 +33,7 @@ const state = {
   cv: { list: 'unstaged', path: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
+  theme: 'system',
 };
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
@@ -406,8 +407,9 @@ function createMapView(container) {
   let results = null;
   let gw = graphWidth(state.graph.maxLanes);
 
-  const bg = () => getComputedStyle(document.documentElement).getPropertyValue('--bg-content').trim() || '#000';
+  const bg = () => getComputedStyle(document.documentElement).getPropertyValue('--bg-content').trim() || 'transparent';
   let bgColor = bg();
+  let colors = readPalette();
 
   function rowFor(i) {
     const c = results ? results[i] : state.commits[i];
@@ -444,7 +446,7 @@ function createMapView(container) {
         canvas.width = Math.ceil(w * dpr); canvas.height = Math.ceil(hh * dpr);
         canvas.style.width = w + 'px'; canvas.style.height = hh + 'px';
       }
-      paint(ctx, state.graph, { first, last, rowH: ROW_H, scrollTop: top, width: w, height: hh, headSha: state.head.oid, commits: state.commits, selected: state.selected, bg: bgColor });
+      paint(ctx, state.graph, { first, last, rowH: ROW_H, scrollTop: top, width: w, height: hh, headSha: state.head.oid, commits: state.commits, selected: state.selected, bg: bgColor, colors });
     },
   });
 
@@ -466,6 +468,7 @@ function createMapView(container) {
     results = computeResults();
     gw = graphWidth(state.graph.maxLanes);
     bgColor = bg();
+    colors = readPalette();
     listWrap.classList.toggle('searching', !!results);
     vl.setCount(results ? results.length : state.commits.length);
     vl.layer.querySelector('.vl-empty')?.remove();
@@ -1197,6 +1200,8 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     add('View', 'Toggle sidebar', toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'] });
+    THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
+    add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
@@ -1377,12 +1382,31 @@ window.addEventListener('keydown', (e) => {
 });
 let gPending = false;
 
-// Repaint graph when the system theme flips.
+// ---------------------------------------------------------------------------
+// Theme (System / Light / Dark). The main process owns the setting and applies it via
+// nativeTheme, which flips prefers-color-scheme here; we only repaint the canvas graph.
+
+const THEMES = [
+  { id: 'system', label: 'System', icon: 'theme' },
+  { id: 'light', label: 'Light', icon: 'sun' },
+  { id: 'dark', label: 'Dark', icon: 'moon' },
+];
+const THEME_KBD = isMac ? ['⌃', '⌘', 'T'] : ['Ctrl', 'Alt', '⇧', 'T'];
+const themeLabel = (id) => THEMES.find((t) => t.id === id)?.label || id;
+const setTheme = (mode) => api.app('set-theme', mode);
+const cycleTheme = () => api.app('cycle-theme');
+
+api.on('theme', (mode, { announce } = {}) => {
+  state.theme = mode;
+  if (announce) toast(`Theme: ${themeLabel(mode)}`);
+  setTimeout(() => mapView?.refresh(), 50);
+});
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
+  state.theme = await api.app('theme');
   const params = new URLSearchParams(location.search);
   const dir = params.get('repo');
   if (dir) await openRepo(dir);
