@@ -1,5 +1,7 @@
 # GitLanes
 
+[![CI](https://github.com/0xa3k5/gitlanes/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0xa3k5/gitlanes/actions/workflows/ci.yml)
+
 A fast, keyboard-first Git client for macOS, plus its website.
 
 | Path | What |
