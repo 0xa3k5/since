@@ -1,3 +1,4 @@
 node_modules/
+apps/desktop/dist/
 apps/web/dist/
 apps/web/.astro/

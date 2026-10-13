@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 400" width="660" height="400">
+  <!-- DMG window background. Finder draws icon labels in black (light mode) or white (dark mode),
+       so the surface stays a mid-tone orange that both read on (checked in test/brand.test.js). -->
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.35" r="0.85">
+      <stop offset="0" stop-color="#c95410"/>
+      <stop offset="1" stop-color="#bd4e0e"/>
+    </radialGradient>
+  </defs>
+  <rect width="660" height="400" fill="url(#bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="3" stroke-linecap="round">
+    <path d="M40 0 V400"/>
+    <path d="M40 300 C40 340 84 340 84 380 V400"/>
+    <path d="M620 0 V400"/>
+    <path d="M620 120 C620 80 576 80 576 40 V0"/>
+  </g>
+  <g fill="#ffffff" fill-opacity="0.10">
+    <circle cx="40" cy="70" r="7"/><circle cx="40" cy="230" r="7"/><circle cx="84" cy="380" r="7"/>
+    <circle cx="620" cy="190" r="7"/><circle cx="576" cy="40" r="7"/><circle cx="620" cy="330" r="7"/>
+  </g>
+  <text x="330" y="74" text-anchor="middle" fill="#ffffff" font-family="-apple-system, 'SF Pro Display', sans-serif" font-size="20" font-weight="600">Drag GitLanes to Applications</text>
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M288 200 H368"/>
+    <path d="M352 184 L370 200 L352 216"/>
+  </g>
+</svg>
