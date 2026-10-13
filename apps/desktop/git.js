@@ -25,15 +25,16 @@ class GitError extends Error {
   }
 }
 
-function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 * 1024 } = {}) {
+function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 * 1024, encoding = 'utf8' } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
       args,
-      { cwd, env: { ...BASE_ENV, ...env }, maxBuffer, encoding: 'utf8' },
+      { cwd, env: { ...BASE_ENV, ...env }, maxBuffer, encoding },
       (err, stdout, stderr) => {
         const code = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
         if (err && !allowCodes.includes(code)) {
+          stderr = String(stderr || ''); stdout = String(stdout || '');
           const msg = (stderr || stdout || err.message).trim().split('\n').slice(-6).join('\n');
           reject(new GitError(msg || `git ${args[0]} failed`, { code, stderr, stdout, args }));
         } else {
@@ -456,12 +457,13 @@ async function captureRefState(cwd) {
   return { refs, head: sym || null, headOid: oid || null };
 }
 
-async function restoreRefState(cwd, state, { soft = false } = {}) {
+async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = {}) {
   const current = await captureRefState(cwd);
   const env = { GIT_OPTIONAL_LOCKS: '1' };
   // Move the working copy first so a dirty tree blocks the restore before any ref changes.
-  // `soft` keeps the undone commit's changes staged (undoing a commit).
-  if (state.headOid && state.headOid !== current.headOid) {
+  // `soft` keeps the undone commit's changes staged (undoing a commit). `refsOnly` leaves
+  // the index and working tree alone; the caller restores them from a work snapshot.
+  if (!refsOnly && state.headOid && state.headOid !== current.headOid) {
     await run(cwd, ['reset', soft ? '--soft' : '--keep', state.headOid], { env });
   }
   const lines = [];
@@ -472,8 +474,209 @@ async function restoreRefState(cwd, state, { soft = false } = {}) {
   else if (state.headOid) await run(cwd, ['update-ref', '--no-deref', 'HEAD', state.headOid], { env });
 }
 
+// ---------------------------------------------------------------------------
+// Work snapshots: the exact index entries and working-tree bytes of a set of
+// paths. Destructive working-copy operations record one before and one after
+// they run, so undo and redo can put either state back byte for byte.
+
+const W_ENV = { GIT_OPTIONAL_LOCKS: '1', GIT_LITERAL_PATHSPECS: '1' };
+const UNDO_REFS = 'refs/gitlanes/undo';
+
+function chunk(list, n = 500) {
+  const out = [];
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+  return out;
+}
+
+// `write` stores the blobs; without it the snapshot is only used for comparison.
+async function snapshotWork(cwd, paths, { write = true } = {}) {
+  const files = [...new Set(paths)].sort().map((p) => ({ path: p, index: [], wt: null }));
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  for (const part of chunk(files.map((f) => f.path))) {
+    const out = await run(cwd, ['ls-files', '-s', '-z', '--', ...part], { env: W_ENV });
+    for (const rec of out.split('\0')) {
+      const tab = rec.indexOf('\t');
+      const f = tab === -1 ? null : byPath.get(rec.slice(tab + 1));
+      if (!f) continue;
+      const [mode, oid, stage] = rec.slice(0, tab).split(' ');
+      f.index.push({ mode, oid, stage: +stage });
+    }
+  }
+  const w = write ? ['-w'] : [];
+  const regular = [];
+  for (const f of files) {
+    const abs = path.join(cwd, f.path);
+    let st;
+    try { st = fs.lstatSync(abs); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') continue; throw e; }
+    if (st.isSymbolicLink()) {
+      f.wt = { mode: '120000', oid: (await run(cwd, ['hash-object', ...w, '--stdin'], { input: fs.readlinkSync(abs) })).trim() };
+    } else if (st.isFile()) {
+      f.wt = { mode: st.mode & 0o100 ? '100755' : '100644', oid: null };
+      regular.push(f);
+    } else {
+      f.wt = { mode: 'dir' }; // a folder or submodule; restore leaves it alone
+    }
+  }
+  // --no-filters keeps the raw bytes (no CRLF or LFS conversion), which is what we write back.
+  for (const part of chunk(regular)) {
+    const out = await run(cwd, ['hash-object', ...w, '--no-filters', '--stdin-paths'], { input: part.map((f) => f.path).join('\n') + '\n' });
+    out.trim().split('\n').forEach((oid, i) => { part[i].wt.oid = oid; });
+  }
+  return { files };
+}
+
+// Paths whose index entries or working-tree content differ between two snapshots.
+function workChanges(a, b) {
+  const key = (f) => JSON.stringify([f.index, f.wt]);
+  const other = new Map(b.files.map((f) => [f.path, key(f)]));
+  return a.files.filter((f) => other.get(f.path) !== key(f)).map((f) => f.path);
+}
+
+function snapshotBlobs(snap) {
+  const out = [];
+  for (const f of snap?.files || []) {
+    for (const e of f.index) if (e.mode !== '160000') out.push(e.oid);
+    if (f.wt?.oid) out.push(f.wt.oid);
+  }
+  return out;
+}
+
+async function restoreWork(cwd, snap) {
+  for (const f of snap.files) {
+    if (f.wt?.mode === 'dir') continue;
+    const abs = path.join(cwd, f.path);
+    let st = null;
+    try { st = fs.lstatSync(abs); } catch { /* absent */ }
+    if (st?.isDirectory()) throw new GitError(`Cannot restore ${f.path}: a folder is in the way.`);
+    if (!f.wt) { if (st) fs.unlinkSync(abs); continue; }
+    const data = await run(cwd, ['cat-file', 'blob', f.wt.oid], { encoding: 'buffer' });
+    if (st) fs.unlinkSync(abs);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    if (f.wt.mode === '120000') fs.symlinkSync(data.toString(), abs);
+    else fs.writeFileSync(abs, data, { mode: f.wt.mode === '100755' ? 0o777 : 0o666 });
+  }
+  // Replace every index entry of each path, conflict stages included.
+  const format = (await run(cwd, ['rev-parse', '--show-object-format']).catch(() => '')).trim();
+  const zero = '0'.repeat(format === 'sha256' ? 64 : 40);
+  const recs = [];
+  for (const f of snap.files) {
+    recs.push(`0 ${zero}\t${f.path}`);
+    for (const e of f.index) recs.push(`${e.mode} ${e.oid} ${e.stage}\t${f.path}`);
+  }
+  if (recs.length) await run(cwd, ['update-index', '-z', '--index-info'], { input: recs.join('\0') + '\0', env: W_ENV });
+  await run(cwd, ['update-index', '-q', '--refresh'], { env: W_ENV, allowCodes: [0, 1] });
+}
+
+async function dirtyPaths(cwd) {
+  const { staged, unstaged, conflicts } = await getStatus(cwd);
+  return [...staged.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path])), ...unstaged.map((f) => f.path), ...conflicts.map((f) => f.path)];
+}
+
+const treeNames = async (cwd, a, b) => (await run(cwd, ['diff-tree', '-r', '-z', '--name-only', '--no-renames', a, b])).split('\0').filter(Boolean);
+
+// Paths `git reset --hard <target>` can change: everything dirty, plus what differs between HEAD and target.
+async function resetHardPaths(cwd, target) {
+  const paths = await dirtyPaths(cwd);
+  const head = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] })).trim();
+  if (head && target) paths.push(...(await treeNames(cwd, head, target)));
+  return paths;
+}
+
+// Paths applying a stash can change: everything dirty, plus every path the stash records.
+async function stashPaths(cwd, ref) {
+  const paths = await dirtyPaths(cwd);
+  paths.push(...(await treeNames(cwd, `${ref}^1`, ref)), ...(await treeNames(cwd, `${ref}^1`, `${ref}^2`)));
+  const untracked = (await run(cwd, ['rev-parse', '-q', '--verify', `${ref}^3`], { allowCodes: [0, 1] })).trim();
+  if (untracked) paths.push(...(await run(cwd, ['ls-tree', '-r', '-z', '--name-only', untracked])).split('\0').filter(Boolean));
+  return paths;
+}
+
+// ---------------------------------------------------------------------------
+// Pins: refs under refs/gitlanes/ that keep the undo journal's objects
+// reachable, so `git gc` never collects them. Blobs are gathered in one tree
+// (a tree ref stays out of `git log --all`); commits and tags get a ref each.
+
+const listRefs = async (cwd, prefix) => (await run(cwd, ['for-each-ref', '--format=%(refname)', prefix])).split('\n').filter(Boolean);
+
+async function pinObjects(cwd, base, { blobs = [], objects = [] } = {}) {
+  const want = new Map();
+  const uniq = [...new Set(blobs.filter(Boolean))];
+  if (uniq.length) {
+    const input = uniq.map((oid, i) => `100644 blob ${oid}\t${i}`).join('\0') + '\0';
+    want.set(`${base}/blobs`, (await run(cwd, ['mktree', '-z'], { input })).trim());
+  }
+  [...new Set(objects.filter(Boolean))].forEach((oid, i) => want.set(`${base}/${i}`, oid));
+  const lines = [...want].map(([ref, oid]) => `update ${ref} ${oid}`);
+  for (const ref of await listRefs(cwd, base)) if (!want.has(ref)) lines.push(`delete ${ref}`);
+  if (lines.length) await run(cwd, ['update-ref', '--stdin'], { input: lines.join('\n') + '\n', env: W_ENV });
+}
+
+const pinUndo = (cwd, id, objs) => pinObjects(cwd, `${UNDO_REFS}/${id}`, objs);
+
+// Remove the pins of journal entries that are gone.
+async function pruneUndoPins(cwd, keepIds) {
+  const keep = new Set(keepIds.map(String));
+  const lines = (await listRefs(cwd, UNDO_REFS))
+    .filter((ref) => !keep.has(ref.slice(UNDO_REFS.length + 1).split('/')[0]))
+    .map((ref) => `delete ${ref}`);
+  if (lines.length) await run(cwd, ['update-ref', '--stdin'], { input: lines.join('\n') + '\n', env: W_ENV });
+}
+
+// ---------------------------------------------------------------------------
+// Stash list edits used to undo and redo a dropped stash.
+
+async function dropStashCommit(cwd, sha) {
+  const i = (await getStashes(cwd)).findIndex((x) => x.sha === sha);
+  if (i === -1) throw new GitError('That stash no longer exists.');
+  await run(cwd, ['stash', 'drop', '-q', `stash@{${i}}`], { env: W_ENV });
+}
+
+// Put a dropped stash back at its old position, with its old message.
+async function restoreStash(cwd, { sha, message, index }) {
+  const list = await getStashes(cwd);
+  if (list.some((x) => x.sha === sha)) return;
+  const above = list.slice(0, index);
+  // Entries lifted off the top are pinned first, so a failure part-way loses nothing.
+  const lift = 'refs/gitlanes/stash-lift';
+  await pinObjects(cwd, lift, { objects: above.map((x) => x.sha) });
+  for (let i = 0; i < above.length; i++) await run(cwd, ['stash', 'drop', '-q', 'stash@{0}'], { env: W_ENV });
+  for (const e of [{ sha, message }, ...above.reverse()]) await run(cwd, ['stash', 'store', '-q', '-m', e.message, e.sha], { env: W_ENV });
+  await pinObjects(cwd, lift);
+}
+
+// ---------------------------------------------------------------------------
+// Destructive working-copy operations. Run them through the journal
+// (journal.js), which snapshots what they destroy.
+
+async function discardFiles(cwd, files) {
+  const tracked = files.filter((f) => f.status !== '?').map((f) => f.path);
+  const untracked = files.filter((f) => f.status === '?').map((f) => f.path);
+  if (tracked.length) await run(cwd, ['checkout', '--', ...tracked], { env: W_ENV });
+  if (untracked.length) await run(cwd, ['clean', '-f', '-q', '--', ...untracked], { env: W_ENV });
+}
+
+async function discardLines(cwd, file, selected) {
+  const d = await workingDiff(cwd, file, { staged: false });
+  const p = d && buildPartialPatch(d, selected, 'reverse');
+  if (p) await applyPatch(cwd, p, { reverse: true });
+}
+
+const resetHard = (cwd, sha) => run(cwd, ['reset', '--hard', sha || 'HEAD'], { env: W_ENV });
+
+async function chooseSide(cwd, p, side) {
+  await run(cwd, ['checkout', `--${side}`, '--', p], { env: W_ENV });
+  await run(cwd, ['add', '--', p], { env: W_ENV });
+}
+
+const stashApply = (cwd, ref, pop) => run(cwd, ['stash', pop ? 'pop' : 'apply', '--index', ref], { env: W_ENV });
+const stashDrop = (cwd, ref) => run(cwd, ['stash', 'drop', ref], { env: W_ENV });
+
 module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, getCommit, commitFileDiff, compareDiff,
   getStatus, getOperationState, workingDiff, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewrite, captureRefState, restoreRefState,
+  snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
+  pinUndo, pruneUndoPins, dropStashCommit, restoreStash,
+  discardFiles, discardLines, resetHard, chooseSide, stashApply, stashDrop,
 };
+

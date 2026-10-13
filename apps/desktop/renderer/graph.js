@@ -5,10 +5,14 @@ export const LANE_W = 14;
 export const GRAPH_PAD = 12;
 export const MAX_LANES = 28;
 
-export const PALETTE = [
-  '#5e6ad2', '#26b5ce', '#4cb782', '#f2c94c', '#f2994a',
-  '#eb5757', '#bb87fc', '#4ea7fc', '#e46a76', '#9cc65f',
-];
+// Lane colours live in styles.css (--lane-0 … --lane-9) so they follow the theme.
+export const LANES = 10;
+export const laneVar = (n) => `var(--lane-${n % LANES})`;
+
+export function readPalette(el = document.documentElement) {
+  const cs = getComputedStyle(el);
+  return Array.from({ length: LANES }, (_, i) => cs.getPropertyValue(`--lane-${i}`).trim());
+}
 
 export function layout(commits) {
   const lanes = [];
@@ -77,13 +81,12 @@ export function graphWidth(maxLanes) {
 const laneX = (l) => GRAPH_PAD + Math.min(l, MAX_LANES - 1) * LANE_W;
 
 // Paint rows [first, last] onto ctx. y of row i = i * rowH - scrollTop.
-export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height, headSha, commits, selected, bg }) {
+export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height, headSha, commits, selected, bg, colors }) {
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.lineWidth = 1.6;
   ctx.lineCap = 'round';
-  const colors = PALETTE;
   const col = (c) => colors[c % colors.length];
 
   for (let i = first; i <= last; i++) {
@@ -144,5 +147,5 @@ export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height,
 
 export function laneColor(graph, i) {
   const r = graph.rows[i];
-  return r ? PALETTE[r.color % PALETTE.length] : PALETTE[0];
+  return laneVar(r ? r.color : 0);
 }

@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/",
+    "test": "node --test \"test/**/*.test.js\"",
     "dist": "electron-builder --mac --config electron-builder.config.js --publish never",
     "brand-assets": "electron scripts/render-brand-assets.js"
   },

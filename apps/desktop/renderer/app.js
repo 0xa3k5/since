@@ -1,5 +1,5 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
-import { layout, paint, graphWidth, laneColor } from './graph.js';
+import { layout, paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { renderDiff, hunkKeys, statusBadge, fileName } from './diff.js';
 
 const api = window.gitlanes;
@@ -33,6 +33,7 @@ const state = {
   cv: { list: 'unstaged', path: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
+  theme: 'system',
 };
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
@@ -76,6 +77,11 @@ async function undo() {
   } catch (e) { toast('Undo failed', { kind: 'error', detail: e.message }); }
   await refreshAll();
 }
+// "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
+const undoTitle = () => { const e = state.history.undo.at(-1); return e ? `Undo ${e.label}` : 'Undo'; };
+const redoTitle = () => { const e = state.history.redo.at(-1); return e ? `Redo ${e.label}` : 'Redo'; };
+const baseName = (p) => p.split('/').pop();
+
 async function redo() {
   try {
     const label = await git('redo');
@@ -315,8 +321,8 @@ function renderTopbar() {
     right.append(h('button.btn.subtle', { onclick: stashSave }, icon('stash', 14), 'Stash'));
   }
   right.append(
-    h('button.icon-btn', { title: `Undo (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
-    h('button.icon-btn', { title: `Redo (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
+    h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
+    h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
   );
   topbarEl.replaceChildren(crumbs, right);
 }
@@ -401,8 +407,9 @@ function createMapView(container) {
   let results = null;
   let gw = graphWidth(state.graph.maxLanes);
 
-  const bg = () => getComputedStyle(document.documentElement).getPropertyValue('--bg-content').trim() || '#000';
+  const bg = () => getComputedStyle(document.documentElement).getPropertyValue('--bg-content').trim() || 'transparent';
   let bgColor = bg();
+  let colors = readPalette();
 
   function rowFor(i) {
     const c = results ? results[i] : state.commits[i];
@@ -439,7 +446,7 @@ function createMapView(container) {
         canvas.width = Math.ceil(w * dpr); canvas.height = Math.ceil(hh * dpr);
         canvas.style.width = w + 'px'; canvas.style.height = hh + 'px';
       }
-      paint(ctx, state.graph, { first, last, rowH: ROW_H, scrollTop: top, width: w, height: hh, headSha: state.head.oid, commits: state.commits, selected: state.selected, bg: bgColor });
+      paint(ctx, state.graph, { first, last, rowH: ROW_H, scrollTop: top, width: w, height: hh, headSha: state.head.oid, commits: state.commits, selected: state.selected, bg: bgColor, colors });
     },
   });
 
@@ -461,6 +468,7 @@ function createMapView(container) {
     results = computeResults();
     gw = graphWidth(state.graph.maxLanes);
     bgColor = bg();
+    colors = readPalette();
     listWrap.classList.toggle('searching', !!results);
     vl.setCount(results ? results.length : state.commits.length);
     vl.layer.querySelector('.vl-empty')?.remove();
@@ -869,8 +877,8 @@ function createCommitView(container) {
         ] : list === 'staged' ? [
           h('button.icon-btn.tiny', { title: 'Unstage', onclick: (e) => { e.stopPropagation(); quiet('unstageFiles', [f.path]); } }, icon('minus', 13)),
         ] : [
-          h('button.btn.ghost.tiny', { title: 'Use our version', onclick: (e) => { e.stopPropagation(); quiet('chooseSide', f.path, 'ours'); } }, 'Ours'),
-          h('button.btn.ghost.tiny', { title: 'Use their version', onclick: (e) => { e.stopPropagation(); quiet('chooseSide', f.path, 'theirs'); } }, 'Theirs'),
+          h('button.btn.ghost.tiny', { title: 'Use our version', onclick: (e) => { e.stopPropagation(); chooseSide(f.path, 'ours'); } }, 'Ours'),
+          h('button.btn.ghost.tiny', { title: 'Use their version', onclick: (e) => { e.stopPropagation(); chooseSide(f.path, 'theirs'); } }, 'Theirs'),
           h('button.icon-btn.tiny', { title: 'Mark as resolved', onclick: (e) => { e.stopPropagation(); quiet('markResolved', f.path); } }, icon('check', 13)),
         ]));
       row.dataset.key = list + ':' + f.path;
@@ -915,9 +923,13 @@ function createCommitView(container) {
   }
 
   async function discard(files) {
-    const what = files.length === 1 ? `“${files[0].path}”` : `${files.length} files`;
-    if (!(await confirm(`Discard changes to ${what}?`, 'Uncommitted changes will be permanently lost. This cannot be undone.', { submit: 'Discard' }))) return;
-    quiet('discardFiles', files.map((f) => ({ path: f.path, status: f.status })));
+    const what = files.length === 1 ? baseName(files[0].path) : `${files.length} files`;
+    if (!(await confirm(`Discard changes to ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
+    act(`Discard changes to ${what}`, 'discardFiles', [files.map((f) => ({ path: f.path, status: f.status }))]);
+  }
+
+  function chooseSide(p, side) {
+    act(`Use ${side === 'ours' ? 'our' : 'their'} version of ${baseName(p)}`, 'chooseSide', [p, side]);
   }
 
   let diffToken = 0;
@@ -951,14 +963,20 @@ function createCommitView(container) {
         h('button.icon-btn.tiny', { title: 'Clear selection', onclick: () => { sel.clear(); renderDiffPane(); } }, icon('x', 13)),
       );
     };
-    async function lineOp(method, keys = [...sel]) {
-      if (method === 'discardLines' && !(await confirm('Discard selected lines?', 'These changes will be permanently lost.', { submit: 'Discard' }))) return;
+    async function lineOp(method, keys = [...sel], hunk = false) {
+      if (method === 'discardLines') {
+        const what = hunk ? 'hunk' : `${keys.length} line${keys.length > 1 ? 's' : ''}`;
+        if (!(await confirm(`Discard selected ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
+        sel.clear();
+        await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [file, keys]);
+        return;
+      }
       try { await git(method, file, keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
       sel.clear();
       await refreshStatus();
     }
     const hunkActions = list === 'conflicts' ? null : (hi, hunk) => [
-      list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('discardLines', hunkKeys(hunk, hi)) }, 'Discard hunk') : null,
+      list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('discardLines', hunkKeys(hunk, hi), true) }, 'Discard hunk') : null,
       h('button.btn.ghost.tiny', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines', hunkKeys(hunk, hi)) }, list === 'unstaged' ? 'Stage hunk' : 'Unstage hunk'),
     ];
     diffPane.replaceChildren(...[
@@ -1027,15 +1045,15 @@ function stashesView() {
     detail.replaceChildren(
       h('div.diff-head', null, h('span.title', null, s.message), h('span.spacer'),
         h('button.btn.ghost.small', { onclick: () => dropStash(s) }, 'Drop'),
-        h('button.btn.subtle.small', { onclick: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false], { undoable: false }) }, 'Apply'),
-        h('button.btn.primary.small', { onclick: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true], { undoable: false }) }, 'Pop')),
+        h('button.btn.subtle.small', { onclick: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) }, 'Apply'),
+        h('button.btn.primary.small', { onclick: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) }, 'Pop')),
       h('div.diff-scroll', null, diffs.length ? diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d))) : h('div.empty', null, 'Untracked files only')),
     );
   }
   function stashMenu(x, y, s) {
     contextMenu(x, y, [
-      { label: 'Apply', icon: 'check', run: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false], { undoable: false }) },
-      { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true], { undoable: false }) },
+      { label: 'Apply', icon: 'check', run: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) },
+      { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) },
       '-',
       { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
     ]);
@@ -1046,7 +1064,7 @@ function stashesView() {
 }
 
 async function dropStash(s) {
-  if (await confirm(`Drop ${s.ref}?`, s.message, { submit: 'Drop' })) act(`Drop ${s.ref}`, 'stashDrop', [s.ref], { undoable: false });
+  if (await confirm(`Drop ${s.ref}?`, `${s.message}\n\nYou can undo this with ${MOD}Z.`, { submit: 'Drop' })) act(`Drop ${s.ref} (${s.message})`, 'stashDrop', [s.ref]);
 }
 
 async function stashSave() {
@@ -1062,7 +1080,7 @@ function snapshotsView() {
   const entries = [...[...r].map((e) => ({ ...e, redo: true })), ...[...u].reverse()];
   return h('div.page', null,
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD is recorded. Undo, redo, or restore any earlier state.')),
+      h('div', null, h('h1', null, 'Snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
       h('div.page-actions', null,
         h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(MOD, 'Z')),
         h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(MOD, '⇧', 'Z'))),
@@ -1071,8 +1089,8 @@ function snapshotsView() {
       h('span.tl-dot'),
       h('div.list-main', null, h('div.list-title', null, e.label), h('div.list-sub', null, e.redo ? 'Undone — can be redone' : i === r.length ? 'Latest' : fullDate(e.time / 1000))),
       h('span.when', null, timeAgo(e.time / 1000)),
-      h('button.btn.ghost.small', { title: 'Restore refs to the state before this operation', onclick: async () => { if (await confirm(`Restore the state before “${e.label}”?`, 'Branches, tags and HEAD will be moved. Uncommitted changes are kept when possible. You can undo this.', { submit: 'Restore', destructive: false })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]); } }, icon('restore', 13), 'Restore before'),
-    ))) : h('div.empty.big', null, icon('history', 28), h('div', null, 'No snapshots yet'), h('div.muted', null, 'Operations like commit, checkout, merge or rebase will appear here.')),
+      !e.movesRefs ? null : h('button.btn.ghost.small', { title: 'Restore refs to the state before this operation', onclick: async () => { if (await confirm(`Restore the state before “${e.label}”?`, 'Branches, tags and HEAD will be moved. Uncommitted changes are kept when possible. You can undo this.', { submit: 'Restore', destructive: false })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]); } }, icon('restore', 13), 'Restore before'),
+    ))) : h('div.empty.big', null, icon('history', 28), h('div', null, 'No snapshots yet'), h('div.muted', null, 'Operations like commit, checkout, merge, rebase or discard will appear here.')),
   );
 }
 
@@ -1172,8 +1190,8 @@ function openPalette() {
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', stashSave, { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
-    add('Repository', 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
-    add('Repository', 'Redo', redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
+    add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
+    add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Open in Finder', () => api.app('reveal'), { icon: 'folder' });
@@ -1182,6 +1200,8 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     add('View', 'Toggle sidebar', toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'] });
+    THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
+    add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
@@ -1220,7 +1240,7 @@ async function repoMenu(anchor) {
 }
 
 async function resetHard() {
-  if (await confirm('Reset hard to HEAD?', 'All uncommitted changes to tracked files will be lost.', { submit: 'Reset' })) act('Reset hard', 'resetHard', [], { undoable: false });
+  if (await confirm('Reset hard to HEAD?', `All uncommitted changes to tracked files are removed. You can undo this with ${MOD}Z.`, { submit: 'Reset' })) act('Reset hard to HEAD', 'resetHard', []);
 }
 
 async function openHosting() {
@@ -1362,12 +1382,31 @@ window.addEventListener('keydown', (e) => {
 });
 let gPending = false;
 
-// Repaint graph when the system theme flips.
+// ---------------------------------------------------------------------------
+// Theme (System / Light / Dark). The main process owns the setting and applies it via
+// nativeTheme, which flips prefers-color-scheme here; we only repaint the canvas graph.
+
+const THEMES = [
+  { id: 'system', label: 'System', icon: 'theme' },
+  { id: 'light', label: 'Light', icon: 'sun' },
+  { id: 'dark', label: 'Dark', icon: 'moon' },
+];
+const THEME_KBD = isMac ? ['⌃', '⌘', 'T'] : ['Ctrl', 'Alt', '⇧', 'T'];
+const themeLabel = (id) => THEMES.find((t) => t.id === id)?.label || id;
+const setTheme = (mode) => api.app('set-theme', mode);
+const cycleTheme = () => api.app('cycle-theme');
+
+api.on('theme', (mode, { announce } = {}) => {
+  state.theme = mode;
+  if (announce) toast(`Theme: ${themeLabel(mode)}`);
+  setTimeout(() => mapView?.refresh(), 50);
+});
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
+  state.theme = await api.app('theme');
   const params = new URLSearchParams(location.search);
   const dir = params.get('repo');
   if (dir) await openRepo(dir);
