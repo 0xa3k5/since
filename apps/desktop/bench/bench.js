@@ -134,7 +134,8 @@ async function main() {
   const o = parseArgs(process.argv.slice(2));
   fs.mkdirSync(o.dir, { recursive: true });
   const targets = [];
-  for (const name of o.repos) targets.push({ name, dir: await prepare(name, o), managed: true });
+  // Checkouts the user pointed us at (--linux, --chromium) are theirs: never drop their commit-graph.
+  for (const name of o.repos) targets.push({ name, dir: await prepare(name, o), managed: !o[name] });
   for (const dir of o.repo) targets.push({ name: path.basename(dir), dir, managed: false });
 
   const results = [];

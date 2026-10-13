@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const git = require('./git');
 const { Journal, workOps, worktreeOps } = require('./journal');
+const { LogStreams } = require('./log-streams');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -78,9 +79,8 @@ class RepoSession {
     this.pending = { refs: false, workdir: false };
     this.timer = null;
     this.busy = 0;
-    this.logs = new Map(); // id -> open log stream
-    this.logSeq = 0;
     this.graphChecked = false;
+    this.logs = new LogStreams(repo.root, { onEnd: (l) => { if (!l.fast && !l.opts.preview && !this.graphChecked) this.writeCommitGraph(); } });
     this.watch();
   }
 
@@ -122,32 +122,6 @@ class RepoSession {
     }, 120);
   }
 
-  // Log streams are pulled by the renderer chunk by chunk (see renderer/log.js).
-  async openLog(opts) {
-    const fast = await git.hasCommitGraph(this.repo.root);
-    const stream = git.streamLog(this.repo.root, opts);
-    const id = ++this.logSeq;
-    this.logs.set(id, { stream, opts, fast });
-    for (const [old, l] of this.logs) if (this.logs.size > 6 && old !== id) { l.stream.close(); this.logs.delete(old); }
-    return { id, fast };
-  }
-
-  async readLog(id) {
-    const l = this.logs.get(id);
-    if (!l) return null;
-    const text = await l.stream.read();
-    if (text === null) {
-      this.logs.delete(id);
-      if (!l.fast && !l.opts.preview && !this.graphChecked) this.writeCommitGraph();
-    }
-    return text;
-  }
-
-  closeLog(id) {
-    this.logs.get(id)?.stream.close();
-    this.logs.delete(id);
-  }
-
   // Once per session, after a full log without git's commit-graph cache, write it in the
   // background so the next load streams immediately.
   async writeCommitGraph() {
@@ -156,8 +130,7 @@ class RepoSession {
   }
 
   dispose() {
-    for (const l of this.logs.values()) l.stream.close();
-    this.logs.clear();
+    this.logs.dispose();
     clearTimeout(this.timer);
     for (const w of this.watchers) w.close();
     this.watchers = [];
@@ -176,9 +149,9 @@ const reads = {
   refs: (s) => git.getRefs(s.repo.root),
   // Other worktrees' detached HEADs are on no branch; include them so the graph can show them.
   log: async (s, opts) => git.getLog(s.repo.root, { ...opts, heads: await detachedHeads(s) }),
-  logOpen: async (s, opts) => s.openLog({ ...opts, heads: await detachedHeads(s) }),
-  logRead: (s, id) => s.readLog(id),
-  logClose: (s, id) => s.closeLog(id),
+  logOpen: async (s, opts) => s.logs.open({ ...opts, heads: await detachedHeads(s) }),
+  logRead: (s, id) => s.logs.read(id),
+  logClose: (s, id) => s.logs.close(id),
   logDetails: (s, shas) => git.getLogDetails(s.repo.root, shas),
   commit: (s, sha) => git.getCommit(s.repo.root, sha),
   commitFileDiff: (s, sha, file, parent) => git.commitFileDiff(s.repo.root, sha, file, parent),

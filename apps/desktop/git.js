@@ -153,7 +153,9 @@ async function getLog(cwd, { limit, ...opts } = {}) {
 // Stream `git log` as raw text. read() resolves with the next run of complete records (one
 // string, so it crosses IPC cheaply) or null at the end. The first read returns as soon as
 // anything arrives; later reads gather at least `batch` characters or wait `linger` ms, so a
-// slow trickle from git doesn't turn into thousands of tiny IPC round trips. Output is buffered
+// slow trickle from git doesn't turn into thousands of tiny IPC round trips. If git dies (killed,
+// crashed, failed to start) the read after its last output throws, so a cut-short log never
+// looks complete; exit 128 (empty repo, unborn HEAD) is a normal end. Output is buffered
 // up to `highWater` characters before git is paused, so a slow reader applies backpressure.
 // `preview` skips --date-order: without a commit-graph, git must walk the whole history before
 // a date-ordered log prints anything, but plain commit-date order streams at once.
@@ -163,7 +165,7 @@ function streamLog(cwd, { kind = 'topo', preview = false, limit, batch = 256 << 
   args.push(LOG_FORMATS[kind]);
   const child = spawn('git', args, { cwd, env: LOG_ENV });
   const chunks = [];
-  let size = 0, tail = '', ended = false, waiting = null, first = true;
+  let size = 0, tail = '', ended = false, waiting = null, first = true, closed = false, failure = null;
   const wake = () => { if (waiting) { const w = waiting; waiting = null; w(); } };
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (d) => {
@@ -175,8 +177,11 @@ function streamLog(cwd, { kind = 'topo', preview = false, limit, batch = 256 << 
     wake();
   });
   child.stderr.resume(); // empty repos and unborn HEADs just end the log
-  child.on('close', () => { ended = true; wake(); });
-  child.on('error', () => { ended = true; wake(); });
+  child.on('close', (code, signal) => {
+    if (!closed && (signal || (code !== 0 && code !== 128))) failure ||= `git log exited with ${signal || code}`;
+    ended = true; wake();
+  });
+  child.on('error', (e) => { failure ||= e.message; ended = true; wake(); });
   const arrival = (ms) => new Promise((r) => {
     const t = ms == null ? null : setTimeout(() => { waiting = null; r(); }, ms);
     waiting = () => { clearTimeout(t); r(); };
@@ -189,13 +194,16 @@ function streamLog(cwd, { kind = 'topo', preview = false, limit, batch = 256 << 
         while (size < batch && !ended && Date.now() < until) await arrival(until - Date.now());
       }
       first = false;
-      if (!chunks.length) return null;
+      if (!chunks.length) {
+        if (failure && !closed) throw new GitError(failure, { args });
+        return null;
+      }
       const text = chunks.length === 1 ? chunks[0] : chunks.join('');
       chunks.length = 0; size = 0;
       child.stdout.resume();
       return text;
     },
-    close() { ended = true; chunks.length = 0; if (child.exitCode === null) child.kill(); wake(); },
+    close() { closed = ended = true; chunks.length = 0; if (child.exitCode === null) child.kill(); wake(); },
   };
 }
 

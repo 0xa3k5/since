@@ -179,8 +179,12 @@ const logOpts = () => ({ remotes: state.show.remotes, tags: state.show.tags });
 // The newest commits in plain date order, with details: shown before the ordered log arrives.
 async function readPreview(opts) {
   const preview = createHistory();
+  preview.repo = state.repo;
   const { id } = await git('logOpen', { ...opts, kind: 'full', preview: true, limit: PREVIEW });
-  for (let text; (text = await git('logRead', id)) !== null;) preview.add(parseLog(text, 'full'));
+  for (let text; (text = await git('logRead', id)) !== null;) {
+    if (text === false) return null; // closed: another repository was opened
+    preview.add(parseLog(text, 'full'));
+  }
   preview.opts = JSON.stringify(opts);
   return preview;
 }
@@ -203,13 +207,16 @@ function markLoading(details) {
 }
 
 // Pull a log stream from the main process, passing each chunk to fn, until it ends or a newer
-// load starts. Resolves true if the stream was read to the end.
+// load starts. Resolves true if the stream was read to the end. Main answers false for a stream
+// it has closed (the repository was replaced or closed): that is not the end of the log, so the
+// history is left incomplete and reloads on the next refresh.
 async function readLog(opts, seq, fn) {
   const { id } = await git('logOpen', opts);
   let done = false;
   try {
     while (seq === loadSeq) {
       const text = await git('logRead', id);
+      if (text === false) { if (seq === loadSeq) state.logKey = ''; break; }
       if (text === null) { done = true; break; }
       if (seq === loadSeq) fn(text);
     }
@@ -248,16 +255,19 @@ function loadHistory() {
     if (fresh) {
       const ahead = previewAhead && (await previewAhead);
       previewAhead = null;
-      const preview = ahead && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
+      const preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
       if (seq !== loadSeq) return;
+      if (!preview) { state.logKey = ''; return; }
       if (preview.length < PREVIEW) preview.complete = true; // that was all of it, though maybe unordered
       show(preview);
       // The ordered history, with the preview's details carried over.
       target = createHistory();
       for (const c of preview.commits) target.seed(c);
+      // Rows without details stay placeholders until fetched on demand, so a failure here only
+      // leaves the loading marker up; it must not surface as an unhandled rejection.
       const details = readLog({ ...opts, kind: 'details' }, seq, (text) => {
         if (target.fill(text) && live) mapView?.refreshPending();
-      });
+      }).catch(() => false);
       markLoading('loading');
       const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
         target.add(parseLog(text, 'topo'));
@@ -309,11 +319,22 @@ function wantDetails(sha) {
 }
 async function fetchWanted() {
   const hist = state.hist;
+  // Take the batch before waiting: rows drawn during the fetch go into the next one.
   const shas = [...wanted].filter((sha) => mapView?.isVisible(sha));
+  wanted.clear();
   try {
     if (shas.length && hist.fill(await git('logDetails', shas))) mapView?.refreshPending();
   } catch { /* the row stays a placeholder until the stream reaches it */ }
+  wantTimer = wanted.size ? setTimeout(fetchWanted, 40) : 0;
+}
+
+// Stop the history load in flight (and anything queued for it) before another repository is
+// opened or the current one closed, so none of it lands in the next repository's view.
+function cancelHistory() {
+  loadSeq++;
+  previewAhead = null;
   wanted.clear();
+  clearTimeout(wantTimer);
   wantTimer = 0;
 }
 
@@ -1717,7 +1738,7 @@ async function loadRepo(repo) {
   if (!sameRepo) { state.view = 'map'; state.worktrees = []; }
   state.selected = null;
   state.logKey = '';
-  previewAhead = null;
+  cancelHistory();
   setHistory(createHistory());
   state.quick = null;
   state.search = '';
@@ -1743,6 +1764,7 @@ async function cloneRepo() {
   t.close();
 }
 async function closeRepo() {
+  cancelHistory();
   await api.app('close-repo');
   state.repo = null;
   sidebarEl = topbarEl = bannerEl = contentEl = null;
