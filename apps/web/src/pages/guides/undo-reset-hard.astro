@@ -1,10 +1,52 @@
 ---
-import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
+import GuidePage from './_GuidePage.astro';
 ---
-<Stub
-  title={"How to undo git reset --hard"}
-  heading={"How to undo git reset --hard"}
-  description={`Recover commits after git reset --hard using the reflog, or undo it with ⌘Z in ${PRODUCT_NAME}.`}
-  ogTheme="light"
-></Stub>
+<GuidePage
+  title="How to undo git reset --hard"
+  heading="How to undo git reset --hard"
+  description="Get lost commits back after git reset --hard with the reflog, rescue staged files with git fsck, and know what can't be recovered."
+  lede="A hard reset does two things: it moves your branch, and it overwrites your working tree. The first is easy to undo. The second depends on whether git ever saw your changes."
+  ogTheme="dark"
+>
+  <h2>What you can get back</h2>
+  <ul>
+    <li><strong>Commits</strong> the branch pointed to before the reset: yes, from the reflog.</li>
+    <li><strong>Changes you had staged</strong> with <code>git add</code>: usually, as loose files, with <code>git fsck</code>.</li>
+    <li><strong>Changes you never staged or committed</strong>: not from git. Git never stored them.</li>
+  </ul>
+
+  <h2>Recover commits with the reflog</h2>
+  <p>If you reset to an older commit and lost the ones after it, the previous position is one step back in HEAD’s reflog:</p>
+  <pre set:text={`git reflog
+
+9f8e7d6 HEAD@{0}: reset: moving to HEAD~3
+4c5d6e7 HEAD@{1}: commit: Add settings page`} />
+  <p><code>{'HEAD@{1}'}</code> is where you were before the reset. Move back to it:</p>
+  <pre set:text={`git reset --hard 'HEAD@{1}'`} />
+  <p>If you have new uncommitted work since the reset, stash it first with <code>git stash</code>. To look before you move, use <code>{"git log --oneline 'HEAD@{1}'"}</code>, or put the old commits on a new branch instead: <code>{"git branch rescue 'HEAD@{1}'"}</code>.</p>
+
+  <h2>Rescue staged changes with git fsck</h2>
+  <p>When you <code>git add</code> a file, git writes its contents into the object database. A reset removes the reference to it, not the object. List the orphaned file contents (“dangling blobs”):</p>
+  <pre set:text={`git fsck --lost-found`} />
+  <p>Git copies each one into <code>.git/lost-found/other/</code>, named by its hash, without the original file name. Search them for text you remember:</p>
+  <pre set:text={`grep -l "settingsPage" .git/lost-found/other/*
+git show <blob-sha> > src/settings.js`} />
+  <p>Only the last staged version of each file is there. Edits you made after the last <code>git add</code> are not.</p>
+
+  <h2>Unstaged changes</h2>
+  <p>Git can’t help here because it never stored them. Check other places that might have:</p>
+  <ul>
+    <li>Your editor’s local history (VS Code’s <em>Timeline</em>, JetBrains’ <em>Local History</em>) or its undo buffer if the file is still open.</li>
+    <li>Time Machine or another backup of the project folder.</li>
+  </ul>
+
+  <h2>Next time</h2>
+  <p>Before a hard reset, run <code>git stash</code> instead of discarding, or reset with <code>--keep</code>, which refuses to overwrite files you’ve changed: <code>git reset --keep HEAD~3</code>.</p>
+
+  <Fragment slot="app-title">Press <kbd>⌘</kbd><kbd>Z</kbd>, even for uncommitted work</Fragment>
+  <Fragment slot="app">
+    <p>When you use <em>Repository → Reset Hard to HEAD…</em> or discard files or lines in GitLanes, it saves an exact copy of every file the operation will touch before it runs. <kbd>⌘</kbd><kbd>Z</kbd> puts those files back, staged or not, along with the branch position.</p>
+    <p>The copies are kept in your repository, so <code>git gc</code> can’t remove them while the step is still in GitLanes’ undo history of your last 200 operations.</p>
+    <p>This only covers resets made in GitLanes. For a reset you ran in the terminal, the Reflog view (<kbd>⌘</kbd><kbd>5</kbd>) shows where your branch was; right-click that commit to create a branch there.</p>
+  </Fragment>
+</GuidePage>

@@ -1,10 +1,5 @@
 ---
-import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
+import ComparePage from './_ComparePage.astro';
+import { bySlug } from './_data';
 ---
-<Stub
-  title={`${PRODUCT_NAME} vs Fork: an alternative for Mac`}
-  heading={`${PRODUCT_NAME} vs Fork`}
-  description={`A dated, sourced comparison of ${PRODUCT_NAME} and Fork.`}
-  ogTheme="dark"
-></Stub>
+<ComparePage c={bySlug('fork')} ogTheme="dark" />

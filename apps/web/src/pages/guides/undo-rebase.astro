@@ -1,10 +1,50 @@
 ---
-import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
+import GuidePage from './_GuidePage.astro';
 ---
-<Stub
-  title={"How to undo a git rebase (and the one-key way)"}
-  heading={"How to undo a git rebase"}
-  description={`Undo a git rebase from the command line with the reflog, or with one key in ${PRODUCT_NAME}.`}
+<GuidePage
+  title="How to undo a git rebase (and the one-key way)"
+  heading="How to undo a git rebase"
+  description="Undo a finished git rebase with ORIG_HEAD or the reflog, stop one in progress with --abort, and fix it safely if you already pushed."
+  lede="A rebase rewrites commits, but the old ones are still in your repository. Undoing it means pointing your branch back at the commit it was on before."
   ogTheme="dark"
-></Stub>
+>
+  <h2>If the rebase is still in progress</h2>
+  <p>If git stopped for a conflict and you want out, abort. This puts the branch and your working tree back exactly as they were before you started:</p>
+  <pre set:text={`git rebase --abort`} />
+
+  <h2>Right after a finished rebase: ORIG_HEAD</h2>
+  <p>When a rebase finishes, git saves the branch’s previous position in <code>ORIG_HEAD</code>. If you haven’t run another reset, merge or rebase since, this is the quickest fix:</p>
+  <pre set:text={`git reset --hard ORIG_HEAD`} />
+  <div class="callout">
+    <p><strong><code>reset --hard</code> discards uncommitted changes.</strong> Run <code>git status</code> first. If anything is modified, commit it or run <code>git stash</code> before resetting.</p>
+  </div>
+
+  <h2>Any time later: the reflog</h2>
+  <p><code>ORIG_HEAD</code> is overwritten by the next command that moves HEAD a long way, so for anything older, use the reflog. It records every position HEAD has been in:</p>
+  <pre set:text={`git reflog
+
+a1b2c3d HEAD@{0}: rebase (finish): returning to refs/heads/feature
+a1b2c3d HEAD@{1}: rebase (pick): Add settings page
+9f8e7d6 HEAD@{2}: rebase (start): checkout main
+4c5d6e7 HEAD@{3}: commit: Add settings page`} />
+  <p>Find the <code>rebase (start)</code> line for the rebase you want to undo. The entry just below it, here <code>{'HEAD@{3}'}</code>, is where your branch was before the rebase. Check it, then reset to it:</p>
+  <pre set:text={`git log --oneline -5 'HEAD@{3}'   # make sure this is the history you want
+git reset --hard 'HEAD@{3}'`} />
+  <p>The quotes stop shells like zsh from treating the braces as a pattern. You can also use the short SHA, e.g. <code>git reset --hard 4c5d6e7</code>.</p>
+  <p>The branch has its own reflog too, which skips the individual picks: <code>git reflog show feature</code>. The entry before <code>rebase (finish)</code> is the old tip.</p>
+
+  <h2>If you already pushed the rebased branch</h2>
+  <p>Reset locally as above, then force-push the old history back. Use <code>--force-with-lease</code>, which refuses if someone else pushed in the meantime:</p>
+  <pre set:text={`git push --force-with-lease`} />
+  <p>Anyone who pulled the rebased commits will need to reset their copy too, so tell them before you push.</p>
+
+  <h2>How long you have</h2>
+  <p>Reflog entries are kept for 90 days by default (30 for commits no branch points to), after which <code>git gc</code> may delete the old commits. Undo sooner rather than later.</p>
+
+  <Fragment slot="app-title">Press <kbd>⌘</kbd><kbd>Z</kbd></Fragment>
+  <Fragment slot="app">
+    <p>GitLanes records every operation it runs, including the ref positions before and after. After a rebase in GitLanes (select a commit and press <kbd>R</kbd>), the Edit menu reads <em>Undo Rebase onto …</em>, and <kbd>⌘</kbd><kbd>Z</kbd> puts your branch back. <kbd>⌘</kbd><kbd>⇧</kbd><kbd>Z</kbd> redoes it.</p>
+    <p>The history is saved in the repository, so it still works after you quit and reopen the app. Open Snapshots (<kbd>⌘</kbd><kbd>4</kbd>) to see every recorded step and restore the state before any of them.</p>
+    <p>Rebased in the terminal instead? Open the Reflog view (<kbd>⌘</kbd><kbd>5</kbd>), find the commit from before the rebase and right-click it to create a branch there or check it out.</p>
+  </Fragment>
+</GuidePage>

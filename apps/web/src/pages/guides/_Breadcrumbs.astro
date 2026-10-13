@@ -1,0 +1,22 @@
+---
+// Visible breadcrumbs plus BreadcrumbList structured data (website plan §2.2, §7.1).
+// Not a route ("_" prefix). Used by /guides/* and /compare/*.
+import { SITE_URL } from '../../config';
+import type { Route } from '../../routes';
+
+export interface Props { items: Route[] }
+const trail = [{ href: '/', label: 'Home' }, ...Astro.props.items];
+const ld = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: trail.map((t, i) => ({ '@type': 'ListItem', position: i + 1, name: t.label, item: SITE_URL + t.href })),
+};
+---
+<nav class="crumbs" aria-label="Breadcrumb">
+  <ol>
+    {trail.map((t, i) => (
+      <li>{i === trail.length - 1 ? <span aria-current="page">{t.label}</span> : <a href={t.href}>{t.label}</a>}</li>
+    ))}
+  </ol>
+</nav>
+<script type="application/ld+json" set:html={JSON.stringify(ld)} />
