@@ -72,7 +72,7 @@ const toc = [
           <td><strong>Update check</strong></td>
           <td>Shortly after launch, then once a day while the app is open, and whenever you choose Check for Updates. You can turn the automatic checks off in the app menu.</td>
           <td>
-            A request for the update file that matches your Mac's processor type (Apple silicon or Intel), with no cookies and no identifiers. Your Mac compares the version itself, and downloads the update only if it's newer. If the update system ever needs more than that, this row changes first.
+            A request for the update file that matches your Mac's processor type (Apple silicon or Intel), with no cookies and no identifiers, plus the standard User-Agent header (the GitLanes version, the Electron and Chromium versions, and your macOS version). Your Mac compares the version itself, and downloads the update only if it's newer. If the update system ever needs more than that, this row changes first.
             Your IP address is visible to the server that hosts the update.
           </td>
         </tr>
