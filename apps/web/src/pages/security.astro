@@ -1,10 +1,83 @@
 ---
 import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+import LegalPage from '../components/legal/LegalPage.astro';
+import { CONTACT_EMAIL, SECURITY_SUBJECT } from '../components/legal/legal';
+
+const reportHref = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(SECURITY_SUBJECT)}`;
 ---
-<Stub
+<LegalPage
   title={`Security · ${PRODUCT_NAME}`}
-  heading={"Security"}
-  description={`How to report a security issue in ${PRODUCT_NAME}, and how the app is hardened.`}
+  heading="Security"
+  description={`How to report a security issue in ${PRODUCT_NAME}, and how the app protects your Mac and your repositories.`}
   ogTheme="dark"
-></Stub>
+>
+  <div class="legal-card" id="report">
+    <h2>Report a vulnerability</h2>
+    <p>
+      Email <a href={reportHref}><strong>{CONTACT_EMAIL}</strong></a> with the subject <strong>"{SECURITY_SUBJECT}"</strong>.
+      Please don't open a public issue or post details anywhere until we've released a fix.
+    </p>
+  </div>
+
+  <h3>What to include</h3>
+  <ul>
+    <li>The {PRODUCT_NAME} version and macOS version.</li>
+    <li>What an attacker can do, and the steps to reproduce it. A small test repository helps a lot.</li>
+    <li>Whether the issue is already public, and how you'd like to be credited.</li>
+  </ul>
+
+  <h3>What happens next</h3>
+  <ol>
+    <li>We confirm we've received your report within 3 business days.</li>
+    <li>We investigate, keep you updated, and agree a disclosure timeline with you. Our target is a fix within 90 days, sooner for serious issues.</li>
+    <li>We ship the fix, note it in the <a href="/changelog">changelog</a>, and credit you if you want.</li>
+  </ol>
+  <p>
+    We don't run a paid bug bounty. We won't take legal action against good-faith research that follows this page: test only on your own
+    Macs and repositories, don't access other people's data, and don't attack our website, Polar or GitHub infrastructure.
+  </p>
+
+  <h3>In scope</h3>
+  <ul>
+    <li>The {PRODUCT_NAME} app for macOS, including its handling of repositories, diffs, commit messages and branch names you didn't write.</li>
+    <li>The licence check and the update mechanism.</li>
+    <li>This website.</li>
+  </ul>
+  <p>
+    Bugs in <code>git</code> itself go to the Git project, and problems with checkout or payments go to Polar. If you're not sure, send it to us and we'll pass it on.
+  </p>
+
+  <h2 id="model">How {PRODUCT_NAME} is built to be safe</h2>
+  <ul>
+    <li>
+      <strong>Your code stays on your Mac.</strong> {PRODUCT_NAME} has no account and no cloud sync. It works on your repositories through the <code>git</code> already on your Mac, with your existing Git configuration and credentials. It doesn't store or see your Git passwords or SSH keys.
+    </li>
+    <li>
+      <strong>Sandboxed interface.</strong> The app's window runs in a sandboxed renderer with context isolation and no Node.js access. Only a small,
+      fixed set of actions crosses into the part of the app that runs <code>git</code>.
+    </li>
+    <li>
+      <strong>Nothing loads from the internet into the window.</strong> A strict content security policy allows only the app's own scripts, styles and
+      fonts. The window can't navigate away, and links open in your browser instead.
+    </li>
+    <li>
+      <strong>Repository content is treated as untrusted.</strong> Commit messages, file names, branch names and diffs are shown as text, never run as code.
+    </li>
+    <li>
+      <strong>Undo for every ref change.</strong> {PRODUCT_NAME} records each change it makes to branches, tags and HEAD, so a mistake, or a
+      misbehaving operation, can be undone.
+    </li>
+    <li>
+      <strong>Minimal network use.</strong> Besides the Git operations you start, the app talks only to Polar for licence checks and, once
+      automatic updates ship, to our update server. The <a href="/privacy#app">privacy policy</a> lists exactly what each call sends.
+    </li>
+    <li>
+      <strong>Signed and notarized releases.</strong> Releases will be signed with an Apple Developer ID and notarized by Apple as soon as signing is
+      available, so macOS can confirm the app comes from us and hasn't been altered. Until then, pre-release builds are unsigned and macOS asks
+      you to confirm the first launch; see the <a href="/download">download page</a>.
+    </li>
+    <li>
+      <strong>Payments never touch us.</strong> Polar, our merchant of record, handles checkout and card data. We never see or store card numbers.
+    </li>
+  </ul>
+</LegalPage>

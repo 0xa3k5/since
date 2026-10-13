@@ -1,0 +1,34 @@
+---
+// Shell for the legal pages: the draft banner, a heading, an optional table of contents and readable prose.
+// The banner stays until the owner removes it after legal review (AK-65).
+import Base from '../../layouts/Base.astro';
+import './legal.css';
+
+export interface Props {
+  title: string;
+  heading: string;
+  description: string;
+  ogTheme?: 'light' | 'dark';
+  /** Section anchors for the "On this page" list. */
+  toc?: { id: string; label: string }[];
+}
+
+const { title, heading, description, ogTheme, toc = [] } = Astro.props;
+---
+<Base title={title} description={description} ogTheme={ogTheme}>
+  <article class="wrap legal">
+    <p class="legal-draft" role="note"><strong>Draft</strong> — pending legal review</p>
+    <p class="eyebrow">Legal</p>
+    <h1>{heading}</h1>
+    <p class="lede">{description}</p>
+    {toc.length > 0 && (
+      <nav class="legal-toc" aria-label="On this page">
+        <h2>On this page</h2>
+        <ol>{toc.map((t) => <li><a href={`#${t.id}`}>{t.label}</a></li>)}</ol>
+      </nav>
+    )}
+    <div class="legal-body">
+      <slot />
+    </div>
+  </article>
+</Base>

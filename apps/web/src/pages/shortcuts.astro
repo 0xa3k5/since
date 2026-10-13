@@ -1,10 +1,122 @@
 ---
+// Built at build time from the desktop app's source (src/lib/keymap.mjs). test/keymap.test.mjs fails
+// when the app's keys change and this page would drift.
 import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/content/PageHead.astro';
+import Kbd from '../components/content/Kbd.astro';
+import { loadKeymap } from '../lib/keymap.mjs';
+import '../components/content/content.css';
+
+const { groups, palette } = loadKeymap();
+const paletteGroups = [...new Set(palette.map((p) => p.group))].map((g) => ({ group: g, items: palette.filter((p) => p.group === g) }));
 ---
-<Stub
+<Base
   title={`${PRODUCT_NAME} keyboard shortcuts`}
-  heading={"Keyboard shortcuts"}
-  description={`Every ${PRODUCT_NAME} shortcut in one place: map keys, ⌘K palette, view jumps, undo and redo.`}
+  description={`Every ${PRODUCT_NAME} shortcut in one place: map keys, commit actions, views, the ⌘K command menu, undo and redo.`}
   ogTheme="light"
-></Stub>
+>
+  <div class="wrap content-page">
+    <PageHead eyebrow="Keyboard" title="Keyboard shortcuts">
+      Every commit action is a single key, and everything else is in the ⌘K command menu.
+      This list is generated from the app itself, so it matches the version you download.
+    </PageHead>
+
+    <div class="sc-tools">
+      <label class="sc-search">
+        <span class="visually-hidden">Filter shortcuts</span>
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+        <input id="sc-filter" type="search" placeholder="Filter, e.g. squash or ⌘" autocomplete="off" />
+      </label>
+      <nav class="sc-jump" aria-label="Sections">
+        {groups.map((g) => <a href={`#${g.id}`}>{g.title}</a>)}
+        <a href="#palette">⌘K menu</a>
+      </nav>
+    </div>
+
+    <div class="sc-grid">
+      {groups.map((g) => (
+        <section class="sc-group" id={g.id} aria-labelledby={`${g.id}-h`}>
+          <h2 id={`${g.id}-h`}>{g.title}</h2>
+          {g.note && <p class="sc-note">{g.note}</p>}
+          <table>
+            <tbody>
+              {g.items.map((s) => (
+                <tr data-search={`${s.label} ${s.keys.join('')} ${s.alt?.join('') ?? ''}`.toLowerCase()}>
+                  <td>{s.label}</td>
+                  <td><Kbd keys={s.keys} alt={s.alt} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ))}
+    </div>
+
+    <section class="sc-palette" id="palette" aria-labelledby="palette-h">
+      <h2 id="palette-h">Also in the ⌘K menu</h2>
+      <p class="sc-note">Press <Kbd keys={['⌘', 'K']} /> and type. Besides these commands, the menu lists every view, theme, branch, ref and recent commit.</p>
+      <div class="sc-palette-cols">
+        {paletteGroups.map((g) => (
+          <div>
+            <h3>{g.group}</h3>
+            <ul>{g.items.map((p) => <li data-search={`${g.group} ${p.label}`.toLowerCase()}>{p.label}</li>)}</ul>
+          </div>
+        ))}
+      </div>
+    </section>
+    <p id="sc-empty" class="muted" hidden>No shortcut matches that filter.</p>
+  </div>
+</Base>
+
+<script>
+  const input = document.getElementById('sc-filter') as HTMLInputElement;
+  const empty = document.getElementById('sc-empty')!;
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll<HTMLElement>('[data-search]').forEach((el) => {
+      const hit = !q || el.dataset.search!.includes(q);
+      el.hidden = !hit;
+      if (hit) shown++;
+    });
+    document.querySelectorAll<HTMLElement>('.sc-group, .sc-palette-cols > div').forEach((g) => {
+      g.hidden = !!q && !g.querySelector('[data-search]:not([hidden])');
+    });
+    empty.hidden = shown > 0;
+  });
+</script>
+
+<style>
+  .sc-tools { margin-top: 40px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+  .sc-search {
+    display: flex; align-items: center; gap: 8px; width: 320px; max-width: 100%; height: 38px; padding: 0 12px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-content); color: var(--text-3);
+  }
+  .sc-search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .sc-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 15px; color: var(--text); }
+  .sc-jump { display: flex; flex-wrap: wrap; gap: 4px; font-size: 13px; }
+  .sc-jump a { padding: 4px 8px; border-radius: var(--radius); color: var(--text-3); text-decoration: none; }
+  .sc-jump a:hover { color: var(--text); background: var(--bg-hover); }
+
+  .sc-grid { margin-top: 40px; columns: 2; column-gap: 48px; }
+  .sc-group { break-inside: avoid; margin-bottom: 40px; scroll-margin-top: 80px; }
+  .sc-group h2, .sc-palette h2 { margin: 0 0 6px; font-size: 18px; }
+  .sc-note { margin: 0 0 10px; font-size: 14px; color: var(--text-3); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td { padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text-2); }
+  td:last-child { text-align: right; padding-left: 16px; }
+
+  .sc-palette { margin-top: 24px; scroll-margin-top: 80px; }
+  .sc-palette-cols { margin-top: 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 48px; }
+  .sc-palette h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .sc-palette ul { list-style: none; margin: 0; padding: 0; }
+  .sc-palette li { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--text-2); font-size: 15px; }
+  [hidden] { display: none !important; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (max-width: 860px) {
+    .sc-grid { columns: 1; }
+    .sc-palette-cols { grid-template-columns: 1fr; }
+  }
+</style>

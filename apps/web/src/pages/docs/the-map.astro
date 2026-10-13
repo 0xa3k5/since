@@ -1,0 +1,46 @@
+---
+import { PRODUCT_NAME } from '../../config';
+import DocsLayout from '../../components/content/DocsLayout.astro';
+import Kbd from '../../components/content/Kbd.astro';
+import Shot from '../../components/content/Shot.astro';
+import quickLight from '../../assets/features/quick-light.webp';
+import quickDark from '../../assets/features/quick-dark.webp';
+---
+<DocsLayout title="The map" description={`Read the ${PRODUCT_NAME} commit graph, search it, and inspect commits with the detail panel and Quick View.`}>
+  <p>The map is the commit graph of your repository, and the place where you act on it. Select a commit, then press a key.</p>
+
+  <h2 id="reading">Reading the map</h2>
+  <ul>
+    <li>Each <strong>lane</strong> is a line of history. Where lanes join is a merge; where they split is a branch point.</li>
+    <li><strong>Labels</strong> mark branches, tags and remote branches. The current branch is highlighted, and HEAD has a ring around its dot.</li>
+    <li>The sidebar lists branches, remotes and tags. Click one to jump to it.</li>
+    <li>Hide tags with <Kbd keys={['⌥', '⌘', 'T']} /> or remote branches with <Kbd keys={['⌥', '⌘', 'R']} /> to focus on your own work. Toggle the sidebar with <Kbd keys={['⌘', '\\']} />.</li>
+  </ul>
+  <p>The map is live. When anything changes the repository, in {PRODUCT_NAME} or from your terminal or editor, it refreshes by itself.</p>
+
+  <h2 id="moving">Moving around</h2>
+  <table>
+    <tbody>
+      <tr><td>Next or previous commit</td><td><Kbd keys={['J']} /> <Kbd keys={['K']} /> or <Kbd keys={['↓']} /> <Kbd keys={['↑']} /></td></tr>
+      <tr><td>A page down or up</td><td><Kbd keys={['Page Down']} /> <Kbd keys={['Page Up']} /></td></tr>
+      <tr><td>First or last commit</td><td><Kbd keys={['Home']} /> <Kbd keys={['End']} /></td></tr>
+      <tr><td>Jump to HEAD</td><td><Kbd keys={['H']} /></td></tr>
+      <tr><td>Copy the selected commit's SHA</td><td><Kbd keys={['⌘', 'C']} /></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="search">Search</h2>
+  <p>Press <Kbd keys={['/']} /> or <Kbd keys={['⌘', 'F']} /> and type. The map narrows to commits whose subject, author, email or SHA matches, or that a matching branch or tag points at.
+    Press <Kbd keys={['↵']} /> to jump to the first result, or <Kbd keys={['Esc']} /> to clear the search.</p>
+
+  <h2 id="inspect">Inspecting a commit</h2>
+  <p>The <strong>detail panel</strong> on the right shows the selected commit's message, author, date, parents and files. <Kbd keys={['Space']} /> shows or hides it.</p>
+  <p><strong>Quick View</strong> opens a commit full height, with its diff. Press <Kbd keys={['↵']} /> on a commit, step through its files with <Kbd keys={['J']} /> <Kbd keys={['K']} />, and press <Kbd keys={['Esc']} /> to go back.
+    To compare a commit with where you are now, press <Kbd keys={['D']} /> for a diff with HEAD.</p>
+  <Shot light={quickLight} dark={quickDark} alt="Quick View showing a commit's file list and diff" />
+
+  <h2 id="acting">Acting on a commit</h2>
+  <p>With a commit selected, single keys check it out (<Kbd keys={['O']} />), branch (<Kbd keys={['B']} />) or tag (<Kbd keys={['T']} />) from it, merge it (<Kbd keys={['M']} />),
+    rebase onto it (<Kbd keys={['R']} />), cherry-pick it (<Kbd keys={['P']} />) or revert it (<Kbd keys={['V']} />). The ••• button in the detail panel lists every action with its key.
+    To change the commits themselves, see <a href="/docs/rewriting-history">Rewriting history</a>.</p>
+</DocsLayout>

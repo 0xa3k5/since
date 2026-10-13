@@ -1,0 +1,52 @@
+/* Layout shared by /pricing, /download and /licence. Prefixed cm- so it can't collide with other pages. */
+
+.cm-page { padding-top: 72px; }
+.cm-head { max-width: 720px; margin-bottom: 48px; }
+.cm-head h1 { font-size: clamp(32px, 5vw, 48px); margin: 8px 0 16px; }
+.cm-head .lede { max-width: 60ch; }
+
+.cm-section { margin-top: 80px; }
+.cm-section > h2 { font-size: 24px; margin: 0 0 8px; }
+.cm-section > .cm-intro { margin: 0 0 24px; color: var(--text-2); max-width: 64ch; }
+
+.cm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cm-tile {
+  padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-content);
+}
+.cm-tile h3 { font-size: 16px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.cm-tile p { margin: 0; color: var(--text-2); font-size: 15px; }
+.cm-tile p + p { margin-top: 8px; }
+
+.cm-steps { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 12px; max-width: 720px; }
+.cm-steps > li { counter-increment: step; position: relative; padding: 2px 0 0 44px; color: var(--text-2); }
+.cm-steps > li::before {
+  content: counter(step); position: absolute; left: 0; top: 0;
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font: 600 13px/1 var(--mono); color: var(--text); background: var(--bg-active);
+}
+.cm-steps strong { color: var(--text); font-weight: 600; }
+
+.cm-note {
+  max-width: 720px; margin-top: 24px; padding: 14px 16px;
+  border: 1px solid var(--border-strong); border-left: 3px solid var(--warn);
+  border-radius: var(--radius); background: var(--bg-content); color: var(--text-2); font-size: 15px;
+}
+.cm-note strong { color: var(--text); }
+.cm-note p { margin: 0; }
+.cm-note p + p { margin-top: 8px; }
+
+.cm-tbd {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+  font: 600 11px/1.5 var(--mono); letter-spacing: 0.04em; color: var(--warn); background: var(--bg-active);
+  vertical-align: 2px;
+}
+
+kbd {
+  display: inline-block; min-width: 20px; padding: 0 5px; border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; border-radius: 4px; background: var(--bg-content);
+  font-size: 12px; line-height: 18px; text-align: center; color: var(--text);
+}
+.cm-page code { padding: 1px 5px; border-radius: 4px; background: var(--bg-active); color: var(--text); }
+
+.cm-links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 15px; }
