@@ -79,6 +79,7 @@ const writeAtomic = (file, data) => {
 class Journal {
   constructor(repo, { pageSize = PAGE } = {}) {
     this.root = repo.root;
+    this.gitDir = repo.gitDir;
     this.file = path.join(repo.gitDir, 'gitlanes-history.json');
     this.dir = path.join(repo.gitDir, 'gitlanes-history');
     this.ns = repo.gitDir === (repo.commonDir || repo.gitDir) ? 'main' : `wt/${path.basename(repo.gitDir)}`;
@@ -250,6 +251,8 @@ class Journal {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
+    // A step taken while a rebase, cherry-pick or revert is stopped on a conflict.
+    const midSequence = !before.head && !!(await git.getOperationState(this.gitDir));
     let workBefore = null, stashesBefore = null;
     try {
       if (paths) {
@@ -265,7 +268,7 @@ class Journal {
       return await fn();
     } finally {
       // Record whatever changed, even if fn failed part-way.
-      await this.finish({ id, label, method, before, workBefore, stashesBefore }).catch((err) => console.warn('journal failed', err.message));
+      await this.finish({ id, label, method, before, workBefore, stashesBefore, midSequence }).catch((err) => console.warn('journal failed', err.message));
     }
   }
 
@@ -298,7 +301,7 @@ class Journal {
     return worktree;
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
@@ -320,14 +323,40 @@ class Journal {
       }
     }
     if (!changed) return this.pin(id);
-    await this.pin(id, pins(entry));
-    this.undo.hot.push(entry);
+    const folded = midSequence && entry.after.head && !entry.work && !entry.stash ? this.foldSequence(entry) : null;
+    if (folded) this.undo.hot.splice(-folded.count);
+    const added = folded ? folded.entry : entry;
+    await this.pin(id, pins(added));
+    this.undo.hot.push(added);
     const dropped = this.redo;
     this.redo = new Stack();
     const archived = await this.archive(this.undo);
     if (!this.persist()) return;
     this.removePages(dropped.pages);
-    if (dropped.length || archived) await this.prunePins().catch((err) => console.warn('prune failed', err.message));
+    if (dropped.length || archived || folded) await this.prunePins().catch((err) => console.warn('prune failed', err.message));
+  }
+
+  // A conflicted rebase (or cherry-pick/revert) is recorded as the step that
+  // started it (on a branch → detached, stopped), any steps taken while it was
+  // stopped, and the step that finished it (back on the branch). Undoing only the
+  // last would leave HEAD detached mid-sequence with the sequence state gone, so
+  // fold them into one entry: undo goes back to before the start, redo to the end.
+  // Returns the folded entry and how many hot entries it replaces, or null.
+  foldSequence(entry) {
+    const hot = this.undo.hot;
+    if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
+    for (let i = hot.length - 1; i >= 0; i--) {
+      const e = hot[i];
+      if (e.worktree) return null;
+      if (e.before.head && !e.after.head) {
+        if (e.work || e.stash) return null;
+        const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
+        delete merged.pin;
+        return { entry: merged, count: hot.length - i };
+      }
+      if (e.before.head || e.after.head) return null;
+    }
+    return null;
   }
 
   step(dir) {
