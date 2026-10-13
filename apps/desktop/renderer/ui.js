@@ -29,7 +29,7 @@ function append(el, children) {
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 
-// --- Icons (16px, 1.5 stroke, Linear-ish) ----------------------------------
+// --- Icons (16px, 1.5 stroke) ---------------------------------------------
 const P = {
   map: '<circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="7" r="1.6"/><path d="M4 5.6v4.8M4 7c0 0 0 0 0 0M10.4 7.4C7 8 5 8.2 4 10.4"/>',
   commit: '<circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/>',
