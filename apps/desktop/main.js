@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const git = require('./git');
+const { Journal, workOps } = require('./journal');
 
 const isMac = process.platform === 'darwin';
 const sessions = new Map(); // webContents.id -> RepoSession
@@ -70,23 +71,13 @@ class RepoSession {
   constructor(win, repo) {
     this.win = win;
     this.repo = repo;
-    this.undo = [];
-    this.redo = [];
+    this.journal = new Journal(repo);
+    this.journal.prune();
     this.watchers = [];
     this.pending = { refs: false, workdir: false };
     this.timer = null;
     this.busy = 0;
-    this.historyFile = path.join(repo.gitDir, 'gitlanes-history.json');
-    try {
-      const saved = JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
-      this.undo = saved.undo || [];
-      this.redo = saved.redo || [];
-    } catch { /* no history yet */ }
     this.watch();
-  }
-
-  persist() {
-    try { fs.writeFileSync(this.historyFile, JSON.stringify({ undo: this.undo.slice(-200), redo: this.redo.slice(-200) })); } catch { /* read-only repo */ }
   }
 
   watch() {
@@ -96,7 +87,7 @@ class RepoSession {
       const abs = path.join(base, file.toString());
       if (abs.startsWith(gitDir + path.sep) || abs === gitDir) {
         const rel = path.relative(gitDir, abs);
-        if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('gitlanes') || rel.startsWith('logs')) return;
+        if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('gitlanes') || rel.startsWith(path.join('refs', 'gitlanes')) || rel.startsWith('logs')) return;
         this.pending.refs = true;
         if (rel === 'index') this.pending.workdir = true;
       } else {
@@ -129,8 +120,8 @@ class RepoSession {
 }
 
 // ---------------------------------------------------------------------------
-// Git API exposed to the renderer. Mutations that move refs are recorded
-// as undoable snapshots, giving unlimited undo/redo.
+// Git API exposed to the renderer. Mutations that move refs or destroy
+// uncommitted work are recorded in the journal, giving unlimited undo/redo.
 
 const reads = {
   refs: (s) => git.getRefs(s.repo.root),
@@ -145,9 +136,8 @@ const reads = {
   reflog: (s) => git.getReflog(s.repo.root),
   config: (s) => git.getConfig(s.repo.root),
   remotes: (s) => git.getRemotes(s.repo.root),
-  history: (s) => ({ undo: s.undo.map(strip), redo: s.redo.map(strip) }),
+  history: (s) => s.journal.list(),
 };
-const strip = (e, i) => ({ id: e.id, label: e.label, time: e.time, index: i });
 
 const W = { GIT_OPTIONAL_LOCKS: '1' };
 const r = (s, args, opts = {}) => git.run(s.repo.root, args, { ...opts, env: { ...W, ...opts.env } });
@@ -172,7 +162,6 @@ const refMutations = {
   rebaseOnto: (s, sha) => r(s, ['rebase', '--autostash', sha]),
   rewrite: (s, op, sha, extra) => git.rewrite(s.repo.root, op, sha, extra),
   createCommit: (s, message, amend) => r(s, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message }),
-  resetHard: (s, sha) => r(s, ['reset', '--hard', sha || 'HEAD']),
   pull: (s) => r(s, ['pull', '--no-edit']),
   continueOp: async (s) => {
     const op = await git.getOperationState(s.repo.gitDir);
@@ -183,21 +172,14 @@ const refMutations = {
     const op = await git.getOperationState(s.repo.gitDir);
     if (op) return r(s, [op, '--abort']);
   },
-  stashApply: (s, ref, pop) => r(s, ['stash', pop ? 'pop' : 'apply', '--index', ref]),
 };
 
-// Mutations that only touch the index / working copy / remotes.
+// Mutations that touch only the index, config or remotes, and lose no local work.
 const plainMutations = {
   stageFiles: (s, paths) => r(s, ['add', '-A', '--', ...paths]),
   unstageFiles: async (s, paths) => {
     const hasHead = await r(s, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] });
     return hasHead.trim() ? r(s, ['reset', '-q', 'HEAD', '--', ...paths]) : r(s, ['rm', '--cached', '-q', '-r', '--', ...paths]);
-  },
-  discardFiles: async (s, files) => {
-    const tracked = files.filter((f) => f.status !== '?').map((f) => f.path);
-    const untracked = files.filter((f) => f.status === '?').map((f) => f.path);
-    if (tracked.length) await r(s, ['checkout', '--', ...tracked]);
-    if (untracked.length) await r(s, ['clean', '-f', '-q', '--', ...untracked]);
   },
   stageLines: async (s, file, selected) => {
     const d = await git.workingDiff(s.repo.root, file, { staged: false });
@@ -209,13 +191,7 @@ const plainMutations = {
     const p = d && git.buildPartialPatch(d, selected, 'reverse');
     if (p) await git.applyPatch(s.repo.root, p, { cached: true, reverse: true });
   },
-  discardLines: async (s, file, selected) => {
-    const d = await git.workingDiff(s.repo.root, file, { staged: false });
-    const p = d && git.buildPartialPatch(d, selected, 'reverse');
-    if (p) await git.applyPatch(s.repo.root, p, { reverse: true });
-  },
   stashSave: (s, message, untracked) => r(s, ['stash', 'push', ...(untracked ? ['-u'] : []), ...(message ? ['-m', message] : [])]),
-  stashDrop: (s, ref) => r(s, ['stash', 'drop', ref]),
   fetch: (s) => r(s, ['fetch', '--all', '--prune', '--tags']),
   push: async (s, { force, all } = {}) => {
     if (all) return r(s, ['push', '--all', ...(force ? ['--force-with-lease'] : [])]);
@@ -239,41 +215,7 @@ const plainMutations = {
   setConfig: (s, key, value) => r(s, ['config', '--local', key, value]),
   unsetConfig: (s, key) => r(s, ['config', '--local', '--unset-all', key]),
   markResolved: (s, p) => r(s, ['add', '--', p]),
-  chooseSide: async (s, p, side) => { await r(s, ['checkout', `--${side}`, '--', p]); await r(s, ['add', '--', p]); },
 };
-
-let nextId = Date.now();
-async function withSnapshot(s, label, fn, method) {
-  const before = await git.captureRefState(s.repo.root);
-  try {
-    return await fn();
-  } finally {
-    const after = await git.captureRefState(s.repo.root).catch(() => null);
-    if (after && JSON.stringify(after) !== JSON.stringify(before)) {
-      s.undo.push({ id: ++nextId, label, method, time: Date.now(), before, after });
-      s.redo = [];
-      s.persist();
-    }
-  }
-}
-
-async function undoRedo(s, dir) {
-  const from = dir === 'undo' ? s.undo : s.redo;
-  const to = dir === 'undo' ? s.redo : s.undo;
-  const entry = from[from.length - 1];
-  if (!entry) return null;
-  await git.restoreRefState(s.repo.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
-  from.pop();
-  to.push(entry);
-  s.persist();
-  return entry.label;
-}
-
-async function restoreHistory(s, id) {
-  const entry = s.undo.find((e) => e.id === id) || s.redo.find((e) => e.id === id);
-  if (!entry) throw new git.GitError('Snapshot not found');
-  await withSnapshot(s, `Restore “${entry.label}”`, () => git.restoreRefState(s.repo.root, entry.before));
-}
 
 function session(e) {
   const s = sessions.get(e.sender.id);
@@ -293,14 +235,16 @@ ipcMain.handle('git', async (e, method, ...args) => {
     const realArgs = label ? args.slice(0, -1) : args;
     s.busy++;
     try {
-      if (refMutations[method]) return { ok: await withSnapshot(s, label || method, () => refMutations[method](s, ...realArgs), method) };
+      if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
+      if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
-      if (method === 'undo' || method === 'redo') return { ok: await undoRedo(s, method) };
-      if (method === 'restoreHistory') return { ok: await restoreHistory(s, ...realArgs) };
+      if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method) };
+      if (method === 'restoreHistory') return { ok: await s.journal.restore(...realArgs) };
     } finally {
       s.busy--;
       s.pending.refs = s.pending.workdir = true;
       s.schedule();
+      buildMenu();
     }
     throw new Error(`Unknown method ${method}`);
   } catch (err) {
@@ -430,6 +374,8 @@ const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webConten
 
 function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
+  const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
+  const nextUndo = journal?.undo.at(-1), nextRedo = journal?.redo.at(-1);
   const template = [
     ...(isMac ? [{
       label: app.name,
@@ -453,8 +399,8 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        item('Undo', 'CmdOrCtrl+Z', 'undo'),
-        item('Redo', 'CmdOrCtrl+Shift+Z', 'redo'),
+        item(nextUndo ? `Undo ${nextUndo.label}` : 'Undo', 'CmdOrCtrl+Z', 'undo'),
+        item(nextRedo ? `Redo ${nextRedo.label}` : 'Redo', 'CmdOrCtrl+Shift+Z', 'redo'),
         { type: 'separator' },
         { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
         { type: 'separator' },
@@ -520,6 +466,7 @@ app.whenReady().then(() => {
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   buildMenu();
+  app.on('browser-window-focus', buildMenu);
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // npm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran npm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
