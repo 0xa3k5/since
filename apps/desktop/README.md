@@ -20,4 +20,6 @@ merge, rebase onto, cherry-pick, revert, edit message, squash/fixup with parent,
 Commit view with file/hunk/line staging, discard, amend, conflict resolution (ours/theirs/resolved) ·
 Stashes · Snapshots (undo/redo/restore) · Unified reflog · Config editor · Fetch/Pull/Push · ⌘K command menu.
 
-Not yet: commit splitter, external diff/merge tools, submodules, Sparkle updates, packaging/signing.
+Not yet: commit splitter, external diff/merge tools, submodules, auto-updates.
+
+Packaging and releases: see the [root README](../../README.md#building-the-dmg).
