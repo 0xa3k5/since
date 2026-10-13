@@ -1,0 +1,15 @@
+---
+import { PRODUCT_NAME } from '../../config';
+import Stub from '../../components/Stub.astro';
+import { COMPARE } from '../../routes';
+---
+<Stub
+  title={`Git clients for Mac compared · ${PRODUCT_NAME}`}
+  heading={"Git clients for Mac compared"}
+  description={`How ${PRODUCT_NAME} compares with other Mac Git clients on undo, keyboard use, pricing and accounts.`}
+  ogTheme="light"
+>
+  <ul>
+    {COMPARE.map((c) => <li><a href={c.href}>{PRODUCT_NAME} vs {c.label}</a></li>)}
+  </ul>
+</Stub>
