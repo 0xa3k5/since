@@ -228,7 +228,8 @@ const test = base.extend({
       if (theme) fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ theme }));
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
-        env: sandbox.env,
+        // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
+        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror') },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });
