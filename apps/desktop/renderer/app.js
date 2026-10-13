@@ -852,6 +852,7 @@ function commitDetail(c) {
       prop('Author', h('span.prop-person', null, avatar(c.author, c.email, 18), c.author)),
       c.committer !== c.author ? prop('Committer', h('span.prop-person', null, avatar(c.committer, c.committerEmail, 18), c.committer)) : null,
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
+      c.signature ? prop('Signature', signatureBadge(c.signature)) : null,
       prop('Commit', h('button.mono-link', { onclick: () => copy(c.sha, 'Copied SHA') }, c.sha.slice(0, 12), icon('copy', 12))),
       c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => selectCommit(p, 'center') }, p.slice(0, 7))))) : null,
     ),
@@ -860,6 +861,11 @@ function commitDetail(c) {
     h('div.file-list', null, c.files.slice(0, 500).map((f) => fileRow(f, () => openQuick(c.sha, f.path)))),
   );
 }
+
+const SIGNATURE_LABELS = { good: 'Verified', expired: 'Expired', revoked: 'Revoked', bad: 'Bad signature', unverified: 'Signed, not verified' };
+const SIGNATURE_TIPS = { unverified: 'Signed, but the key is not in your keyring or allowed signers file' };
+const signatureBadge = ({ state, signer }) => h(`span.sig-badge.sig-${state}`, { title: [SIGNATURE_TIPS[state], signer].filter(Boolean).join(' · ') || null },
+  SIGNATURE_LABELS[state], signer ? h('span.sig-signer', null, signer) : null);
 
 const prop = (label, value) => h('div.prop', null, h('span.prop-label', null, label), h('span.prop-value', null, value));
 

@@ -7,8 +7,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
+// GPG_TTY is dropped so a terminal pinentry never waits on a terminal the user can't see.
+const { GPG_TTY: _tty, ...PARENT_ENV } = process.env;
 const BASE_ENV = {
-  ...process.env,
+  ...PARENT_ENV,
   LC_ALL: 'C',
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
@@ -25,24 +27,36 @@ class GitError extends Error {
   }
 }
 
+// Signing failures (locked GPG key, SSH key not in ssh-agent, missing key) get one
+// readable message instead of gpg's or ssh-keygen's raw output.
+const SIGN_FAIL = /gpg failed to sign|failed to sign the data|ssh-keygen|signing failed|incorrect passphrase|no (?:secret|private) key|couldn't (?:load|sign)|agent refused/i;
+function signingError(stderr) {
+  if (!SIGN_FAIL.test(stderr)) return null;
+  const detail = stderr.trim().split('\n').map((l) => l.replace(/^(error|fatal): /, '').trim()).find((l) => l && !/failed to write commit object/.test(l)) || '';
+  return `Couldn't sign the commit. Unlock your GPG key, or add your SSH signing key to ssh-agent (ssh-add), then try again.${detail ? `\n${detail}` : ''}`;
+}
+
 function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 * 1024, encoding = 'utf8' } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
       args,
-      { cwd, env: { ...BASE_ENV, ...env }, maxBuffer, encoding },
+      // detached = own session with no controlling terminal, so gpg and ssh-keygen fail
+      // fast instead of waiting for a passphrase typed into a terminal.
+      { cwd, env: { ...BASE_ENV, ...env }, maxBuffer, encoding, detached: process.platform !== 'win32' },
       (err, stdout, stderr) => {
         const code = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
         if (err && !allowCodes.includes(code)) {
           stderr = String(stderr || ''); stdout = String(stdout || '');
-          const msg = (stderr || stdout || err.message).trim().split('\n').slice(-6).join('\n');
+          const msg = signingError(stderr) || (stderr || stdout || err.message).trim().split('\n').slice(-6).join('\n');
           reject(new GitError(msg || `git ${args[0]} failed`, { code, stderr, stdout, args }));
         } else {
           resolve(stdout);
         }
       },
     );
-    if (input != null) child.stdin.end(input);
+    // Always close stdin: with no terminal, ssh-keygen reads a passphrase from it and would wait forever.
+    child.stdin.end(input ?? undefined);
   });
 }
 
@@ -225,11 +239,20 @@ function writeCommitGraph(cwd) {
 }
 
 async function getCommit(cwd, sha) {
-  const out = await run(cwd, ['show', '-s', `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%B`, sha]);
-  const [h, parents, author, email, atime, committer, cemail, ctime, body] = out.split(SEP);
+  const out = await run(cwd, ['show', '-s', `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%G?%x00%GS%x00%B`, sha]);
+  const [h, parents, author, email, atime, committer, cemail, ctime, sig, signer, body] = out.split(SEP);
   const ps = parents ? parents.split(' ') : [];
   const files = await diffTreeFiles(cwd, ps[0] || null, h);
-  return { sha: h, parents: ps, author, email, time: +atime, committer, committerEmail: cemail, commitTime: +ctime, message: body.replace(/\n+$/, ''), files };
+  // Git reports an SSH signature it can't check (no allowed signers file) as unsigned; read the header instead.
+  const signed = sig !== 'N' || /^gpgsig(-sha256)? /m.test((await run(cwd, ['cat-file', 'commit', h])).split('\n\n')[0]);
+  return { sha: h, parents: ps, author, email, time: +atime, committer, committerEmail: cemail, commitTime: +ctime, signature: signed ? signatureStatus(sig === 'N' ? 'E' : sig, signer) : null, message: body.replace(/\n+$/, ''), files };
+}
+
+// %G? codes: G good, U good but untrusted key, X/Y expired signature/key, R revoked,
+// B bad, E can't be checked (key or allowed-signers file missing), N unsigned.
+function signatureStatus(code, signer) {
+  const state = { G: 'good', U: 'good', X: 'expired', Y: 'expired', R: 'revoked', B: 'bad', E: 'unverified' }[code];
+  return state ? { state, signer: signer || '' } : null;
 }
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -586,6 +609,10 @@ async function rewrite(cwd, op, sha, extra = {}) {
         GIT_OPTIONAL_LOCKS: '1',
       },
     });
+  } catch (e) {
+    // A rebase stopped by a signing failure has nothing for the user to resolve; put the branch back.
+    if (e.message.startsWith("Couldn't sign")) await run(cwd, ['rebase', '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } }).catch(() => {});
+    throw e;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
