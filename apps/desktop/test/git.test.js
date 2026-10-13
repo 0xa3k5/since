@@ -137,3 +137,15 @@ test('remoteWebUrl', () => {
   assert.equal(git.remoteWebUrl('https://github.com/octo/hello.git'), 'https://github.com/octo/hello');
   assert.equal(git.remoteWebUrl('ssh://git@gitlab.com:22/a/b.git'), 'https://gitlab.com/a/b');
 });
+
+test('getConfig parses scopes, multi-line and valueless entries', async () => {
+  const dir = await repo();
+  await git.run(dir, ['config', 'gitlanes.multi', 'line one\nline two']);
+  fs.appendFileSync(path.join(dir, '.git', 'config'), '[gitlanes]\n\tflag\n');
+  const config = await git.getConfig(dir);
+  const local = (key) => config.find((c) => c.scope === 'local' && c.key === key);
+  assert.equal(local('user.name').value, 'Test');
+  assert.equal(local('gitlanes.multi').value, 'line one\nline two');
+  assert.equal(local('gitlanes.flag').value, '');
+  assert.ok(config.every((c) => ['system', 'global', 'local', 'worktree', 'command'].includes(c.scope)));
+});

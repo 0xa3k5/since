@@ -30,6 +30,7 @@ const state = {
   history: { undo: [], redo: [] },
   reflog: [],
   config: [],
+  configFilter: '',
   remotes: [],
   cv: { list: 'unstaged', path: null, lines: new Set(), diff: null, full: false },
   amend: false,
@@ -122,7 +123,8 @@ const refreshHistory = coalesce(async () => {
   state.opState = opState;
   state.history = history;
   const key = commits.length + ':' + commits.map((c) => c.sha).join('');
-  if (key !== state.logKey) {
+  const logChanged = key !== state.logKey;
+  if (logChanged) {
     state.logKey = key;
     state.commits = commits;
     state.graph = layout(commits);
@@ -134,7 +136,8 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
-  if (state.view === 'snapshots') renderView();
+  // The reflog marks entries unreachable from the loaded history.
+  if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged)) renderView();
 });
 
 const refreshStatus = coalesce(async () => {
@@ -150,11 +153,14 @@ const refreshStatus = coalesce(async () => {
 
 async function refreshAux() {
   if (!state.repo) return;
+  // Re-render only when the data changed: a rebuild drops filters, selection and in-flight clicks.
+  const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog, state.view === 'config' && state.config]);
+  const before = shown();
   state.stashes = await git('stashes').catch(() => []);
   if (state.view === 'reflog') state.reflog = await git('reflog').catch(() => []);
   if (state.view === 'config') state.config = await git('config').catch(() => []);
   renderNavCounts();
-  if (['stashes', 'reflog', 'config'].includes(state.view)) renderView(true);
+  if (['stashes', 'reflog', 'config'].includes(state.view) && shown() !== before) renderView(true);
 }
 
 async function refreshAll() {
@@ -329,7 +335,11 @@ function renderTopbar() {
     h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
   );
+  // Background refreshes rebuild the bar; keep the caret in the search field.
+  const typing = document.activeElement?.id === 'map-search' ? document.activeElement : null;
   topbarEl.replaceChildren(crumbs, right);
+  const search = typing && $('#map-search');
+  if (search) { search.focus(); search.setSelectionRange(typing.selectionStart, typing.selectionEnd); }
 }
 
 function toggleChip(label, key) {
@@ -1137,10 +1147,10 @@ function reflogView() {
 
 function configView() {
   const el = h('div.page.flush');
-  let filter = '';
   const table = h('div.table');
   const render = () => {
     table.replaceChildren();
+    const filter = state.configFilter.toLowerCase();
     for (const c of state.config) {
       if (filter && !(c.key + ' ' + c.value).toLowerCase().includes(filter)) continue;
       table.append(h('div.table-row.config-row', {
@@ -1160,7 +1170,7 @@ function configView() {
     h('div.page-head', null,
       h('div', null, h('h1', null, 'Configuration'), h('p.muted', null, 'Effective git config. Local values can be edited.')),
       h('div.page-actions', null,
-        h('input.input.small', { placeholder: 'Filter…', oninput: (e) => { filter = e.target.value.toLowerCase(); render(); } }),
+        h('input.input.small', { placeholder: 'Filter…', value: state.configFilter, oninput: (e) => { state.configFilter = e.target.value; render(); } }),
         h('button.btn.subtle', { onclick: () => editConfig(null) }, icon('plus', 14), 'Add option'))),
     table,
   );
@@ -1310,6 +1320,7 @@ async function loadRepo(repo) {
   state.logKey = '';
   state.quick = null;
   state.search = '';
+  state.configFilter = '';
   commitCache.clear();
   document.title = repo.name;
   renderShell();
