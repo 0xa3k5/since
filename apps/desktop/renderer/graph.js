@@ -1,6 +1,8 @@
 // Commit graph layout + canvas painter.
 // Layout is a single O(n · lanes) pass, done incrementally as the log streams in;
 // painting only touches visible rows.
+// HEAD's first-parent chain (the "trunk") always sits in lane 0, so the current branch reads as
+// one straight line down the left edge; every other branch fans out to the right of it.
 
 export const LANE_W = 14;
 export const GRAPH_PAD = 12;
@@ -20,9 +22,11 @@ export function readPalette(el = document.documentElement) {
 // `pos` maps each sha waiting in a lane to its lane index (an array when several lanes converge
 // on it), so a row costs O(parents) instead of scans over every open lane: big histories run
 // hundreds of lanes wide.
-const newState = () => ({ lanes: [], laneColor: [], colorSeq: 0, maxLanes: 1, pos: new Map() });
+// `trunk` is the next commit expected on HEAD's first-parent chain (null once the chain has
+// ended, or with no HEAD). While it is set, lane 0 is held for the trunk alone.
+const newState = (head = null) => ({ lanes: [], laneColor: [], colorSeq: 0, maxLanes: 1, pos: new Map(), trunk: head });
 // Checkpoints keep only the arrays; `pos` is rebuilt when one is restored.
-const snapshot = (s) => ({ lanes: s.lanes.slice(), laneColor: s.laneColor.slice(), colorSeq: s.colorSeq, maxLanes: s.maxLanes });
+const snapshot = (s) => ({ lanes: s.lanes.slice(), laneColor: s.laneColor.slice(), colorSeq: s.colorSeq, maxLanes: s.maxLanes, trunk: s.trunk });
 function restore(cp) {
   const st = { ...cp, lanes: cp.lanes.slice(), laneColor: cp.laneColor.slice(), pos: new Map() };
   st.lanes.forEach((sha, j) => { if (sha !== null && sha !== undefined) occupy(st, j, sha); });
@@ -44,20 +48,24 @@ const laneOf = (st, sha) => {
 // Lay out one commit, advancing `st`. With `full`, also returns the lines through the row.
 function step(st, c, full) {
   const { lanes, laneColor } = st;
+  const first = st.trunk === null ? 0 : 1; // lane 0 is the trunk's
   const freeSlot = () => {
-    const i = lanes.indexOf(null);
-    return i === -1 ? lanes.length : i;
+    const i = lanes.indexOf(null, first);
+    return i === -1 ? Math.max(lanes.length, first) : i;
   };
+  const onTrunk = c.sha === st.trunk;
+  // A trunk commit already waiting in a lane is waiting in lane 0 (see the parents below).
   let col = laneOf(st, c.sha);
   let color;
   const top = full ? [] : null;
   const pass = full ? [] : null;
   if (col === -1) {
-    col = freeSlot();
+    col = onTrunk ? 0 : freeSlot();
     color = st.colorSeq++;
   } else {
     color = laneColor[col];
   }
+  if (onTrunk) st.trunk = c.parents.length ? c.parents[0] : null;
   // Lanes waiting for this commit end here.
   const mine = st.pos.get(c.sha);
   if (mine !== undefined) {
@@ -78,7 +86,12 @@ function step(st, c, full) {
     const ps = c.parents[p];
     let k = laneOf(st, ps);
     const colFree = lanes[col] === null || lanes[col] === undefined;
-    if (p === 0 && k > col && colFree) {
+    if (k === -1 && ps === st.trunk) {
+      // The trunk goes straight into lane 0, even when a side branch reaches it first.
+      k = 0;
+      occupy(st, k, ps);
+      laneColor[k] = col === 0 ? color : st.colorSeq++;
+    } else if (p === 0 && k > col && colFree) {
       // Keep the first-parent line straight; the other lane converges into it at the parent row.
       k = col;
       occupy(st, k, ps);
@@ -111,12 +124,14 @@ const RUN = 32;
 const CACHED_RUNS = 64;
 
 // Incremental graph over `commits` (an array the caller appends to). Call sync() after appending.
-export function createGraph(commits, from = null, upTo = 0) {
+// `head` is HEAD's sha (null when unborn); its first-parent chain is laid out in lane 0.
+export function createGraph(commits, head = null, from = null, upTo = 0) {
+  head ||= null;
   let n = 0;
   let cols = new Int32Array(1024);
   let colors = new Int32Array(1024);
-  let checkpoints = [snapshot(newState())]; // checkpoints[b] = lane state before row b * BLOCK
-  let st = newState();
+  let checkpoints = [snapshot(newState(head))]; // checkpoints[b] = lane state before row b * BLOCK
+  let st = newState(head);
   const runs = new Map(); // run -> full rows, most recently used last
 
   const grow = (need) => {
@@ -162,6 +177,7 @@ export function createGraph(commits, from = null, upTo = 0) {
   }
 
   const g = {
+    head,
     get length() { return n; },
     get maxLanes() { return st.maxLanes; },
     col: (i) => cols[i],
@@ -189,15 +205,19 @@ export function createGraph(commits, from = null, upTo = 0) {
       return rows[i - start];
     },
     // A new graph over `other` (whose first `m` commits match ours), reusing our layout of them.
-    fork(other, m) { return createGraph(other, g, m); },
+    // The layout of every row depends on HEAD, so a graph for another HEAD starts from scratch.
+    fork(other, m, newHead = head) {
+      newHead ||= null;
+      return newHead === head ? createGraph(other, head, g, m) : createGraph(other, newHead).sync();
+    },
     _arrays: () => ({ cols, colors, checkpoints }),
   };
   return g;
 }
 
 // Lay out a complete list in one go.
-export function layout(commits) {
-  return createGraph(commits).sync();
+export function layout(commits, head = null) {
+  return createGraph(commits, head).sync();
 }
 
 export function graphWidth(maxLanes) {

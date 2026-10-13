@@ -1,8 +1,9 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const git = require('./git');
 const { Journal, workOps, worktreeOps } = require('./journal');
@@ -12,6 +13,7 @@ const { loadConfig } = require('./licence/config');
 const { createStore } = require('./licence/stores');
 const updater = require('./updater');
 const pkg = require('./package.json');
+const check = require('./ipc');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -270,6 +272,25 @@ const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroye
 // trapped by the trial ending mid-way.
 const READ_ONLY_ALLOWED = new Set(['fetch', 'undo', 'redo', 'restoreHistory', 'abortOp']);
 
+// Every IPC channel goes through here: calls are only accepted from our own renderer page,
+// loaded from the app bundle into a window's main frame. Arguments are checked by ipc.js.
+const RENDERER_URL = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+function trustedSender(e) {
+  const frame = e.senderFrame;
+  if (!frame || frame.parent) return false;
+  try {
+    const u = new URL(frame.url);
+    u.search = ''; u.hash = '';
+    return u.href === RENDERER_URL;
+  } catch { return false; }
+}
+function handle(channel, fn) {
+  ipcMain.handle(channel, (e, ...args) => {
+    if (!trustedSender(e)) throw new Error(`Blocked IPC "${channel}" from ${e.senderFrame?.url || 'unknown frame'}`);
+    return fn(e, ...args);
+  });
+}
+
 function session(e) {
   const s = sessions.get(e.sender.id);
   if (!s) throw new Error('No repository open in this window');
@@ -280,15 +301,19 @@ function serializeError(err) {
   return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null };
 }
 
-ipcMain.handle('git', async (e, method, ...args) => {
+handle('git', async (e, method, ...args) => {
   try {
+    const { args: realArgs, label, worktreeArgs } = check.checkGit(method, args);
     const s = session(e);
-    if (reads[method]) return { ok: await reads[method](s, ...args) };
+    // Worktree folders must be worktrees of this repository (in its `git worktree list`).
+    if (worktreeArgs.length) {
+      const list = await git.getWorktrees(s.repo.root);
+      for (const i of worktreeArgs) realArgs[i] = check.knownWorktree(list, realArgs[i], git.samePath);
+    }
+    if (reads[method]) return { ok: await reads[method](s, ...realArgs) };
     if (!READ_ONLY_ALLOWED.has(method) && !(await licensing.ensureCanMutate())) {
       return { error: { message: 'GitLanes is read-only until you add a licence.', code: 'READ_ONLY' } };
     }
-    const label = args.length && args[args.length - 1] && args[args.length - 1].__label;
-    const realArgs = label ? args.slice(0, -1) : args;
     s.busy++;
     try {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
@@ -315,16 +340,16 @@ ipcMain.handle('git', async (e, method, ...args) => {
 // ---------------------------------------------------------------------------
 // Window / app level IPC
 
-ipcMain.handle('app:recent', () => readRecent());
-ipcMain.handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
-ipcMain.handle('app:platform', () => process.platform);
-ipcMain.handle('app:theme', () => currentTheme());
-ipcMain.handle('app:set-theme', (_e, mode) => setTheme(mode));
-ipcMain.handle('app:cycle-theme', () => cycleTheme());
-ipcMain.handle('app:update-state', () => ({ ...updater.getState(), page: updater.page() }));
-ipcMain.handle('app:check-updates', () => updater.check({ manual: true }));
-ipcMain.handle('app:install-update', () => updater.install());
-ipcMain.handle('app:set-auto-update', (_e, on) => setAutoUpdate(on));
+handle('app:recent', () => readRecent());
+handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
+handle('app:platform', () => process.platform);
+handle('app:theme', () => currentTheme());
+handle('app:set-theme', (_e, mode) => setTheme(check.oneOf(...THEMES)(mode, 'theme')));
+handle('app:cycle-theme', () => cycleTheme());
+handle('app:update-state', () => ({ ...updater.getState(), page: updater.page() }));
+handle('app:check-updates', () => updater.check({ manual: true }));
+handle('app:install-update', () => updater.install());
+handle('app:set-auto-update', (_e, on) => setAutoUpdate(check.bool(on, 'auto-update')));
 
 // "Automatically check for updates" (on unless turned off). Manual checks always work.
 function setAutoUpdate(on) {
@@ -366,13 +391,13 @@ function revalidate() {
 const licenceCall = (fn) => async (_e, ...args) => {
   try { return { ok: await fn(...args) }; } catch (err) { return { error: serializeError(err) }; }
 };
-ipcMain.handle('app:licence', () => licensing.status());
-ipcMain.handle('app:licence-activate', licenceCall((key) => licensing.activate(key)));
-ipcMain.handle('app:licence-refresh', licenceCall(() => licensing.refresh()));
-ipcMain.handle('app:licence-deactivate', licenceCall(() => licensing.deactivate()));
-ipcMain.handle('app:licence-dismiss', () => licensing.dismissNotice());
-ipcMain.handle('app:licence-buy', () => { const u = licensing.config.checkoutUrl; if (u) shell.openExternal(u); return Boolean(u); });
-ipcMain.handle('app:licence-portal', () => { const u = licensing.config.portalUrl; if (u) shell.openExternal(u); return Boolean(u); });
+handle('app:licence', () => licensing.status());
+handle('app:licence-activate', licenceCall((key) => licensing.activate(check.str(key, 'licence key', { max: 1024, empty: true }))));
+handle('app:licence-refresh', licenceCall(() => licensing.refresh()));
+handle('app:licence-deactivate', licenceCall(() => licensing.deactivate()));
+handle('app:licence-dismiss', () => licensing.dismissNotice());
+handle('app:licence-buy', () => { const u = licensing.config.checkoutUrl; if (u) shell.openExternal(u); return Boolean(u); });
+handle('app:licence-portal', () => { const u = licensing.config.portalUrl; if (u) shell.openExternal(u); return Boolean(u); });
 
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
@@ -389,9 +414,10 @@ async function bindRepo(win, dir) {
   return repo;
 }
 
-ipcMain.handle('app:open', async (e, dir) => {
+handle('app:open', async (e, dir) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   try {
+    if (dir != null) check.absDir(dir);
     if (!dir) {
       const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Open a Git repository' });
       if (res.canceled) return { ok: null };
@@ -403,15 +429,16 @@ ipcMain.handle('app:open', async (e, dir) => {
   }
 });
 
-ipcMain.handle('app:init', async (e) => {
+handle('app:init', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Choose a folder for the new repository' });
   if (res.canceled) return { ok: null };
   try { await git.initRepo(res.filePaths[0]); return { ok: await bindRepo(win, res.filePaths[0]) }; } catch (err) { return { error: serializeError(err) }; }
 });
 
-ipcMain.handle('app:clone', async (e, url) => {
+handle('app:clone', async (e, url) => {
   const win = BrowserWindow.fromWebContents(e.sender);
+  try { url = check.cloneUrl(url); } catch (err) { return { error: serializeError(err) }; }
   const name = (url.split('/').pop() || 'repo').replace(/\.git$/, '');
   const res = await dialog.showSaveDialog(win, { defaultPath: name, buttonLabel: 'Clone', message: 'Clone repository to…' });
   if (res.canceled) return { ok: null };
@@ -421,37 +448,49 @@ ipcMain.handle('app:clone', async (e, url) => {
   } catch (err) { return { error: serializeError(err) }; }
 });
 
-ipcMain.handle('app:close-repo', (e) => {
+handle('app:close-repo', (e) => {
   sessions.get(e.sender.id)?.dispose();
   sessions.delete(e.sender.id);
   BrowserWindow.fromWebContents(e.sender).setTitle('GitLanes');
   buildMenu();
 });
 
-// `rel` is relative to the repository root, or absolute (another worktree's folder).
-ipcMain.handle('app:reveal', (e, rel) => {
+// A folder another worktree of this repository lives in, or throws.
+const worktreeFolder = async (s, dir) => check.knownWorktree(await git.getWorktrees(s.repo.root), dir, git.samePath);
+// `target` is relative to the repository root, or an absolute worktree folder of this repository.
+const revealTarget = (s, target) => (path.isAbsolute(target) ? worktreeFolder(s, target) : check.insideRepo(s.repo.root, target));
+
+handle('app:reveal', async (e, target) => {
   const s = session(e);
-  if (rel) shell.showItemInFolder(path.resolve(s.repo.root, rel));
+  if (target) shell.showItemInFolder(await revealTarget(s, target));
   else shell.openPath(s.repo.root);
 });
-ipcMain.handle('app:terminal', (e, dir) => {
-  const target = path.resolve(session(e).repo.root, dir || '');
+handle('app:terminal', async (e, dir) => {
+  const s = session(e);
+  const target = dir ? await worktreeFolder(s, dir) : s.repo.root;
   if (isMac) spawn('open', ['-a', 'Terminal', target], { detached: true });
   else shell.openPath(target);
 });
-ipcMain.handle('app:open-file', (e, rel) => shell.openPath(path.join(session(e).repo.root, rel)));
-ipcMain.handle('app:external', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
-ipcMain.handle('app:copy', (_e, text) => clipboard.writeText(text));
-ipcMain.handle('app:confirm', async (e, { message, detail, ok = 'OK', destructive }) => {
+handle('app:open-file', (e, rel) => {
+  const abs = check.insideRepo(session(e).repo.root, rel);
+  // Apps, scripts and executables would run, not open: show them in Finder instead.
+  if (check.runnable(abs)) { shell.showItemInFolder(abs); return 'revealed'; }
+  return shell.openPath(abs);
+});
+handle('app:external', (_e, url) => shell.openExternal(check.webUrl(url)));
+handle('app:copy', (_e, text) => clipboard.writeText(check.str(text, 'clipboard text', { max: 16 * 1024 * 1024, empty: true })));
+handle('app:confirm', async (e, opts) => {
+  const { message, detail, ok = 'OK', destructive } = check.confirmOptions(opts);
   const win = BrowserWindow.fromWebContents(e.sender);
   const res = await dialog.showMessageBox(win, { type: destructive ? 'warning' : 'question', message, detail, buttons: [ok, 'Cancel'], defaultId: 0, cancelId: 1 });
   return res.response === 0;
 });
-ipcMain.handle('app:new-window', () => { createWindow(); });
-// Open a repository (e.g. another worktree) in a new window, or focus the window already showing it.
-ipcMain.handle('app:open-window', (_e, dir) => {
-  const win = windowFor(dir);
-  if (win) win.focus(); else createWindow(dir);
+handle('app:new-window', () => { createWindow(); });
+// Open another worktree of this window's repository in a new window, or focus the window already showing it.
+handle('app:open-window', async (e, dir) => {
+  const target = await worktreeFolder(session(e), dir);
+  const win = windowFor(target);
+  if (win) win.focus(); else createWindow(target);
 });
 
 // ---------------------------------------------------------------------------
@@ -474,7 +513,14 @@ function createWindow(repoDir) {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      webviewTag: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
+      safeDialogs: true,
       spellcheck: false,
+      devTools: !app.isPackaged || Boolean(process.env.GITLANES_DEVTOOLS),
     },
   });
   bench?.attach(win);
@@ -482,8 +528,6 @@ function createWindow(repoDir) {
   win.once('ready-to-show', () => win.show());
   const id = win.webContents.id;
   win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); buildMenu(); });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (ev) => ev.preventDefault());
   return win;
 }
 
@@ -568,7 +612,7 @@ function buildMenu() {
           ],
         },
         { type: 'separator' },
-        { role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' },
+        { role: 'reload' }, ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' }]), { role: 'togglefullscreen' },
       ],
     },
     {
@@ -595,6 +639,41 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// ---------------------------------------------------------------------------
+// Lockdown. GitLanes talks to the network only through the git processes it starts; the
+// renderer never does. See docs/security.md.
+
+app.enableSandbox();
+
+// No page in any webContents (including ones we never meant to create) may navigate,
+// redirect, open windows or attach <webview>s. Web links open in the user's browser.
+app.on('web-contents-created', (_e, contents) => {
+  contents.on('will-navigate', (ev) => ev.preventDefault());
+  contents.on('will-redirect', (ev) => ev.preventDefault());
+  contents.on('will-attach-webview', (ev) => ev.preventDefault());
+  contents.setWindowOpenHandler(({ url }) => {
+    try { shell.openExternal(check.webUrl(url)); } catch { /* not a web link: drop it */ }
+    return { action: 'deny' };
+  });
+});
+
+// What a session may load: its own files, inline data: images and DevTools in development
+// (ipc.requestAllowed), plus the https origins in `allow`. Only the updater's private
+// "gitlanes-updates" session gets any: the update feed's host.
+function lockDownSession(ses, allow = []) {
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  ses.setPermissionCheckHandler(() => false);
+  ses.setDevicePermissionHandler(() => false);
+  ses.setSpellCheckerEnabled(false);
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    const allowed = check.requestAllowed(details.url, allow);
+    if (!allowed) console.warn('blocked request', details.url.slice(0, 200));
+    callback({ cancel: !allowed });
+  });
+}
+
+app.on('session-created', (ses) => lockDownSession(ses));
+
 app.on('open-file', (ev, p) => {
   ev.preventDefault();
   if (app.isReady()) createWindow(p); else app.once('ready', () => createWindow(p));
@@ -602,6 +681,7 @@ app.on('open-file', (ev, p) => {
 
 app.whenReady().then(() => {
   app.setName('GitLanes');
+  lockDownSession(electronSession.defaultSession);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   initLicensing();
@@ -615,6 +695,7 @@ app.whenReady().then(() => {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('update', { ...state, page: updater.page() });
     },
   });
+  lockDownSession(electronSession.fromPartition(updater.PARTITION, { cache: false }), updater.allowedOrigins());
   buildMenu();
   app.on('browser-window-focus', () => { buildMenu(); revalidate(); });
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));

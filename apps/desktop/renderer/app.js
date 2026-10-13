@@ -239,6 +239,7 @@ function loadHistory() {
   const seq = ++loadSeq;
   const opts = logOpts();
   const fresh = !state.hist.complete;
+  const head = state.head.oid;
   let shown;
   const firstScreen = new Promise((r) => { shown = r; });
   let live = false; // is the history being built already on screen?
@@ -260,13 +261,15 @@ function loadHistory() {
     if (fresh) {
       const ahead = previewAhead && (await previewAhead);
       previewAhead = null;
-      const preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
+      let preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
       if (seq !== loadSeq) return;
       if (!preview) { state.logKey = ''; return; }
+      // The preview may have been read before HEAD was known.
+      if (preview.graph.head !== head) preview = preview.fork(preview.length, head);
       if (preview.length < PREVIEW) preview.complete = true; // that was all of it, though maybe unordered
       show(preview);
       // The ordered history, with the preview's details carried over.
-      target = createHistory();
+      target = createHistory(head);
       for (const c of preview.commits) target.seed(c);
       // Rows without details stay placeholders until fetched on demand, so a failure here only
       // leaves the loading marker up; it must not surface as an unhandled rejection.
@@ -287,7 +290,7 @@ function loadHistory() {
     }
     // Reload: keep showing the current history while the new one is replayed against it.
     shown();
-    const merge = createMerge(state.hist);
+    const merge = createMerge(state.hist, head);
     const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
       merge.push(parseLog(text, 'topo'));
       const next = merge.next;
@@ -514,7 +517,7 @@ function renderSidebar() {
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)` }, icon('fetch'), 'Fetch'),
       h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)` }, icon('pull'), 'Pull'),
-      h('button.sb-action', { onclick: push, title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
+      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
     ),
   );
   renderNavCounts();
@@ -852,6 +855,7 @@ function commitDetail(c) {
       prop('Author', h('span.prop-person', null, avatar(c.author, c.email, 18), c.author)),
       c.committer !== c.author ? prop('Committer', h('span.prop-person', null, avatar(c.committer, c.committerEmail, 18), c.committer)) : null,
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
+      c.signature ? prop('Signature', signatureBadge(c.signature)) : null,
       prop('Commit', h('button.mono-link', { onclick: () => copy(c.sha, 'Copied SHA') }, c.sha.slice(0, 12), icon('copy', 12))),
       c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => selectCommit(p, 'center') }, p.slice(0, 7))))) : null,
     ),
@@ -860,6 +864,11 @@ function commitDetail(c) {
     h('div.file-list', null, c.files.slice(0, 500).map((f) => fileRow(f, () => openQuick(c.sha, f.path)))),
   );
 }
+
+const SIGNATURE_LABELS = { good: 'Verified', expired: 'Expired', revoked: 'Revoked', bad: 'Bad signature', unverified: 'Signed, not verified' };
+const SIGNATURE_TIPS = { unverified: 'Signed, but the key is not in your keyring or allowed signers file' };
+const signatureBadge = ({ state, signer }) => h(`span.sig-badge.sig-${state}`, { title: [SIGNATURE_TIPS[state], signer].filter(Boolean).join(' · ') || null },
+  SIGNATURE_LABELS[state], signer ? h('span.sig-signer', null, signer) : null);
 
 const prop = (label, value) => h('div.prop', null, h('span.prop-label', null, label), h('span.prop-value', null, value));
 
@@ -1612,7 +1621,7 @@ async function editConfig(c) {
 
 function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
-async function push(force) { return act('Push', 'push', [{ force }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
+async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
 // ---------------------------------------------------------------------------
 // Worktrees: extra working folders of this repository, each with its own
