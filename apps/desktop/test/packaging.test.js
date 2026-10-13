@@ -27,10 +27,10 @@ test('packaging config points at files that exist', () => {
 
 test('packaged files are only what the app loads at runtime', () => {
   assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
-  // Every local module main.js requires must be packaged.
+  // Every local module main.js requires must be packaged (bench is dev-only, behind GITLANES_BENCH).
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
   for (const [, mod] of main.matchAll(/require\('\.\/([\w-]+)/g)) {
-    if (mod === 'bench') continue; // dev-only, loaded only when GITLANES_BENCH is set
+    if (mod === 'bench') continue;
     assert.ok(config.files.some((f) => f === `${mod}.js` || f === `${mod}/**`), `${mod} is required by main.js but not packaged`);
   }
   const pkg = require('../package.json');

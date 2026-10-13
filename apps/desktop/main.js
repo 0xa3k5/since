@@ -6,10 +6,10 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const git = require('./git');
 const { Journal, workOps, worktreeOps } = require('./journal');
+const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
 const { loadConfig } = require('./licence/config');
 const { createStore } = require('./licence/stores');
-const { LogStreams } = require('./log-streams');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
