@@ -491,3 +491,42 @@ test('an unreadable index keeps every page and pin', async () => {
   assert.deepEqual(await pins(dir), before.pins);
   assert.deepEqual(pageFiles(dir), before.pages);
 });
+
+// AK-59: a conflicted rebase is three steps (start, resolve, continue); undo must
+// go back to the branch in one step, not leave HEAD detached mid-rebase.
+test('conflicted rebase → resolve → continue → one undo puts you back on the branch', async () => {
+  const { dir, journal, read } = await repo();
+  await commit(dir, 'conflict.txt', 'base\n', 'base');
+  await git.run(dir, ['checkout', '-q', '-b', 'feature']);
+  const feature = await commit(dir, 'conflict.txt', 'feature\n', 'feature change');
+  await git.run(dir, ['checkout', '-q', 'main']);
+  const before = await commit(dir, 'conflict.txt', 'main\n', 'main change');
+  const env = { GIT_EDITOR: 'true' };
+  await assert.rejects(journal.record('Rebase onto feature', 'rebaseOnto', () => git.run(dir, ['rebase', feature])));
+  assert.equal(await git.getOperationState(path.join(dir, '.git')), 'rebase');
+  await journal.runWork('chooseSide', 'Use theirs', ['conflict.txt', 'theirs']);
+  await journal.record('Continue rebase', 'continueOp', () => git.run(dir, ['-c', 'core.editor=true', 'rebase', '--continue'], { env }));
+  const after = (await git.run(dir, ['rev-parse', 'HEAD'])).trim();
+  assert.notEqual(after, before);
+  assert.equal(journal.undo.length, 1);
+
+  assert.equal(await journal.step('undo'), 'Rebase onto feature');
+  assert.equal((await git.run(dir, ['status', '--porcelain', '--branch'])).trim(), '## main');
+  assert.equal((await git.run(dir, ['rev-parse', 'HEAD'])).trim(), before);
+  assert.equal(await git.getOperationState(path.join(dir, '.git')), null);
+  assert.equal(read('conflict.txt'), 'main\n');
+
+  assert.equal(await journal.step('redo'), 'Rebase onto feature');
+  assert.equal((await git.run(dir, ['symbolic-ref', 'HEAD'])).trim(), 'refs/heads/main');
+  assert.equal((await git.run(dir, ['rev-parse', 'HEAD'])).trim(), after);
+  assert.equal(read('conflict.txt'), 'main\n');
+});
+
+test('checking out a commit and then a branch stays two undo steps', async () => {
+  const { dir, journal } = await repo();
+  const first = await commit(dir, 'a.txt', '1\n', 'one');
+  await commit(dir, 'a.txt', '2\n', 'two');
+  await journal.record('Checkout one', 'checkout', () => git.run(dir, ['checkout', '-q', first]));
+  await journal.record('Checkout main', 'checkout', () => git.run(dir, ['checkout', '-q', 'main']));
+  assert.equal(journal.undo.length, 2);
+});
