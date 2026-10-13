@@ -195,6 +195,17 @@ async function commitFileDiff(cwd, sha, file, parent) {
   return parseDiff(out)[0] || null;
 }
 
+// Every file diff of a commit against its first parent, without rename
+// detection: the commit splitter selects lines from these.
+async function commitDiffs(cwd, sha) {
+  const parent = (await run(cwd, ['rev-parse', '-q', '--verify', `${sha}^`], { allowCodes: [0, 1] })).trim() || EMPTY_TREE;
+  const out = await run(cwd, ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-renames', parent, sha]);
+  // Without renames both sides of "diff --git a/<p> b/<p>" are the same path; binary
+  // and mode-only diffs have no ---/+++ lines, so read it from there.
+  const pathOf = (d) => { const l = d.header[0]; return l.slice(13, 13 + (l.length - 16) / 2); };
+  return parseDiff(out).map((d) => ({ ...d, path: pathOf(d) }));
+}
+
 async function compareDiff(cwd, from, to) {
   const out = await run(cwd, ['diff', '--no-color', '--no-ext-diff', '-M', from, to]);
   return parseDiff(out);
@@ -396,7 +407,9 @@ function remoteWebUrl(url) {
 // History rewriting (in-place commit editing), implemented as a
 // non-interactive `git rebase -i` with a generated todo list.
 
-async function rewrite(cwd, op, sha, extra = {}) {
+// Check that `sha` can be rewritten by `op`, and find where the rebase starts
+// (`base`, null for the root) and the commits it replays.
+async function rewriteRange(cwd, op, sha) {
   const onBranch = await run(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']).then(() => true, () => false);
   if (!onBranch) throw new GitError('This commit is not on the current branch. Check out a branch containing it first.');
   const parents = (await run(cwd, ['rev-list', '--parents', '-n', '1', sha])).trim().split(' ').slice(1);
@@ -415,13 +428,20 @@ async function rewrite(cwd, op, sha, extra = {}) {
   const merges = (await run(cwd, ['rev-list', '--merges', range])).trim();
   if (merges) throw new GitError('There are merge commits between this commit and HEAD; rewriting would flatten them.');
   const list = (await run(cwd, ['rev-list', '--reverse', range])).trim().split('\n').filter(Boolean);
+  return { parents, base, list };
+}
 
+async function rewrite(cwd, op, sha, extra = {}) {
+  const { parents, base, list } = await rewriteRange(cwd, op, sha);
+  // A split builds its two commits up front; the rebase picks them in place of the original.
+  const halves = op === 'split' ? await splitCommits(cwd, sha, parents[0] || null, extra) : null;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-'));
   const todo = [];
   for (let i = 0; i < list.length; i++) {
     const c = list[i];
     if (c === sha) {
       if (op === 'drop') todo.push(`drop ${c}`);
+      else if (op === 'split') todo.push(`pick ${halves[0]}`, `pick ${halves[1]}`);
       else if (op === 'reword') {
         const f = path.join(tmp, 'msg');
         fs.writeFileSync(f, extra.message);
@@ -450,6 +470,60 @@ async function rewrite(cwd, op, sha, extra = {}) {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+// Build the two commits that replace `sha` when it is split. `files` maps each
+// path to 'all' or to the selected line keys ("hunk:line") of its commitDiffs
+// entry; the selection becomes the first commit, the rest the second. Both keep
+// the original author and date. Returns [first, second]; the second has the
+// original tree, so the commits on top replay without conflicts.
+async function splitCommits(cwd, sha, parent, { files = {}, messages = [] }) {
+  const msgs = messages.map((m) => String(m || '').trim());
+  if (msgs.length !== 2 || !msgs[0] || !msgs[1]) throw new GitError('Both commits need a message.');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-split-'));
+  try {
+    return await buildSplit(cwd, sha, parent, files, msgs, { GIT_INDEX_FILE: path.join(tmp, 'index') });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// The first commit's tree is built in a private index, so the working tree and real index are untouched.
+async function buildSplit(cwd, sha, parent, files, msgs, env) {
+  const diffs = new Map((await commitDiffs(cwd, sha)).map((d) => [d.path, d]));
+  await run(cwd, ['read-tree', ...(parent ? [parent] : ['--empty'])], { env });
+  for (const [p, sel] of Object.entries(files)) {
+    const d = diffs.get(p);
+    if (!d) throw new GitError(`${p} is not changed in this commit.`);
+    const keys = sel === 'all' ? null : [...new Set(sel)];
+    if (keys && !keys.length) continue;
+    const changes = d.hunks.reduce((n, hk) => n + hk.lines.filter((l) => l.t !== ' ').length, 0);
+    if (!keys || keys.length >= changes) {
+      // The whole file (binary and mode-only changes have no lines to pick): take its entry from the commit, or remove it if the commit deletes it.
+      const entry = (await run(cwd, ['ls-tree', '-z', sha, '--', p])).split('\0')[0];
+      if (entry) {
+        const [mode, , oid] = entry.slice(0, entry.indexOf('\t')).split(' ');
+        await run(cwd, ['update-index', '--add', '--cacheinfo', `${mode},${oid},${p}`], { env });
+      } else await run(cwd, ['update-index', '--force-remove', '--', p], { env });
+      continue;
+    }
+    // Removing some lines of a deleted file keeps the file in the first commit.
+    const fd = d.newPath !== '/dev/null' ? d : {
+      ...d, header: d.header.filter((l) => !l.startsWith('deleted file')).map((l) => (l === '+++ /dev/null' ? `+++ b/${d.oldPath}` : l)),
+    };
+    const patch = buildPartialPatch(fd, keys, 'stage');
+    if (patch) await run(cwd, ['apply', '--cached', '--recount', '--whitespace=nowarn', '-'], { input: patch, env });
+  }
+  const tree = (await run(cwd, ['write-tree'], { env })).trim();
+  const treeOf = async (rev) => (rev ? (await run(cwd, ['rev-parse', `${rev}^{tree}`])).trim() : EMPTY_TREE);
+  if (tree === await treeOf(parent)) throw new GitError('Select at least one change for the first commit.');
+  if (tree === await treeOf(sha)) throw new GitError('Leave at least one change for the second commit.');
+
+  const [name, email, date] = (await run(cwd, ['show', '-s', '--date=raw', '--format=%an%x00%ae%x00%ad', sha])).split(SEP);
+  const author = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date.trim() };
+  const make = async (t, p, msg) => (await run(cwd, ['commit-tree', t, ...(p ? ['-p', p] : []), '-F', '-'], { input: msg + '\n', env: author })).trim();
+  const first = await make(tree, parent, msgs[0]);
+  return [first, await make(await treeOf(sha), first, msgs[1])];
 }
 
 // ---------------------------------------------------------------------------
@@ -780,9 +854,9 @@ const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (awai
 const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 
 module.exports = {
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, getCommit, commitFileDiff, compareDiff,
+  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseDiff, buildPartialPatch, applyPatch,
-  getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewrite, captureRefState, restoreRefState,
+  getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, resetHard, chooseSide, stashApply, stashDrop,
