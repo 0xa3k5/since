@@ -22,11 +22,20 @@ test('packaging config points at files that exist', () => {
   for (const file of [config.mac.icon, config.mac.entitlements, config.mac.entitlementsInherit, config.dmg.background]) {
     assert.ok(fs.existsSync(path.join(root, file)), `${file} is missing`);
   }
-  assert.deepStrictEqual(config.mac.target[0].arch.sort(), ['arm64', 'x64']);
+  for (const t of config.mac.target) assert.deepStrictEqual(t.arch.sort(), ['arm64', 'x64'], t.target);
+  assert.deepStrictEqual(config.mac.target.map((t) => t.target), ['dmg', 'zip']);
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'updater.js', 'preload.js', 'renderer/**', 'package.json']);
+  // Every local module the main process requires must be packaged.
+  for (const file of ['main.js', 'journal.js', 'updater.js']) {
+    const src = fs.readFileSync(path.join(root, file), 'utf8');
+    for (const [, dep] of src.matchAll(/require\('\.\/([^']+)'\)/g)) {
+      const name = dep.endsWith('.json') || dep.endsWith('.js') ? dep : `${dep}.js`;
+      assert.ok(config.files.includes(name), `${file} requires ./${dep}, which is not packaged`);
+    }
+  }
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });

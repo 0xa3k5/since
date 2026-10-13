@@ -21,6 +21,7 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 
 ## Architecture
 - `git.js`: dependency-free git CLI layer (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
+- `updater.js`: update checks and install (see Updates).
 - `main.js`: windows, menu, IPC, FSEvents watcher (live refresh), unlimited undo/redo journal (`.git/gitlanes-history.json`).
 - `renderer/`: buildless ES modules. Canvas commit graph + virtualized list, so 20k+ commits stay smooth.
 
@@ -31,6 +32,25 @@ Commit view with file/hunk/line staging, discard, amend, conflict resolution (ou
 Stashes · Snapshots (undo/redo/restore) · Unified reflog · Config editor · Fetch/Pull/Push · ⌘K command menu ·
 Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
-Not yet: commit splitter, external diff/merge tools, submodules, auto-updates.
+Not yet: commit splitter, external diff/merge tools, submodules.
+
+## Updates
+`updater.js` uses Electron's built-in `autoUpdater` (Squirrel.Mac), so it adds no dependency. The packaged app
+checks a few seconds after launch and then once a day. It downloads in the background, then shows a
+"Restart to update" toast. You can also check from GitLanes → Check for Updates… or ⌘K → "Check for updates".
+If an update can't be installed in place (an unsigned build, or the app is running from the DMG), the toast
+links to the download page instead. The update never checks the licence, because updates are free for life.
+
+**Network:** the update check is the app's only network call apart from git itself. It is a plain GET for
+`update-mac-<arch>.json` at the `updates.feed` URL in `package.json`, followed by the zip download when there is
+a newer version. No identifiers, no analytics. Dev builds (`npm run desktop`) make no update request unless you
+set `GITLANES_UPDATE_FEED=<base url>`, and even then they never install.
+
+**Testing:** `npm run test:update -w @gitlanes/desktop` runs the full flow on macOS against two local test
+releases. It packages 0.0.1 and 0.0.2, signs both with a throwaway self-signed certificate (Squirrel only
+accepts an update signed by the same identity as the running app), serves 0.0.2's zip and feed from localhost,
+and then checks that 0.0.1 downloads it, shows "Restart to update", installs it and relaunches as 0.0.2.
+It takes a few minutes. Screenshots are saved to `test-results/update-e2e/`. `e2e/update.spec.js` covers the
+check, the toasts and the ⌘K entries in the regular Playwright suite.
 
 Packaging and releases: see the [root README](../../README.md#building-the-dmg).

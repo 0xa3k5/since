@@ -5,12 +5,17 @@
   "description": "A fast, keyboard-first Git client for macOS with a live commit graph",
   "main": "main.js",
   "license": "UNLICENSED",
+  "updates": {
+    "feed": "https://github.com/0xa3k5/gitlanes/releases/latest/download",
+    "page": "https://github.com/0xa3k5/gitlanes/releases/latest"
+  },
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/**/*.test.js\"",
     "test:e2e": "playwright test -c e2e",
     "dist": "electron-builder --mac --config electron-builder.config.js --publish never",
-    "brand-assets": "electron scripts/render-brand-assets.js"
+    "brand-assets": "electron scripts/render-brand-assets.js",
+    "test:update": "node scripts/update-e2e.js"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

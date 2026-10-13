@@ -5,6 +5,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const git = require('./git');
 const { Journal, workOps } = require('./journal');
+const updater = require('./updater');
+const pkg = require('./package.json');
 
 const isMac = process.platform === 'darwin';
 const sessions = new Map(); // webContents.id -> RepoSession
@@ -261,6 +263,9 @@ ipcMain.handle('app:platform', () => process.platform);
 ipcMain.handle('app:theme', () => currentTheme());
 ipcMain.handle('app:set-theme', (_e, mode) => setTheme(mode));
 ipcMain.handle('app:cycle-theme', () => cycleTheme());
+ipcMain.handle('app:update-state', () => ({ ...updater.getState(), page: updater.page() }));
+ipcMain.handle('app:check-updates', () => updater.check({ manual: true }));
+ipcMain.handle('app:install-update', () => updater.install());
 
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
@@ -376,10 +381,14 @@ function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
   const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
   const nextUndo = journal?.undo.at(-1), nextRedo = journal?.redo.at(-1);
+  const update = updater.getState();
+  const updateItem = update.status === 'ready'
+    ? { label: `Restart to Update to ${update.version}`, click: () => updater.install() }
+    : { label: 'Check for Updates…', enabled: update.status !== 'checking', click: () => updater.check({ manual: true }) };
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -465,6 +474,15 @@ app.whenReady().then(() => {
   app.setName('GitLanes');
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
+  updater.init({
+    feed: pkg.updates?.feed,
+    page: pkg.updates?.page,
+    devFeed: app.isPackaged ? null : process.env.GITLANES_UPDATE_FEED,
+    onChange: (state) => {
+      buildMenu();
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('update', { ...state, page: updater.page() });
+    },
+  });
   buildMenu();
   app.on('browser-window-focus', buildMenu);
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));

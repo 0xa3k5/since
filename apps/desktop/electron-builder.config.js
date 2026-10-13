@@ -30,7 +30,7 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'updater.js', 'preload.js', 'renderer/**', 'package.json'],
   asar: true,
   // In CI a provided certificate must actually be used; never fall back to an unsigned release.
   forceCodeSigning: Boolean(process.env.CSC_LINK),
@@ -45,7 +45,10 @@ module.exports = {
     enableCookieEncryption: true,
   },
   mac: {
-    target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
+    // The DMG is for first installs; the zip is what auto-update (Squirrel.Mac) downloads.
+    target: [{ target: 'dmg', arch: ['arm64', 'x64'] }, { target: 'zip', arch: ['arm64', 'x64'] }],
+    // Names the zips (the DMG sets its own below). Must match updater.zipName(), which the feed points at.
+    artifactName: '${productName}-${version}-${arch}-mac.${ext}',
     category: 'public.app-category.developer-tools',
     icon: 'build/icon.icns',
     minimumSystemVersion: '12.0',
