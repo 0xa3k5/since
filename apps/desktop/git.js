@@ -198,12 +198,42 @@ async function commitFileDiff(cwd, sha, file, parent) {
 // Every file diff of a commit against its first parent, without rename
 // detection: the commit splitter selects lines from these.
 async function commitDiffs(cwd, sha) {
+  return (await readCommitDiffs(cwd, sha)).map(([d]) => d);
+}
+
+// Pairs of [text, raw] for each file: the same diff decoded as UTF-8 for display
+// and as latin1, which maps every byte to one char, so patches built from it
+// round-trip byte-exactly. Line breaks are the same bytes in both, so hunk and
+// line indices (the selection keys) match.
+async function readCommitDiffs(cwd, sha) {
   const parent = (await run(cwd, ['rev-parse', '-q', '--verify', `${sha}^`], { allowCodes: [0, 1] })).trim() || EMPTY_TREE;
-  const out = await run(cwd, ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-renames', parent, sha]);
-  // Without renames both sides of "diff --git a/<p> b/<p>" are the same path; binary
-  // and mode-only diffs have no ---/+++ lines, so read it from there.
-  const pathOf = (d) => { const l = d.header[0]; return l.slice(13, 13 + (l.length - 16) / 2); };
-  return parseDiff(out).map((d) => ({ ...d, path: pathOf(d) }));
+  const buf = await run(cwd, ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-renames', parent, sha], { encoding: 'buffer' });
+  const raw = parseDiff(buf.toString('latin1'));
+  return parseDiff(buf.toString('utf8')).map((d, i) => {
+    const r = raw[i];
+    r.path = d.path = diffPath(d.header[0]);
+    // A submodule bump has no lines to pick; it goes whole into one commit.
+    if (d.header.slice(1).some((l) => / 160000$/.test(l))) { d.hunks = []; r.hunks = []; d.gitlink = r.gitlink = true; }
+    return [d, r];
+  });
+}
+
+// Without renames both sides of "diff --git a/<p> b/<p>" are the same path; binary
+// and mode-only diffs have no ---/+++ lines, so read it from there. Git C-quotes
+// names containing '"', '\\', or control characters even with core.quotePath=false.
+function diffPath(line) {
+  const rest = line.slice('diff --git '.length);
+  if (rest[0] !== '"') return rest.slice(2, 2 + (rest.length - 5) / 2);
+  const bytes = [];
+  const esc = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+  for (let i = 1; i < rest.length && rest[i] !== '"'; i++) {
+    let c = String.fromCodePoint(rest.codePointAt(i));
+    if (c !== '\\') { bytes.push(...Buffer.from(c, 'utf8')); i += c.length - 1; continue; }
+    c = rest[++i];
+    if (/[0-7]/.test(c)) { bytes.push(parseInt(rest.slice(i, i + 3), 8)); i += 2; }
+    else bytes.push(esc[c] ?? c.charCodeAt(0));
+  }
+  return Buffer.from(bytes).toString('utf8').slice(2);
 }
 
 async function compareDiff(cwd, from, to) {
@@ -329,7 +359,10 @@ function buildPartialPatch(fileDiff, selected, mode) {
       if (ln.t === ' ') push(' ', ln.s, ln.noEol);
       else if (ln.t === '-') {
         if (isSel) { push('-', ln.s, ln.noEol); changed = true; }
-        else if (mode === 'stage') push(' ', ln.s, ln.noEol);
+        else if (mode === 'stage' && ln.noEol && h.lines.some((l, j) => j > li && l.t === '+' && sel.has(`${hi}:${j}`))) {
+          // The old last line stays but gains a newline, so selected lines added after it don't join onto it.
+          push('-', ln.s, true); push('+', ln.s, false); changed = true;
+        } else if (mode === 'stage') push(' ', ln.s, ln.noEol);
       } else if (ln.t === '+') {
         if (isSel) { push('+', ln.s, ln.noEol); changed = true; }
         else if (mode === 'reverse') push(' ', ln.s, ln.noEol);
@@ -490,29 +523,36 @@ async function splitCommits(cwd, sha, parent, { files = {}, messages = [] }) {
 
 // The first commit's tree is built in a private index, so the working tree and real index are untouched.
 async function buildSplit(cwd, sha, parent, files, msgs, env) {
-  const diffs = new Map((await commitDiffs(cwd, sha)).map((d) => [d.path, d]));
+  const diffs = new Map((await readCommitDiffs(cwd, sha)).map(([, r]) => [r.path, r]));
   await run(cwd, ['read-tree', ...(parent ? [parent] : ['--empty'])], { env });
+  // Removals go first, so a file replaced by a folder of the same name (or the
+  // reverse) can take its place when both changes are selected.
+  const removals = [], edits = [];
   for (const [p, sel] of Object.entries(files)) {
     const d = diffs.get(p);
     if (!d) throw new GitError(`${p} is not changed in this commit.`);
     const keys = sel === 'all' ? null : [...new Set(sel)];
     if (keys && !keys.length) continue;
     const changes = d.hunks.reduce((n, hk) => n + hk.lines.filter((l) => l.t !== ' ').length, 0);
-    if (!keys || keys.length >= changes) {
-      // The whole file (binary and mode-only changes have no lines to pick): take its entry from the commit, or remove it if the commit deletes it.
-      const entry = (await run(cwd, ['ls-tree', '-z', sha, '--', p])).split('\0')[0];
-      if (entry) {
-        const [mode, , oid] = entry.slice(0, entry.indexOf('\t')).split(' ');
-        await run(cwd, ['update-index', '--add', '--cacheinfo', `${mode},${oid},${p}`], { env });
-      } else await run(cwd, ['update-index', '--force-remove', '--', p], { env });
-      continue;
+    if (keys && keys.length < changes) { edits.push(() => applyPartial(cwd, d, keys, env)); continue; }
+    // The whole file (binary, mode-only and submodule changes have no lines to pick):
+    // take its entry from the commit, or remove it if the commit deletes it. Only a
+    // file or submodule at exactly this path counts: if a folder replaced the file,
+    // ls-tree lists that folder, and the file is gone.
+    const entry = (await run(cwd, ['ls-tree', '-z', sha, '--', p])).split('\0')[0];
+    const tab = entry.indexOf('\t');
+    const [mode, type, oid] = entry.slice(0, tab).split(' ');
+    if (entry && entry.slice(tab + 1) === p && (type === 'blob' || type === 'commit')) {
+      edits.push(() => run(cwd, ['update-index', '--add', '--cacheinfo', `${mode},${oid},${p}`], { env }));
+    } else removals.push(p);
+  }
+  if (removals.length) await run(cwd, ['update-index', '--force-remove', '-z', '--stdin'], { input: removals.join('\0') + '\0', env });
+  for (const edit of edits) {
+    try { await edit(); } catch (e) {
+      throw /file\/directory conflict|already exists|cannot add to the index|does not exist in index/i.test(e.message)
+        ? new GitError('A file and a folder with the same name changed in this commit. Select both changes for the first commit, or neither.')
+        : e;
     }
-    // Removing some lines of a deleted file keeps the file in the first commit.
-    const fd = d.newPath !== '/dev/null' ? d : {
-      ...d, header: d.header.filter((l) => !l.startsWith('deleted file')).map((l) => (l === '+++ /dev/null' ? `+++ b/${d.oldPath}` : l)),
-    };
-    const patch = buildPartialPatch(fd, keys, 'stage');
-    if (patch) await run(cwd, ['apply', '--cached', '--recount', '--whitespace=nowarn', '-'], { input: patch, env });
   }
   const tree = (await run(cwd, ['write-tree'], { env })).trim();
   const treeOf = async (rev) => (rev ? (await run(cwd, ['rev-parse', `${rev}^{tree}`])).trim() : EMPTY_TREE);
@@ -521,9 +561,22 @@ async function buildSplit(cwd, sha, parent, files, msgs, env) {
 
   const [name, email, date] = (await run(cwd, ['show', '-s', '--date=raw', '--format=%an%x00%ae%x00%ad', sha])).split(SEP);
   const author = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date.trim() };
-  const make = async (t, p, msg) => (await run(cwd, ['commit-tree', t, ...(p ? ['-p', p] : []), '-F', '-'], { input: msg + '\n', env: author })).trim();
+  // commit-tree only signs when asked, unlike commit and rebase.
+  const sign = (await run(cwd, ['config', '--bool', 'commit.gpgsign'], { allowCodes: [0, 1] })).trim() === 'true';
+  const make = async (t, p, msg) => (await run(cwd, ['commit-tree', ...(sign ? ['-S'] : []), t, ...(p ? ['-p', p] : []), '-F', '-'], { input: msg + '\n', env: author })).trim();
   const first = await make(tree, parent, msgs[0]);
   return [first, await make(await treeOf(sha), first, msgs[1])];
+}
+
+// Apply the selected lines of a raw (latin1) file diff to the private index, as bytes.
+async function applyPartial(cwd, d, keys, env) {
+  // Removing some lines of a deleted file keeps the file in the first commit.
+  const minus = d.header.find((l) => l.startsWith('--- '));
+  const fd = d.newPath !== '/dev/null' ? d : {
+    ...d, header: d.header.filter((l) => !l.startsWith('deleted file')).map((l) => (l === '+++ /dev/null' ? '+++ ' + minus.slice(4).replace(/^("?)a\//, '$1b/') : l)),
+  };
+  const patch = buildPartialPatch(fd, keys, 'stage');
+  if (patch) await run(cwd, ['apply', '--cached', '--recount', '--whitespace=nowarn', '-'], { input: Buffer.from(patch, 'latin1'), env });
 }
 
 // ---------------------------------------------------------------------------
