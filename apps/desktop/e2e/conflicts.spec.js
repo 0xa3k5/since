@@ -93,14 +93,13 @@ test('rebase conflict → theirs → continue, then undo', async ({ sandbox, lau
   expect(sandbox.read(repo, 'conflict.txt')).toBe('main\n');
   expect(sandbox.git(repo, 'symbolic-ref', '--short', 'HEAD')).toBe('main');
 
-  await app.undo('Continue rebase');
+  await app.undo();
   expect(sandbox.sha(repo, 'main')).toBe(before);
   expect(sandbox.git(repo, 'status', '--porcelain')).toBe('');
 });
 
-// Known bug AK-59: undo after a conflicted rebase leaves HEAD detached at the
-// rebase's onto commit; a second undo is needed to get back onto main.
-test.fail('undo after a conflicted rebase puts you back on the branch', async ({ sandbox, launch }) => {
+// The start, resolve and continue steps of a conflicted rebase undo as one step.
+test('undo after a conflicted rebase puts you back on the branch', async ({ sandbox, launch }) => {
   const repo = sandbox.conflicted('rebase-undo-head');
   const before = sandbox.sha(repo);
   const app = await launch(repo);
@@ -108,7 +107,7 @@ test.fail('undo after a conflicted rebase puts you back on the branch', async ({
   await resolve(app, 'theirs');
   await app.page.locator('.banner .btn.primary', { hasText: 'Continue' }).click();
   await app.toast('Continue rebase');
-  await app.undo('Continue rebase');
+  await app.undo();
   expect(sandbox.git(repo, 'status', '--porcelain', '--branch')).toBe('## main');
   expect(sandbox.sha(repo)).toBe(before);
 });

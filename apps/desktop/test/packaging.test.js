@@ -27,13 +27,7 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'updater.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
-  // Every local module main.js requires must be packaged (bench is dev-only, behind GITLANES_BENCH).
-  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-  for (const [, mod] of main.matchAll(/require\('\.\/([\w.-]+)/g)) {
-    if (mod === 'bench') continue;
-    assert.ok(config.files.some((f) => f === mod || f === `${mod}.js` || f === `${mod}/**`), `${mod} is required by main.js but not packaged`);
-  }
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
@@ -54,6 +48,40 @@ test('packaging bakes production by default and refuses an unfilled or mock stor
     if (saved === undefined) delete process.env.GITLANES_STORE; else process.env.GITLANES_STORE = saved;
     delete require.cache[require.resolve('../electron-builder.config.js')];
   }
+});
+
+test('every module the main process requires is packaged', () => {
+  // Follow local require()s from main.js; a missing file only shows up as a crash in the DMG.
+  // bench/ is dev-only (behind GITLANES_BENCH) and never packaged.
+  const seen = new Set();
+  const resolve = (from, rel) => {
+    const p = path.join(path.dirname(from), rel);
+    if (fs.existsSync(path.join(root, p)) && fs.statSync(path.join(root, p)).isDirectory()) return path.join(p, 'index.js');
+    return p.endsWith('.js') || p.endsWith('.json') ? p : `${p}.js`;
+  };
+  const visit = (file) => {
+    if (seen.has(file) || file.startsWith('bench/') || file.endsWith('.json')) return;
+    seen.add(file);
+    const src = fs.readFileSync(path.join(root, file), 'utf8');
+    for (const [, rel] of src.matchAll(/require\('(\.\.?\/[^']+)'\)/g)) visit(resolve(file, rel));
+  };
+  visit('main.js');
+  visit('preload.js');
+  const packaged = (file) => config.files.some((f) => f === file || (f.endsWith('/**') && file.startsWith(f.slice(0, -2))));
+  assert.ok(seen.has('ipc.js') && seen.has('licence/index.js'));
+  for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
+});
+
+test('Electron fuses close the run-as-node and asar tampering paths', () => {
+  assert.deepStrictEqual(config.electronFuses, {
+    runAsNode: false,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableEmbeddedAsarIntegrityValidation: true,
+    onlyLoadAppFromAsar: true,
+    enableCookieEncryption: true,
+  });
+  assert.strictEqual(config.asar, true);
 });
 
 test('DMG background reads under both Finder label colours', () => {
