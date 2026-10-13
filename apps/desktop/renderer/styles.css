@@ -209,6 +209,8 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .dot-head { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .sb-track { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .sb-gone { font-size: 10px; color: var(--warn); text-transform: uppercase; letter-spacing: 0.04em; }
+.sb-wt { display: inline-flex; }
+.sb-item.missing .sb-label { color: var(--text-4); text-decoration: line-through; }
 .sb-foot { display: flex; gap: 4px; padding: 8px 0 10px; border-top: 1px solid var(--border); }
 .sb-action { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: var(--radius); color: var(--text-2); font-size: 12px; font-weight: 500; }
 .sb-action .icon { color: var(--text-3); }
@@ -226,6 +228,8 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .head-chip { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--border-strong); font-size: 12px; color: var(--text-2); font-weight: 500; max-width: 260px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .head-chip .icon { color: var(--accent-fg); }
 .head-chip.detached { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.head-chip.wt-chip { margin-left: 0; }
+.head-chip.wt-chip:hover { background: var(--bg-hover); color: var(--text); }
 .top-right { display: flex; align-items: center; gap: 6px; }
 .toggle-group { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; }
 .chip { height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; color: var(--text-3); font-weight: 500; }
@@ -321,6 +325,9 @@ kbd.inline { flex: none; }
 .pill.tag .icon { color: var(--yellow); }
 .pill.head .icon:first-child, .pill[class*="head"] .icon { color: var(--accent-fg); }
 .pill.more { padding: 0 6px; color: var(--text-3); }
+/* Another worktree's HEAD: a branch checked out there, or its detached commit. */
+.pill.worktree { border-style: dashed; color: var(--text-2); }
+.pill.worktree .icon, .pill.in-worktree .icon:last-child { color: var(--accent-fg); }
 .track { font-size: 10.5px; color: var(--text-3); margin-left: 2px; font-variant-numeric: tabular-nums; }
 
 /* Detail side panel */
@@ -472,6 +479,15 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .badge { justify-self: start; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-3); background: var(--bg-active); }
 .badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .badge.local { color: var(--accent-fg); background: var(--accent-soft); }
+
+.wt-list { padding: 0 16px 8px; }
+.wt-row { gap: 12px; padding: 10px 16px; }
+.wt-row .list-title { display: flex; align-items: center; gap: 6px; font-weight: 550; }
+.wt-row .pill { flex: none; }
+.wt-changes { flex: none; min-width: 72px; text-align: right; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.wt-changes.dirty { color: var(--warn); }
+.wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
+.wt-hint { border-top: 0; padding: 4px 32px 24px; }
 
 .empty { padding: 32px; color: var(--text-3); text-align: center; }
 .empty.big { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 64px 24px; height: 100%; }
