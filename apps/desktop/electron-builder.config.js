@@ -33,7 +33,7 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
   // The store profile is baked into the packaged package.json; the packaged app ignores GITLANES_STORE
   // at run time. Production unless the build asks for the test store (GITLANES_STORE=sandbox).
   extraMetadata: { gitlanes: { store: STORE } },
