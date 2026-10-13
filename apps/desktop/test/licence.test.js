@@ -423,7 +423,7 @@ test('config: packaged builds use only the baked profile; the environment and mo
   assert.equal(packaged({}, 'mock').profile, 'production', 'a baked mock is ignored too');
   assert.equal(packaged({}, 'bogus').profile, 'production');
   for (const env of [{}, { GITLANES_STORE: 'mock' }]) assert.notEqual(packaged(env, 'mock').provider, 'mock');
-  // Unpackaged (npm start) still follows the environment.
+  // Unpackaged (pnpm start) still follows the environment.
   assert.equal(loadConfig({ GITLANES_STORE: 'mock' }, { packaged: false, baked: 'production' }).provider, 'mock');
 });
 

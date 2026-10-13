@@ -1,7 +1,7 @@
 'use strict';
 // End-to-end auto-update test against two local test releases. macOS only; takes a few minutes.
 //
-//   npm run test:update -w @gitlanes/desktop [-- --keep]
+//   pnpm --filter @gitlanes/desktop test:update [-- --keep]
 //
 // 1. Creates a throwaway keychain holding a self-signed code-signing certificate. Squirrel.Mac only
 //    installs an update signed by the same identity as the running app, so ad-hoc builds can't update.
@@ -72,7 +72,7 @@ function build(version, feed) {
   fs.writeFileSync(cfg, `const base = require(${JSON.stringify(path.join(APP_DIR, 'electron-builder.config.js'))});
 module.exports = { ...base, directories: { ...base.directories, output: ${JSON.stringify(out)} },
   extraMetadata: { version: ${JSON.stringify(version)}, updates: { feed: ${JSON.stringify(feed)}, page: ${JSON.stringify(feed)} } } };\n`);
-  run('npx', ['electron-builder', '--mac', 'dir', `--${ARCH}`, '--projectDir', APP_DIR, '--config', cfg, '--publish', 'never'], { cwd: APP_DIR, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } });
+  run('pnpm', ['exec', 'electron-builder', '--mac', 'dir', `--${ARCH}`, '--projectDir', APP_DIR, '--config', cfg, '--publish', 'never'], { cwd: APP_DIR, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } });
   const app = path.join(out, ARCH === 'arm64' ? 'mac-arm64' : 'mac', 'GitLanes.app');
   if (plistVersion(app) !== version) throw new Error(`${app} is not ${version}`);
   return app;

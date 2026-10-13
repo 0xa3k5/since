@@ -1,5 +1,5 @@
 'use strict';
-// Large-repository benchmark: `npm run bench [-- options]`.
+// Large-repository benchmark: `pnpm bench [-- options]`.
 //
 // Opens each repository in the real app and records, from inside the window:
 //   first paint   launch → first Map rows on screen

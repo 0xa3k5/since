@@ -1,5 +1,5 @@
 'use strict';
-// Packaging for `npm run dist`. Build-time only: nothing here loads in the app.
+// Packaging for `pnpm dist`. Build-time only: nothing here loads in the app.
 //
 // Signing switches on by itself when a Developer ID certificate is available, either from
 // CSC_LINK (+ CSC_KEY_PASSWORD) in CI or from the login keychain. Notarization then runs through
