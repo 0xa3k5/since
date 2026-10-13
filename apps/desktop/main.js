@@ -10,6 +10,8 @@ const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
 const { loadConfig } = require('./licence/config');
 const { createStore } = require('./licence/stores');
+const updater = require('./updater');
+const pkg = require('./package.json');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -319,6 +321,16 @@ ipcMain.handle('app:platform', () => process.platform);
 ipcMain.handle('app:theme', () => currentTheme());
 ipcMain.handle('app:set-theme', (_e, mode) => setTheme(mode));
 ipcMain.handle('app:cycle-theme', () => cycleTheme());
+ipcMain.handle('app:update-state', () => ({ ...updater.getState(), page: updater.page() }));
+ipcMain.handle('app:check-updates', () => updater.check({ manual: true }));
+ipcMain.handle('app:install-update', () => updater.install());
+ipcMain.handle('app:set-auto-update', (_e, on) => setAutoUpdate(on));
+
+// "Automatically check for updates" (on unless turned off). Manual checks always work.
+function setAutoUpdate(on) {
+  writeSettings({ autoUpdate: Boolean(on) });
+  return updater.refresh();
+}
 
 // ---------------------------------------------------------------------------
 // Trial & licence
@@ -494,10 +506,15 @@ function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
   const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
   const nextUndo = journal?.undo.top, nextRedo = journal?.redo.top;
+  const update = updater.getState();
+  const updateItem = update.status === 'ready'
+    ? { label: `Restart to Update to ${update.version}`, click: () => updater.install() }
+    : { label: 'Check for Updates…', enabled: update.status !== 'checking', click: () => updater.check({ manual: true }) };
+  const autoItem = { label: 'Automatically Check for Updates', type: 'checkbox', checked: update.auto !== false, click: (mi) => setAutoUpdate(mi.checked) };
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -588,6 +605,16 @@ app.whenReady().then(() => {
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   initLicensing();
+  updater.init({
+    auto: () => readSettings().autoUpdate !== false,
+    feed: pkg.updates?.feed,
+    page: pkg.updates?.page,
+    devFeed: app.isPackaged ? null : process.env.GITLANES_UPDATE_FEED,
+    onChange: (state) => {
+      buildMenu();
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('update', { ...state, page: updater.page() });
+    },
+  });
   buildMenu();
   app.on('browser-window-focus', () => { buildMenu(); revalidate(); });
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));

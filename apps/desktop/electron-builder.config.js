@@ -33,7 +33,7 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'updater.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
   // The store profile is baked into the packaged package.json; the packaged app ignores GITLANES_STORE
   // at run time. Production unless the build asks for the test store (GITLANES_STORE=sandbox).
   extraMetadata: { gitlanes: { store: STORE } },
@@ -53,7 +53,10 @@ module.exports = {
     enableCookieEncryption: true,
   },
   mac: {
-    target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
+    // The DMG is for first installs; the zip is what auto-update (Squirrel.Mac) downloads.
+    target: [{ target: 'dmg', arch: ['arm64', 'x64'] }, { target: 'zip', arch: ['arm64', 'x64'] }],
+    // Names the zips (the DMG sets its own below). Must match updater.zipName(), which the feed points at.
+    artifactName: '${productName}-${version}-${arch}-mac.${ext}',
     category: 'public.app-category.developer-tools',
     icon: 'build/icon.icns',
     minimumSystemVersion: '12.0',

@@ -219,17 +219,17 @@ const test = base.extend({
     fs.rmSync(dir, { recursive: true, force: true });
   },
 
-  // launch(repoPath?) starts the app with its own userData, optionally opening a repository.
+  // launch(repoPath?, { theme?, env? }) starts the app with its own userData, optionally opening a repository.
   launch: async ({ sandbox }, use, testInfo) => {
     const apps = [];
-    await use(async (repo, { theme } = {}) => {
+    await use(async (repo, { theme, env } = {}) => {
       const userData = sandbox.path(`userdata-${apps.length}`);
       fs.mkdirSync(userData);
       if (theme) fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ theme }));
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
-        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror') },
+        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), ...env },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });
