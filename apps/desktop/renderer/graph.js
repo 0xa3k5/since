@@ -65,7 +65,12 @@ function step(st, c, full) {
   } else {
     color = laneColor[col];
   }
-  if (onTrunk) st.trunk = c.parents.length ? c.parents[0] : null;
+  if (onTrunk) {
+    st.trunk = c.parents.length ? c.parents[0] : null;
+    // Lane 0 may still be an unset hole (branches drawn before HEAD start at lane 1); once the
+    // trunk ends, mark it free so freeSlot() can hand it out again.
+    if (st.trunk === null && lanes.length && lanes[0] === undefined) lanes[0] = null;
+  }
   // Lanes waiting for this commit end here.
   const mine = st.pos.get(c.sha);
   if (mine !== undefined) {

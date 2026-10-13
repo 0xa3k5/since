@@ -368,6 +368,23 @@ test('octopus merges keep HEAD\'s chain in lane 0', async () => {
   assert.deepEqual(lanes(g, 5), [1, 2, 0, 1, 0]);
 });
 
+test('HEAD on an orphan branch: lane 0 is reused once its trunk ends', async () => {
+  const { layout } = await import('../renderer/graph.js');
+  // main: x0 - x1   orphan (HEAD): h (a root)   later branch: z0 - z, in date order
+  const commits = [
+    { sha: 'x1', parents: ['x0'] },
+    { sha: 'h', parents: [] },
+    { sha: 'z', parents: ['z0'] },
+    { sha: 'x0', parents: [] },
+    { sha: 'z0', parents: [] },
+  ];
+  const g = layout(commits, 'h');
+  assertTrunk(g, commits, 'h');
+  // x1 starts right of the trunk; after h, z takes the freed lane 0 instead of a new lane 2.
+  assert.deepEqual(lanes(g, 5), [1, 0, 0, 1, 0]);
+  assert.equal(g.maxLanes, 2);
+});
+
 test('detached HEAD deep in history, and no HEAD', async () => {
   const { layout } = await import('../renderer/graph.js');
   const commits = randomHistory(1200, 21);
