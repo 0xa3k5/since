@@ -357,12 +357,16 @@ async function getReflog(cwd, limit = 500) {
 }
 
 async function getConfig(cwd) {
+  // With -z every entry is "scope\0key\nvalue\0" (no newline when a key has no value).
   const out = await run(cwd, ['config', '--list', '--show-scope', '-z']);
-  return out.split('\0').filter(Boolean).map((e) => {
-    const [scope, kv] = e.split('\t');
+  const parts = out.split('\0');
+  const list = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const [scope, kv] = [parts[i], parts[i + 1]];
     const nl = kv.indexOf('\n');
-    return { scope, key: nl === -1 ? kv : kv.slice(0, nl), value: nl === -1 ? '' : kv.slice(nl + 1) };
-  });
+    list.push({ scope, key: nl === -1 ? kv : kv.slice(0, nl), value: nl === -1 ? '' : kv.slice(nl + 1) });
+  }
+  return list;
 }
 
 async function getRemotes(cwd) {
