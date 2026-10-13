@@ -26,9 +26,35 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'preload.js', 'renderer/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
+});
+
+test('every module the main process requires is packaged', () => {
+  // Follow local require()s from main.js; a missing file only shows up as a crash in the DMG.
+  const seen = new Set();
+  const visit = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const src = fs.readFileSync(path.join(root, file), 'utf8');
+    for (const [, rel] of src.matchAll(/require\('(\.\/[^']+)'\)/g)) visit(path.normalize(rel.endsWith('.js') ? rel : `${rel}.js`));
+  };
+  visit('main.js');
+  visit('preload.js');
+  for (const file of seen) assert.ok(config.files.includes(file), `${file} is required at runtime but not packaged`);
+});
+
+test('Electron fuses close the run-as-node and asar tampering paths', () => {
+  assert.deepStrictEqual(config.electronFuses, {
+    runAsNode: false,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableEmbeddedAsarIntegrityValidation: true,
+    onlyLoadAppFromAsar: true,
+    enableCookieEncryption: true,
+  });
+  assert.strictEqual(config.asar, true);
 });
 
 test('DMG background reads under both Finder label colours', () => {

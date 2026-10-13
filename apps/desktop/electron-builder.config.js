@@ -30,7 +30,7 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'preload.js', 'renderer/**', 'package.json'],
   asar: true,
   // In CI a provided certificate must actually be used; never fall back to an unsigned release.
   forceCodeSigning: Boolean(process.env.CSC_LINK),

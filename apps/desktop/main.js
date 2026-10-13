@@ -1,10 +1,12 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const git = require('./git');
 const { Journal, workOps } = require('./journal');
+const check = require('./ipc');
 
 const isMac = process.platform === 'darwin';
 const sessions = new Map(); // webContents.id -> RepoSession
@@ -217,6 +219,25 @@ const plainMutations = {
   markResolved: (s, p) => r(s, ['add', '--', p]),
 };
 
+// Every IPC channel goes through here: calls are only accepted from our own renderer page,
+// loaded from the app bundle into a window's main frame. Arguments are checked by ipc.js.
+const RENDERER_URL = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+function trustedSender(e) {
+  const frame = e.senderFrame;
+  if (!frame || frame.parent) return false;
+  try {
+    const u = new URL(frame.url);
+    u.search = ''; u.hash = '';
+    return u.href === RENDERER_URL;
+  } catch { return false; }
+}
+function handle(channel, fn) {
+  ipcMain.handle(channel, (e, ...args) => {
+    if (!trustedSender(e)) throw new Error(`Blocked IPC "${channel}" from ${e.senderFrame?.url || 'unknown frame'}`);
+    return fn(e, ...args);
+  });
+}
+
 function session(e) {
   const s = sessions.get(e.sender.id);
   if (!s) throw new Error('No repository open in this window');
@@ -227,12 +248,11 @@ function serializeError(err) {
   return { message: err.message || String(err), stderr: err.stderr || null };
 }
 
-ipcMain.handle('git', async (e, method, ...args) => {
+handle('git', async (e, method, ...args) => {
   try {
+    const { args: realArgs, label } = check.checkGit(method, args);
     const s = session(e);
-    if (reads[method]) return { ok: await reads[method](s, ...args) };
-    const label = args.length && args[args.length - 1] && args[args.length - 1].__label;
-    const realArgs = label ? args.slice(0, -1) : args;
+    if (reads[method]) return { ok: await reads[method](s, ...realArgs) };
     s.busy++;
     try {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
@@ -255,12 +275,12 @@ ipcMain.handle('git', async (e, method, ...args) => {
 // ---------------------------------------------------------------------------
 // Window / app level IPC
 
-ipcMain.handle('app:recent', () => readRecent());
-ipcMain.handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
-ipcMain.handle('app:platform', () => process.platform);
-ipcMain.handle('app:theme', () => currentTheme());
-ipcMain.handle('app:set-theme', (_e, mode) => setTheme(mode));
-ipcMain.handle('app:cycle-theme', () => cycleTheme());
+handle('app:recent', () => readRecent());
+handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
+handle('app:platform', () => process.platform);
+handle('app:theme', () => currentTheme());
+handle('app:set-theme', (_e, mode) => setTheme(check.oneOf(...THEMES)(mode, 'theme')));
+handle('app:cycle-theme', () => cycleTheme());
 
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
@@ -277,9 +297,10 @@ async function bindRepo(win, dir) {
   return repo;
 }
 
-ipcMain.handle('app:open', async (e, dir) => {
+handle('app:open', async (e, dir) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   try {
+    if (dir != null) check.absDir(dir);
     if (!dir) {
       const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Open a Git repository' });
       if (res.canceled) return { ok: null };
@@ -291,15 +312,16 @@ ipcMain.handle('app:open', async (e, dir) => {
   }
 });
 
-ipcMain.handle('app:init', async (e) => {
+handle('app:init', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Choose a folder for the new repository' });
   if (res.canceled) return { ok: null };
   try { await git.initRepo(res.filePaths[0]); return { ok: await bindRepo(win, res.filePaths[0]) }; } catch (err) { return { error: serializeError(err) }; }
 });
 
-ipcMain.handle('app:clone', async (e, url) => {
+handle('app:clone', async (e, url) => {
   const win = BrowserWindow.fromWebContents(e.sender);
+  try { url = check.cloneUrl(url); } catch (err) { return { error: serializeError(err) }; }
   const name = (url.split('/').pop() || 'repo').replace(/\.git$/, '');
   const res = await dialog.showSaveDialog(win, { defaultPath: name, buttonLabel: 'Clone', message: 'Clone repository to…' });
   if (res.canceled) return { ok: null };
@@ -309,32 +331,33 @@ ipcMain.handle('app:clone', async (e, url) => {
   } catch (err) { return { error: serializeError(err) }; }
 });
 
-ipcMain.handle('app:close-repo', (e) => {
+handle('app:close-repo', (e) => {
   sessions.get(e.sender.id)?.dispose();
   sessions.delete(e.sender.id);
   BrowserWindow.fromWebContents(e.sender).setTitle('GitLanes');
   buildMenu();
 });
 
-ipcMain.handle('app:reveal', (e, rel) => {
+handle('app:reveal', (e, rel) => {
   const s = session(e);
-  if (rel) shell.showItemInFolder(path.join(s.repo.root, rel));
+  if (rel) shell.showItemInFolder(check.insideRepo(s.repo.root, rel));
   else shell.openPath(s.repo.root);
 });
-ipcMain.handle('app:terminal', (e) => {
+handle('app:terminal', (e) => {
   const s = session(e);
   if (isMac) spawn('open', ['-a', 'Terminal', s.repo.root], { detached: true });
   else shell.openPath(s.repo.root);
 });
-ipcMain.handle('app:open-file', (e, rel) => shell.openPath(path.join(session(e).repo.root, rel)));
-ipcMain.handle('app:external', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
-ipcMain.handle('app:copy', (_e, text) => clipboard.writeText(text));
-ipcMain.handle('app:confirm', async (e, { message, detail, ok = 'OK', destructive }) => {
+handle('app:open-file', (e, rel) => shell.openPath(check.insideRepo(session(e).repo.root, rel)));
+handle('app:external', (_e, url) => shell.openExternal(check.webUrl(url)));
+handle('app:copy', (_e, text) => clipboard.writeText(check.str(text, 'clipboard text', { max: 16 * 1024 * 1024, empty: true })));
+handle('app:confirm', async (e, opts) => {
+  const { message, detail, ok = 'OK', destructive } = check.confirmOptions(opts);
   const win = BrowserWindow.fromWebContents(e.sender);
   const res = await dialog.showMessageBox(win, { type: destructive ? 'warning' : 'question', message, detail, buttons: [ok, 'Cancel'], defaultId: 0, cancelId: 1 });
   return res.response === 0;
 });
-ipcMain.handle('app:new-window', () => { createWindow(); });
+handle('app:new-window', () => { createWindow(); });
 
 // ---------------------------------------------------------------------------
 // Windows & menu
@@ -356,15 +379,20 @@ function createWindow(repoDir) {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      webviewTag: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
+      safeDialogs: true,
       spellcheck: false,
+      devTools: !app.isPackaged || Boolean(process.env.GITLANES_DEVTOOLS),
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), repoDir ? { query: { repo: repoDir } } : undefined);
   win.once('ready-to-show', () => win.show());
   const id = win.webContents.id;
   win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); buildMenu(); });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (ev) => ev.preventDefault());
   return win;
 }
 
@@ -432,7 +460,7 @@ function buildMenu() {
           ],
         },
         { type: 'separator' },
-        { role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' },
+        { role: 'reload' }, ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' }]), { role: 'togglefullscreen' },
       ],
     },
     {
@@ -456,6 +484,43 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// ---------------------------------------------------------------------------
+// Lockdown. GitLanes talks to the network only through the git processes it starts; the
+// renderer never does. See docs/security.md.
+
+app.enableSandbox();
+
+// No page in any webContents (including ones we never meant to create) may navigate,
+// redirect, open windows or attach <webview>s. Web links open in the user's browser.
+app.on('web-contents-created', (_e, contents) => {
+  contents.on('will-navigate', (ev) => ev.preventDefault());
+  contents.on('will-redirect', (ev) => ev.preventDefault());
+  contents.on('will-attach-webview', (ev) => ev.preventDefault());
+  contents.setWindowOpenHandler(({ url }) => {
+    try { shell.openExternal(check.webUrl(url)); } catch { /* not a web link: drop it */ }
+    return { action: 'deny' };
+  });
+});
+
+// What a renderer may load: its own files, inline data: images, and DevTools in development.
+const LOCAL_SCHEMES = new Set(['file:', 'data:', 'devtools:', 'chrome-extension:']);
+
+function lockDownSession(ses) {
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  ses.setPermissionCheckHandler(() => false);
+  ses.setDevicePermissionHandler(() => false);
+  ses.setSpellCheckerEnabled(false);
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    let scheme = '';
+    try { scheme = new URL(details.url).protocol; } catch { /* malformed: block */ }
+    const allowed = LOCAL_SCHEMES.has(scheme);
+    if (!allowed) console.warn('blocked request', details.url.slice(0, 200));
+    callback({ cancel: !allowed });
+  });
+}
+
+app.on('session-created', lockDownSession);
+
 app.on('open-file', (ev, p) => {
   ev.preventDefault();
   if (app.isReady()) createWindow(p); else app.once('ready', () => createWindow(p));
@@ -463,6 +528,7 @@ app.on('open-file', (ev, p) => {
 
 app.whenReady().then(() => {
   app.setName('GitLanes');
+  lockDownSession(electronSession.defaultSession);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   buildMenu();

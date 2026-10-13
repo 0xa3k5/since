@@ -22,6 +22,7 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 ## Architecture
 - `git.js`: dependency-free git CLI layer (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
 - `main.js`: windows, menu, IPC, FSEvents watcher (live refresh), unlimited undo/redo journal (`.git/gitlanes-history.json`).
+- `ipc.js`: argument checks for every IPC call. The renderer is sandboxed, has no network access and only reaches git through these checks; see [docs/security.md](../../docs/security.md).
 - `renderer/`: buildless ES modules. Canvas commit graph + virtualized list, so 20k+ commits stay smooth.
 
 ## Features
