@@ -1,0 +1,19 @@
+{
+  "name": "gitlanes",
+  "productName": "GitLanes",
+  "version": "0.1.0",
+  "description": "A fast, keyboard-first Git client inspired by GitUp, styled after Linear",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "electron": "44.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/0xa3k5/gitlanes.git"
+  }
+}
