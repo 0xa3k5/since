@@ -239,6 +239,7 @@ function loadHistory() {
   const seq = ++loadSeq;
   const opts = logOpts();
   const fresh = !state.hist.complete;
+  const head = state.head.oid;
   let shown;
   const firstScreen = new Promise((r) => { shown = r; });
   let live = false; // is the history being built already on screen?
@@ -260,13 +261,15 @@ function loadHistory() {
     if (fresh) {
       const ahead = previewAhead && (await previewAhead);
       previewAhead = null;
-      const preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
+      let preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
       if (seq !== loadSeq) return;
       if (!preview) { state.logKey = ''; return; }
+      // The preview may have been read before HEAD was known.
+      if (preview.graph.head !== head) preview = preview.fork(preview.length, head);
       if (preview.length < PREVIEW) preview.complete = true; // that was all of it, though maybe unordered
       show(preview);
       // The ordered history, with the preview's details carried over.
-      target = createHistory();
+      target = createHistory(head);
       for (const c of preview.commits) target.seed(c);
       // Rows without details stay placeholders until fetched on demand, so a failure here only
       // leaves the loading marker up; it must not surface as an unhandled rejection.
@@ -287,7 +290,7 @@ function loadHistory() {
     }
     // Reload: keep showing the current history while the new one is replayed against it.
     shown();
-    const merge = createMerge(state.hist);
+    const merge = createMerge(state.hist, head);
     const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
       merge.push(parseLog(text, 'topo'));
       const next = merge.next;
