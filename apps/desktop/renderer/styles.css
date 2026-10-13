@@ -483,6 +483,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .tl-row.current .tl-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .tl-row.undone { opacity: 0.55; }
 .tl-row.undone .tl-dot { border-style: dashed; }
+.tl-more { padding: 8px 0 8px 28px; }
 
 .table { padding: 0 16px 24px; }
 .table-row { display: grid; grid-template-columns: 80px 180px 1fr auto 100px; align-items: center; gap: 12px; height: 34px; padding: 0 16px; border-radius: var(--radius); }

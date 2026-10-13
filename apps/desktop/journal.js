@@ -3,14 +3,20 @@
 // Each entry stores the refs before and after an operation. Operations that
 // destroy uncommitted work also store an exact snapshot of the paths they touch
 // (and the stash they drop), so undo and redo restore those too. Every object
-// an entry needs is pinned under refs/gitlanes/undo/<id> until the entry
-// leaves the journal, so `git gc` can't collect it.
+// an entry needs is pinned under refs/gitlanes/undo/<key> until the entry
+// leaves the journal (only redo entries ever do), so `git gc` can't collect it.
+//
+// History has no cap. Only the newest entries of each stack are kept in memory
+// and in gitlanes-history.json; older ones are archived to page files under
+// gitlanes-history/ and read back only when undo or redo reaches them, so
+// memory and the cost of each save stay flat. Archiving also compacts a page's
+// pins into one set under refs/gitlanes/undo/p<n>.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const git = require('./git');
 
-const LIMIT = 200;
+const PAGE = 100; // entries per archived page; up to 2 × PAGE stay in memory per stack
 let nextId = Date.now();
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -49,34 +55,151 @@ const workOps = {
 
 const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
 
-class Journal {
-  constructor(repo) {
-    this.root = repo.root;
-    this.file = path.join(repo.gitDir, 'gitlanes-history.json');
-    this.undo = [];
-    this.redo = [];
-    try {
-      const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      this.undo = saved.undo || [];
-      this.redo = saved.redo || [];
-    } catch { /* no history yet */ }
-    for (const e of [...this.undo, ...this.redo]) nextId = Math.max(nextId, e.id);
+// One side of the journal. `hot` holds the newest entries (top of the stack
+// last); `pages` describes archived pages, oldest first.
+class Stack {
+  constructor({ hot = [], pages = [] } = {}) {
+    this.hot = hot;
+    this.pages = pages;
   }
 
-  list() {
-    const strip = (e, i) => ({ id: e.id, label: e.label, time: e.time, index: i, movesRefs: !e.worktree && !same(e.before, e.after) });
-    return { undo: this.undo.map(strip), redo: this.redo.map(strip) };
+  get length() { return this.pages.reduce((n, p) => n + p.count, 0) + this.hot.length; }
+  get top() { return this.hot.at(-1); }
+  // Pin keys still needed by this stack.
+  pinKeys() { return [...this.pages.flatMap((p) => p.pins), ...this.hot.map((e) => e.pin || e.id)]; }
+}
+
+const writeAtomic = (file, data) => {
+  fs.writeFileSync(file + '.tmp', data);
+  fs.renameSync(file + '.tmp', file);
+};
+
+class Journal {
+  constructor(repo, { pageSize = PAGE } = {}) {
+    this.root = repo.root;
+    this.file = path.join(repo.gitDir, 'gitlanes-history.json');
+    this.dir = path.join(repo.gitDir, 'gitlanes-history');
+    this.pageSize = pageSize;
+    this.nextPage = 1;
+    this.undo = new Stack();
+    this.redo = new Stack();
+    try {
+      const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      if (saved.version === 2) {
+        this.nextPage = saved.nextPage;
+        this.undo = new Stack(saved.undo);
+        this.redo = new Stack(saved.redo);
+      } else {
+        // The first format: two flat arrays. They are archived on the next save.
+        this.undo = new Stack({ hot: saved.undo || [] });
+        this.redo = new Stack({ hot: saved.redo || [] });
+      }
+    } catch { /* no history yet */ }
+    for (const s of [this.undo, this.redo]) {
+      for (const e of s.hot) nextId = Math.max(nextId, e.id);
+      for (const p of s.pages) nextId = Math.max(nextId, p.last);
+    }
+    this.removeOrphanPages();
+  }
+
+  // Newest `limit` entries of each stack, plus the full sizes.
+  list(limit = 100) {
+    const strip = (e) => ({ id: e.id, label: e.label, time: e.time, movesRefs: !e.worktree && !same(e.before, e.after) });
+    const newest = (s) => {
+      let out = s.hot.slice(-limit);
+      for (let i = s.pages.length - 1; i >= 0 && out.length < limit; i--) out = [...this.readPage(s.pages[i]).slice(out.length - limit), ...out];
+      return out.map(strip);
+    };
+    return { undo: newest(this.undo), redo: newest(this.redo), undoCount: this.undo.length, redoCount: this.redo.length };
   }
 
   persist() {
-    this.undo = this.undo.slice(-LIMIT);
-    this.redo = this.redo.slice(-LIMIT);
-    try { fs.writeFileSync(this.file, JSON.stringify({ undo: this.undo, redo: this.redo })); } catch { /* read-only repo */ }
+    const data = JSON.stringify({ version: 2, nextPage: this.nextPage, undo: this.undo, redo: this.redo });
+    try { writeAtomic(this.file, data); } catch { /* read-only repo */ }
   }
 
   // Drop the pins of entries that have left the journal.
   prune() {
-    return git.pruneUndoPins(this.root, [...this.undo, ...this.redo].map((e) => e.id)).catch((err) => console.warn('prune failed', err.message));
+    return git.pruneUndoPins(this.root, [...this.undo.pinKeys(), ...this.redo.pinKeys()]).catch((err) => console.warn('prune failed', err.message));
+  }
+
+  pagePath(page) { return path.join(this.dir, `${page.n}.json`); }
+
+  readPage(page) {
+    try { return JSON.parse(fs.readFileSync(this.pagePath(page), 'utf8')); } catch (err) {
+      console.warn('history page unreadable', page.n, err.message);
+      return [];
+    }
+  }
+
+  removePages(pages) {
+    for (const p of pages) fs.rmSync(this.pagePath(p), { force: true });
+  }
+
+  // Page files left behind by a save that never completed.
+  removeOrphanPages() {
+    let files = [];
+    try { files = fs.readdirSync(this.dir); } catch { return; }
+    const live = new Set([...this.undo.pages, ...this.redo.pages].map((p) => `${p.n}.json`));
+    for (const f of files) if (!live.has(f)) fs.rmSync(path.join(this.dir, f), { force: true });
+  }
+
+  // Move the oldest hot entries of `stack` into page files until at most
+  // 2 × pageSize remain. Each page's objects are pinned under one key before
+  // the page is written, so the entries stay restorable throughout. Returns
+  // whether anything was archived (the old pins are then pruned).
+  async archive(stack) {
+    let moved = false;
+    while (stack.hot.length > 2 * this.pageSize) {
+      const entries = stack.hot.slice(0, this.pageSize);
+      const n = this.nextPage;
+      const key = `p${n}`;
+      try {
+        const objs = { blobs: [], objects: [] };
+        for (const e of entries) {
+          const p = pins(e);
+          objs.blobs.push(...p.blobs);
+          objs.objects.push(...p.objects);
+        }
+        await git.pinUndo(this.root, key, objs);
+        fs.mkdirSync(this.dir, { recursive: true });
+        writeAtomic(path.join(this.dir, `${n}.json`), JSON.stringify(entries.map((e) => ({ ...e, pin: key }))));
+      } catch (err) {
+        console.warn('archive failed', err.message);
+        break;
+      }
+      const ids = entries.map((e) => e.id);
+      stack.pages.push({ n, count: entries.length, first: Math.min(...ids), last: Math.max(...ids), pins: [key] });
+      stack.hot = stack.hot.slice(this.pageSize);
+      this.nextPage++;
+      moved = true;
+    }
+    return moved;
+  }
+
+  // Read the newest page back once the hot entries run out. Returns the pages
+  // read, whose files are removed after the next save.
+  unarchive(stack) {
+    const read = [];
+    while (!stack.hot.length && stack.pages.length) {
+      read.push(stack.pages.pop());
+      stack.hot = this.readPage(read.at(-1));
+    }
+    return read;
+  }
+
+  // Find an entry anywhere in the journal, reading archived pages if needed.
+  find(id) {
+    for (const s of [this.undo, this.redo]) {
+      const hit = s.hot.find((e) => e.id === id);
+      if (hit) return hit;
+      for (const p of s.pages) {
+        if (id < p.first || id > p.last) continue;
+        const e = this.readPage(p).find((x) => x.id === id);
+        if (e) return e;
+      }
+    }
+    return null;
   }
 
   // Run `fn` and record it as one undoable step. `paths` (returns the paths fn
@@ -153,23 +276,30 @@ class Journal {
     }
     if (!changed) return git.pinUndo(cwd, id);
     await git.pinUndo(cwd, id, pins(entry));
-    this.undo.push(entry);
-    this.redo = [];
+    this.undo.hot.push(entry);
+    const dropped = this.redo;
+    this.redo = new Stack();
+    const archived = await this.archive(this.undo);
     this.persist();
-    await this.prune();
+    this.removePages(dropped.pages);
+    if (dropped.length || archived) await this.prune();
   }
 
   async step(dir) {
     const from = dir === 'undo' ? this.undo : this.redo;
     const to = dir === 'undo' ? this.redo : this.undo;
-    const entry = from[from.length - 1];
+    const entry = from.top;
     if (!entry) return null;
     if (entry.worktree) await this.restoreWorktree(entry, dir);
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
-    from.pop();
-    to.push(entry);
+    from.hot.pop();
+    to.hot.push(entry);
+    const loaded = this.unarchive(from);
+    const archived = await this.archive(to);
     this.persist();
+    this.removePages(loaded);
+    if (archived) await this.prune();
     return entry.label;
   }
 
@@ -187,6 +317,7 @@ class Journal {
         // The snapshot after the operation failed; take it now so redo still works.
         entry.work[cur] = await git.snapshotWork(cwd, paths);
         await git.pinUndo(cwd, entry.id, pins(entry));
+        delete entry.pin; // an archived entry now has its own pins again
       } else {
         const changed = git.workChanges(entry.work[cur], await git.snapshotWork(cwd, paths, { write: false }));
         if (changed.length) throw fail(`${listPaths(changed)} changed since. Commit or stash ${changed.length > 1 ? 'those changes' : 'that change'} first.`);
@@ -227,10 +358,10 @@ class Journal {
 
   // Move refs back to the state before an entry (the Snapshots view's "Restore before").
   async restore(id) {
-    const entry = this.undo.find((e) => e.id === id) || this.redo.find((e) => e.id === id);
+    const entry = this.find(id);
     if (!entry) throw new git.GitError('Snapshot not found');
     await this.record(`Restore “${entry.label}”`, 'restoreHistory', () => git.restoreRefState(this.root, entry.before));
   }
 }
 
-module.exports = { Journal, workOps, worktreeOps, LIMIT };
+module.exports = { Journal, workOps, worktreeOps, PAGE };
