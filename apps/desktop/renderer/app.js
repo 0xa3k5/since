@@ -1,6 +1,7 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
 import { layout, paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { renderDiff, hunkKeys, statusBadge, fileName } from './diff.js';
+import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -34,6 +35,7 @@ const state = {
   amend: false,
   collapsed: loadPref('collapsed', {}),
   theme: 'system',
+  licence: null,
 };
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
@@ -44,6 +46,7 @@ function savePref(k, v) { try { localStorage.setItem('pref:' + k, JSON.stringify
 
 async function git(method, ...args) {
   const r = await api.git(method, ...args);
+  if (r.error?.code === 'READ_ONLY') { openLicence({ blocked: true }); const e = new Error(r.error.message); e.readOnly = true; throw e; }
   if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; throw e; }
   return r.ok;
 }
@@ -59,14 +62,14 @@ async function act(label, method, args = [], { busy, success, undoable = true, q
     return true;
   } catch (e) {
     t?.close();
-    toast(`${label} failed`, { kind: 'error', detail: e.message });
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return false;
   }
 }
 
 async function quiet(method, ...args) {
-  try { await git(method, ...args); } catch (e) { toast('Git error', { kind: 'error', detail: e.message }); }
+  try { await git(method, ...args); } catch (e) { if (!e.readOnly) toast('Git error', { kind: 'error', detail: e.message }); }
   await refreshStatus();
 }
 
@@ -74,7 +77,7 @@ async function undo() {
   try {
     const label = await git('undo');
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
-  } catch (e) { toast('Undo failed', { kind: 'error', detail: e.message }); }
+  } catch (e) { if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message }); }
   await refreshAll();
 }
 // "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
@@ -86,7 +89,7 @@ async function redo() {
   try {
     const label = await git('redo');
     toast(label ? `Redid “${label}”` : 'Nothing to redo');
-  } catch (e) { toast('Redo failed', { kind: 'error', detail: e.message }); }
+  } catch (e) { if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message }); }
   await refreshAll();
 }
 
@@ -320,6 +323,8 @@ function renderTopbar() {
   if (state.view === 'commit') {
     right.append(h('button.btn.subtle', { onclick: stashSave }, icon('stash', 14), 'Stash'));
   }
+  const chip = licenceChip(state.licence, () => openLicence());
+  if (chip) right.append(chip);
   right.append(
     h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
@@ -1207,6 +1212,8 @@ function openPalette() {
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
     add('App', 'Close repository', closeRepo, { icon: 'x' });
+    add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
+    if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     for (const r of state.refs) {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
     }
@@ -1269,6 +1276,7 @@ async function renderWelcome() {
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
       h('h1', null, 'GitLanes'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
+      trialLine(state.licence) ? h('button.licence-line', { onclick: () => openLicence() }, icon('key', 12), trialLine(state.licence), kbd(...LICENCE_KBD)) : null,
       h('div.welcome-actions', null,
         h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(MOD, 'O')),
         h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(MOD, '⇧', 'O')),
@@ -1359,6 +1367,8 @@ const commands = {
   reveal: () => state.repo && api.app('reveal'),
   terminal: () => state.repo && api.app('terminal'),
   hosting: () => state.repo && openHosting(),
+  licence: () => openLicence(),
+  buy,
 };
 api.on('command', (cmd, ...args) => {
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
@@ -1403,10 +1413,19 @@ api.on('theme', (mode, { announce } = {}) => {
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 
+// ---------------------------------------------------------------------------
+// Trial & licence. The main process owns the state and refuses changes once the app is read-only.
+
+api.on('licence', (s) => {
+  state.licence = s;
+  if (state.repo) renderTopbar(); else if (!document.querySelector('.overlay')) renderShell();
+});
+
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
+  state.licence = await api.app('licence');
   const params = new URLSearchParams(location.search);
   const dir = params.get('repo');
   if (dir) await openRepo(dir);

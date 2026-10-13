@@ -23,4 +23,17 @@ Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
 Not yet: commit splitter, external diff/merge tools, submodules, auto-updates.
 
+## Trial and licence
+`licence/` (main process) owns the 14-day local trial and licence keys; `renderer/licence.js` is the UI
+(topbar chip, licence window, ⌥⌘L, ⌘K). After the trial GitLanes stays read-only: reads and fetch work,
+changes are refused until a licence is added. Keys are Polar licence keys, activated per Mac and validated
+once per session; the last good validation is cached (signed) so the app works offline for 30 days.
+
+- Store profile: `GITLANES_STORE=sandbox` (default) `| production | mock`. Values live in `licence/config.js`.
+  `GITLANES_STORE=production npm run dist` bakes the profile into a release.
+- `GITLANES_STORE=mock npm run desktop` accepts any `GL-TEST-…` key (`GL-TEST-REVOKED…`, `GL-TEST-FULL…`,
+  `GL-TEST-OFFLINE…` exercise the failure paths).
+- `GITLANES_CLOCK_OFFSET_DAYS=20` (unpackaged builds only) moves the clock forward to see later trial days.
+  The trial starts on first launch, so launch once without it first.
+
 Packaging and releases: see the [root README](../../README.md#building-the-dmg).
