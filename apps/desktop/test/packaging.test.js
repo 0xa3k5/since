@@ -22,16 +22,17 @@ test('packaging config points at files that exist', () => {
   for (const file of [config.mac.icon, config.mac.entitlements, config.mac.entitlementsInherit, config.dmg.background]) {
     assert.ok(fs.existsSync(path.join(root, file)), `${file} is missing`);
   }
-  assert.deepStrictEqual(config.mac.target[0].arch.sort(), ['arm64', 'x64']);
+  for (const t of config.mac.target) assert.deepStrictEqual(t.arch.sort(), ['arm64', 'x64'], t.target);
+  assert.deepStrictEqual(config.mac.target.map((t) => t.target), ['dmg', 'zip']);
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'updater.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
   // Every local module main.js requires must be packaged (bench is dev-only, behind GITLANES_BENCH).
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-  for (const [, mod] of main.matchAll(/require\('\.\/([\w-]+)/g)) {
+  for (const [, mod] of main.matchAll(/require\('\.\/([\w.-]+)/g)) {
     if (mod === 'bench') continue;
-    assert.ok(config.files.some((f) => f === `${mod}.js` || f === `${mod}/**`), `${mod} is required by main.js but not packaged`);
+    assert.ok(config.files.some((f) => f === mod || f === `${mod}.js` || f === `${mod}/**`), `${mod} is required by main.js but not packaged`);
   }
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');

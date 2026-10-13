@@ -1816,6 +1816,9 @@ function openPalette() {
     add('App', 'Close repository', closeRepo, { icon: 'x' });
     add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
+    if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
+    else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
+    add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
     for (const r of state.refs) {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
     }
@@ -2033,11 +2036,47 @@ api.on('licence', (s) => {
   if (state.repo) renderTopbar(); else if (!document.querySelector('.overlay')) renderShell();
 });
 
+// here we tell the user and offer the restart. Results of a manual check show in the window that asked.
+
+let update = { status: 'idle' };
+let checkingToast = null, availableToast = null;
+const announced = new Set();
+const checkUpdates = () => api.app('check-updates');
+const installUpdate = () => api.app('install-update');
+async function toggleAutoUpdate() {
+  const s = await api.app('set-auto-update', update.auto === false);
+  toast(s.auto ? 'Automatic update checks are on' : 'Automatic update checks are off', { kind: 'success', detail: s.auto ? 'GitLanes checks at launch and once a day.' : 'Check any time with ⌘K → Check for updates.' });
+}
+
+function showUpdate(s) {
+  update = s;
+  const manual = s.manual && document.hasFocus();
+  const once = (key) => { if (announced.has(key) && !manual) return false; announced.add(key); return true; };
+  if (s.status !== 'checking') { checkingToast?.close(); checkingToast = null; }
+  if (s.status === 'checking' && manual && !checkingToast) checkingToast = toast('Checking for updates…', { kind: 'busy', timeout: 0 });
+  else if (s.status === 'idle' && manual) toast('GitLanes is up to date', { kind: 'success', detail: `Version ${s.current}` });
+  else if (s.status === 'downloading' && manual) toast(`Downloading GitLanes ${s.version}…`, { detail: 'It installs when you restart.' });
+  else if (s.status === 'ready' && once(`ready ${s.version}`)) {
+    availableToast?.close(); availableToast = null;
+    toast(`GitLanes ${s.version} is ready`, { kind: 'success', detail: 'Restart to finish updating.', timeout: 0, action: { label: 'Restart to update', run: installUpdate } });
+  } else if (s.status === 'available' && once(`available ${s.version}`)) {
+    availableToast?.close();
+    availableToast = toast(`GitLanes ${s.version} is available`, {
+      detail: s.error ? `It couldn't be installed automatically: ${s.error}` : 'Download it to update.',
+      timeout: 12_000,
+      action: s.page ? { label: 'Download', run: () => api.app('external', s.page) } : null,
+    });
+  } else if (s.status === 'error' && manual) toast('Couldn’t check for updates', { kind: 'error', detail: s.error });
+  else if (s.status === 'disabled' && manual) toast('Updates come with the packaged app', { detail: 'Development builds don’t update themselves.' });
+}
+api.on('update', showUpdate);
+
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
   state.licence = await api.app('licence');
+  showUpdate(await api.app('update-state'));
   const params = new URLSearchParams(location.search);
   const dir = params.get('repo');
   if (dir) await openRepo(dir);
