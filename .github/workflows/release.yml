@@ -57,10 +57,16 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [ "$IS_TAG" = true ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $version"; exit 1
+          # A pre-release tag (v0.1.0-rc.1) builds the package.json version with that suffix, so release
+          # candidates don't need a version bump on main.
+          if [ "$IS_TAG" = true ]; then
+            tag_version=${GITHUB_REF_NAME#v}
+            if [ "$tag_version" != "$version" ] && ! [[ "$tag_version" =~ ^"$version"-[0-9A-Za-z.-]+$ ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $version"; exit 1
+            fi
+            version=$tag_version
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ -n "$CSC_LINK" ]; then
             if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
               echo "::error::Signing certificate is set but notarization secrets are missing"; exit 1
@@ -72,7 +78,7 @@ jobs:
           fi
 
       - name: Build DMGs
-        run: npm run dist
+        run: npm run dist -- -c.extraMetadata.version="${{ steps.plan.outputs.version }}"
 
       - name: Verify signature and notarization
         if: steps.plan.outputs.signed == 'true'
@@ -103,6 +109,8 @@ jobs:
           else
             notes="Draft built from $GITHUB_SHA."
             [ "$SIGNED" = true ] || notes="$notes **Unsigned and not notarized.** Do not publish."
-            gh release create "$GITHUB_REF_NAME" apps/desktop/dist/*.dmg --draft --verify-tag \
+            prerelease=()
+            [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease=(--prerelease)
+            gh release create "$GITHUB_REF_NAME" apps/desktop/dist/*.dmg --draft "${prerelease[@]}" --verify-tag \
               --title "GitLanes ${{ steps.plan.outputs.version }}" --notes "$notes"
           fi
