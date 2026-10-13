@@ -58,6 +58,12 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
+          # Licence store baked into the app: production for a final release tag, the Polar sandbox for
+          # release candidates and dry runs. A production build fails until licence/config.js has the
+          # production values, so a release can't ship selling through the test store.
+          store=sandbox
+          [ "$IS_TAG" = true ] && [ "${GITHUB_REF_NAME#v}" = "$version" ] && store=production
+          echo "GITLANES_STORE=$store" >> "$GITHUB_ENV"
           # A pre-release tag (v0.1.0-rc.1) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
           if [ "$IS_TAG" = true ]; then
