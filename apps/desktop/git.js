@@ -2,7 +2,7 @@
 // Thin, dependency-free wrapper around the git CLI. Every read uses
 // GIT_OPTIONAL_LOCKS=0 so the file watcher never fights over index.lock.
 
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -64,7 +64,6 @@ async function initRepo(dir) {
 
 function cloneRepo(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
-    const { spawn } = require('node:child_process');
     const child = spawn('git', ['clone', '--progress', url, dest], { env: BASE_ENV });
     let err = '';
     child.stderr.setEncoding('utf8');
@@ -121,13 +120,26 @@ async function getRefs(cwd) {
 }
 
 // `heads`: extra commits to include, such as other worktrees' detached HEADs.
-async function getLog(cwd, { limit = 20000, remotes = true, tags = true, heads = [] } = {}) {
-  const args = [
-    'log', '--branches', ...(tags ? ['--tags'] : []), ...(remotes ? ['--remotes'] : []), 'HEAD', ...heads, '--date-order',
-    `--max-count=${limit}`,
-    `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%s${REC}`,
-  ];
-  const out = await run(cwd, args, { allowCodes: [0, 128] }).catch(() => '');
+function logArgs({ remotes = true, tags = true, heads = [] } = {}) {
+  return ['log', '--branches', ...(tags ? ['--tags'] : []), ...(remotes ? ['--remotes'] : []), 'HEAD', ...heads, '--date-order'];
+}
+
+// Log formats. Records end in REC; git adds a newline after each, which parsers skip.
+// TOPO is read from git's commit-graph without opening commit objects, so it is several times
+// faster than DETAILS, which needs every commit inflated.
+const LOG_FORMATS = {
+  topo: `--format=%H%x00%P${REC}`,
+  details: `--format=%H%x00%an%x00%ae%x00%at%x00%s${REC}`,
+  full: `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%s${REC}`,
+};
+
+// History reads never go to the network: in a partial clone, a tag pointing at a missing tree
+// would otherwise make every log wait on a fetch.
+const LOG_ENV = { ...BASE_ENV, GIT_NO_LAZY_FETCH: '1' };
+
+async function getLog(cwd, { limit, ...opts } = {}) {
+  const args = [...logArgs(opts), ...(limit ? [`--max-count=${limit}`] : []), LOG_FORMATS.full];
+  const out = await run(cwd, args, { allowCodes: [0, 128], env: LOG_ENV }).catch(() => '');
   const commits = [];
   for (const rec of out.split(REC)) {
     const r = rec.replace(/^\n/, '');
@@ -136,6 +148,80 @@ async function getLog(cwd, { limit = 20000, remotes = true, tags = true, heads =
     commits.push({ sha, parents: parents ? parents.split(' ') : [], author, email, time: +time, subject });
   }
   return commits;
+}
+
+// Stream `git log` as raw text. read() resolves with the next run of complete records (one
+// string, so it crosses IPC cheaply) or null at the end. The first read returns as soon as
+// anything arrives; later reads gather at least `batch` characters or wait `linger` ms, so a
+// slow trickle from git doesn't turn into thousands of tiny IPC round trips. If git dies (killed,
+// crashed, failed to start) the read after its last output throws, so a cut-short log never
+// looks complete; exit 128 (empty repo, unborn HEAD) is a normal end. Output is buffered
+// up to `highWater` characters before git is paused, so a slow reader applies backpressure.
+// `preview` skips --date-order: without a commit-graph, git must walk the whole history before
+// a date-ordered log prints anything, but plain commit-date order streams at once.
+function streamLog(cwd, { kind = 'topo', preview = false, limit, batch = 256 << 10, linger = 25, highWater = 8 << 20, ...opts } = {}) {
+  const args = logArgs(opts).filter((a) => !(preview && a === '--date-order'));
+  if (limit) args.push(`--max-count=${limit}`);
+  args.push(LOG_FORMATS[kind]);
+  const child = spawn('git', args, { cwd, env: LOG_ENV });
+  const chunks = [];
+  let size = 0, tail = '', ended = false, waiting = null, first = true, closed = false, failure = null;
+  const wake = () => { if (waiting) { const w = waiting; waiting = null; w(); } };
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => {
+    const s = tail + d;
+    const cut = s.lastIndexOf(REC) + 1;
+    tail = s.slice(cut);
+    if (cut) { chunks.push(s.slice(0, cut)); size += cut; }
+    if (size > highWater) child.stdout.pause();
+    wake();
+  });
+  child.stderr.resume(); // empty repos and unborn HEADs just end the log
+  child.on('close', (code, signal) => {
+    if (!closed && (signal || (code !== 0 && code !== 128))) failure ||= `git log exited with ${signal || code}`;
+    ended = true; wake();
+  });
+  child.on('error', (e) => { failure ||= e.message; ended = true; wake(); });
+  const arrival = (ms) => new Promise((r) => {
+    const t = ms == null ? null : setTimeout(() => { waiting = null; r(); }, ms);
+    waiting = () => { clearTimeout(t); r(); };
+  });
+  return {
+    async read() {
+      while (!chunks.length && !ended) await arrival();
+      if (!first) {
+        const until = Date.now() + linger;
+        while (size < batch && !ended && Date.now() < until) await arrival(until - Date.now());
+      }
+      first = false;
+      if (!chunks.length) {
+        if (failure && !closed) throw new GitError(failure, { args });
+        return null;
+      }
+      const text = chunks.length === 1 ? chunks[0] : chunks.join('');
+      chunks.length = 0; size = 0;
+      child.stdout.resume();
+      return text;
+    },
+    close() { closed = ended = true; chunks.length = 0; if (child.exitCode === null) child.kill(); wake(); },
+  };
+}
+
+// Details (DETAILS format) for specific commits, in the order given.
+async function getLogDetails(cwd, shas) {
+  if (!shas.length) return '';
+  return run(cwd, ['log', '--no-walk=unsorted', '--stdin', LOG_FORMATS.details], { input: shas.join('\n') + '\n', allowCodes: [0, 128], env: LOG_ENV });
+}
+
+async function hasCommitGraph(cwd) {
+  const info = path.resolve(cwd, (await run(cwd, ['rev-parse', '--git-path', 'objects/info'])).trim());
+  return fs.existsSync(path.join(info, 'commit-graph')) || fs.existsSync(path.join(info, 'commit-graphs', 'commit-graph-chain'));
+}
+
+// git's commit-graph cache makes ordered logs stream immediately and topology reads ~5x faster.
+// Fresh clones often lack it; `git gc` and `git maintenance` would write the same file.
+function writeCommitGraph(cwd) {
+  return run(cwd, ['commit-graph', 'write', '--reachable'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
 }
 
 async function getCommit(cwd, sha) {
@@ -907,7 +993,7 @@ const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (awai
 const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 
 module.exports = {
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, getCommit, commitFileDiff, commitDiffs, compareDiff,
+  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
