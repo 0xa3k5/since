@@ -514,7 +514,7 @@ function renderSidebar() {
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)` }, icon('fetch'), 'Fetch'),
       h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)` }, icon('pull'), 'Pull'),
-      h('button.sb-action', { onclick: push, title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
+      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
     ),
   );
   renderNavCounts();
@@ -1612,7 +1612,7 @@ async function editConfig(c) {
 
 function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
-async function push(force) { return act('Push', 'push', [{ force }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
+async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
 // ---------------------------------------------------------------------------
 // Worktrees: extra working folders of this repository, each with its own

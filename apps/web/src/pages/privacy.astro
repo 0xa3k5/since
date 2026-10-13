@@ -19,7 +19,7 @@ const toc = [
 <LegalPage
   title={`Privacy · ${PRODUCT_NAME}`}
   heading="Privacy policy"
-  description={`${PRODUCT_NAME} has no account and no analytics in the app. Here's every network call the app and this website make, and what each one sends.`}
+  description={`${PRODUCT_NAME} has no account. Here's every network call the app and this website make, and what each one sends.`}
   ogTheme="dark"
   toc={toc}
 >
@@ -27,8 +27,9 @@ const toc = [
     <h2>The short version</h2>
     <ul>
       <li>{PRODUCT_NAME} runs on your Mac. Your repositories, code and commit history never leave it because of {PRODUCT_NAME}.</li>
-      <li>There's no {PRODUCT_NAME} account, no tracking and no analytics in the app.</li>
-      <li>The app makes two kinds of network call of its own: a <strong>licence check</strong> with Polar, and an <strong>update check</strong> once automatic updates ship. Both are listed below, field by field.</li>
+      {/* Gate: no "no tracking", "no telemetry" or "only network calls" claim about the app until the network audit (AK-48) lands. */}
+      <li>There's no {PRODUCT_NAME} account to create.</li>
+      <li>The app makes two kinds of network call of its own: a <strong>licence check</strong> with Polar, and an <strong>update check</strong>. Both are listed below, field by field.</li>
       <li>Polar, our merchant of record, handles payment, tax and your receipt. We never see your card details.</li>
       <li>We don't sell data, and we don't use it for advertising.</li>
     </ul>
@@ -69,9 +70,9 @@ const toc = [
         </tr>
         <tr>
           <td><strong>Update check</strong></td>
-          <td>Once automatic updates ship: at launch and now and then while the app is open.</td>
+          <td>Shortly after launch, then once a day while the app is open, and whenever you choose Check for Updates. You can turn the automatic checks off in the app menu.</td>
           <td>
-            The app version and your Mac's processor type (Apple silicon or Intel), so it fetches the right download. If the update system ever needs more than that, this row changes first.
+            A request for the update file that matches your Mac's processor type (Apple silicon or Intel), with no cookies and no identifiers. Your Mac compares the version itself, and downloads the update only if it's newer. If the update system ever needs more than that, this row changes first.
             Your IP address is visible to the server that hosts the update.
           </td>
         </tr>
@@ -88,7 +89,6 @@ const toc = [
     Git credentials. That traffic goes straight between your Mac and your Git host; it doesn't pass through us, and we can't see it.
     Links you open from the app (for example "Open on GitHub") open in your web browser.
   </p>
-  <p>The app has no crash reporter, no telemetry and no third-party SDKs that phone home.</p>
 
   <h2 id="website">This website</h2>
   <ul>
