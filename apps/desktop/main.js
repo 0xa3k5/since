@@ -699,7 +699,7 @@ app.whenReady().then(() => {
   buildMenu();
   app.on('browser-window-focus', () => { buildMenu(); revalidate(); });
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
-  // npm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran npm.
+  // pnpm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran pnpm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
   createWindow(repoPath && fs.existsSync(repoPath) ? repoPath : undefined);
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });

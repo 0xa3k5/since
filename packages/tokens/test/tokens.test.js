@@ -12,7 +12,7 @@ const tokens = read();
 
 test('tokens.css is generated from tokens.json', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'tokens.css'), 'utf8');
-  assert.equal(css, render(tokens), 'run `npm run build -w @gitlanes/tokens`');
+  assert.equal(css, render(tokens), 'run `pnpm --filter @gitlanes/tokens build`');
 });
 
 test('light and dark define the same tokens', () => {
