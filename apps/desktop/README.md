@@ -26,11 +26,11 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 
 ## Features
 Map (graph, branch/tag/remote pills, search, quick view, diff with HEAD) · commit actions: checkout, branch, tag,
-merge, rebase onto, cherry-pick, revert, edit message, squash/fixup with parent, swap with parent, delete, move branch tip ·
+merge, rebase onto, cherry-pick, revert, edit message, squash/fixup with parent, swap with parent, split commit by lines (⇧S), delete, move branch tip ·
 Commit view with file/hunk/line staging, discard, amend, conflict resolution (ours/theirs/resolved) ·
 Stashes · Snapshots (undo/redo/restore) · Unified reflog · Config editor · Fetch/Pull/Push · ⌘K command menu ·
 Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
-Not yet: commit splitter, external diff/merge tools, submodules, auto-updates.
+Not yet: external diff/merge tools, submodules, auto-updates.
 
 Packaging and releases: see the [root README](../../README.md#building-the-dmg).

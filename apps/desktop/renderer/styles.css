@@ -364,6 +364,19 @@ kbd.inline { flex: none; }
 .file-row:hover .row-actions { display: inline-flex; }
 .file-row:hover .stat { display: none; }
 
+/* ---------------------------------------------------------------- Split commit */
+.split-side { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.split-files { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+.split-files .file-row input { accent-color: var(--accent); margin: 0; flex: none; }
+.split-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-4); flex: none; }
+.split-composer .field-label { display: inline-flex; align-items: center; gap: 6px; }
+.split-msg { min-height: 64px; }
+.split-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.split-dot.one { background: var(--accent); }
+.split-dot.two { border: 1.5px solid var(--text-4); }
+.split-summary { font-size: 12px; color: var(--text-3); line-height: 1.4; }
+.split-summary.warn { color: var(--warn); }
+
 /* ---------------------------------------------------------------- Quick view & diffs */
 .quick { flex: 1; display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
 .quick-side { border-right: 1px solid var(--border); overflow-y: auto; padding-bottom: 16px; }
