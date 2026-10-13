@@ -1,7 +1,8 @@
 name: Release
 
-# A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release. Tags and manual
-# runs first run the full end-to-end suite; a failure stops the release before anything is built.
+# A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
+# zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. Tags and
+# manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
 # a workflow artifact. Signing secrets are optional; without them every run produces unsigned DMGs.
 on:
@@ -12,6 +13,7 @@ on:
       - '.github/workflows/release.yml'
       - 'apps/desktop/build/**'
       - 'apps/desktop/electron-builder.config.js'
+      - 'apps/desktop/scripts/update-feed.js'
       - 'apps/desktop/package.json'
       - 'package-lock.json'
   workflow_dispatch:
@@ -114,6 +116,11 @@ jobs:
             spctl --assess --type execute --verbose "$app"
           done
 
+      - name: Write update feeds
+        run: |
+          node apps/desktop/scripts/update-feed.js --version "${{ steps.plan.outputs.version }}" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/v${{ steps.plan.outputs.version }}"
+
       - name: Upload dry-run artifact
         if: env.IS_TAG != 'true'
         uses: actions/upload-artifact@v4
@@ -129,13 +136,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SIGNED: ${{ steps.plan.outputs.signed }}
         run: |
+          files=(apps/desktop/dist/*.dmg apps/desktop/dist/*-mac.zip apps/desktop/dist/update-mac-*.json)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" apps/desktop/dist/*.dmg --clobber
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
             notes="Draft built from $GITHUB_SHA."
             [ "$SIGNED" = true ] || notes="$notes **Unsigned and not notarized.** Do not publish."
             prerelease=()
             [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease=(--prerelease)
-            gh release create "$GITHUB_REF_NAME" apps/desktop/dist/*.dmg --draft "${prerelease[@]}" --verify-tag \
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft "${prerelease[@]}" --verify-tag \
               --title "GitLanes ${{ steps.plan.outputs.version }}" --notes "$notes"
           fi

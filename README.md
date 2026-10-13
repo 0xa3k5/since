@@ -43,6 +43,11 @@ After editing `icon.svg` or `background.svg`, run `npm run brand-assets -w @gitl
 
 Push a tag matching the desktop version (e.g. `v0.1.0`). `.github/workflows/release.yml` then builds, signs,
 notarizes and uploads both DMGs to a **draft** GitHub Release. Publishing the draft is a manual step.
+The draft also carries `GitLanes-<version>-<arch>-mac.zip` and `update-mac-<arch>.json` (written by
+`apps/desktop/scripts/update-feed.js`). Installed apps update from those once the release is published as the
+latest release. They read the feed from `updates.feed` in `apps/desktop/package.json`, so that URL has to be
+publicly downloadable. Only signed releases can install themselves; an unsigned app sees the update and
+links to the download page instead.
 It reads these repository secrets: `MAC_CERTIFICATE_P12_BASE64`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`. Without them, the draft holds unsigned DMGs and is marked as unsigned.
 Pull requests that touch packaging, and manual runs, do an unsigned dry run and attach the DMGs as a workflow artifact.
