@@ -21,6 +21,7 @@ const state = {
   selected: null,
   detail: true,
   quick: null,
+  split: null,
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
   show: loadPref('show', { tags: true, remotes: true }),
@@ -242,6 +243,7 @@ const VIEWS = [
 function setView(v) {
   if (!state.repo) return;
   state.quick = null;
+  state.split = null;
   state.view = v;
   renderSidebar();
   renderTopbar();
@@ -331,12 +333,12 @@ function renderTopbar() {
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
     h('button.icon-btn.sb-toggle', { title: `Toggle sidebar (${MOD}\\)`, onclick: toggleSidebar }, icon('sidebar')),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.quick ? 'Quick View' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
   );
   const right = h('div.top-right');
-  if (state.view === 'map' && !state.quick) {
+  if (state.view === 'map' && !state.quick && !state.split) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
       onkeydown: (e) => {
@@ -403,6 +405,7 @@ function renderView(soft = false) {
   commitView = null;
   contentEl.replaceChildren();
   contentEl.dataset.view = state.view;
+  if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -721,6 +724,163 @@ function quickView({ sha, path }) {
 }
 
 // ---------------------------------------------------------------------------
+// Split commit: pick the lines that become the first commit; the rest become the second.
+
+async function openSplit(c) {
+  if (!c) return;
+  try { await git('checkSplit', c.sha); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
+  state.quick = null;
+  state.split = { sha: c.sha };
+  renderTopbar();
+  renderView();
+}
+function closeSplit(select = true) {
+  const sha = state.split?.sha;
+  state.split = null;
+  renderTopbar();
+  renderView();
+  if (select && sha) selectCommit(sha, 'center');
+}
+
+function splitView({ sha }) {
+  const el = h('div.quick.split', { tabIndex: 0 });
+  const side = h('div.quick-side.split-side');
+  const files = h('div.file-list.split-files');
+  const main = h('div.quick-main');
+  el.append(side, main);
+  let diffs = [], current = null, full = false;
+  const picked = new Map(); // path -> Set of line keys in the first commit
+  const whole = new Set(); // files without lines (binary, mode-only) going whole into the first commit
+
+  const changeKeys = (d) => d.hunks.flatMap((hk, hi) => hunkKeys(hk, hi));
+  const fileState = (d) => {
+    const total = changeKeys(d).length;
+    const n = total ? picked.get(d.path).size : whole.has(d.path) ? 1 : 0;
+    return n === 0 ? 'none' : n >= (total || 1) ? 'all' : 'some';
+  };
+  const statusOf = (d) => (d.header.some((l) => l.startsWith('new file')) ? 'A' : d.header.some((l) => l.startsWith('deleted file')) ? 'D' : 'M');
+
+  const first = h('textarea.composer-input.split-msg', { placeholder: 'Message for the selected changes', spellcheck: true, rows: 3 });
+  const second = h('textarea.composer-input.split-msg', { placeholder: 'Message for the remaining changes', spellcheck: true, rows: 3 });
+  const summary = h('div.split-summary');
+  const splitBtn = h('button.btn.primary.wide', { onclick: () => submit() }, 'Split commit', kbd(MOD, '↵'));
+  for (const t of [first, second]) {
+    t.addEventListener('input', update);
+    t.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); el.focus(); }
+    });
+  }
+
+  function toggleFile(d) {
+    const keys = changeKeys(d);
+    const on = fileState(d) !== 'all';
+    if (!keys.length) on ? whole.add(d.path) : whole.delete(d.path);
+    else picked.set(d.path, new Set(on ? keys : []));
+    renderFiles();
+    if (d.path === current) renderFile();
+    update();
+  }
+
+  function renderFiles() {
+    files.replaceChildren(...diffs.map((d) => {
+      const st = fileState(d);
+      const box = h('input', { type: 'checkbox', title: 'Put the whole file in the first commit', checked: st === 'all', onclick: (e) => e.stopPropagation(), onchange: () => toggleFile(d) });
+      box.indeterminate = st === 'some';
+      const total = changeKeys(d).length;
+      const row = fileRow({ path: d.path, status: statusOf(d) }, () => { current = d.path; full = false; renderFiles(); renderFile(); },
+        h('span.split-count', null, total ? `${picked.get(d.path).size}/${total}` : ''));
+      row.prepend(box);
+      row.dataset.path = d.path;
+      row.classList.toggle('active', d.path === current);
+      return row;
+    }));
+  }
+
+  function renderFile() {
+    const d = diffs.find((x) => x.path === current);
+    if (!d) return main.replaceChildren(h('div.empty', null, 'No changes in this commit'));
+    const sel = picked.get(d.path);
+    const hunkBtns = [];
+    const label = (keys) => (keys.every((k) => sel.has(k)) ? 'Deselect hunk' : 'Select hunk');
+    const onSelect = () => { hunkBtns.forEach(([b, keys]) => { b.textContent = label(keys); }); renderFiles(); update(); };
+    const hunkActions = (hi, hunk) => {
+      const keys = hunkKeys(hunk, hi);
+      const b = h('button.btn.ghost.tiny', { onclick: () => { const all = keys.every((k) => sel.has(k)); keys.forEach((k) => (all ? sel.delete(k) : sel.add(k))); renderFile(); onSelect(); } }, label(keys));
+      hunkBtns.push([b, keys]);
+      return b;
+    };
+    main.replaceChildren(
+      h('div.diff-head', null, statusBadge(statusOf(d)), h('span.mono', null, d.path), h('span.spacer'),
+        h('button.btn.subtle.small', { onclick: () => toggleFile(d) }, fileState(d) === 'all' ? 'Deselect file' : 'Select file', kbd('A'))),
+      h('div.diff-scroll', null, renderDiff(d, { selectable: true, selection: sel, onSelect, hunkActions, full, onShowAll: () => { full = true; renderFile(); } })),
+      h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges'),
+    );
+  }
+
+  function selection() {
+    const out = {};
+    for (const d of diffs) {
+      const st = fileState(d);
+      if (st === 'all') out[d.path] = 'all';
+      else if (st === 'some') out[d.path] = [...picked.get(d.path)];
+    }
+    return out;
+  }
+
+  function update() {
+    const n = diffs.filter((d) => fileState(d) !== 'none').length;
+    const allIn = diffs.length && diffs.every((d) => fileState(d) === 'all');
+    summary.textContent = !n ? 'Select the changes for the first commit.' : allIn ? 'Leave at least one change for the second commit.' : `First commit: changes in ${n} of ${diffs.length} file${diffs.length > 1 ? 's' : ''}. The rest go into the second.`;
+    summary.classList.toggle('warn', !n || !!allIn);
+    splitBtn.disabled = !n || !!allIn || !first.value.trim() || !second.value.trim();
+  }
+
+  async function submit() {
+    update();
+    if (splitBtn.disabled) { (!first.value.trim() ? first : !second.value.trim() ? second : null)?.focus(); return; }
+    const ok = await act('Split commit', 'rewrite', ['split', sha, { files: selection(), messages: [first.value, second.value] }], { busy: 'Splitting commit…' });
+    if (ok) closeSplit(false);
+  }
+
+  (async () => {
+    let c;
+    try { [c, diffs] = await Promise.all([loadCommit(sha), git('commitDiffs', sha)]); } catch (e) { main.replaceChildren(h('div.empty', null, e.message)); return; }
+    for (const d of diffs) picked.set(d.path, new Set());
+    current = diffs[0]?.path || null;
+    first.value = c.message;
+    side.replaceChildren(
+      h('div.quick-head', null,
+        h('button.btn.ghost.small', { onclick: () => closeSplit() }, icon('chevron', 12), 'Back', kbd('Esc')),
+        h('div.quick-title', null, `Split “${c.message.split('\n')[0]}”`),
+        h('div.quick-meta', null, avatar(c.author, c.email, 16), c.author, ' · ', timeAgo(c.time), ' · ', h('span.mono', null, c.sha.slice(0, 7))),
+      ),
+      files,
+      h('div.composer.split-composer', null,
+        h('label.field', null, h('span.field-label', null, h('span.split-dot.one'), 'First commit · selected changes'), first),
+        h('label.field', null, h('span.field-label', null, h('span.split-dot.two'), 'Second commit · remaining changes'), second),
+        summary, splitBtn),
+    );
+    renderFiles();
+    renderFile();
+    update();
+    el.focus();
+  })();
+
+  el.addEventListener('keydown', (e) => {
+    if (isEditable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+    const i = diffs.findIndex((d) => d.path === current);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+      e.preventDefault();
+      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)))];
+      if (n) { current = n.path; full = false; renderFiles(); renderFile(); files.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
+    } else if (e.key === 'a' && diffs[i]) { e.preventDefault(); toggleFile(diffs[i]); }
+    else if (e.key === 'c') { e.preventDefault(); (first.value.trim() ? second : first).focus(); }
+  });
+  return el;
+}
+
+// ---------------------------------------------------------------------------
 // Commit actions (map actions)
 
 const branchesAt = (sha) => state.refs.filter((r) => r.kind === 'branch' && r.target === sha);
@@ -731,7 +891,7 @@ function commitShortcut(e, c) {
     b: () => createBranch(c.sha), t: () => createTag(c.sha), m: () => mergeCommit(c), r: () => rebaseOnto(c),
     p: () => cherryPick(c), v: () => revertCommit(c), e: () => editMessage(c), s: () => rewriteOp('squash', c),
     f: () => rewriteOp('fixup', c), Backspace: () => rewriteOp('drop', c), Delete: () => rewriteOp('drop', c),
-    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }),
+    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }), S: () => openSplit(c),
   };
   if (map[k]) { e.preventDefault(); map[k](); }
 }
@@ -765,6 +925,7 @@ function commitMenu(x, y, c) {
     { label: 'Squash with Parent', icon: 'squash', kbd: 'S', disabled: c.parents.length !== 1, run: () => rewriteOp('squash', c) },
     { label: 'Fixup with Parent', icon: 'squash', kbd: 'F', disabled: c.parents.length !== 1, run: () => rewriteOp('fixup', c) },
     { label: 'Swap with Parent', icon: 'swap', disabled: c.parents.length !== 1, run: () => rewriteOp('swapParent', c) },
+    { label: 'Split Commit…', icon: 'split', kbd: ['⇧', 'S'], disabled: c.parents.length > 1, run: () => openSplit(c) },
     { label: 'Delete Commit', icon: 'trash', kbd: '⌫', danger: true, disabled: c.parents.length > 1, run: () => rewriteOp('drop', c) },
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: [MOD, 'C'], run: () => copy(c.sha, 'Copied SHA') },
@@ -1418,6 +1579,8 @@ function openPalette() {
     add('View', 'Toggle sidebar', toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'] });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
+    const sel = state.commits[state.index.get(state.selected)];
+    if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
@@ -1519,6 +1682,7 @@ async function loadRepo(repo) {
   state.selected = null;
   state.logKey = '';
   state.quick = null;
+  state.split = null;
   state.search = '';
   state.configFilter = '';
   commitCache.clear();
@@ -1564,7 +1728,7 @@ const commands = {
   clone: cloneRepo,
   undo: () => { if (isEditable(document.activeElement)) document.execCommand('undo'); else if (state.repo) undo(); },
   redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); },
-  search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
+  search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
   view: (v) => setView(v),
   sidebar: toggleSidebar,
@@ -1591,6 +1755,7 @@ function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName ===
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('.overlay')) return;
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
+  if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation
   if (!isEditable(document.activeElement) && !e.metaKey && !e.ctrlKey && state.repo) {
     if (gPending) {
