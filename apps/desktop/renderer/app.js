@@ -31,6 +31,7 @@ const state = {
   config: [],
   configFilter: '',
   remotes: [],
+  worktrees: [],
   cv: { list: 'unstaged', path: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
@@ -49,14 +50,15 @@ async function git(method, ...args) {
   return r.ok;
 }
 
-async function act(label, method, args = [], { busy, success, undoable = true, quiet = false } = {}) {
+async function act(label, method, args = [], { busy, success, undoable = true, quiet = false, then } = {}) {
   closeMenu();
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
-    await git(method, ...args, { __label: label });
+    const res = await git(method, ...args, { __label: label });
     t?.close();
     if (!quiet) toast(success || label, { kind: 'success', action: undoable ? { label: 'Undo', run: undo } : null });
     await refreshAll();
+    await then?.(res);
     return true;
   } catch (e) {
     t?.close();
@@ -109,12 +111,15 @@ function coalesce(fn) {
 
 const refreshHistory = coalesce(async () => {
   if (!state.repo) return;
-  const [{ refs, head }, commits, opState, history] = await Promise.all([
+  const [{ refs, head }, commits, opState, history, worktrees] = await Promise.all([
     git('refs'),
     git('log', { remotes: state.show.remotes, tags: state.show.tags }),
     git('opState'),
     git('history'),
+    git('worktrees').catch(() => []),
   ]);
+  const worktreesChanged = JSON.stringify(worktrees) !== JSON.stringify(state.worktrees);
+  state.worktrees = worktrees;
   state.refs = refs;
   state.head = head;
   state.opState = opState;
@@ -134,7 +139,7 @@ const refreshHistory = coalesce(async () => {
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
   // The reflog marks entries unreachable from the loaded history.
-  if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged)) renderView();
+  if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
 });
 
 const refreshStatus = coalesce(async () => {
@@ -179,17 +184,24 @@ function indexRefs() {
     push(r.target, r);
   }
   if (state.head.detached && state.head.oid) push(state.head.oid, { kind: 'head', short: 'HEAD' });
+  for (const w of state.worktrees) if (!w.current && w.detached && w.head) push(w.head, { kind: 'worktree', short: w.name, worktree: w });
   for (const [, list] of by) list.sort((a, b) => rank(a) - rank(b));
   state.byRef = by;
 }
-const rank = (r) => (r.kind === 'head' ? 0 : r.kind === 'branch' ? (r.short === state.head.branch ? 0 : 1) : r.kind === 'remote' ? 2 : 3);
+const rank = (r) => (r.kind === 'head' ? 0 : r.kind === 'branch' ? (r.short === state.head.branch ? 0 : 1) : r.kind === 'worktree' ? 1 : r.kind === 'remote' ? 2 : 3);
+
+// The other worktree that has `branch` checked out, if any.
+const worktreeOf = (branch) => state.worktrees.find((w) => !w.current && w.branch === branch);
 
 function refPill(r) {
   const isHead = r.kind === 'branch' && r.short === state.head.branch;
   const synced = r.kind === 'branch' && r.upstream && state.refs.some((x) => x.kind === 'remote' && x.short === r.upstream && x.target === r.target);
-  return h('span.pill.' + r.kind + (isHead ? '.head' : ''), { title: r.kind === 'branch' && r.upstream ? `${r.short} → ${r.upstream}` : r.short },
-    icon(r.kind === 'tag' ? 'tag' : r.kind === 'remote' ? 'cloud' : r.kind === 'head' ? 'checkout' : 'branch', 12),
+  const wt = r.kind === 'branch' && !isHead ? worktreeOf(r.short) : r.worktree;
+  const title = r.kind === 'worktree' ? `Worktree ${r.short} (detached HEAD)` : r.kind === 'branch' && r.upstream ? `${r.short} → ${r.upstream}` : r.short;
+  return h('span.pill.' + r.kind + (isHead ? '.head' : '') + (wt ? '.in-worktree' : ''), { title: wt && r.kind === 'branch' ? `${title} · checked out in worktree ${wt.name}` : title },
+    icon(r.kind === 'tag' ? 'tag' : r.kind === 'remote' ? 'cloud' : r.kind === 'head' ? 'checkout' : r.kind === 'worktree' ? 'worktree' : 'branch', 12),
     r.short,
+    wt && r.kind === 'branch' ? icon('worktree', 12) : null,
     synced && state.show.remotes ? icon('cloud', 12) : null,
     r.kind === 'branch' && (r.ahead || r.behind) ? h('span.track', null, r.ahead ? `↑${r.ahead}` : '', r.behind ? `↓${r.behind}` : '') : null,
   );
@@ -224,6 +236,7 @@ const VIEWS = [
   { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '4' },
   { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '5' },
   { id: 'config', label: 'Config', icon: 'config', key: '6' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '7' },
 ];
 
 function setView(v) {
@@ -234,6 +247,7 @@ function setView(v) {
   renderTopbar();
   renderView();
   if (v === 'reflog' || v === 'config' || v === 'stashes') refreshAux();
+  if (v === 'worktrees') refreshHistory();
 }
 
 function renderSidebar() {
@@ -264,6 +278,19 @@ function renderSidebar() {
     r.kind === 'branch' && r.short === state.head.branch ? h('span.dot-head', { title: 'HEAD' }) : null,
     r.kind === 'branch' && (r.ahead || r.behind) ? h('span.sb-track', null, r.ahead ? `${r.ahead}↑` : '', r.behind ? ` ${r.behind}↓` : '') : null,
     r.gone ? h('span.sb-gone', { title: 'Upstream is gone' }, 'gone') : null,
+    r.kind === 'branch' && worktreeOf(r.short) ? h('span.sb-wt', { title: `Checked out in worktree ${worktreeOf(r.short).name}` }, icon('worktree', 12)) : null,
+  );
+
+  const worktreeItem = (w) => h('div.sb-item' + (w.current ? '.current' : '') + (w.missing ? '.missing' : ''), {
+    title: w.path,
+    onclick: () => switchWorktree(w),
+    oncontextmenu: (e) => { e.preventDefault(); worktreeMenu(e.clientX, e.clientY, w); },
+  },
+    icon('worktree', 14),
+    h('span.sb-label', null, w.name),
+    w.current ? h('span.dot-head', { title: 'This window' }) : null,
+    w.locked ? h('span.sb-track', { title: w.lockReason ? `Locked: ${w.lockReason}` : 'Locked' }, 'locked') : null,
+    w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'missing') : null,
   );
 
   sidebarEl.replaceChildren(
@@ -277,6 +304,7 @@ function renderSidebar() {
     h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, MOD + v.key)))),
     h('div.sb-scroll', null,
+      state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
       section('branches', 'Branches', branches, (r) => refItem(r)),
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
@@ -305,6 +333,7 @@ function renderTopbar() {
     h('button.icon-btn.sb-toggle', { title: `Toggle sidebar (${MOD}\\)`, onclick: toggleSidebar }, icon('sidebar')),
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.quick ? 'Quick View' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
+    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
   );
   const right = h('div.top-right');
   if (state.view === 'map' && !state.quick) {
@@ -382,6 +411,7 @@ function renderView(soft = false) {
     case 'snapshots': contentEl.append(snapshotsView()); break;
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
+    case 'worktrees': contentEl.append(worktreesView()); break;
   }
 }
 
@@ -701,7 +731,7 @@ function commitShortcut(e, c) {
     b: () => createBranch(c.sha), t: () => createTag(c.sha), m: () => mergeCommit(c), r: () => rebaseOnto(c),
     p: () => cherryPick(c), v: () => revertCommit(c), e: () => editMessage(c), s: () => rewriteOp('squash', c),
     f: () => rewriteOp('fixup', c), Backspace: () => rewriteOp('drop', c), Delete: () => rewriteOp('drop', c),
-    o: () => checkoutCommit(c), d: () => diffWithHead(c),
+    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }),
   };
   if (map[k]) { e.preventDefault(); map[k](); }
 }
@@ -715,10 +745,13 @@ function commitMenu(x, y, c) {
     { label: 'Diff with HEAD', icon: 'diff', kbd: 'D', disabled: isHead, run: () => diffWithHead(c) },
     '-',
     ...(locals.length
-      ? locals.map((b) => ({ label: `Checkout “${b.short}”`, icon: 'checkout', disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
+      ? locals.map((b) => (worktreeOf(b.short)
+        ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => switchWorktree(worktreeOf(b.short)) }
+        : { label: `Checkout “${b.short}”`, icon: 'checkout', disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
       : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: 'O', disabled: isHead && state.head.detached, run: () => checkoutCommit(c) }]),
     { label: 'Create Branch…', icon: 'branch', kbd: 'B', run: () => createBranch(c.sha) },
     { label: 'Create Tag…', icon: 'tag', kbd: 'T', run: () => createTag(c.sha) },
+    { label: 'New Worktree Here…', icon: 'worktree', kbd: 'W', run: () => addWorktree({ base: c.sha }) },
     state.head.branch && !isHead ? { label: `Move “${state.head.branch}” here`, icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
     '-',
     { section: state.head.branch ? `Into ${state.head.branch}` : 'Into HEAD' },
@@ -744,8 +777,10 @@ function refMenu(x, y, r) {
   const items = [];
   if (r.kind === 'branch') {
     const cur = r.short === state.head.branch;
+    const wt = worktreeOf(r.short);
     items.push(
-      { label: 'Checkout', icon: 'checkout', disabled: cur, run: () => checkout(r.short) },
+      wt ? { label: `Switch to Worktree “${wt.name}”`, icon: 'worktree', run: () => switchWorktree(wt) } : { label: 'Checkout', icon: 'checkout', disabled: cur, run: () => checkout(r.short) },
+      !wt && !cur ? { label: 'Open in New Worktree…', icon: 'worktree', run: () => addWorktree({ branch: r.short }) } : null,
       { label: `Merge into ${state.head.branch || 'HEAD'}`, icon: 'merge', disabled: cur, run: () => act(`Merge ${r.short}`, 'merge', [r.short]) },
       { label: `Rebase ${state.head.branch || 'HEAD'} onto ${r.short}`, icon: 'rebase', disabled: cur, run: () => act(`Rebase onto ${r.short}`, 'rebaseOnto', [r.short]) },
       '-',
@@ -757,6 +792,7 @@ function refMenu(x, y, r) {
   } else if (r.kind === 'remote') {
     items.push(
       { label: 'Checkout as Local Branch', icon: 'checkout', run: () => act(`Checkout ${r.short}`, 'checkoutTracking', [r.short]) },
+      { label: 'Open in New Worktree…', icon: 'worktree', run: () => addWorktree({ base: r.short, branch: r.short.slice(r.short.indexOf('/') + 1) }) },
       { label: `Merge into ${state.head.branch || 'HEAD'}`, icon: 'merge', run: () => act(`Merge ${r.short}`, 'merge', [r.short]) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied') },
       '-',
@@ -775,7 +811,11 @@ function refMenu(x, y, r) {
 
 async function copy(text, msg) { await api.app('copy', text); toast(msg); }
 
-function checkout(branch) { return act(`Checkout ${branch}`, 'checkout', [branch], { success: `Switched to ${branch}` }); }
+function checkout(branch) {
+  const wt = worktreeOf(branch);
+  if (wt) return toast(`${branch} is checked out in worktree “${wt.name}”`, { kind: 'error', detail: 'A branch can only be checked out in one worktree at a time.', action: { label: 'Switch', run: () => switchWorktree(wt) } });
+  return act(`Checkout ${branch}`, 'checkout', [branch], { success: `Switched to ${branch}` });
+}
 function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
   if (b) return checkout(b.short);
@@ -1186,6 +1226,161 @@ function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.b
 async function push(force) { return act('Push', 'push', [{ force }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
 // ---------------------------------------------------------------------------
+// Worktrees: extra working folders of this repository, each with its own
+// branch or detached HEAD. A window shows one worktree and can switch between them.
+
+const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
+const parentDir = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
+
+function worktreesView() {
+  const el = h('div.page.flush', { tabIndex: 0 });
+  const list = h('div.wt-list');
+  const changes = new Map();
+  let idx = Math.max(0, state.worktrees.findIndex((w) => w.current));
+  const main = state.worktrees.find((w) => w.main);
+  const missing = state.worktrees.some((w) => w.missing);
+
+  function row(w, i) {
+    const n = changes.get(w.path);
+    return h('div.list-row.wt-row' + (i === idx ? '.active' : ''), {
+      onclick: () => { idx = i; mark(); },
+      ondblclick: () => switchWorktree(w),
+      oncontextmenu: (e) => { e.preventDefault(); idx = i; mark(); worktreeMenu(e.clientX, e.clientY, w); },
+    },
+      icon('worktree'),
+      h('div.list-main', null,
+        h('div.list-title', null, w.name,
+          w.current ? h('span.badge.local', null, 'This window') : null,
+          w.main ? h('span.badge', null, 'Main') : null,
+          w.locked ? h('span.badge', { title: w.lockReason || 'Locked' }, 'Locked') : null,
+          w.missing ? h('span.badge.warn', { title: 'The folder no longer exists' }, 'Missing') : null),
+        h('div.list-sub', null, tildify(w.path), w.lockReason ? ` · ${w.lockReason}` : '')),
+      w.branch ? h('span.pill.branch', { title: w.branch }, icon('branch', 12), w.branch)
+        : w.head ? h('span.pill.worktree', { title: 'Detached HEAD' }, icon('worktree', 12), w.head.slice(0, 7))
+          : h('span.muted', null, 'No commits'),
+      h('span.wt-changes' + (n ? '.dirty' : ''), null, n == null ? '' : n ? `${n} changed` : 'Clean'),
+      h('span.wt-actions', null,
+        w.current || w.missing ? null : h('button.btn.subtle.small', { onclick: (e) => { e.stopPropagation(); switchWorktree(w); } }, 'Switch'),
+        h('button.icon-btn', { title: 'More actions', onclick: (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); worktreeMenu(r.left, r.bottom + 4, w); } }, icon('more'))),
+    );
+  }
+  function render() { list.replaceChildren(...state.worktrees.map(row)); }
+  function mark() { list.querySelectorAll('.wt-row').forEach((r, i) => r.classList.toggle('active', i === idx)); list.querySelectorAll('.wt-row')[idx]?.scrollIntoView({ block: 'nearest' }); }
+
+  el.append(
+    h('div.page-head', null,
+      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own lane.')),
+      h('div.page-actions', null,
+        missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
+        h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(MOD, '⌥', 'N')))),
+    list,
+    ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${MOD}⌥N, or press W on a commit in the Map.`)] : []),
+    h('div.diff-hint.wt-hint', null, '↵ Switch · ', MOD, '↵ New window · L Lock · ⌫ Remove · N New'),
+  );
+  el.addEventListener('keydown', (e) => {
+    const w = state.worktrees[idx];
+    if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
+    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
+    else if (e.key === 'Enter' && w) { e.preventDefault(); if (e.metaKey || e.ctrlKey) openWorktreeWindow(w); else switchWorktree(w); }
+    else if (e.metaKey || e.ctrlKey || e.altKey) return;
+    else if (e.key === 'l' && w) { e.preventDefault(); toggleLock(w); }
+    else if ((e.key === 'Backspace' || e.key === 'Delete') && w) { e.preventDefault(); removeWorktree(w); }
+    else if (e.key === 'n') { e.preventDefault(); addWorktree(); }
+  });
+  // Change counts cost a `git status` per worktree, so they load after the list. Other
+  // worktrees' folders aren't watched: recount when the window comes back into focus.
+  const count = () => Promise.all(state.worktrees.filter((w) => !w.missing).map(async (w) => changes.set(w.path, await git('worktreeChanges', w.path).catch(() => null))))
+    .then(() => { if (el.isConnected) render(); });
+  const onFocus = () => { if (el.isConnected) count(); else window.removeEventListener('focus', onFocus); };
+  window.addEventListener('focus', onFocus);
+  render();
+  count();
+  setTimeout(() => el.focus({ preventScroll: true }));
+  return el;
+}
+
+function worktreeMenu(x, y, w) {
+  contextMenu(x, y, [
+    { label: 'Switch to This Worktree', icon: 'worktree', kbd: '↵', disabled: w.current || w.missing, run: () => switchWorktree(w) },
+    { label: 'Open in New Window', icon: 'plus', kbd: [MOD, '↵'], disabled: w.current || w.missing, run: () => openWorktreeWindow(w) },
+    '-',
+    { label: 'Reveal in Finder', icon: 'folder', disabled: w.missing, run: () => api.app('reveal', w.path) },
+    { label: 'Open in Terminal', icon: 'terminal', disabled: w.missing, run: () => api.app('terminal', w.path) },
+    { label: 'Copy Path', icon: 'copy', run: () => copy(w.path, 'Copied path') },
+    '-',
+    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: 'L', disabled: w.main, run: () => toggleLock(w) },
+    w.missing
+      ? { label: 'Prune Missing Worktrees', icon: 'trash', danger: true, run: pruneWorktrees }
+      : { label: 'Remove Worktree…', icon: 'trash', kbd: '⌫', danger: true, disabled: w.main || w.current, run: () => removeWorktree(w) },
+  ]);
+}
+
+// `branch`: an existing local branch is checked out, a new name is created at `base` (default HEAD).
+async function addWorktree({ base = null, branch = '' } = {}) {
+  if (!state.repo) return;
+  const main = state.worktrees.find((w) => w.main);
+  const from = base ? (state.refs.find((r) => r.short === base)?.short || base.slice(0, 7)) : state.head.branch || state.head.oid?.slice(0, 7) || 'HEAD';
+  const v = await dialog({
+    title: 'New worktree',
+    description: `Starts at ${from}. Type an existing branch to check it out there, a new name to create it, or leave Branch empty for a detached HEAD.`,
+    submit: 'Create worktree',
+    fields: [
+      { name: 'branch', label: 'Branch', value: branch, placeholder: 'feature/my-branch' },
+      { name: 'dir', label: 'Location (optional)', placeholder: main ? `${tildify(parentDir(main.path))}/${main.name}-<branch>` : '' },
+      { name: 'open', type: 'checkbox', label: 'Switch this window to it', value: false },
+    ],
+  });
+  if (!v) return;
+  const b = v.branch.trim();
+  await act(b ? `New worktree for ${b}` : 'New worktree', 'addWorktree', [{ dir: v.dir.trim() || null, branch: b || null, base }], {
+    busy: 'Creating worktree…',
+    then: (wt) => { if (v.open && wt) openRepo(wt.path); },
+  });
+}
+
+async function removeWorktree(w) {
+  if (w.missing) return pruneWorktrees();
+  if (w.main || w.current) return toast(w.main ? 'The main worktree can’t be removed' : 'This window is showing that worktree', { kind: 'error', detail: w.main ? null : 'Switch to another worktree first.' });
+  if (w.locked) return toast(`“${w.name}” is locked`, { kind: 'error', detail: 'Unlock it first.' });
+  // Blocked while dirty: the check is repeated in the main process, this one just saves a dialog.
+  const n = await git('worktreeChanges', w.path).catch(() => 0);
+  if (n) return toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: `It has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.` });
+  const what = w.branch ? `Branch ${w.branch} is kept.` : `Its detached HEAD (${w.head?.slice(0, 7)}) is kept for undo.`;
+  if (!(await confirm(`Remove worktree “${w.name}”?`, `Deletes the folder ${tildify(w.path)}. ${what} Ignored files in it, such as build output, are deleted for good; ${MOD}Z brings everything else back.`, { submit: 'Remove' }))) return;
+  act(`Remove worktree ${w.name}`, 'removeWorktree', [w.path], { busy: 'Removing worktree…' });
+}
+
+async function toggleLock(w) {
+  if (w.main) return;
+  if (w.locked) return act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false });
+  const v = await dialog({ title: `Lock worktree “${w.name}”?`, description: 'A locked worktree can’t be removed or pruned, by GitLanes or by git, until it is unlocked.', submit: 'Lock', fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'On an external drive' }] });
+  if (v) act(`Lock ${w.name}`, 'lockWorktree', [w.path, v.reason.trim() || null], { undoable: false });
+}
+
+function pruneWorktrees() {
+  return act('Prune missing worktrees', 'pruneWorktrees', [], { undoable: false });
+}
+
+function switchWorktree(w) {
+  if (w.current) return;
+  if (w.missing) return toast(`“${w.name}” no longer exists`, { kind: 'error', detail: 'Its folder was moved or deleted. Prune it from the Worktrees view.' });
+  return openRepo(w.path);
+}
+
+function openWorktreeWindow(w) {
+  if (w.current || w.missing) return;
+  api.app('open-window', w.path);
+}
+
+function worktreeSwitcher() {
+  if (!state.repo) return;
+  palette(() => [
+    ...state.worktrees.filter((w) => !w.missing).map((w) => ({ group: 'Worktrees', label: w.name, icon: 'worktree', detail: (w.current ? 'this window · ' : '') + (w.branch || (w.head ? 'detached ' + w.head.slice(0, 7) : '')), keywords: w.path, run: () => switchWorktree(w) })),
+    { group: 'Worktrees', label: 'New worktree…', icon: 'plus', kbd: [MOD, '⌥', 'N'], run: () => addWorktree() },
+  ], { placeholder: 'Switch to worktree…' });
+}
+
+// ---------------------------------------------------------------------------
 // Command palette
 
 function openPalette() {
@@ -1204,6 +1399,17 @@ function openPalette() {
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
+    add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: [MOD, '⌥', 'N'] });
+    add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: [MOD, '⌥', 'W'] });
+    if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
+    for (const w of state.worktrees) {
+      if (w.current || w.missing) continue;
+      const detail = w.branch || (w.head ? w.head.slice(0, 7) : null);
+      add('Worktrees', `Switch to worktree ${w.name}`, () => switchWorktree(w), { icon: 'worktree', detail });
+      add('Worktrees', `Open worktree ${w.name} in new window`, () => openWorktreeWindow(w), { icon: 'plus', detail });
+      if (!w.main) add('Worktrees', `${w.locked ? 'Unlock' : 'Lock'} worktree ${w.name}${w.locked ? '' : '…'}`, () => toggleLock(w), { icon: 'key', detail });
+      if (!w.main) add('Worktrees', `Remove worktree ${w.name}…`, () => removeWorktree(w), { icon: 'trash', detail });
+    }
     add('Repository', 'Open in Finder', () => api.app('reveal'), { icon: 'folder' });
     add('Repository', 'Open in Terminal', () => api.app('terminal'), { icon: 'terminal' });
     add('Repository', 'Open in hosting service', openHosting, { icon: 'external' });
@@ -1306,8 +1512,10 @@ async function bound(promise) {
 }
 
 async function loadRepo(repo) {
+  // Switching between worktrees of one repository keeps the current view.
+  const sameRepo = state.repo && state.repo.commonDir === repo.commonDir;
   state.repo = repo;
-  state.view = 'map';
+  if (!sameRepo) { state.view = 'map'; state.worktrees = []; }
   state.selected = null;
   state.logKey = '';
   state.quick = null;
@@ -1370,6 +1578,8 @@ const commands = {
   reveal: () => state.repo && api.app('reveal'),
   terminal: () => state.repo && api.app('terminal'),
   hosting: () => state.repo && openHosting(),
+  worktreeAdd: () => state.repo && addWorktree(),
+  worktreeSwitch: () => state.repo && worktreeSwitcher(),
 };
 api.on('command', (cmd, ...args) => {
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
@@ -1385,7 +1595,7 @@ window.addEventListener('keydown', (e) => {
   if (!isEditable(document.activeElement) && !e.metaKey && !e.ctrlKey && state.repo) {
     if (gPending) {
       gPending = false;
-      const v = { m: 'map', c: 'commit', s: 'stashes', h: 'snapshots', r: 'reflog' }[e.key];
+      const v = { m: 'map', c: 'commit', s: 'stashes', h: 'snapshots', r: 'reflog', w: 'worktrees' }[e.key];
       if (v) { e.preventDefault(); setView(v); return; }
     } else if (e.key === 'g' && state.view !== 'commit') { gPending = true; setTimeout(() => { gPending = false; }, 800); return; }
     if (e.key === '/' ) { e.preventDefault(); commands.search(); }

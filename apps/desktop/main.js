@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const git = require('./git');
-const { Journal, workOps } = require('./journal');
+const { Journal, workOps, worktreeOps } = require('./journal');
 
 const isMac = process.platform === 'darwin';
 const sessions = new Map(); // webContents.id -> RepoSession
@@ -81,13 +81,18 @@ class RepoSession {
   }
 
   watch() {
-    const { root, gitDir } = this.repo;
+    // A linked worktree's refs live in the shared commonDir, outside its own gitDir.
+    const { root, gitDir, commonDir = gitDir } = this.repo;
+    const inside = (abs, dir) => abs === dir || abs.startsWith(dir + path.sep);
     const onEvent = (base) => (_type, file) => {
       if (!file) { this.pending.refs = this.pending.workdir = true; return this.schedule(); }
       const abs = path.join(base, file.toString());
-      if (abs.startsWith(gitDir + path.sep) || abs === gitDir) {
-        const rel = path.relative(gitDir, abs);
+      if (inside(abs, gitDir) || inside(abs, commonDir)) {
+        const rel = path.relative(inside(abs, gitDir) ? gitDir : commonDir, abs);
         if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('gitlanes') || rel.startsWith(path.join('refs', 'gitlanes')) || rel.startsWith('logs')) return;
+        // Another worktree's admin dir: only its HEAD and the dir itself (added/removed) matter here.
+        const parts = rel.split(path.sep);
+        if (parts[0] === 'worktrees' && parts.length > 2 && parts[2] !== 'HEAD' && parts[2] !== 'locked') return;
         this.pending.refs = true;
         if (rel === 'index') this.pending.workdir = true;
       } else {
@@ -99,7 +104,8 @@ class RepoSession {
       try { this.watchers.push(fs.watch(dir, { recursive: true }, onEvent(dir))); } catch (e) { console.warn('watch failed', dir, e.message); }
     };
     add(root);
-    if (!gitDir.startsWith(root + path.sep)) add(gitDir);
+    if (!inside(commonDir, root)) add(commonDir);
+    if (!inside(gitDir, root) && !inside(gitDir, commonDir)) add(gitDir);
   }
 
   schedule() {
@@ -125,7 +131,11 @@ class RepoSession {
 
 const reads = {
   refs: (s) => git.getRefs(s.repo.root),
-  log: (s, opts) => git.getLog(s.repo.root, opts),
+  // Other worktrees' detached HEADs are on no branch; include them so the graph can show them.
+  log: async (s, opts) => {
+    const heads = (await git.getWorktrees(s.repo.root).catch(() => [])).filter((w) => !w.current && w.detached && w.head).map((w) => w.head);
+    return git.getLog(s.repo.root, { ...opts, heads });
+  },
   commit: (s, sha) => git.getCommit(s.repo.root, sha),
   commitFileDiff: (s, sha, file, parent) => git.commitFileDiff(s.repo.root, sha, file, parent),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
@@ -137,6 +147,11 @@ const reads = {
   config: (s) => git.getConfig(s.repo.root),
   remotes: (s) => git.getRemotes(s.repo.root),
   history: (s) => s.journal.list(),
+  worktrees: (s) => git.getWorktrees(s.repo.root),
+  worktreeChanges: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    return wt.missing ? null : git.worktreeChanges(wt.path);
+  },
 };
 
 const W = { GIT_OPTIONAL_LOCKS: '1' };
@@ -215,7 +230,13 @@ const plainMutations = {
   setConfig: (s, key, value) => r(s, ['config', '--local', key, value]),
   unsetConfig: (s, key) => r(s, ['config', '--local', '--unset-all', key]),
   markResolved: (s, p) => r(s, ['add', '--', p]),
+  lockWorktree: (s, dir, reason) => git.lockWorktree(s.repo.root, dir, reason),
+  unlockWorktree: (s, dir) => git.unlockWorktree(s.repo.root, dir),
+  pruneWorktrees: (s) => git.pruneWorktrees(s.repo.root),
 };
+
+// The window showing a repository root, if any.
+const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
 
 function session(e) {
   const s = sessions.get(e.sender.id);
@@ -237,6 +258,10 @@ ipcMain.handle('git', async (e, method, ...args) => {
     try {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
+      if (worktreeOps[method]) {
+        if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
+      }
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
       if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method) };
       if (method === 'restoreHistory') return { ok: await s.journal.restore(...realArgs) };
@@ -316,15 +341,16 @@ ipcMain.handle('app:close-repo', (e) => {
   buildMenu();
 });
 
+// `rel` is relative to the repository root, or absolute (another worktree's folder).
 ipcMain.handle('app:reveal', (e, rel) => {
   const s = session(e);
-  if (rel) shell.showItemInFolder(path.join(s.repo.root, rel));
+  if (rel) shell.showItemInFolder(path.resolve(s.repo.root, rel));
   else shell.openPath(s.repo.root);
 });
-ipcMain.handle('app:terminal', (e) => {
-  const s = session(e);
-  if (isMac) spawn('open', ['-a', 'Terminal', s.repo.root], { detached: true });
-  else shell.openPath(s.repo.root);
+ipcMain.handle('app:terminal', (e, dir) => {
+  const target = path.resolve(session(e).repo.root, dir || '');
+  if (isMac) spawn('open', ['-a', 'Terminal', target], { detached: true });
+  else shell.openPath(target);
 });
 ipcMain.handle('app:open-file', (e, rel) => shell.openPath(path.join(session(e).repo.root, rel)));
 ipcMain.handle('app:external', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
@@ -335,6 +361,11 @@ ipcMain.handle('app:confirm', async (e, { message, detail, ok = 'OK', destructiv
   return res.response === 0;
 });
 ipcMain.handle('app:new-window', () => { createWindow(); });
+// Open a repository (e.g. another worktree) in a new window, or focus the window already showing it.
+ipcMain.handle('app:open-window', (_e, dir) => {
+  const win = windowFor(dir);
+  if (win) win.focus(); else createWindow(dir);
+});
 
 // ---------------------------------------------------------------------------
 // Windows & menu
@@ -418,6 +449,7 @@ function buildMenu() {
         item('Snapshots', 'CmdOrCtrl+4', 'view', 'snapshots'),
         item('Reflog', 'CmdOrCtrl+5', 'view', 'reflog'),
         item('Configuration', 'CmdOrCtrl+6', 'view', 'config'),
+        item('Worktrees', 'CmdOrCtrl+7', 'view', 'worktrees'),
         { type: 'separator' },
         item('Toggle Sidebar', 'CmdOrCtrl+\\', 'sidebar'),
         item('Show Tags', 'CmdOrCtrl+Alt+T', 'toggle', 'tags'),
@@ -445,6 +477,9 @@ function buildMenu() {
         { type: 'separator' },
         item('Stash Changes…', 'CmdOrCtrl+Shift+S', 'stashSave'),
         item('Reset Hard to HEAD…', undefined, 'resetHard'),
+        { type: 'separator' },
+        item('New Worktree…', 'CmdOrCtrl+Alt+N', 'worktreeAdd'),
+        item('Switch Worktree…', 'CmdOrCtrl+Alt+W', 'worktreeSwitch'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
         item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),

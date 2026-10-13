@@ -25,8 +25,16 @@ function pins(entry) {
     objects.push(before.headOid, after.headOid);
   }
   if (entry.stash) objects.push(entry.stash.sha);
+  if (entry.worktree) objects.push(entry.worktree.head);
   return { blobs: [...git.snapshotBlobs(entry.work?.before), ...git.snapshotBlobs(entry.work?.after)], objects };
 }
+
+// Adding and removing worktrees. Removal is only allowed on a clean worktree,
+// so its branch (or commit, when detached) is all undo needs to recreate it.
+const worktreeOps = {
+  addWorktree: { op: 'add', run: async (cwd, opts) => git.findWorktree(cwd, await git.addWorktree(cwd, opts)) },
+  removeWorktree: { op: 'remove', run: git.removeWorktree },
+};
 
 // Operations that destroy uncommitted work or stashes, with the paths each may
 // change; the journal snapshots those paths (and a dropped stash) around them.
@@ -56,7 +64,7 @@ class Journal {
   }
 
   list() {
-    const strip = (e, i) => ({ id: e.id, label: e.label, time: e.time, index: i, movesRefs: !same(e.before, e.after) });
+    const strip = (e, i) => ({ id: e.id, label: e.label, time: e.time, index: i, movesRefs: !e.worktree && !same(e.before, e.after) });
     return { undo: this.undo.map(strip), redo: this.redo.map(strip) };
   }
 
@@ -104,11 +112,30 @@ class Journal {
     return this.record(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore }) {
+  // Add or remove a worktree as an undoable step. Adding can also create a branch.
+  async runWorktree(method, label, args) {
+    const cwd = this.root;
+    const id = ++nextId;
+    const before = await git.captureRefState(cwd);
+    let wt;
+    try {
+      wt = await worktreeOps[method].run(cwd, ...args);
+    } catch (err) {
+      // A failed add can still have created the branch; record that so it can be undone.
+      await this.finish({ id, label, method, before }).catch(() => {});
+      throw err;
+    }
+    const worktree = { op: worktreeOps[method].op, path: wt.path, branch: wt.branch, head: wt.head };
+    await this.finish({ id, label, method, before, worktree });
+    return worktree;
+  }
+
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
-    let changed = !same(entry.before, entry.after);
+    if (worktree) entry.worktree = worktree;
+    let changed = !same(entry.before, entry.after) || !!worktree;
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path)).catch(() => null);
       if (!workAfter || git.workChanges(workBefore, workAfter).length) {
@@ -137,7 +164,8 @@ class Journal {
     const to = dir === 'undo' ? this.redo : this.undo;
     const entry = from[from.length - 1];
     if (!entry) return null;
-    if (entry.work || entry.stash) await this.restoreWork(entry, dir);
+    if (entry.worktree) await this.restoreWorktree(entry, dir);
+    else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
     from.pop();
     to.push(entry);
@@ -173,6 +201,30 @@ class Journal {
     }
   }
 
+  // Undo or redo adding or removing a worktree. Removing again needs the worktree
+  // clean and unlocked (git.removeWorktree checks); a branch created with it is
+  // deleted only if nothing has moved since.
+  async restoreWorktree(entry, dir) {
+    const cwd = this.root;
+    const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
+    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const movesRefs = !same(entry.before, entry.after);
+    if (movesRefs && !same(await git.captureRefState(cwd), entry[cur])) throw fail('branches or HEAD have moved since.');
+    const wt = entry.worktree;
+    const adding = (wt.op === 'add') === (dir === 'redo');
+    try {
+      if (adding) {
+        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
+        await git.restoreWorktree(cwd, wt);
+      } else {
+        await git.removeWorktree(cwd, wt.path);
+        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
+      }
+    } catch (err) {
+      throw fail(err.message);
+    }
+  }
+
   // Move refs back to the state before an entry (the Snapshots view's "Restore before").
   async restore(id) {
     const entry = this.undo.find((e) => e.id === id) || this.redo.find((e) => e.id === id);
@@ -181,4 +233,4 @@ class Journal {
   }
 }
 
-module.exports = { Journal, workOps, LIMIT };
+module.exports = { Journal, workOps, worktreeOps, LIMIT };
