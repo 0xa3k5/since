@@ -1,7 +1,7 @@
 # GitLanes
 
-A fast, keyboard-first Git client for macOS. It brings [GitUp](https://gitup.co)'s live commit map and
-undo-everything workflow to a small Electron app with a Linear-inspired design.
+A fast, keyboard-first Git client for macOS with a live commit graph you operate on directly,
+unlimited undo/redo for every ref change, and a calm, dense, dark-first design.
 
 From the repository root:
 
@@ -15,8 +15,6 @@ From the repository root:
 - `renderer/`: buildless ES modules. Canvas commit graph + virtualized list, so 20k+ commits stay smooth.
 
 ## Features
-The feature set was mapped from the actions in GitUp 1.4.1's interface files. No GitUp code is used.
-
 Map (graph, branch/tag/remote pills, search, quick view, diff with HEAD) · commit actions: checkout, branch, tag,
 merge, rebase onto, cherry-pick, revert, edit message, squash/fixup with parent, swap with parent, delete, move branch tip ·
 Commit view with file/hunk/line staging, discard, amend, conflict resolution (ours/theirs/resolved) ·

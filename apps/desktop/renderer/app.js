@@ -673,7 +673,7 @@ function quickView({ sha, path }) {
 }
 
 // ---------------------------------------------------------------------------
-// Commit actions (GitUp map actions)
+// Commit actions (map actions)
 
 const branchesAt = (sha) => state.refs.filter((r) => r.kind === 'branch' && r.target === sha);
 
@@ -1350,7 +1350,7 @@ function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName ===
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('.overlay')) return;
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
-  // Linear-style "G then X" navigation
+  // "G then X" navigation
   if (!isEditable(document.activeElement) && !e.metaKey && !e.ctrlKey && state.repo) {
     if (gPending) {
       gPending = false;

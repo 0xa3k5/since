@@ -2,7 +2,7 @@
   "name": "@gitlanes/desktop",
   "productName": "GitLanes",
   "version": "0.1.0",
-  "description": "A fast, keyboard-first Git client inspired by GitUp, styled after Linear",
+  "description": "A fast, keyboard-first Git client for macOS with a live commit graph",
   "main": "main.js",
   "license": "UNLICENSED",
   "scripts": {
