@@ -24,6 +24,46 @@ function addRecent(repo) {
 }
 
 // ---------------------------------------------------------------------------
+// Theme: System / Light / Dark. nativeTheme.themeSource drives both native UI
+// (menus, title bar, dialogs) and prefers-color-scheme in every renderer.
+
+const THEMES = ['system', 'light', 'dark'];
+const THEME_LABELS = { system: 'System', light: 'Light', dark: 'Dark' };
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+function readSettings() {
+  try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) || {}; } catch { return {}; }
+}
+function writeSettings(patch) {
+  const next = { ...readSettings(), ...patch };
+  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+  fs.writeFileSync(settingsFile(), JSON.stringify(next, null, 2));
+}
+const currentTheme = () => (THEMES.includes(nativeTheme.themeSource) ? nativeTheme.themeSource : 'system');
+// Window chrome colours, matching --bg in styles.css.
+const windowColors = () => (nativeTheme.shouldUseDarkColors
+  ? { bg: '#0e0b09', symbol: '#a59689' }
+  : { bg: '#faf7f4', symbol: '#6b5e54' });
+
+function setTheme(mode, { announce = false } = {}) {
+  if (!THEMES.includes(mode)) return currentTheme();
+  nativeTheme.themeSource = mode;
+  try { writeSettings({ theme: mode }); } catch (e) { console.warn('could not save theme', e.message); }
+  buildMenu();
+  const focused = BrowserWindow.getFocusedWindow();
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('theme', mode, { announce: announce && w === focused });
+  return mode;
+}
+const cycleTheme = () => setTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length], { announce: true });
+
+nativeTheme.on('updated', () => {
+  const c = windowColors();
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.setBackgroundColor(c.bg);
+    if (!isMac) w.setTitleBarOverlay?.({ color: c.bg, symbolColor: c.symbol });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Per-window repository session: watcher + undo/redo history
 
 class RepoSession {
@@ -274,6 +314,9 @@ ipcMain.handle('git', async (e, method, ...args) => {
 ipcMain.handle('app:recent', () => readRecent());
 ipcMain.handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
 ipcMain.handle('app:platform', () => process.platform);
+ipcMain.handle('app:theme', () => currentTheme());
+ipcMain.handle('app:set-theme', (_e, mode) => setTheme(mode));
+ipcMain.handle('app:cycle-theme', () => cycleTheme());
 
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
@@ -353,16 +396,17 @@ ipcMain.handle('app:new-window', () => { createWindow(); });
 // Windows & menu
 
 function createWindow(repoDir) {
+  const colors = windowColors();
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 900,
     minHeight: 560,
     show: false,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0b0d' : '#fcfcfd',
+    backgroundColor: colors.bg,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     trafficLightPosition: { x: 16, y: 16 },
-    titleBarOverlay: isMac ? undefined : { color: '#0b0b0d', symbolColor: '#8a8f98', height: 40 },
+    titleBarOverlay: isMac ? undefined : { color: colors.bg, symbolColor: colors.symbol, height: 40 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -380,6 +424,8 @@ function createWindow(repoDir) {
   return win;
 }
 
+// ⌃⌘T on macOS ("T" for Theme); ⌘⇧T and ⌥⌘T are already taken.
+const THEME_ACCELERATOR = isMac ? 'Cmd+Ctrl+T' : 'Ctrl+Alt+Shift+T';
 const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webContents.send('command', cmd, ...args);
 
 function buildMenu() {
@@ -431,6 +477,15 @@ function buildMenu() {
         item('Show Tags', 'CmdOrCtrl+Alt+T', 'toggle', 'tags'),
         item('Show Remote Branches', 'CmdOrCtrl+Alt+R', 'toggle', 'remotes'),
         { type: 'separator' },
+        {
+          label: 'Theme',
+          submenu: [
+            ...THEMES.map((mode) => ({ label: THEME_LABELS[mode], type: 'radio', checked: currentTheme() === mode, click: () => setTheme(mode) })),
+            { type: 'separator' },
+            { label: 'Cycle Theme', accelerator: THEME_ACCELERATOR, click: cycleTheme },
+          ],
+        },
+        { type: 'separator' },
         { role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' },
       ],
     },
@@ -462,6 +517,8 @@ app.on('open-file', (ev, p) => {
 
 app.whenReady().then(() => {
   app.setName('GitLanes');
+  const saved = readSettings().theme;
+  nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   buildMenu();
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // npm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran npm.
