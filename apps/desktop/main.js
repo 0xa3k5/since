@@ -170,7 +170,7 @@ const reads = {
   reflog: (s) => git.getReflog(s.repo.root),
   config: (s) => git.getConfig(s.repo.root),
   remotes: (s) => git.getRemotes(s.repo.root),
-  history: (s) => s.journal.list(),
+  history: (s, limit) => s.journal.list(limit),
   worktrees: (s) => git.getWorktrees(s.repo.root),
   worktreeChanges: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
@@ -493,7 +493,7 @@ function licenceItems() {
 function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
   const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
-  const nextUndo = journal?.undo.at(-1), nextRedo = journal?.redo.at(-1);
+  const nextUndo = journal?.undo.top, nextRedo = journal?.redo.top;
   const template = [
     ...(isMac ? [{
       label: app.name,

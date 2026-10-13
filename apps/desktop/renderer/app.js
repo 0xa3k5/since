@@ -30,7 +30,8 @@ const state = {
   show: loadPref('show', { tags: true, remotes: true }),
   search: '',
   stashes: [],
-  history: { undo: [], redo: [] },
+  history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
+  historyLimit: 100, // snapshots loaded per stack; older ones load on request
   reflog: [],
   config: [],
   configFilter: '',
@@ -124,7 +125,7 @@ const refreshHistory = coalesce(async () => {
   const [{ refs, head }, opState, history, worktrees] = await Promise.all([
     git('refs'),
     git('opState'),
-    git('history'),
+    git('history', state.historyLimit),
     git('worktrees').catch(() => []),
   ]);
   const worktreesChanged = JSON.stringify(worktrees) !== JSON.stringify(state.worktrees);
@@ -1512,8 +1513,10 @@ async function stashSave() {
 // Snapshots (undo history)
 
 function snapshotsView() {
-  const { undo: u, redo: r } = state.history;
+  const { undo: u, redo: r, undoCount, redoCount } = state.history;
   const entries = [...[...r].map((e) => ({ ...e, redo: true })), ...[...u].reverse()];
+  const hidden = undoCount - u.length + redoCount - r.length;
+  const more = () => { state.historyLimit += 500; refreshHistory(); };
   return h('div.page', null,
     h('div.page-head', null,
       h('div', null, h('h1', null, 'Snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
@@ -1526,7 +1529,7 @@ function snapshotsView() {
       h('div.list-main', null, h('div.list-title', null, e.label), h('div.list-sub', null, e.redo ? 'Undone — can be redone' : i === r.length ? 'Latest' : fullDate(e.time / 1000))),
       h('span.when', null, timeAgo(e.time / 1000)),
       !e.movesRefs ? null : h('button.btn.ghost.small', { title: 'Restore refs to the state before this operation', onclick: async () => { if (await confirm(`Restore the state before “${e.label}”?`, 'Branches, tags and HEAD will be moved. Uncommitted changes are kept when possible. You can undo this.', { submit: 'Restore', destructive: false })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]); } }, icon('restore', 13), 'Restore before'),
-    ))) : h('div.empty.big', null, icon('history', 28), h('div', null, 'No snapshots yet'), h('div.muted', null, 'Operations like commit, checkout, merge, rebase or discard will appear here.')),
+    )), hidden > 0 ? h('div.tl-more', null, h('button.btn.subtle.small', { onclick: more }, `Show ${hidden.toLocaleString()} more`)) : null) : h('div.empty.big', null, icon('history', 28), h('div', null, 'No snapshots yet'), h('div.muted', null, 'Operations like commit, checkout, merge, rebase or discard will appear here.')),
   );
 }
 
