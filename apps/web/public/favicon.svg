@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>.bg{fill:#e8590c}.ln{fill:none;stroke:#1a0d05}.dot{fill:#1a0d05}@media (prefers-color-scheme:dark){.bg{fill:#ff6a1a}}</style>
+  <rect class="bg" width="32" height="32" rx="8"/>
+  <path class="ln" d="M11 7v18M21 7v6c0 4-10 4-10 8" stroke-width="2.6" stroke-linecap="round"/>
+  <circle class="dot" cx="11" cy="24" r="3"/>
+  <circle class="dot" cx="21" cy="9" r="3"/>
+</svg>

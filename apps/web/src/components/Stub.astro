@@ -1,0 +1,21 @@
+---
+// Placeholder for a page whose content lands in a stage-2 issue. Stubs are noindex.
+import Base from '../layouts/Base.astro';
+
+export interface Props {
+  title: string;
+  heading: string;
+  description: string;
+  ogTheme?: 'light' | 'dark';
+}
+
+const { title, heading, description, ogTheme } = Astro.props;
+---
+<Base title={title} description={description} ogTheme={ogTheme} noindex>
+  <section class="wrap stub">
+    <p class="eyebrow">Coming soon</p>
+    <h1>{heading}</h1>
+    <p class="lede">{description}</p>
+    <slot />
+  </section>
+</Base>

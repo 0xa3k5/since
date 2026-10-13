@@ -1,0 +1,14 @@
+---
+import Base from '../layouts/Base.astro';
+import { FOOTER_NAV } from '../routes';
+---
+<Base title="Page not found" description="This page doesn't exist." noindex>
+  <section class="wrap stub">
+    <p class="eyebrow">404</p>
+    <h1>Page not found</h1>
+    <p class="lede">That page doesn't exist, or it moved. Try one of these:</p>
+    <ul>
+      {FOOTER_NAV[0].links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
+    </ul>
+  </section>
+</Base>

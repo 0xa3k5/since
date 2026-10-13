@@ -1,0 +1,23 @@
+---
+import { BUY_URL, PRICE_NOW } from '../config';
+import { HEADER_NAV } from '../routes';
+import Logo from './Logo.astro';
+import ThemeToggle from './ThemeToggle.astro';
+
+const current = Astro.url.pathname.replace(/\.html$/, '');
+---
+<header class="site-header">
+  <div class="wrap header-inner">
+    <Logo />
+    <nav class="header-nav" aria-label="Main">
+      {HEADER_NAV.map((r) => (
+        <a href={r.href} aria-current={current === r.href || current.startsWith(r.href + '/') ? 'page' : undefined}>{r.label}</a>
+      ))}
+    </nav>
+    <div class="header-actions">
+      <ThemeToggle />
+      <a class="btn btn-secondary" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
+      <a class="btn btn-primary" href="/download">Download</a>
+    </div>
+  </div>
+</header>

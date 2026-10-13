@@ -37,3 +37,18 @@ jobs:
             apps/desktop/playwright-report/
           if-no-files-found: ignore
           retention-days: 14
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      # Builds the static site, then fails on any broken internal link.
+      - run: npm run web:build

@@ -14,6 +14,8 @@
   "scripts": {
     "desktop": "npm run start -w @gitlanes/desktop --",
     "dist": "npm run dist -w @gitlanes/desktop --",
+    "web": "npm run dev -w @gitlanes/web --",
+    "web:build": "npm run build -w @gitlanes/web",
     "test": "npm test --workspaces --if-present",
     "test:e2e": "npm run test:e2e -w @gitlanes/desktop"
   },

@@ -1,0 +1,44 @@
+---
+import '@gitlanes/tokens/tokens.css';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
+import '../styles/global.css';
+import { ANALYTICS_ENABLED } from '../config';
+import Seo, { type Props as SeoProps } from '../components/Seo.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+export type Props = SeoProps;
+---
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Applies the stored theme before first paint so the wrong theme never flashes. -->
+    <script is:inline>
+      (() => {
+        let t;
+        try { t = localStorage.getItem('theme'); } catch {}
+        const root = document.documentElement;
+        root.dataset.theme = t === 'light' || t === 'dark' ? t : 'system';
+        root.classList.add('js');
+      })();
+    </script>
+    <Seo {...Astro.props} />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf7f4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0b09">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="sitemap" href="/sitemap-index.xml">
+    {ANALYTICS_ENABLED && <Fragment><!-- Analytics provider goes here once chosen (website plan D7). --></Fragment>}
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <Header />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
