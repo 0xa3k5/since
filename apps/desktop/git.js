@@ -49,10 +49,12 @@ function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 *
 // ---------------------------------------------------------------------------
 // Repository discovery
 
+// gitDir is this worktree's own admin dir; commonDir holds the refs and objects
+// every worktree of the repository shares (the same dir for the main worktree).
 async function openRepo(dir) {
-  const out = await run(dir, ['rev-parse', '--show-toplevel', '--absolute-git-dir']);
-  const [root, gitDir] = out.trim().split('\n');
-  return { root, gitDir, name: path.basename(root) };
+  const out = await run(dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
+  const [root, gitDir, commonDir] = out.trim().split('\n');
+  return { root, gitDir, commonDir: path.resolve(commonDir), name: path.basename(root) };
 }
 
 async function initRepo(dir) {
@@ -118,9 +120,10 @@ async function getRefs(cwd) {
   return { refs, head };
 }
 
-async function getLog(cwd, { limit = 20000, remotes = true, tags = true } = {}) {
+// `heads`: extra commits to include, such as other worktrees' detached HEADs.
+async function getLog(cwd, { limit = 20000, remotes = true, tags = true, heads = [] } = {}) {
   const args = [
-    'log', '--branches', ...(tags ? ['--tags'] : []), ...(remotes ? ['--remotes'] : []), 'HEAD', '--date-order',
+    'log', '--branches', ...(tags ? ['--tags'] : []), ...(remotes ? ['--remotes'] : []), 'HEAD', ...heads, '--date-order',
     `--max-count=${limit}`,
     `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%s${REC}`,
   ];
@@ -675,6 +678,107 @@ async function chooseSide(cwd, p, side) {
 const stashApply = (cwd, ref, pop) => run(cwd, ['stash', pop ? 'pop' : 'apply', '--index', ref], { env: W_ENV });
 const stashDrop = (cwd, ref) => run(cwd, ['stash', 'drop', ref], { env: W_ENV });
 
+// ---------------------------------------------------------------------------
+// Worktrees. Each one is a plain record, so later features (per-agent lanes)
+// can hang more fields off it without changing the callers.
+
+const realpath = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+const samePath = (a, b) => realpath(a) === realpath(b);
+const NULL_OID = /^0+$/;
+
+async function getWorktrees(cwd) {
+  const out = await run(cwd, ['worktree', 'list', '--porcelain', '-z']);
+  const here = realpath(cwd);
+  const list = [];
+  let cur = null;
+  for (const field of out.split('\0')) {
+    if (!field) { cur = null; continue; }
+    const sp = field.indexOf(' ');
+    const key = sp === -1 ? field : field.slice(0, sp);
+    const val = sp === -1 ? '' : field.slice(sp + 1);
+    if (key === 'worktree') {
+      cur = { path: val, name: path.basename(val), head: null, branch: null, detached: false, bare: false, main: !list.length, current: realpath(val) === here, locked: false, lockReason: '', missing: false };
+      list.push(cur);
+    } else if (!cur) continue;
+    else if (key === 'HEAD') cur.head = NULL_OID.test(val) ? null : val;
+    else if (key === 'branch') cur.branch = val.replace(/^refs\/heads\//, '');
+    else if (key === 'detached') cur.detached = true;
+    else if (key === 'bare') cur.bare = true;
+    else if (key === 'locked') { cur.locked = true; cur.lockReason = val; }
+    else if (key === 'prunable') cur.missing = true;
+  }
+  return list.filter((w) => !w.bare);
+}
+
+async function findWorktree(cwd, dir) {
+  const wt = (await getWorktrees(cwd)).find((w) => samePath(w.path, dir));
+  if (!wt) throw new GitError('That worktree no longer exists.');
+  return wt;
+}
+
+// Number of changed, untracked or conflicted paths in a worktree.
+async function worktreeChanges(dir) {
+  return new Set(await dirtyPaths(dir)).size;
+}
+
+// Where a new worktree goes when the user gives no location: next to the main
+// worktree, named "<repo>-<branch>", with a number added if that is taken.
+function defaultWorktreePath(mainPath, label) {
+  const slug = label.replace(/[^\w.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'worktree';
+  const base = path.join(path.dirname(mainPath), `${path.basename(mainPath)}-${slug}`);
+  let dir = base;
+  for (let i = 2; fs.existsSync(dir); i++) dir = `${base}-${i}`;
+  return dir;
+}
+
+function resolveWorktreePath(mainPath, dir) {
+  if (dir.startsWith('~/') || dir === '~') dir = path.join(os.homedir(), dir.slice(1));
+  return path.resolve(path.dirname(mainPath), dir);
+}
+
+// Add a worktree. `branch`: an existing local branch is checked out, a new name
+// is created at `base`; no branch gives a detached HEAD at `base`. Returns the path.
+async function addWorktree(cwd, { dir, branch, base } = {}) {
+  const main = (await getWorktrees(cwd)).find((w) => w.main);
+  const at = base || 'HEAD';
+  dir = dir ? resolveWorktreePath(main.path, dir) : defaultWorktreePath(main.path, branch || (await run(cwd, ['rev-parse', '--short', at])).trim());
+  if (fs.existsSync(dir) && (!fs.statSync(dir).isDirectory() || fs.readdirSync(dir).length)) throw new GitError(`${dir} already exists and is not an empty folder.`);
+  const local = branch && (await run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], { allowCodes: [0, 1] })).trim();
+  const args = ['worktree', 'add', '-q'];
+  if (!branch) args.push('--detach', dir, at);
+  else if (local) args.push(dir, branch);
+  else args.push('-b', branch, dir, at);
+  await run(cwd, args, { env: W_ENV });
+  return realpath(dir);
+}
+
+// Remove a worktree's folder. Refused unless the worktree is clean: there is
+// nothing to snapshot then, and undo can recreate it from its branch or commit.
+// Ignored files (build output, dependencies) are deleted with the folder.
+async function removeWorktree(cwd, dir) {
+  const wt = await findWorktree(cwd, dir);
+  if (wt.main) throw new GitError('The main worktree can’t be removed.');
+  if (wt.current) throw new GitError('This window is showing that worktree. Switch to another one first.');
+  if (wt.locked) throw new GitError(`“${wt.name}” is locked${wt.lockReason ? ` (${wt.lockReason})` : ''}. Unlock it first.`);
+  if (wt.missing) throw new GitError(`“${wt.name}” no longer exists on disk. Use Prune Missing Worktrees instead.`);
+  const n = await worktreeChanges(wt.path);
+  if (n) throw new GitError(`“${wt.name}” has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.`);
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
+  await run(cwd, ['worktree', 'remove', wt.path], { env: W_ENV });
+  return wt;
+}
+
+// Put a removed worktree back at the same path, on the same branch or commit.
+async function restoreWorktree(cwd, { path: dir, branch, head }) {
+  if (fs.existsSync(dir) && (!fs.statSync(dir).isDirectory() || fs.readdirSync(dir).length)) throw new GitError(`${dir} is in the way.`);
+  await run(cwd, ['worktree', 'add', '-q', ...(branch ? [dir, branch] : ['--detach', dir, head])], { env: W_ENV });
+}
+
+const lockWorktree = async (cwd, dir, reason) => run(cwd, ['worktree', 'lock', ...(reason ? ['--reason', reason] : []), (await findWorktree(cwd, dir)).path], { env: W_ENV });
+const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (await findWorktree(cwd, dir)).path], { env: W_ENV });
+const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
+
 module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, getCommit, commitFileDiff, compareDiff,
   getStatus, getOperationState, workingDiff, parseDiff, buildPartialPatch, applyPatch,
@@ -682,5 +786,7 @@ module.exports = {
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, resetHard, chooseSide, stashApply, stashDrop,
+  samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
+  restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
 };
 

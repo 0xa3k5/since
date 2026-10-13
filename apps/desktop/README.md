@@ -15,7 +15,7 @@ From the repository root:
 (and bare "remotes") in a temp dir, with its own git config and app userData, so it never touches a real
 repository or your settings. Native open/save dialogs are stubbed in the main process. Covered: history
 rewriting from the Map, merge/rebase conflicts (ours/theirs/manual, continue/abort), clone/fetch/pull/push,
-stashes, discard/reset, Snapshots, reflog recovery, config editing, undo/redo after each, and light/dark
+stashes, discard/reset, Snapshots, reflog recovery, config editing, worktrees, undo/redo after each, and light/dark
 smoke screenshots (saved under `test-results/`). CI runs the suite on macOS and uploads the results.
 A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 
@@ -29,6 +29,8 @@ Map (graph, branch/tag/remote pills, search, quick view, diff with HEAD) · comm
 merge, rebase onto, cherry-pick, revert, edit message, squash/fixup with parent, swap with parent, delete, move branch tip ·
 Commit view with file/hunk/line staging, discard, amend, conflict resolution (ours/theirs/resolved) ·
 Stashes · Snapshots (undo/redo/restore) · Unified reflog · Config editor · Fetch/Pull/Push · ⌘K command menu ·
+Worktrees (⌘7): add (⌥⌘N, or W on a commit), switch the window (⌥⌘W) or open in a new window, lock/unlock, remove (blocked while
+dirty, undoable); other worktrees' branches and detached HEADs are marked on the graph ·
 Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
 Not yet: commit splitter, external diff/merge tools, submodules, auto-updates.

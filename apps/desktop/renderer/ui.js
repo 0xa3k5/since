@@ -77,6 +77,7 @@ const P = {
   theme: '<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor" stroke="none"/>',
   sun: '<circle cx="8" cy="8" r="2.6"/><path d="M8 1.8v1.4M8 12.8v1.4M14.2 8h-1.4M3.2 8H1.8M12.4 3.6l-1 1M4.6 11.4l-1 1M12.4 12.4l-1-1M4.6 4.6l-1-1"/>',
   moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
+  worktree: '<rect x="2" y="2.5" width="5.5" height="4" rx="1"/><rect x="8.5" y="9.5" width="5.5" height="4" rx="1"/><path d="M4.75 6.5v3.5a1.5 1.5 0 0 0 1.5 1.5H8.5"/>',
   key: '<circle cx="5" cy="11" r="2.5"/><path d="m6.8 9.2 6-6M11 5l1.5 1.5"/>',
 };
 
