@@ -64,7 +64,7 @@ async function initRepo(dir) {
 
 function cloneRepo(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', ['clone', '--progress', url, dest], { env: BASE_ENV });
+    const child = spawn('git', ['clone', '--progress', '--', url, dest], { env: { ...BASE_ENV, GIT_ALLOW_PROTOCOL: 'file:git:http:https:ssh' } });
     let err = '';
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d) => {
