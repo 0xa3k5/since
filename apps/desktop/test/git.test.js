@@ -124,12 +124,12 @@ test('graph layout assigns lanes for branches and merges', async () => {
     { sha: 'r', parents: [] },
   ];
   const g = layout(commits);
-  assert.equal(g.rows[0].col, 0);
-  assert.equal(g.rows[1].col, 1); // b sits on its own lane
-  assert.equal(g.rows[2].col, 0);
-  assert.equal(g.rows[3].col, 0);
+  assert.equal(g.row(0).col, 0);
+  assert.equal(g.row(1).col, 1); // b sits on its own lane
+  assert.equal(g.row(2).col, 0);
+  assert.equal(g.row(3).col, 0);
   assert.equal(g.maxLanes, 2);
-  assert.ok(g.rows[0].merge);
+  assert.ok(g.row(0).merge);
 });
 
 test('remoteWebUrl', () => {

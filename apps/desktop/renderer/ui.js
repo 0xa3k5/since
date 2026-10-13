@@ -277,6 +277,19 @@ export function palette(getItems, { placeholder = 'Type a command or search…' 
 }
 
 // --- Virtual list -----------------------------------------------------------------
+// Browsers cannot lay out arbitrarily tall elements (Chromium tops out near 33.5M px, about a
+// million 32px rows). Past MAX_SCROLL the scrollbar is scaled: scrollTop maps proportionally onto
+// the list's virtual height, and rows are positioned relative to the viewport.
+export const MAX_SCROLL = 1 << 24;
+
+// Virtual offset (px into the full list) for a scrollTop, and back.
+export function scrollMap(count, rowHeight, viewport) {
+  const full = count * rowHeight;
+  const spacer = Math.min(full, MAX_SCROLL);
+  const scale = full > spacer && spacer > viewport ? (full - viewport) / (spacer - viewport) : 1;
+  return { spacer, scale, toVirtual: (top) => top * scale, toScroll: (v) => v / scale };
+}
+
 // Renders only visible rows; recycles row elements by index.
 export class VirtualList {
   constructor(container, { rowHeight, render, onScroll, overscan = 8 }) {
@@ -286,6 +299,9 @@ export class VirtualList {
     this.onScroll = onScroll;
     this.overscan = overscan;
     this.count = 0;
+    this.mapH = 0;
+    this.map = scrollMap(0, rowHeight, 0);
+    this.shift = 0;
     this.spacer = h('div.vl-spacer');
     this.layer = h('div.vl-layer');
     this.el.append(this.spacer, this.layer);
@@ -295,23 +311,35 @@ export class VirtualList {
     this.ro = new ResizeObserver(() => this.schedule());
     this.ro.observe(this.el);
   }
-  setCount(n) { this.count = n; this.spacer.style.height = n * this.rowHeight + 'px'; this.invalidate(); }
+  // `keep` leaves rendered rows alone (rows were only appended).
+  setCount(n, { keep = false } = {}) {
+    this.count = n;
+    this.mapH = this.el.clientHeight;
+    this.map = scrollMap(n, this.rowHeight, this.mapH);
+    this.spacer.style.height = this.map.spacer + 'px';
+    if (keep) this.schedule(); else this.invalidate();
+  }
   invalidate() { for (const [, el] of this.rows) el.remove(); this.rows.clear(); this.schedule(); }
   schedule() { if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.update(); }); }
   range() {
-    const top = this.el.scrollTop, hgt = this.el.clientHeight;
+    const hgt = this.el.clientHeight;
+    const top = this.map.toVirtual(this.el.scrollTop);
     const first = Math.max(0, Math.floor(top / this.rowHeight) - this.overscan);
     const last = Math.min(this.count - 1, Math.ceil((top + hgt) / this.rowHeight) + this.overscan);
     return { first, last, top, height: hgt };
   }
+  place(i, el) { el.style.transform = `translateY(${i * this.rowHeight - this.shift}px)`; }
   update() {
+    if (this.el.clientHeight !== this.mapH) { this.mapH = this.el.clientHeight; this.map = scrollMap(this.count, this.rowHeight, this.mapH); }
     const { first, last, top, height } = this.range();
+    const shift = top - this.el.scrollTop;
     for (const [i, el] of this.rows) if (i < first || i > last) { el.remove(); this.rows.delete(i); }
+    if (shift !== this.shift) { this.shift = shift; for (const [i, el] of this.rows) this.place(i, el); }
     const frag = document.createDocumentFragment();
     for (let i = first; i <= last; i++) {
       if (this.rows.has(i)) continue;
       const el = this.render(i);
-      el.style.transform = `translateY(${i * this.rowHeight}px)`;
+      this.place(i, el);
       el.style.height = this.rowHeight + 'px';
       this.rows.set(i, el);
       frag.append(el);
@@ -321,10 +349,12 @@ export class VirtualList {
   }
   refreshRow(i) { const el = this.rows.get(i); if (el) { el.remove(); this.rows.delete(i); this.schedule(); } }
   scrollToIndex(i, align = 'nearest') {
-    const y = i * this.rowHeight, top = this.el.scrollTop, hgt = this.el.clientHeight;
-    if (align === 'center') this.el.scrollTop = y - hgt / 2 + this.rowHeight / 2;
-    else if (y < top) this.el.scrollTop = y;
-    else if (y + this.rowHeight > top + hgt) this.el.scrollTop = y + this.rowHeight - hgt;
+    const y = i * this.rowHeight, top = this.map.toVirtual(this.el.scrollTop), hgt = this.el.clientHeight;
+    let v = null;
+    if (align === 'center') v = y - hgt / 2 + this.rowHeight / 2;
+    else if (y < top) v = y;
+    else if (y + this.rowHeight > top + hgt) v = y + this.rowHeight - hgt;
+    if (v !== null) this.el.scrollTop = this.map.toScroll(Math.max(0, v));
   }
   destroy() { this.ro.disconnect(); cancelAnimationFrame(this.frame); }
 }

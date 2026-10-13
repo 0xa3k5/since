@@ -12,7 +12,13 @@ From the repository root:
 ## Architecture
 - `git.js`: dependency-free git CLI layer (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
 - `main.js`: windows, menu, IPC, FSEvents watcher (live refresh), unlimited undo/redo journal (`.git/gitlanes-history.json`).
-- `renderer/`: buildless ES modules. Canvas commit graph + virtualized list, so 20k+ commits stay smooth.
+- `renderer/`: buildless ES modules. Canvas commit graph + virtualized list. The log streams in from git
+  (topology first, subjects and authors behind it) and the graph is laid out incrementally, so there is no
+  commit cap: the 1.5M-commit Linux kernel opens in well under a second. See [docs/performance.md](../../docs/performance.md).
+
+## Benchmark
+`npm run bench` opens large repositories in the real app and records first paint, full graph, scroll frame rate and
+memory. It generates synthetic 100k/250k-commit repos; pass `--linux <path>` (or `--clone`) for the Linux kernel.
 
 ## Features
 Map (graph, branch/tag/remote pills, search, quick view, diff with HEAD) · commit actions: checkout, branch, tag,

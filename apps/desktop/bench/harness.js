@@ -60,6 +60,8 @@ async function probe(opts) {
 module.exports = function bench(app) {
   const outFile = process.env.GITLANES_BENCH;
   const t0 = performance.timeOrigin; // process start, epoch ms
+  // Keep frames coming even when the window is covered or the display sleeps.
+  for (const sw of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) app.commandLine.appendSwitch(sw);
   app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-bench-profile-')));
   const opts = { timeout: +(process.env.GITLANES_BENCH_TIMEOUT || 600000), scrollMs: +(process.env.GITLANES_BENCH_SCROLL_MS || 3000) };
 
