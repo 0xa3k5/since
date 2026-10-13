@@ -1,8 +1,18 @@
 name: CI
 
+# PRs and pushes to main run unit tests and the web build only. The full e2e suite drives the real app
+# and is slow, so it runs before a release (see release.yml) or when started by hand here.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      e2e:
+        description: Also run the end-to-end suite
+        type: boolean
+        default: true
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -12,7 +22,32 @@ permissions:
   contents: read
 
 jobs:
+  # On PRs, skip the job a change can't affect. Pushes and manual runs always run both.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          predicate-quantifier: every
+          filters: |
+            desktop:
+              - '**'
+              - '!apps/web/**'
+              - '!docs/**'
+            web:
+              - '**'
+              - '!apps/desktop/**'
+
   test:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.desktop == 'true') }}
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
@@ -26,10 +61,12 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       - run: npm test
       # The end-to-end suite drives the real app, so it needs the Electron binary.
-      - run: node node_modules/electron/install.js
-      - run: npm run test:e2e
+      - if: inputs.e2e
+        run: node node_modules/electron/install.js
+      - if: inputs.e2e
+        run: npm run test:e2e
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && inputs.e2e
         with:
           name: e2e-results
           path: |
@@ -39,6 +76,8 @@ jobs:
           retention-days: 14
 
   web:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
