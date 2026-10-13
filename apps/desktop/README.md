@@ -5,10 +5,10 @@ unlimited undo/redo for every ref change, and a calm, dense design with first-cl
 
 From the repository root:
 
-    npm install
-    npm run desktop [-- path/to/repo]
-    npm test            # unit tests (node:test)
-    npm run test:e2e    # end-to-end UI tests (Playwright + Electron)
+    pnpm install
+    pnpm desktop [-- path/to/repo]
+    pnpm test        # unit tests (node:test)
+    pnpm test:e2e    # end-to-end UI tests (Playwright + Electron)
 
 ## End-to-end tests
 `e2e/` drives the real app with Playwright's Electron support. Each test builds throwaway repositories
@@ -29,7 +29,7 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
   commit cap: the 1.5M-commit Linux kernel opens in well under a second. See [docs/performance.md](../../docs/performance.md).
 
 ## Benchmark
-`npm run bench` opens large repositories in the real app and records first paint, full graph, scroll frame rate and
+`pnpm bench` opens large repositories in the real app and records first paint, full graph, scroll frame rate and
 memory. It generates synthetic 100k/250k-commit repos; pass `--linux <path>` (or `--clone`) for the Linux kernel.
 
 ## Features
@@ -55,10 +55,10 @@ not letting a rolled-back clock extend it.
 
 - Store profile (unpackaged): `GITLANES_STORE=sandbox` (default) `| production | mock`. Values live in `licence/config.js`.
 - Packaged builds ignore `GITLANES_STORE` at run time and never use `mock`; they use the profile baked in by
-  `npm run dist`: `production` by default (the build fails until its values are filled in), or
-  `GITLANES_STORE=sandbox npm run dist` for a test build. CI bakes `sandbox` except for final release tags.
+  `pnpm dist`: `production` by default (the build fails until its values are filled in), or
+  `GITLANES_STORE=sandbox pnpm dist` for a test build. CI bakes `sandbox` except for final release tags.
 - `GITLANES_TRIAL_MIRROR=<file>` (unpackaged only) moves the trial mirror; e2e uses it so runs don't touch your real trial.
-- `GITLANES_STORE=mock npm run desktop` accepts any `GL-TEST-…` key (`GL-TEST-REVOKED…`, `GL-TEST-FULL…`,
+- `GITLANES_STORE=mock pnpm desktop` accepts any `GL-TEST-…` key (`GL-TEST-REVOKED…`, `GL-TEST-FULL…`,
   `GL-TEST-OFFLINE…` exercise the failure paths).
 - `GITLANES_CLOCK_OFFSET_DAYS=20` (unpackaged builds only) moves the clock forward to see later trial days.
   The trial starts on first launch, so launch once without it first.
@@ -75,10 +75,10 @@ never hand the download to Squirrel; they show the download link instead.
 
 **Network:** the update check is the app's only network call apart from git itself. It is a plain GET for
 `update-mac-<arch>.json` at the `updates.feed` URL in `package.json`, followed by the zip download when there is
-a newer version. No identifiers, no analytics. Dev builds (`npm run desktop`) make no update request unless you
+a newer version. No identifiers, no analytics. Dev builds (`pnpm desktop`) make no update request unless you
 set `GITLANES_UPDATE_FEED=<base url>`, and even then they never install.
 
-**Testing:** `npm run test:update -w @gitlanes/desktop` runs the full flow on macOS against two local test
+**Testing:** `pnpm --filter @gitlanes/desktop test:update` runs the full flow on macOS against two local test
 releases. It packages 0.0.1 and 0.0.2, signs both with a throwaway self-signed certificate (Squirrel only
 accepts an update signed by the same identity as the running app), serves 0.0.2's zip and feed from localhost,
 and then checks that 0.0.1 downloads it, shows "Restart to update", installs it and relaunches as 0.0.2.

@@ -104,7 +104,7 @@ Validation already caught one real bug: the sidebar *Push* button passed its cli
 ## Packaging (AK-41)
 
 The DMG build sets these Electron fuses (`electron-builder.config.js`, checked by
-`test/packaging.test.js` and confirmed on a built app with `npx @electron/fuses read`):
+`test/packaging.test.js` and confirmed on a built app with `pnpm dlx @electron/fuses read`):
 
 | Fuse | Value | Why |
 | --- | --- | --- |

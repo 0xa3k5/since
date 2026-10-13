@@ -4,7 +4,7 @@ GitLanes opens very large histories without a commit cap. On an M1 Pro, the full
 (1,485,146 commits) shows its first rows **0.3 s after the window loads** (0.54 s from launch) and is laid out
 end to end in **3.5 s**. Scrolling stays at the display's refresh rate (120 fps).
 
-All numbers on this page come from `npm run bench` (see [Reproducing](#reproducing)). They were measured on
+All numbers on this page come from `pnpm bench` (see [Reproducing](#reproducing)). They were measured on
 2026-10-13 on an Apple M1 Pro (16 GB, macOS 27.0, git 2.49.0, 120 Hz display), median of 3 runs.
 
 ## Quotable numbers
@@ -114,13 +114,13 @@ and GPU memory left by the jump-scroll test. Reducing per-commit memory is the m
 ## Reproducing
 
 ```sh
-npm install
-npm run bench                                  # synthetic 100k and 250k (generated on first run)
-npm run bench -- --repos synthetic-1m          # 1M commits
-npm run bench -- --linux ~/src/linux           # an existing Linux checkout
-npm run bench -- --repos linux --clone         # clone Linux (commits only, root-only sparse checkout)
-npm run bench -- --repo path/to/repo --runs 5  # any repository (never modified)
-npm run bench -- --out results.json
+pnpm install
+pnpm bench                                  # synthetic 100k and 250k (generated on first run)
+pnpm bench -- --repos synthetic-1m          # 1M commits
+pnpm bench -- --linux ~/src/linux           # an existing Linux checkout
+pnpm bench -- --repos linux --clone         # clone Linux (commits only, root-only sparse checkout)
+pnpm bench -- --repo path/to/repo --runs 5  # any repository (never modified)
+pnpm bench -- --out results.json
 ```
 
 The app opens in a real window at 1440×900; keep the machine otherwise idle. Generated and cloned repositories

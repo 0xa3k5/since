@@ -1,8 +1,8 @@
 'use strict';
 // Store settings per build.
-// - Unpackaged (`npm start`): pick a profile with GITLANES_STORE=sandbox|production|mock; sandbox by default.
+// - Unpackaged (`pnpm start`): pick a profile with GITLANES_STORE=sandbox|production|mock; sandbox by default.
 // - Packaged: only the profile baked in at build time counts (package.json "gitlanes.store", written by
-//   `GITLANES_STORE=… npm run dist`). The environment is ignored and `mock` is never used, so a
+//   `GITLANES_STORE=… pnpm dist`). The environment is ignored and `mock` is never used, so a
 //   variable can't unlock a shipped app. A missing bake means production; if production isn't filled
 //   in, activation is unavailable rather than falling back to the test store.
 
@@ -61,7 +61,7 @@ function loadConfig(env = process.env, opts) {
 
 const isComplete = (p) => Boolean(p && p.provider === 'polar' && p.apiBase && p.organizationId && p.benefitId && p.checkoutUrl && p.portalUrl);
 
-// Build-time check for `npm run dist`: fail closed instead of shipping a build that can't sell or
+// Build-time check for `pnpm dist`: fail closed instead of shipping a build that can't sell or
 // that sells through the test store by accident.
 function releaseProfile(name) {
   if (!RELEASE_PROFILES.includes(name)) throw new Error(`GITLANES_STORE=${name} can't be packaged. Use production, or sandbox for a test build.`);

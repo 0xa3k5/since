@@ -15,7 +15,7 @@ on:
       - 'apps/desktop/electron-builder.config.js'
       - 'apps/desktop/scripts/update-feed.js'
       - 'apps/desktop/package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
   workflow_dispatch:
 
 concurrency:
@@ -42,17 +42,18 @@ jobs:
       APPLE_TEAM_ID: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_TEAM_ID || '' }}
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-          cache: npm
+          cache: pnpm
       - uses: actions/cache@v4
         with:
           path: |
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npm ci
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
@@ -92,7 +93,7 @@ jobs:
         run: node node_modules/electron/install.js
       - name: End-to-end tests
         if: github.event_name != 'pull_request'
-        run: npm run test:e2e
+        run: pnpm test:e2e
       - name: Upload e2e results
         if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
@@ -105,7 +106,7 @@ jobs:
           retention-days: 14
 
       - name: Build DMGs
-        run: npm run dist -- -c.extraMetadata.version="${{ steps.plan.outputs.version }}"
+        run: pnpm dist -- -c.extraMetadata.version="${{ steps.plan.outputs.version }}"
 
       - name: Verify signature and notarization
         if: steps.plan.outputs.signed == 'true'
