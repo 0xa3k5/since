@@ -244,7 +244,9 @@ const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroye
 
 // After the trial (or an unverified licence) the app stays usable read-only: reads and fetch
 // still work, anything that changes the repository is refused until a licence is added.
-const READ_ONLY_ALLOWED = new Set(['fetch']);
+// Undo, redo, restoring history and aborting a stuck rebase/merge stay available so nothing is
+// trapped by the trial ending mid-way.
+const READ_ONLY_ALLOWED = new Set(['fetch', 'undo', 'redo', 'restoreHistory', 'abortOp']);
 
 function session(e) {
   const s = sessions.get(e.sender.id);
@@ -260,7 +262,7 @@ ipcMain.handle('git', async (e, method, ...args) => {
   try {
     const s = session(e);
     if (reads[method]) return { ok: await reads[method](s, ...args) };
-    if (!READ_ONLY_ALLOWED.has(method) && !licensing.canMutate()) {
+    if (!READ_ONLY_ALLOWED.has(method) && !(await licensing.ensureCanMutate())) {
       return { error: { message: 'GitLanes is read-only until you add a licence.', code: 'READ_ONLY' } };
     }
     const label = args.length && args[args.length - 1] && args[args.length - 1].__label;
@@ -304,22 +306,29 @@ ipcMain.handle('app:cycle-theme', () => cycleTheme());
 let licensing = null;
 
 function initLicensing() {
-  const config = loadConfig();
+  // Packaged builds use only the store profile baked in at build time; the environment can't change it.
+  const config = loadConfig(process.env, { packaged: app.isPackaged });
   // Development only: shift the clock to see the trial's later days (GITLANES_CLOCK_OFFSET_DAYS=15).
   const offset = app.isPackaged ? 0 : Number(process.env.GITLANES_CLOCK_OFFSET_DAYS || 0) * 86400000;
+  // Development only: keep the trial mirror elsewhere (e2e gives every launch its own).
+  const mirrorOverride = !app.isPackaged && process.env.GITLANES_TRIAL_MIRROR;
   const suffix = config.profile === 'production' ? '' : `-${config.profile}`;
   licensing = new Licensing({
     config,
     store: createStore(config),
     stateFile: path.join(app.getPath('userData'), `licence${suffix}.json`),
     // A second copy of the trial clock outside the app's folder, so deleting one doesn't restart the trial.
-    mirrorFile: path.join(os.homedir(), 'Library', 'Preferences', `.app.gitlanes.desktop${suffix}.trial`),
+    mirrorFile: mirrorOverride || path.join(os.homedir(), 'Library', 'Preferences', `.app.gitlanes.desktop${suffix}.trial`),
     now: () => Date.now() + offset,
     onChange: (status) => {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('licence', status);
       buildMenu();
     },
   });
+}
+
+function revalidate() {
+  licensing?.maybeRefresh()?.catch((e) => console.warn('licence check failed', e.message));
 }
 
 const licenceCall = (fn) => async (_e, ...args) => {
@@ -559,14 +568,16 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   initLicensing();
   buildMenu();
-  app.on('browser-window-focus', buildMenu);
+  app.on('browser-window-focus', () => { buildMenu(); revalidate(); });
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // npm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran npm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
   createWindow(repoPath && fs.existsSync(repoPath) ? repoPath : undefined);
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
-  // Validate the licence once per session; offline is fine, the cached validation carries on.
+  // Validate the licence at launch, then about daily while running (on focus and hourly ticks);
+  // offline is fine, the cached validation carries on.
   licensing.refresh().catch((e) => console.warn('licence check failed', e.message));
+  setInterval(revalidate, 60 * 60 * 1000).unref();
 });
 
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });

@@ -7,6 +7,7 @@
 // APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER are set. With none of that, the app is
 // ad-hoc signed so it still launches on Apple silicon, and the DMG is marked unsigned.
 const { execFileSync } = require('node:child_process');
+const { releaseProfile } = require('./licence/config');
 
 // CI passes unset secrets as empty strings, which electron-builder would treat as a certificate path.
 for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
@@ -21,6 +22,8 @@ function hasDeveloperId() {
   } catch { return false; }
 }
 
+const STORE = process.env.GITLANES_STORE || 'production';
+
 const signed = hasDeveloperId();
 if (!signed) console.log('  • no Developer ID certificate found: building an unsigned (ad-hoc) DMG');
 
@@ -31,8 +34,11 @@ module.exports = {
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
   files: ['main.js', 'git.js', 'journal.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
-  // GITLANES_STORE=production npm run dist bakes the store profile into the packaged package.json.
-  extraMetadata: process.env.GITLANES_STORE ? { gitlanes: { store: process.env.GITLANES_STORE } } : undefined,
+  // The store profile is baked into the packaged package.json; the packaged app ignores GITLANES_STORE
+  // at run time. Production unless the build asks for the test store (GITLANES_STORE=sandbox).
+  extraMetadata: { gitlanes: { store: STORE } },
+  // Fail closed: refuse to package mock, unknown or unfilled profiles.
+  beforePack: () => { releaseProfile(STORE); },
   asar: true,
   // In CI a provided certificate must actually be used; never fall back to an unsigned release.
   forceCodeSigning: Boolean(process.env.CSC_LINK),

@@ -1,7 +1,10 @@
 'use strict';
-// Store settings per build. Sandbox is the default until production values exist.
-// Pick a profile with GITLANES_STORE=sandbox|production|mock at run time, or bake one into
-// a release with `GITLANES_STORE=production npm run dist` (written to package.json "gitlanes.store").
+// Store settings per build.
+// - Unpackaged (`npm start`): pick a profile with GITLANES_STORE=sandbox|production|mock; sandbox by default.
+// - Packaged: only the profile baked in at build time counts (package.json "gitlanes.store", written by
+//   `GITLANES_STORE=… npm run dist`). The environment is ignored and `mock` is never used, so a
+//   variable can't unlock a shipped app. A missing bake means production; if production isn't filled
+//   in, activation is unavailable rather than falling back to the test store.
 
 const POLICY = {
   trialDays: 14,
@@ -38,16 +41,32 @@ const PROFILES = {
   },
 };
 
-function profileName(env = process.env) {
-  let baked;
-  try { baked = require('../package.json').gitlanes?.store; } catch { /* not packaged */ }
+// Profiles a release may be built with.
+const RELEASE_PROFILES = ['production', 'sandbox'];
+
+function bakedProfile() {
+  try { return require('../package.json').gitlanes?.store; } catch { return undefined; }
+}
+
+function profileName(env = process.env, { packaged = false, baked = bakedProfile() } = {}) {
+  if (packaged) return RELEASE_PROFILES.includes(baked) ? baked : 'production';
   const name = env.GITLANES_STORE || baked || 'sandbox';
   return PROFILES[name] ? name : 'sandbox';
 }
 
-function loadConfig(env = process.env) {
-  const name = profileName(env);
+function loadConfig(env = process.env, opts) {
+  const name = profileName(env, opts);
   return { profile: name, ...POLICY, ...PROFILES[name] };
 }
 
-module.exports = { loadConfig, PROFILES, POLICY };
+const isComplete = (p) => Boolean(p && p.provider === 'polar' && p.apiBase && p.organizationId && p.benefitId && p.checkoutUrl && p.portalUrl);
+
+// Build-time check for `npm run dist`: fail closed instead of shipping a build that can't sell or
+// that sells through the test store by accident.
+function releaseProfile(name) {
+  if (!RELEASE_PROFILES.includes(name)) throw new Error(`GITLANES_STORE=${name} can't be packaged. Use production, or sandbox for a test build.`);
+  if (!isComplete(PROFILES[name])) throw new Error(`The ${name} store profile in licence/config.js isn't filled in; packaged builds need all of its values.`);
+  return name;
+}
+
+module.exports = { loadConfig, releaseProfile, isComplete, PROFILES, POLICY };

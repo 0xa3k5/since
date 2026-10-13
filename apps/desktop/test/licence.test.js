@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { Licensing, DAY } = require('../licence');
 const { polarStore, mockStore, StoreError } = require('../licence/stores');
-const { loadConfig, PROFILES } = require('../licence/config');
+const { loadConfig, releaseProfile, PROFILES } = require('../licence/config');
 
 const T0 = Date.parse('2026-10-13T12:00:00Z');
 const config = { ...loadConfig({ GITLANES_STORE: 'sandbox' }) };
@@ -163,16 +163,111 @@ test('licence: rolling the clock back does not stretch the offline grace period'
   assert.equal(make({ store: offline }).status().mode, 'unverified');
 });
 
-test('licence: a revoked or refunded key goes back to read-only with a notice', async () => {
-  const { clock, lic } = setup();
+test('licence: a revoked or refunded key goes read-only but stays stored as revoked', async () => {
+  const { clock, make, lic } = setup();
   clock.t = T0 + 20 * DAY;
   await lic.activate('GL-TEST-REVOKED-0001');
   const s = await lic.refresh();
-  assert.equal(s.mode, 'expired');
-  assert.equal(s.licence, null);
+  assert.equal(s.mode, 'revoked');
+  assert.equal(s.canMutate, false);
+  assert.equal(s.licence.revoked, true);
+  assert.equal(s.licence.maskedKey, 'GL-T••••0001', 'the key is kept so it can be re-checked or deactivated');
   assert.equal(s.notice.kind, 'revoked');
+  assert.equal(make().status().mode, 'revoked', 'persists across restarts');
   lic.dismissNotice();
   assert.equal(lic.status().notice, null);
+  assert.equal(lic.status().mode, 'revoked');
+});
+
+test('licence: a revoked key during the trial keeps the trial running', async () => {
+  const { lic } = setup();
+  await lic.activate('GL-TEST-REVOKED-0002');
+  const s = await lic.refresh();
+  assert.equal(s.mode, 'revoked');
+  assert.equal(s.canMutate, true);
+});
+
+test('licence: re-checking a revoked key restores it when the store accepts it again', async () => {
+  const { clock, store, lic } = setup();
+  clock.t = T0 + 20 * DAY;
+  await lic.activate('GL-TEST-BACK-0001');
+  const validate = store.validate;
+  store.validate = async () => { throw new StoreError('rejected', 'gone'); };
+  assert.equal((await lic.refresh()).mode, 'revoked');
+  store.validate = validate;
+  const s = await lic.refresh();
+  assert.equal(s.mode, 'licensed');
+  assert.equal(s.licence.revoked, false);
+  assert.equal(s.notice, null);
+});
+
+test('licence: a revoked key can be deactivated, even when the server already dropped it or is offline', async () => {
+  const { clock, store, lic } = setup();
+  clock.t = T0 + 20 * DAY;
+  await lic.activate('GL-TEST-REVOKED-0003');
+  await lic.refresh();
+  store.deactivate = async () => { throw new StoreError('network', 'offline'); };
+  const s = await lic.deactivate();
+  assert.equal(s.licence, null);
+  assert.equal(s.mode, 'expired');
+});
+
+test('licence: network trouble never revokes or deletes a stored key', async () => {
+  const { clock, store, lic } = setup();
+  clock.t = T0 + 20 * DAY;
+  await lic.activate('GL-TEST-KEEP-0001');
+  for (const kind of ['network', 'invalid', 'config']) {
+    store.validate = async () => { throw new StoreError(kind, `${kind} trouble`); };
+    const s = await lic.refresh();
+    assert.equal(s.mode, 'licensed', kind);
+    assert.equal(s.lastError, `${kind} trouble`);
+  }
+});
+
+test('licence: re-validates about daily in long sessions, and retries failed checks hourly', async () => {
+  const { clock, store, lic } = setup();
+  clock.t = T0 + 20 * DAY;
+  await lic.activate('GL-TEST-LONG-0001');
+  let calls = 0;
+  const validate = store.validate;
+  store.validate = async (a) => { calls++; return validate(a); };
+  clock.t += 23 * 3600e3;
+  assert.equal(lic.maybeRefresh(), null, 'not due yet');
+  clock.t += 2 * 3600e3;
+  assert.equal((await lic.maybeRefresh()).mode, 'licensed');
+  assert.equal(calls, 1);
+  assert.equal(lic.maybeRefresh(), null, 'just validated');
+  // Offline for a while: one attempt per hour, not one per focus.
+  store.validate = async () => { calls++; throw new StoreError('network', 'offline'); };
+  clock.t += DAY + 1;
+  await lic.maybeRefresh();
+  assert.equal(lic.maybeRefresh(), null);
+  clock.t += 3600e3;
+  await lic.maybeRefresh();
+  assert.equal(calls, 3);
+});
+
+test('licence: concurrent refreshes share one request', async () => {
+  const { store, lic } = setup();
+  await lic.activate('GL-TEST-ONCE-0001');
+  let calls = 0;
+  const validate = store.validate;
+  store.validate = async (a) => { calls++; return validate(a); };
+  await Promise.all([lic.refresh(), lic.refresh(), lic.refresh()]);
+  assert.equal(calls, 1);
+});
+
+test('licence: past the offline grace, a change re-checks the licence before being refused', async () => {
+  const { clock, store, make, lic } = setup();
+  clock.t = T0 + 20 * DAY;
+  await lic.activate('GL-TEST-GATE-0001');
+  clock.t = T0 + 51 * DAY; // a session left open past validatedAt + 30 days
+  const l = make();
+  assert.equal(l.canMutate(), false);
+  assert.equal(await l.ensureCanMutate(), true, 'online: silently re-validated');
+  clock.t = T0 + 90 * DAY;
+  store.validate = async () => { throw new StoreError('network', 'offline'); };
+  assert.equal(await make().ensureCanMutate(), false, 'offline: stays read-only');
 });
 
 test('licence: deactivating frees the seat and returns to the trial state', async () => {
@@ -226,16 +321,74 @@ test('polar: errors map to rejected / limit / network', async () => {
   assert.equal(await kind('activate-404'), 'rejected');
   assert.equal(await kind('activate-403-limit'), 'limit');
   assert.equal(await kind('validate-404', 'validate'), 'rejected');
-  assert.equal(await kind('validate-422', 'validate'), 'rejected');
+  assert.equal(await kind('validate-422', 'validate'), 'invalid');
   const offline = polarStore(config, { fetch: async () => { throw new TypeError('fetch failed'); } });
   await assert.rejects(offline.validate({ key: 'k', activationId: 'a' }), (e) => e.kind === 'network');
   const down = polarStore(config, { fetch: async () => ({ ok: false, status: 502, text: async () => '<html>Bad gateway</html>' }) });
   await assert.rejects(down.validate({ key: 'k', activationId: 'a' }), (e) => e.kind === 'network');
 });
 
-test('polar: a key for another product is rejected', async () => {
-  const store = polarStore({ ...config, benefitId: 'another-benefit' }, replay('activate-200'));
+// A fake fetch returning one raw response.
+const raw = (status, body, type = 'application/json') => ({
+  fetch: async () => ({ ok: status >= 200 && status < 300, status, headers: { get: () => type }, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) }),
+});
+
+test('polar: only Polar-shaped errors count as rejections; proxies and odd replies are network trouble', async () => {
+  const kind = async (res, call = 'validate') => {
+    try { await polarStore(config, res)[call]({ key: 'k', label: 'l', activationId: 'a' }); } catch (e) { return e.kind; }
+  };
+  assert.equal(await kind(raw(403, '<html><body>Forbidden by your network administrator</body></html>', 'text/html')), 'network', 'proxy 403 HTML');
+  assert.equal(await kind(raw(403, { message: 'Forbidden' })), 'network', 'JSON 403 without Polar’s shape');
+  assert.equal(await kind(raw(404, '<html>Not Found</html>', 'text/html')), 'network', 'captive portal 404');
+  assert.equal(await kind(raw(404, { detail: 'Not Found' })), 'network', 'bare 404 from a gateway');
+  assert.equal(await kind(raw(400, 'Bad Request', 'text/plain')), 'network');
+  assert.equal(await kind(raw(200, '<html>Sign in to Wi-Fi</html>', 'text/html')), 'network', '200 login page');
+  assert.equal(await kind(raw(200, { unexpected: true })), 'network', '200 with a changed schema');
+  assert.equal(await kind(raw(422, { error: 'RequestValidationError', detail: [{ loc: ['body', 'benefit_id'], msg: 'Extra inputs are not permitted' }] })), 'invalid', 'schema drift');
+  assert.equal(await kind(raw(403, { error: 'NotPermitted', detail: 'License key is revoked' })), 'rejected', 'real revocation');
+  assert.equal(await kind(raw(404, { error: 'ResourceNotFound', detail: 'Not found' })), 'rejected', 'real unknown key');
+});
+
+test('polar: a proxy 403 or a 422 from schema drift keeps the licence; a real revocation marks it revoked', async () => {
+  const run = async (res) => {
+    let next = replay('activate-200').fetch;
+    const store = polarStore(config, { fetch: (...a) => next(...a) });
+    const { clock, lic } = setup({ store });
+    clock.t = T0 + 20 * DAY;
+    await lic.activate('GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D');
+    next = res.fetch;
+    return lic.refresh();
+  };
+  let s = await run(raw(403, '<html>Forbidden</html>', 'text/html'));
+  assert.equal(s.mode, 'licensed');
+  assert.ok(s.licence);
+  assert.match(s.lastError, /licence server/);
+  s = await run(raw(422, { error: 'RequestValidationError', detail: [{ type: 'missing', loc: ['body', 'new_field'], msg: 'Field required' }] }));
+  assert.equal(s.mode, 'licensed');
+  assert.ok(s.licence);
+  const revoked = fixture('validate-200').body;
+  s = await run(raw(200, { ...revoked, status: 'revoked' }));
+  assert.equal(s.mode, 'revoked');
+  assert.equal(s.licence.maskedKey, 'GITL••••8C7D');
+  s = await run(raw(403, { error: 'NotPermitted', detail: 'License key is revoked' }));
+  assert.equal(s.mode, 'revoked');
+});
+
+test('polar: deactivate accepts an empty 204 reply', async () => {
+  const store = polarStore(config, { fetch: async () => ({ ok: true, status: 204, text: async () => '' }) });
+  assert.equal(await store.deactivate({ key: 'k', activationId: 'a' }), undefined);
+});
+
+test('polar: a key for another product is rejected and its seat is given back', async () => {
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push(url);
+    const f = fixture('activate-200');
+    return { ok: true, status: 200, text: async () => JSON.stringify(url.endsWith('/activate') ? f.body : null) };
+  };
+  const store = polarStore({ ...config, benefitId: 'another-benefit' }, { fetch });
   await assert.rejects(store.activate({ key: 'k', label: 'l' }), (e) => e.kind === 'rejected');
+  assert.deepEqual(calls.map((u) => u.split('/').pop()), ['activate', 'deactivate']);
 });
 
 test('polar: end to end through Licensing with recorded responses', async () => {
@@ -245,7 +398,7 @@ test('polar: end to end through Licensing with recorded responses', async () => 
   assert.equal((await lic.activate('GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D')).mode, 'licensed');
   // Refunded later: the next session's validation 404s.
   const s = await lic.refresh();
-  assert.equal(s.mode, 'expired');
+  assert.equal(s.mode, 'revoked');
   assert.equal(s.notice.kind, 'revoked');
 });
 
@@ -259,4 +412,24 @@ test('config: sandbox by default, profile selectable, production unset until the
   assert.equal(sb.activationLimit, 3);
   assert.equal(PROFILES.production.apiBase, 'https://api.polar.sh');
   await assert.rejects(polarStore(loadConfig({ GITLANES_STORE: 'production' })).validate({ key: 'k', activationId: 'a' }), (e) => e.kind === 'config');
+});
+
+test('config: packaged builds use only the baked profile; the environment and mock never apply', () => {
+  const packaged = (env, baked) => loadConfig(env, { packaged: true, baked });
+  assert.equal(packaged({ GITLANES_STORE: 'mock' }, 'production').profile, 'production');
+  assert.equal(packaged({ GITLANES_STORE: 'mock' }, undefined).profile, 'production', 'no bake: production, never the test store');
+  assert.equal(packaged({ GITLANES_STORE: 'sandbox' }, 'production').profile, 'production');
+  assert.equal(packaged({ GITLANES_STORE: 'production' }, 'sandbox').profile, 'sandbox');
+  assert.equal(packaged({}, 'mock').profile, 'production', 'a baked mock is ignored too');
+  assert.equal(packaged({}, 'bogus').profile, 'production');
+  for (const env of [{}, { GITLANES_STORE: 'mock' }]) assert.notEqual(packaged(env, 'mock').provider, 'mock');
+  // Unpackaged (npm start) still follows the environment.
+  assert.equal(loadConfig({ GITLANES_STORE: 'mock' }, { packaged: false, baked: 'production' }).provider, 'mock');
+});
+
+test('config: release builds fail closed', () => {
+  assert.throws(() => releaseProfile('mock'), /can't be packaged/);
+  assert.throws(() => releaseProfile('bogus'), /can't be packaged/);
+  assert.throws(() => releaseProfile('production'), /isn't filled in/, 'until the owner provides production values');
+  assert.equal(releaseProfile('sandbox'), 'sandbox');
 });

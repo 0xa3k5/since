@@ -36,6 +36,24 @@ test('packaged files are only what the app loads at runtime', () => {
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
 
+test('packaging bakes production by default and refuses an unfilled or mock store', () => {
+  delete require.cache[require.resolve('../electron-builder.config.js')];
+  const saved = process.env.GITLANES_STORE;
+  try {
+    for (const [store, baked] of [[undefined, 'production'], ['sandbox', 'sandbox'], ['mock', 'mock']]) {
+      if (store) process.env.GITLANES_STORE = store; else delete process.env.GITLANES_STORE;
+      delete require.cache[require.resolve('../electron-builder.config.js')];
+      const c = require('../electron-builder.config.js');
+      assert.strictEqual(c.extraMetadata.gitlanes.store, baked);
+      if (baked === 'sandbox') c.beforePack();
+      else assert.throws(() => c.beforePack());
+    }
+  } finally {
+    if (saved === undefined) delete process.env.GITLANES_STORE; else process.env.GITLANES_STORE = saved;
+    delete require.cache[require.resolve('../electron-builder.config.js')];
+  }
+});
+
 test('DMG background reads under both Finder label colours', () => {
   // Finder draws icon labels black in light mode and white in dark mode, on top of our background.
   const svg = fs.readFileSync(path.join(root, 'build/background.svg'), 'utf8');
