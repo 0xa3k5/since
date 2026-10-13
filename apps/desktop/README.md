@@ -7,7 +7,17 @@ From the repository root:
 
     npm install
     npm run desktop [-- path/to/repo]
-    npm test
+    npm test            # unit tests (node:test)
+    npm run test:e2e    # end-to-end UI tests (Playwright + Electron)
+
+## End-to-end tests
+`e2e/` drives the real app with Playwright's Electron support. Each test builds throwaway repositories
+(and bare "remotes") in a temp dir, with its own git config and app userData, so it never touches a real
+repository or your settings. Native open/save dialogs are stubbed in the main process. Covered: history
+rewriting from the Map, merge/rebase conflicts (ours/theirs/manual, continue/abort), clone/fetch/pull/push,
+stashes, discard/reset, Snapshots, reflog recovery, config editing, undo/redo after each, and light/dark
+smoke screenshots (saved under `test-results/`). CI runs the suite on macOS and uploads the results.
+A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 
 ## Architecture
 - `git.js`: dependency-free git CLI layer (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
