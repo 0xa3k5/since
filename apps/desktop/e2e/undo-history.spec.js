@@ -21,7 +21,7 @@ async function seed(sandbox, repo) {
     journal.undo.hot.push({ id: i, label: `Move scratch #${i}`, method: 'resetBranch', time: Date.now() - (STEPS - i) * 60_000, before: state(at(i - 1)), after: state(at(i)) });
     await journal.archive(journal.undo);
   }
-  for (const e of journal.undo.hot) await git.pinUndo(repo, e.id, { objects: [one, two] });
+  for (const e of journal.undo.hot) await journal.pin(e.id, { objects: [one, two] });
   journal.persist();
   sandbox.git(repo, 'branch', '-f', 'scratch', at(STEPS));
   return { one };

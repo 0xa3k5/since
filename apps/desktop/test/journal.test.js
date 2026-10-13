@@ -277,20 +277,20 @@ test('pins are pruned when entries leave the journal', async () => {
   write('a.txt', 'one\n');
   await journal.runWork('discardFiles', 'Discard a.txt', [[{ path: 'a.txt', status: 'M' }]]);
   const first = journal.undo.hot[0].id;
-  assert.ok((await pins(dir)).some((r) => r.startsWith(`refs/gitlanes/undo/${first}/`)));
+  assert.ok((await pins(dir)).some((r) => r.startsWith(`refs/gitlanes/undo/main/${first}/`)));
 
   // Undo, then a new action: the redo entry is gone, and so are its pins.
   await journal.step('undo');
   write('b.txt', 'two\n');
   await journal.runWork('discardFiles', 'Discard b.txt', [[{ path: 'b.txt', status: '?' }]]);
-  assert.ok(!(await pins(dir)).some((r) => r.startsWith(`refs/gitlanes/undo/${first}/`)));
+  assert.ok(!(await pins(dir)).some((r) => r.startsWith(`refs/gitlanes/undo/main/${first}/`)));
 
   // Undo past it and start over: nothing is left, and neither are pins.
   await journal.step('undo');
   write('c.txt', 'three\n');
   await journal.record('Branch', 'createBranch', () => git.run(dir, ['branch', 'other']));
   assert.deepEqual(journal.list().undo.map((e) => e.label), ['Branch']);
-  assert.ok((await pins(dir)).every((r) => r.startsWith(`refs/gitlanes/undo/${journal.undo.top.id}/`)));
+  assert.ok((await pins(dir)).every((r) => r.startsWith(`refs/gitlanes/undo/main/${journal.undo.top.id}/`)));
 });
 
 test('journal persists across sessions', async () => {
@@ -332,7 +332,7 @@ test('1,000+ entries: memory stays flat, history survives restarts and gc, undo 
     await journal.archive(journal.undo);
     assert.ok(journal.undo.hot.length <= 2 * pageSize);
   }
-  for (const e of journal.undo.hot) if (!e.pin) await git.pinUndo(dir, e.id, { objects: [e.before.headOid, e.after.headOid] });
+  for (const e of journal.undo.hot) if (!e.pin) await journal.pin(e.id, { objects: [e.before.headOid, e.after.headOid] });
   await git.run(dir, ['reset', '-q', '--keep', shas[N]]);
   journal.persist();
   await journal.prune();
@@ -382,7 +382,7 @@ test('1,000+ entries: memory stays flat, history survives restarts and gc, undo 
   assert.equal(again.redo.length, 0);
   assert.equal(again.undo.length, 151);
   assert.ok(redoPages.every((f) => !pageFiles(dir).includes(f)));
-  const keys = new Set((await pins(dir)).map((r) => r.split('/')[3]));
+  const keys = new Set((await pins(dir)).map((r) => r.split('/')[4]));
   assert.deepEqual([...keys].sort(), [...new Set(again.undo.pinKeys().map(String))].sort());
 });
 
@@ -396,6 +396,9 @@ test('a journal saved in the first format is read and archived', async () => {
   for (const e of all) await git.pinUndo(dir, e.id, { objects: [e.before.headOid, e.after.headOid] });
   const old = new Journal(await git.openRepo(dir), { pageSize: 2 });
   assert.equal(old.undo.length, 5);
+  await old.prune();
+  // Its pins move into this worktree's namespace.
+  assert.ok((await pins(dir)).every((r) => r.startsWith('refs/gitlanes/undo/main/')));
   await old.record('Move 6', 'reset', () => git.run(dir, ['reset', '-q', '--keep', shas[6]]));
   assert.ok(old.undo.hot.length <= 4);
   await gcNow(dir);
@@ -411,7 +414,7 @@ test('archived discards keep their content through gc', async () => {
     await journal.runWork('discardFiles', `Discard ${n}`, [[{ path: 'a.txt', status: 'M' }]]);
   }
   assert.equal(journal.undo.pages.length, 2);
-  assert.ok((await pins(dir)).some((r) => r.startsWith('refs/gitlanes/undo/p1/blobs')));
+  assert.ok((await pins(dir)).some((r) => r.startsWith('refs/gitlanes/undo/main/p1/blobs')));
   await gcNow(dir);
   const again = new Journal(await git.openRepo(dir), { pageSize: 1 });
   for (const n of [4, 3, 2, 1]) {
@@ -419,4 +422,72 @@ test('archived discards keep their content through gc', async () => {
     assert.equal(read('a.txt'), `edit ${n}\n`);
     if (n > 1) write('a.txt', 'base\n'); // the state the next-older discard left behind
   }
+});
+
+test('two worktrees keep separate pins, and undo works in both after gc', async () => {
+  const { dir, journal: mainJournal } = await repo({ pageSize: 1 });
+  const shas = await chain(dir, 6);
+  const wt = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-wt-')));
+  fs.rmdirSync(wt);
+  await git.run(dir, ['worktree', 'add', '-q', '-b', 'side', wt, shas[0]]);
+  const side = [shas[0]];
+  for (let i = 1; i <= 4; i++) side.push(await commit(wt, 's.txt', `${i}\n`, `side ${i}`));
+
+  // Each worktree walks its branch back, so the newer commits are only kept alive by pins.
+  for (let i = 4; i >= 0; i--) await mainJournal.record(`Main to ${i}`, 'reset', () => git.run(dir, ['reset', '-q', '--keep', shas[i]]));
+  assert.ok(mainJournal.undo.pages.length >= 2);
+  // Opening the linked worktree prunes only its own namespace.
+  let wtJournal = new Journal(await git.openRepo(wt), { pageSize: 1 });
+  assert.equal(wtJournal.ns, `wt/${path.basename(wt)}`);
+  await wtJournal.prune();
+  for (let i = 3; i >= 0; i--) await wtJournal.record(`Side to ${i}`, 'reset', () => git.run(wt, ['reset', '-q', '--keep', side[i]]));
+  assert.ok(wtJournal.undo.pages.length >= 1);
+  const refs = await pins(dir);
+  assert.ok(refs.some((r) => r.startsWith('refs/gitlanes/undo/main/p1/')));
+  assert.ok(refs.some((r) => r.startsWith(`refs/gitlanes/undo/${wtJournal.ns}/p1/`)));
+
+  // Restart both (each prunes on open), gc, and undo everything in each.
+  let again = new Journal(await git.openRepo(dir), { pageSize: 1 });
+  await again.prune();
+  wtJournal = new Journal(await git.openRepo(wt), { pageSize: 1 });
+  await wtJournal.prune();
+  await gcNow(dir);
+  for (let i = 0; i <= 3; i++) assert.equal(await wtJournal.step('undo'), `Side to ${i}`);
+  assert.equal(await head(wt), side[4]);
+  for (let i = 0; i <= 4; i++) assert.equal(await again.step('undo'), `Main to ${i}`);
+  assert.equal(await head(dir), shas[5]);
+});
+
+test('overlapping undo and redo steps run one at a time across page boundaries', async () => {
+  const { dir, journal } = await repo({ pageSize: 2 });
+  const shas = await chain(dir, 13);
+  for (let i = 11; i >= 0; i--) await journal.record(`Move ${i}`, 'reset', () => git.run(dir, ['reset', '-q', '--keep', shas[i]]));
+  assert.ok(journal.undo.pages.length >= 2);
+  // A held ⌘Z: every step starts before the one before it has finished.
+  const undone = await Promise.all(Array.from({ length: 13 }, () => journal.step('undo')));
+  assert.deepEqual(undone, [...Array.from({ length: 12 }, (_, i) => `Move ${i}`), null]);
+  assert.equal(await head(dir), shas[12]);
+  assert.equal(journal.redo.length, 12);
+  const pages = journal.redo.pages.map((p) => p.n);
+  assert.equal(new Set(pages).size, pages.length);
+  await gcNow(dir);
+  const redone = await Promise.all(Array.from({ length: 12 }, () => journal.step('redo')));
+  assert.deepEqual(redone, Array.from({ length: 12 }, (_, i) => `Move ${11 - i}`));
+  assert.equal(await head(dir), shas[0]);
+  assert.equal(journal.undo.length, 12);
+});
+
+test('an unreadable index keeps every page and pin', async () => {
+  const { dir, journal } = await repo({ pageSize: 1 });
+  const shas = await chain(dir, 5);
+  for (let i = 3; i >= 0; i--) await journal.record(`Move ${i}`, 'reset', () => git.run(dir, ['reset', '-q', '--keep', shas[i]]));
+  const before = { pins: await pins(dir), pages: pageFiles(dir) };
+  assert.ok(before.pages.length);
+  fs.writeFileSync(journal.file, '{ not json');
+  const again = new Journal(await git.openRepo(dir), { pageSize: 1 });
+  await again.prune();
+  assert.equal(again.undo.length, 0);
+  assert.ok(fs.existsSync(`${journal.file}.bad`));
+  assert.deepEqual(await pins(dir), before.pins);
+  assert.deepEqual(pageFiles(dir), before.pages);
 });

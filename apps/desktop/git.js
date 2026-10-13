@@ -833,12 +833,27 @@ async function pinObjects(cwd, base, { blobs = [], objects = [] } = {}) {
 
 const pinUndo = (cwd, id, objs) => pinObjects(cwd, `${UNDO_REFS}/${id}`, objs);
 
-// Remove the pins of journal entries that are gone.
-async function pruneUndoPins(cwd, keepIds) {
-  const keep = new Set(keepIds.map(String));
-  const lines = (await listRefs(cwd, UNDO_REFS))
-    .filter((ref) => !keep.has(ref.slice(UNDO_REFS.length + 1).split('/')[0]))
+// Remove the pins under `ns` (one worktree's journal) whose keys it no longer
+// keeps. Other worktrees' pins are left alone.
+async function pruneUndoPins(cwd, ns, keepKeys) {
+  const base = `${UNDO_REFS}/${ns}`;
+  const keep = new Set(keepKeys.map(String));
+  const lines = (await listRefs(cwd, base))
+    .filter((ref) => !keep.has(ref.slice(base.length + 1).split('/')[0]))
     .map((ref) => `delete ${ref}`);
+  if (lines.length) await run(cwd, ['update-ref', '--stdin'], { input: lines.join('\n') + '\n', env: W_ENV });
+}
+
+// Move the pins of `keys` from the shared top level (the format before pins
+// were namespaced per worktree) into `ns`, in one transaction.
+async function moveUndoPins(cwd, ns, keys) {
+  if (!keys.length) return;
+  const out = await run(cwd, ['for-each-ref', '--format=%(objectname) %(refname)', ...keys.map((k) => `${UNDO_REFS}/${k}`)]);
+  const lines = [];
+  for (const line of out.split('\n').filter(Boolean)) {
+    const [oid, ref] = line.split(' ');
+    lines.push(`update ${UNDO_REFS}/${ns}/${ref.slice(UNDO_REFS.length + 1)} ${oid}`, `delete ${ref} ${oid}`);
+  }
   if (lines.length) await run(cwd, ['update-ref', '--stdin'], { input: lines.join('\n') + '\n', env: W_ENV });
 }
 
@@ -997,7 +1012,7 @@ module.exports = {
   getStatus, getOperationState, workingDiff, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
-  pinUndo, pruneUndoPins, dropStashCommit, restoreStash,
+  pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, resetHard, chooseSide, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
