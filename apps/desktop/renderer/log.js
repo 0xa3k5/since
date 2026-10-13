@@ -45,8 +45,9 @@ export function parseDetails(text, fn) {
 }
 
 // commits + sha index + incremental graph, always kept in step.
-export function createHistory(commits = [], index = new Map(), graph = null) {
-  graph ||= createGraph(commits);
+// `head` is HEAD's sha: the graph keeps its first-parent chain in lane 0.
+export function createHistory(head = null, commits = [], index = new Map(), graph = null) {
+  graph ||= createGraph(commits, head);
   const early = new Map(); // details that arrived before their commit did
   const hist = {
     commits,
@@ -84,12 +85,13 @@ export function createHistory(commits = [], index = new Map(), graph = null) {
       });
       return n;
     },
-    // A new history holding our first `m` commits (shared objects, details included).
-    fork(m) {
+    // A new history holding our first `m` commits (shared objects, details included), laid out
+    // for `head`.
+    fork(m, head = graph.head) {
       const list = commits.slice(0, m);
       const idx = new Map();
       for (let i = 0; i < m; i++) idx.set(list[i].sha, i);
-      return createHistory(list, idx, graph.fork(list, m));
+      return createHistory(head, list, idx, graph.fork(list, m, head));
     },
     missingDetails(from = 0, max = Infinity) {
       const out = [];
@@ -105,7 +107,11 @@ export function createHistory(commits = [], index = new Map(), graph = null) {
 // the shared prefix, so that part is not laid out again). Commit objects are reused throughout,
 // so only commits that are new to us need their details fetched.
 // `next` stays null while the stream matches; finish() returns null if nothing changed.
-export function createMerge(current) {
+// If HEAD moved, every row may be laid out differently, so the layout is redone (the commit
+// objects are still reused).
+export function createMerge(current, head = current.graph.head) {
+  head ||= null;
+  const moved = head !== current.graph.head;
   let i = 0;
   let next = null;
   const m = {
@@ -120,7 +126,7 @@ export function createMerge(current) {
           i++;
         }
         if (k === list.length) return m;
-        next = current.fork(i);
+        next = current.fork(i, head);
       }
       // Commits we already have (just at another position) keep their loaded details.
       const add = [];
@@ -132,7 +138,7 @@ export function createMerge(current) {
       return m;
     },
     finish() {
-      if (!next && i < current.length) next = current.fork(i);
+      if (!next && (moved || i < current.length)) next = current.fork(i, head);
       if (next) next.complete = true;
       return next;
     },
