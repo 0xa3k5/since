@@ -121,6 +121,10 @@ test('argument shapes are enforced', () => {
   rejects(() => check.checkGit('restoreHistory', ['1']));
   rejects(() => check.checkGit('setConfig', ['--global', 'x']), /section.name/);
   rejects(() => check.checkGit('setConfig', ['core.sshCommand', 7]));
+  for (const k of ['core.fsmonitor', 'core.sshCommand', 'core.hooksPath', 'alias.co', 'filter.lfs.smudge', 'credential.helper', 'credential.https://h.helper', 'diff.x.textconv', 'include.path', 'remote.origin.uploadpack', 'protocol.ext.allow']) {
+    rejects(() => check.checkGit('setConfig', [k, 'x']), /runs commands/);
+  }
+  check.checkGit('unsetConfig', ['core.fsmonitor']); // removing one is harmless
   rejects(() => check.checkGit('log', [{ limit: -1 }]));
   rejects(() => check.checkGit('checkout', ['main', { __label: 5 }]));
 });
@@ -211,4 +215,20 @@ test('windows keep the renderer isolated', () => {
   }
   assert.ok(main.includes('app.enableSandbox()'));
   assert.ok(!/ipcMain\.(handle|on)\('/.test(main), 'IPC handlers go through handle(), which checks the sender');
+});
+
+test('runnable flags files that macOS would execute when opened', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gl-run-'));
+  const exe = path.join(dir, 'run'); fs.writeFileSync(exe, '#!/bin/sh\n', { mode: 0o755 });
+  const txt = path.join(dir, 'a.txt'); fs.writeFileSync(txt, 'x', { mode: 0o644 });
+  try {
+    assert.equal(check.runnable(exe), true);
+    assert.equal(check.runnable(txt), false);
+    assert.equal(check.runnable(path.join(dir, 'x.command')), true);
+    assert.equal(check.runnable('/Applications/Calculator.app/'), true);
+    assert.equal(check.runnable(path.join(dir, 'missing.md')), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

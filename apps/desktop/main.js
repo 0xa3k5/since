@@ -471,7 +471,12 @@ handle('app:terminal', async (e, dir) => {
   if (isMac) spawn('open', ['-a', 'Terminal', target], { detached: true });
   else shell.openPath(target);
 });
-handle('app:open-file', (e, rel) => shell.openPath(check.insideRepo(session(e).repo.root, rel)));
+handle('app:open-file', (e, rel) => {
+  const abs = check.insideRepo(session(e).repo.root, rel);
+  // Apps, scripts and executables would run, not open: show them in Finder instead.
+  if (check.runnable(abs)) { shell.showItemInFolder(abs); return 'revealed'; }
+  return shell.openPath(abs);
+});
 handle('app:external', (_e, url) => shell.openExternal(check.webUrl(url)));
 handle('app:copy', (_e, text) => clipboard.writeText(check.str(text, 'clipboard text', { max: 16 * 1024 * 1024, empty: true })));
 handle('app:confirm', async (e, opts) => {

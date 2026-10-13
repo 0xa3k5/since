@@ -33,8 +33,11 @@ test('the renderer has no Node, no network and cannot navigate', async ({ sandbo
 
   // window.open and navigation go nowhere; the app page stays put. Navigation is triggered from
   // the main process because Playwright would otherwise wait forever for the blocked load.
+  // shell.openExternal is stubbed so the test itself makes no request.
   const url = page.url();
+  await app.app.evaluate(({ shell }) => { globalThis.__opened = []; shell.openExternal = async (u) => { globalThis.__opened.push(u); }; });
   await page.evaluate(() => { window.open('https://example.com/'); window.open('file:///etc/passwd'); });
+  await expect.poll(() => app.app.evaluate(() => globalThis.__opened)).toEqual(['https://example.com/']);
   const after = await app.app.evaluate(async ({ BrowserWindow }) => {
     const wc = BrowserWindow.getAllWindows()[0].webContents;
     await wc.executeJavaScript("location.href = 'https://example.com/'; 0");

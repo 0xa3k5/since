@@ -83,6 +83,14 @@ are aimed at what a compromised renderer could try:
   creates the folder.
 - **Shapes.** Exact types and fields: booleans are booleans, lists are lists, unexpected object
   fields are refused, and config keys must look like `section.name`.
+- **Config that runs code.** The config editor refuses keys whose value git runs or loads:
+  `core.fsmonitor`, `core.sshCommand`, `core.hooksPath`, `core.editor`/`pager`/`askPass`,
+  `alias.*`, `filter.*`, `credential.*helper`, `gpg.*program`, `diff.*.textconv`,
+  `merge.*.driver`, `include*`, `protocol.*`, `url.*` and similar (`ipc.safeConfigKey`). Change
+  those in a terminal. Removing a key is always allowed.
+- **Opening files.** *Open file* hands documents to their default app, but apps, scripts,
+  installers, link files and anything with an execute bit (`ipc.runnable`) are revealed in Finder
+  instead, so opening never runs code.
 - **URLs.** `app:external` opens only `http:`/`https:` URLs without embedded credentials.
   Clone URLs may be `https`, `http`, `ssh`, `git`, `file`, scp-style `user@host:path` or a local
   path. Git's command-running transport helpers (`ext::`, `fd::`, `<helper>::`) are refused,

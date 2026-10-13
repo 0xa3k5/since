@@ -84,6 +84,31 @@ function configKey(v, what = 'config key') {
   return v;
 }
 
+// Config keys whose value git runs as a command, loads code or config from, or that open new
+// transports. Setting one from the renderer would turn a config edit into code execution on the
+// next git call, so the config editor refuses them; change them in a terminal instead.
+const COMMAND_KEYS = [
+  /^core\.(fsmonitor|sshcommand|hookspath|editor|pager|askpass|gitproxy|alternaterefscommand|worktree)$/,
+  /^(sequence\.editor|diff\.external|web\.browser|uploadpack\.packobjectshook)$/,
+  /^(alias|filter|protocol|url|pager|include|includeif)\./,
+  /^credential\.(.+\.)?helper$/, /^gpg\.(.+\.)?program$/,
+  /^diff\..+\.(textconv|command)$/, /^merge\..+\.driver$/,
+  /^(difftool|mergetool|man)\..+\.(cmd|path)$/, /^remote\..+\.(uploadpack|receivepack|vcs)$/,
+];
+function safeConfigKey(v, what) {
+  configKey(v, what);
+  if (COMMAND_KEYS.some((re) => re.test(v.toLowerCase()))) fail(what || 'config key', `${v} runs commands; set it in a terminal`);
+  return v;
+}
+
+// Files that macOS would run rather than show when opened (apps, scripts, installers, and any
+// file with an execute bit). *Open file* reveals these in Finder instead.
+const RUNNABLE_EXT = /\.(app|command|tool|sh|bash|zsh|csh|ksh|terminal|workflow|action|scpt|scptd|applescript|jar|pkg|mpkg|prefpane|webloc|inetloc|fileloc|url)$/i;
+function runnable(abs, fsMod = require('node:fs')) {
+  if (RUNNABLE_EXT.test(abs.replace(/[\\/]+$/, ''))) return true;
+  try { const st = fsMod.statSync(abs); return st.isFile() && (st.mode & 0o111) !== 0; } catch { return false; }
+}
+
 // The status entries the renderer hands back for working-tree operations.
 const fileEntry = (v, what) => obj(v, what, { path: repoPath, oldPath: optional(repoPath), status: optional((s, w) => str(s, w, { max: 8 })), xy: optional((s, w) => str(s, w, { max: 8 })) });
 const lineKeys = (v, what) => list(v, what, (k, w) => { if (typeof k !== 'string' || !/^\d+:\d+$/.test(k)) fail(w, 'expected "hunk:line"'); });
@@ -171,7 +196,7 @@ const gitSchemas = {
   push: [optional((v, w) => obj(v, w, { force: optional(bool), all: optional(bool) }))],
   pushTags: [],
   deleteRemoteBranch: [(v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); return v; }],
-  setConfig: [configKey, text],
+  setConfig: [safeConfigKey, text],
   unsetConfig: [configKey],
   markResolved: [repoPath],
   lockWorktree: [worktreeDir, optional((v, w) => str(v, w, { max: 4096, empty: true }))],
@@ -269,4 +294,4 @@ function insideRepo(root, rel) {
 
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf };
+module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf };
