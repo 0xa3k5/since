@@ -466,7 +466,9 @@ app.whenReady().then(() => {
   app.setName('GitLanes');
   buildMenu();
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
-  createWindow(arg && fs.existsSync(arg) ? path.resolve(arg) : undefined);
+  // npm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran npm.
+  const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
+  createWindow(repoPath && fs.existsSync(repoPath) ? repoPath : undefined);
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 

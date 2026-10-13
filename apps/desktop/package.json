@@ -1,0 +1,16 @@
+{
+  "name": "@gitlanes/desktop",
+  "productName": "GitLanes",
+  "version": "0.1.0",
+  "description": "A fast, keyboard-first Git client inspired by GitUp, styled after Linear",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "electron": "44.7.0"
+  },
+  "private": true
+}
