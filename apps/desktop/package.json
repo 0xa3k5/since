@@ -7,9 +7,11 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:e2e": "playwright test -c e2e"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.0",
     "electron": "44.7.0"
   },
   "private": true

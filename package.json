@@ -13,7 +13,8 @@
   },
   "scripts": {
     "desktop": "npm run start -w @gitlanes/desktop --",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @gitlanes/desktop"
   },
   "repository": {
     "type": "git",
