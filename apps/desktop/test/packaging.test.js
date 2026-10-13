@@ -26,7 +26,12 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
+  // Every local module main.js requires must be packaged.
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  for (const [, mod] of main.matchAll(/require\('\.\/([\w-]+)/g)) {
+    assert.ok(config.files.some((f) => f === `${mod}.js` || f === `${mod}/**`), `${mod} is required by main.js but not packaged`);
+  }
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });

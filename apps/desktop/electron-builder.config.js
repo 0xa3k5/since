@@ -30,7 +30,9 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
+  // GITLANES_STORE=production npm run dist bakes the store profile into the packaged package.json.
+  extraMetadata: process.env.GITLANES_STORE ? { gitlanes: { store: process.env.GITLANES_STORE } } : undefined,
   asar: true,
   // In CI a provided certificate must actually be used; never fall back to an unsigned release.
   forceCodeSigning: Boolean(process.env.CSC_LINK),
