@@ -1,0 +1,49 @@
+---
+import { PRODUCT_NAME } from '../../config';
+import DocsLayout from '../../components/content/DocsLayout.astro';
+import Kbd from '../../components/content/Kbd.astro';
+import Shot from '../../components/content/Shot.astro';
+import mapLight from '../../assets/features/map-light.webp';
+import mapDark from '../../assets/features/map-dark.webp';
+---
+<DocsLayout title="Getting started" description={`Install ${PRODUCT_NAME}, open a repository and learn the first five keys.`}>
+  <p>{PRODUCT_NAME} works on the git repositories you already have. There is no account to create and nothing to import.</p>
+
+  <h2 id="install">Install</h2>
+  <ol>
+    <li><a href="/download">Download {PRODUCT_NAME}</a>. There are separate disk images for Apple silicon and Intel Macs.</li>
+    <li>Open the disk image and drag <strong>{PRODUCT_NAME}</strong> into <strong>Applications</strong>.</li>
+    <li>Open {PRODUCT_NAME} from Applications. From the paid release on, your <a href="/docs/licence-and-trial">14-day trial</a> starts the first time you open it.</li>
+  </ol>
+  <p><strong>Requirements:</strong> macOS 12 or later, and git. {PRODUCT_NAME} uses the git already on your Mac, with your config, hooks and credentials.
+    If git isn't installed, run <code>xcode-select --install</code> in Terminal to get Apple's Command Line Tools, or install git with Homebrew.</p>
+
+  <h2 id="open">Open a repository</h2>
+  <p>The welcome window lists recent repositories. Pick one with <Kbd keys={['↑']} /> <Kbd keys={['↓']} /> and press <Kbd keys={['↵']} />, or:</p>
+  <table>
+    <tbody>
+      <tr><td>Open a folder that is a git repository</td><td><Kbd keys={['⌘', 'O']} /></td></tr>
+      <tr><td>Clone a repository from a URL</td><td><Kbd keys={['⇧', '⌘', 'O']} /></td></tr>
+      <tr><td>Create a new repository</td><td><Kbd keys={['⌘', 'N']} /></td></tr>
+      <tr><td>Open another window</td><td><Kbd keys={['⇧', '⌘', 'N']} /></td></tr>
+    </tbody>
+  </table>
+  <p>The File → Open Recent menu also lists your last ten repositories.</p>
+
+  <h2 id="first-keys">The first five keys</h2>
+  <p>A repository opens on the <a href="/docs/the-map">map</a>, with the commit list focused. These five keys cover most of a day:</p>
+  <table>
+    <tbody>
+      <tr><td>Move up and down the history</td><td><Kbd keys={['J']} /> <Kbd keys={['K']} /></td></tr>
+      <tr><td>Look inside a commit</td><td><Kbd keys={['↵']} /></td></tr>
+      <tr><td>Find a commit, branch or author</td><td><Kbd keys={['/']} /></td></tr>
+      <tr><td>Run any command by name</td><td><Kbd keys={['⌘', 'K']} /></td></tr>
+      <tr><td>Take back the last change</td><td><Kbd keys={['⌘', 'Z']} /></td></tr>
+    </tbody>
+  </table>
+  <Shot light={mapLight} dark={mapDark} alt="A repository open on the map, with the detail panel showing the selected commit" />
+  <p>Every other key is on the <a href="/shortcuts">shortcuts page</a>.</p>
+
+  <h2 id="theme">Light or dark</h2>
+  <p>{PRODUCT_NAME} follows your system appearance. To pick a theme, use View → Theme, type “theme” in <Kbd keys={['⌘', 'K']} />, or press <Kbd keys={['⌃', '⌘', 'T']} /> to cycle between System, Light and Dark.</p>
+</DocsLayout>

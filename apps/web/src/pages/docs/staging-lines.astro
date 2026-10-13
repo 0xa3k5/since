@@ -1,0 +1,38 @@
+---
+import { PRODUCT_NAME } from '../../config';
+import DocsLayout from '../../components/content/DocsLayout.astro';
+import Kbd from '../../components/content/Kbd.astro';
+import Shot from '../../components/content/Shot.astro';
+import commitLight from '../../assets/features/commit-light.webp';
+import commitDark from '../../assets/features/commit-dark.webp';
+---
+<DocsLayout title="Staging lines" description={`Stage or discard whole files, hunks or single lines in ${PRODUCT_NAME}, then commit or amend.`}>
+  <p>The Commit view (<Kbd keys={['⌘', '2']} />, or <Kbd keys={['G']} /> then <Kbd keys={['C']} />) shows unstaged and staged files on the left and the selected file's diff on the right.</p>
+  <Shot light={commitLight} dark={commitDark} alt="The Commit view with three added lines selected and a Stage lines button" />
+
+  <h2 id="files">Files</h2>
+  <table>
+    <tbody>
+      <tr><td>Next or previous file</td><td><Kbd keys={['J']} /> <Kbd keys={['K']} /></td></tr>
+      <tr><td>Stage the selected file, or unstage it</td><td><Kbd keys={['↵']} /></td></tr>
+      <tr><td>Discard the selected unstaged file</td><td><Kbd keys={['⌫']} /></td></tr>
+    </tbody>
+  </table>
+  <p><strong>Stage all</strong>, <strong>Unstage all</strong> and <strong>Discard all</strong> sit above each list.</p>
+
+  <h2 id="lines">Hunks and lines</h2>
+  <ul>
+    <li>Each hunk has <strong>Stage hunk</strong> and <strong>Discard hunk</strong> buttons (or <strong>Unstage hunk</strong> in a staged file).</li>
+    <li>Click an added or removed line to select it. Shift-click another to select the range between them.</li>
+    <li>With lines selected, use <strong>Stage lines</strong> or <strong>Discard</strong> in the bar above the diff.</li>
+  </ul>
+  <p>Discarding a file, hunk or line can be undone with <Kbd keys={['⌘', 'Z']} />. See <a href="/docs/undo-redo">Undo and redo</a>.</p>
+
+  <h2 id="commit">Commit</h2>
+  <p>Press <Kbd keys={['C']} /> to jump to the message box, write your message, and press <Kbd keys={['⌘', '↵']} /> to commit.
+    Tick <strong>Amend last commit</strong> to fold the staged changes and the new message into the previous commit instead. Both are undoable.</p>
+
+  <h2 id="conflicts">Conflicts</h2>
+  <p>During a merge, rebase or cherry-pick that stops on a conflict, a banner names the operation, with <strong>Continue</strong> and <strong>Abort</strong>.
+    Conflicted files are listed first. For each one, take <strong>Ours</strong> or <strong>Theirs</strong>, or edit it in your editor and mark it resolved. Continue is enabled once nothing is left unresolved.</p>
+</DocsLayout>

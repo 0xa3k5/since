@@ -1,10 +1,49 @@
 ---
 import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/content/PageHead.astro';
+import Kbd from '../components/content/Kbd.astro';
+import { DOCS } from '../components/content/docs-nav';
+import '../components/content/content.css';
 ---
-<Stub
+<Base
   title={`Docs · ${PRODUCT_NAME}`}
-  heading={"Docs"}
-  description={"Getting started, how undo works, keyboard use, remotes, conflicts, licence and trial, and troubleshooting."}
+  description={`Get started with ${PRODUCT_NAME}: install, the map, undo and redo, staging lines, rewriting history, and the licence and trial.`}
   ogTheme="dark"
-></Stub>
+>
+  <div class="wrap content-page">
+    <PageHead eyebrow="Docs" title={`Using ${PRODUCT_NAME}`}>
+      Short, task-based guides. New here? Start with <a href="/docs/getting-started">Getting started</a>.
+    </PageHead>
+    <ol class="docs-cards">
+      {DOCS.map((d, i) => (
+        <li>
+          <a href={d.href}>
+            <span class="n">{String(i + 1).padStart(2, '0')}</span>
+            <strong>{d.title}</strong>
+            <span class="blurb">{d.blurb}</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+    <aside class="docs-more">
+      <p>Looking for a key? Every shortcut is on the <a href="/shortcuts">shortcuts page</a>, and <Kbd keys={['⌘', 'K']} /> in the app finds any command by name.</p>
+      <p>Fixing a git mistake? The <a href="/guides">guides</a> cover undoing a rebase, recovering a deleted branch and more.</p>
+    </aside>
+  </div>
+</Base>
+
+<style>
+  .docs-cards { list-style: none; margin: 48px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .docs-cards a {
+    display: grid; gap: 6px; height: 100%; padding: 20px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg-content); color: var(--text-2); text-decoration: none;
+  }
+  .docs-cards a:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+  .docs-cards .n { font: 500 12px/1 var(--mono); color: var(--accent-fg); }
+  .docs-cards strong { color: var(--text); font-size: 17px; }
+  .docs-cards .blurb { font-size: 15px; }
+  .docs-more { margin-top: 48px; max-width: 70ch; color: var(--text-2); }
+  .docs-more p { margin: 8px 0; }
+  @media (max-width: 900px) { .docs-cards { grid-template-columns: 1fr; } }
+</style>

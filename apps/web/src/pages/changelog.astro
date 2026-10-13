@@ -1,10 +1,85 @@
 ---
+// Built from src/content/changelog/*.md: one file per merged change, grouped by version, newest first.
+// Only merge dates appear; release dates are added when a version ships.
+import { getCollection, render } from 'astro:content';
 import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/content/PageHead.astro';
+import '../components/content/content.css';
+
+/** Versions that have shipped. Until a version is listed here it shows as "In development". */
+const RELEASED: string[] = [];
+const KINDS = ['Added', 'Improved', 'Fixed', 'Behind the scenes'] as const;
+
+const cmp = (a: string, b: string) => {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pb[i] ?? 0) - (pa[i] ?? 0);
+  return 0;
+};
+const entries = await getCollection('changelog');
+const versions = await Promise.all(
+  [...new Set(entries.map((e) => e.data.version))].sort(cmp).map(async (version) => ({
+    version,
+    released: RELEASED.includes(version),
+    kinds: await Promise.all(KINDS.map(async (kind) => ({
+      kind,
+      items: await Promise.all(entries
+        .filter((e) => e.data.version === version && e.data.kind === kind)
+        .sort((a, b) => b.data.merged.getTime() - a.data.merged.getTime() || a.id.localeCompare(b.id))
+        .map(async (e) => ({ id: e.id, ...e.data, Content: (await render(e)).Content }))),
+    }))).then((k) => k.filter((x) => x.items.length)),
+  })),
+);
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const anchor = (v: string) => v.replaceAll('.', '-');
 ---
-<Stub
+<Base
   title={`Changelog · ${PRODUCT_NAME}`}
-  heading={"Changelog"}
   description={`What's new in every ${PRODUCT_NAME} release. All updates are free for every licence holder.`}
   ogTheme="dark"
-></Stub>
+>
+  <div class="wrap content-page">
+    <PageHead eyebrow="Changelog" title="What's new">
+      Every change to {PRODUCT_NAME}, newest first. Updates are free for every licence holder, for life.
+    </PageHead>
+
+    {versions.map((v) => (
+      <section class="cl-version" id={anchor(v.version)} aria-labelledby={`v-${anchor(v.version)}`}>
+        <header class="cl-head">
+          <h2 id={`v-${anchor(v.version)}`}><a href={`#${anchor(v.version)}`}>{v.version}</a></h2>
+          <span class={`cl-badge${v.released ? '' : ' dev'}`}>{v.released ? 'Released' : 'In development'}</span>
+        </header>
+        {v.kinds.map((k) => (
+          <div class="cl-kind">
+            <h3>{k.kind}</h3>
+            {k.items.map((e) => (
+              <article class="cl-entry" id={e.id}>
+                <div class="cl-entry-head">
+                  <h4>{e.title}</h4>
+                  <span class="cl-date">Merged <time datetime={e.merged.toISOString().slice(0, 10)}>{fmt(e.merged)}</time></span>
+                </div>
+                <div class="prose"><e.Content /></div>
+              </article>
+            ))}
+          </div>
+        ))}
+      </section>
+    ))}
+  </div>
+</Base>
+
+<style>
+  .cl-version { margin-top: 64px; max-width: 820px; scroll-margin-top: 80px; }
+  .cl-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .cl-head h2 { margin: 0; font-size: 28px; font-family: var(--mono); letter-spacing: -0.02em; }
+  .cl-head h2 a { color: var(--text); text-decoration: none; }
+  .cl-badge { font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; padding: 5px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-3); }
+  .cl-badge.dev { color: var(--accent-fg); border-color: currentColor; }
+  .cl-kind h3 { margin: 32px 0 0; font: 600 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+  .cl-entry { padding: 20px 0; border-bottom: 1px solid var(--border); scroll-margin-top: 80px; }
+  .cl-entry-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+  .cl-entry h4 { margin: 0; font-size: 18px; color: var(--text); letter-spacing: -0.01em; }
+  .cl-date { font-size: 13px; color: var(--text-3); }
+  .cl-entry .prose > :first-child { margin-top: 10px; }
+  .cl-entry .prose > :last-child { margin-bottom: 0; }
+</style>

@@ -1,10 +1,133 @@
 ---
-import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+// Press kit. Assets live in public/press/. The logo and icon are placeholders until the final mark is designed.
+// Never name or describe the products that inspired the design here (owner naming rule).
+import { PRODUCT_NAME, PRICE_NOW, PRICE_LATER, SITE_URL } from '../config';
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/content/PageHead.astro';
+import '../components/content/content.css';
+
+/** TODO: a press address (e.g. press@<domain>) once the owner buys the domain. Until then, the contact page. */
+const PRESS_CONTACT = '/contact';
+
+const shots = [
+  { id: 'map', label: 'The map' },
+  { id: 'rewrite', label: 'Commit actions' },
+  { id: 'undo', label: 'Undo after a fixup' },
+  { id: 'commit', label: 'Staging lines' },
+  { id: 'palette', label: '⌘K command menu' },
+];
+
+const short = `${PRODUCT_NAME} is a keyboard-first client for Git on macOS. You work directly on a live commit graph, and ⌘Z undoes any change you make.`;
+const boilerplate = `${PRODUCT_NAME} is a keyboard-first client for Git on macOS. Its main screen is a live commit graph you act on directly: select a commit and press one key to squash, fixup, reword, delete, rebase, merge or cherry-pick it, with no editor or todo list. Every change to branches, tags and HEAD, and every action that throws work away, such as discarding lines or a hard reset, can be undone with ⌘Z. It stages single lines, resolves conflicts, and puts every command in a ⌘K menu. ${PRODUCT_NAME} uses the git already on your Mac, needs no account, and comes in carefully designed light and dark themes. It is a one-time purchase with lifetime updates.`;
 ---
-<Stub
+<Base
   title={`Press kit · ${PRODUCT_NAME}`}
-  heading={"Press kit"}
-  description={"Descriptions, fact sheet, icon, wordmark, screenshots and videos in light and dark, ready to use."}
+  description={`Descriptions, fact sheet, icon, logo and screenshots of ${PRODUCT_NAME} in light and dark, ready to use.`}
   ogTheme="light"
-></Stub>
+>
+  <div class="wrap content-page">
+    <PageHead eyebrow="Press" title="Press kit">
+      Everything you need to write about {PRODUCT_NAME}. Use any of it freely in coverage. For anything else, <a href={PRESS_CONTACT}>get in touch</a>.
+    </PageHead>
+
+    <section class="pk-section" aria-labelledby="about-h">
+      <h2 id="about-h">About {PRODUCT_NAME}</h2>
+      <div class="pk-copy">
+        <h3>In one sentence</h3>
+        <p>{short}</p>
+        <h3>Boilerplate</h3>
+        <p>{boilerplate}</p>
+        <p class="muted">Designed and built from scratch. {PRODUCT_NAME} contains no third-party code beyond its open-source dependencies.</p>
+      </div>
+    </section>
+
+    <section class="pk-section" aria-labelledby="facts-h">
+      <h2 id="facts-h">Fact sheet</h2>
+      <dl class="pk-facts">
+        <div><dt>Product</dt><dd>{PRODUCT_NAME}, a client for Git</dd></div>
+        <div><dt>Platform</dt><dd>macOS 12 or later, Apple silicon and Intel</dd></div>
+        <div><dt>Requires</dt><dd>git (Apple's Command Line Tools or Homebrew)</dd></div>
+        <div><dt>Price</dt><dd>${PRICE_NOW} one-time launch price, rising to ${PRICE_LATER} later. Lifetime updates, no subscription.</dd></div>
+        <div><dt>Trial</dt><dd>14 days, free, no account</dd></div>
+        <div><dt>Website</dt><dd><a href={SITE_URL}>{SITE_URL.replace(/^https?:\/\//, '')}</a></dd></div>
+        <div><dt>Release</dt><dd>In development. The release date will be announced.</dd></div>
+        <div><dt>Press contact</dt><dd><a href={PRESS_CONTACT}>Contact page</a></dd></div>
+      </dl>
+    </section>
+
+    <section class="pk-section" aria-labelledby="brand-h">
+      <h2 id="brand-h">Logo and icon</h2>
+      <div class="note"><p><strong>Placeholder artwork.</strong> The logo and app icon below are placeholders and will change before release. Please check back before printing.</p></div>
+      <div class="pk-assets">
+        <figure class="pk-asset light">
+          <div class="pk-swatch light"><img src="/press/gitlanes-logo-light.svg" alt={`${PRODUCT_NAME} logo for light backgrounds`} width="220" height="48" /></div>
+          <figcaption>Logo, light backgrounds · <a href="/press/gitlanes-logo-light.svg" download>SVG</a></figcaption>
+        </figure>
+        <figure class="pk-asset dark">
+          <div class="pk-swatch dark"><img src="/press/gitlanes-logo-dark.svg" alt={`${PRODUCT_NAME} logo for dark backgrounds`} width="220" height="48" /></div>
+          <figcaption>Logo, dark backgrounds · <a href="/press/gitlanes-logo-dark.svg" download>SVG</a></figcaption>
+        </figure>
+        <figure class="pk-asset icon">
+          <div class="pk-swatch"><img src="/press/gitlanes-icon-512.png" alt={`${PRODUCT_NAME} app icon`} width="128" height="128" /></div>
+          <figcaption>App icon · <a href="/press/gitlanes-icon.svg" download>SVG</a> · <a href="/press/gitlanes-icon-512.png" download>PNG 512</a></figcaption>
+        </figure>
+      </div>
+      <p class="muted pk-usage">Please don't recolour or stretch the logo. Orange is the brand colour; use the dark-background version on dark surfaces.</p>
+    </section>
+
+    <section class="pk-section" aria-labelledby="shots-h">
+      <h2 id="shots-h">Screenshots</h2>
+      <p class="muted">2880 × 1800 PNG, in both themes. The repository shown is a demo with made-up names.</p>
+      <div class="pk-shots">
+        {shots.map((s) => (
+          <figure>
+            <a href={`/press/screenshots/gitlanes-${s.id}-light.png`} class="only-light"><img src={`/press/screenshots/gitlanes-${s.id}-light.png`} alt={`${s.label}, light theme`} loading="lazy" width="2880" height="1800" /></a>
+            <a href={`/press/screenshots/gitlanes-${s.id}-dark.png`} class="only-dark"><img src={`/press/screenshots/gitlanes-${s.id}-dark.png`} alt={`${s.label}, dark theme`} loading="lazy" width="2880" height="1800" /></a>
+            <figcaption>
+              <span>{s.label}</span>
+              <span><a href={`/press/screenshots/gitlanes-${s.id}-light.png`} download>Light</a> · <a href={`/press/screenshots/gitlanes-${s.id}-dark.png`} download>Dark</a></span>
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+
+    <section class="pk-section" aria-labelledby="contact-h">
+      <h2 id="contact-h">Contact</h2>
+      <p class="pk-copy">For interviews, review licences or anything not on this page, use the <a href={PRESS_CONTACT}>contact page</a> and mention “press”.</p>
+    </section>
+  </div>
+</Base>
+
+<style>
+  .pk-section { margin-top: 72px; }
+  .pk-section h2 { font-size: clamp(22px, 3vw, 28px); margin: 0 0 16px; }
+  .pk-copy { max-width: 70ch; color: var(--text-2); }
+  .pk-copy h3 { margin: 24px 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+  .pk-copy p { margin: 0 0 12px; }
+
+  .pk-facts { margin: 0; max-width: 760px; border-top: 1px solid var(--border); }
+  .pk-facts div { display: grid; grid-template-columns: 160px 1fr; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .pk-facts dt { color: var(--text-3); font-size: 14px; }
+  .pk-facts dd { margin: 0; color: var(--text); }
+
+  .pk-assets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  .pk-asset { margin: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-content); }
+  /* The logo swatches show their intended background whatever the site theme is. */
+  .pk-swatch { display: flex; align-items: center; justify-content: center; height: 168px; padding: 24px; }
+  .pk-swatch.light { background: #faf7f4; }
+  .pk-swatch.dark { background: #0e0b09; }
+  .pk-swatch img { display: block; max-width: 100%; height: auto; }
+  .pk-asset figcaption { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text-2); }
+  .pk-usage { margin-top: 12px; font-size: 14px; }
+
+  .pk-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 16px; }
+  .pk-shots figure { margin: 0; }
+  .pk-shots img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .pk-shots figcaption { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 14px; color: var(--text-2); }
+
+  @media (max-width: 860px) {
+    .pk-assets, .pk-shots { grid-template-columns: 1fr; }
+    .pk-facts div { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>

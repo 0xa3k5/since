@@ -1,0 +1,6 @@
+---
+// A key combination as kbd chips: <Kbd keys={['⇧', '⌘', 'Z']} />.
+export interface Props { keys: string[]; alt?: string[] | null; }
+const { keys, alt } = Astro.props;
+---
+<span class="keys">{keys.map((k) => <kbd>{k}</kbd>)}{alt && <Fragment><span class="keys-or">or</span>{alt.map((k) => <kbd>{k}</kbd>)}</Fragment>}</span>

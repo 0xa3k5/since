@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" width="440" height="96">
+  <!-- PLACEHOLDER logo: the mark and wordmark need final design. Text is set in Inter; outline it before print use. -->
+  <rect x="4" y="8" width="32" height="32" rx="8" fill="#e8590c"/>
+  <path d="M15 15v18M25 15v6c0 4-10 4-10 8" fill="none" stroke="#1a0d05" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="15" cy="32" r="3" fill="#1a0d05"/>
+  <circle cx="25" cy="17" r="3" fill="#1a0d05"/>
+  <text x="48" y="32.5" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="650" letter-spacing="-0.3" fill="#1c1612">GitLanes</text>
+</svg>
