@@ -1,0 +1,46 @@
+---
+// Question list as native <details>, plus FAQPage structured data. Answers are trusted HTML from page files.
+export interface Props {
+  id?: string;
+  heading?: string;
+  items: { q: string; a: string }[];
+}
+
+const { id = 'faq', heading = 'Questions', items } = Astro.props;
+const text = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: items.map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: text(a) } })),
+};
+---
+<section class="faq" id={id} aria-labelledby={`${id}-h`}>
+  <h2 id={`${id}-h`}>{heading}</h2>
+  <div class="faq-list">
+    {items.map(({ q, a }) => (
+      <details>
+        <summary>{q}</summary>
+        <div class="faq-a" set:html={a} />
+      </details>
+    ))}
+  </div>
+  <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+</section>
+
+<style>
+  .faq h2 { font-size: 24px; margin: 0 0 16px; }
+  .faq-list { border-top: 1px solid var(--border); }
+  details { border-bottom: 1px solid var(--border); }
+  summary {
+    display: flex; justify-content: space-between; gap: 16px;
+    padding: 16px 0; cursor: pointer; list-style: none;
+    font-weight: 560; color: var(--text);
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font: 400 18px/1 var(--mono); color: var(--text-3); }
+  details[open] summary::after { content: "−"; }
+  summary:hover::after { color: var(--accent-fg); }
+  .faq-a { padding: 0 0 18px; color: var(--text-2); max-width: 68ch; }
+  .faq-a :global(p) { margin: 0 0 10px; }
+  .faq-a :global(p:last-child) { margin-bottom: 0; }
+</style>

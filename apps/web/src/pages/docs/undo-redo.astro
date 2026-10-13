@@ -1,0 +1,44 @@
+---
+import { PRODUCT_NAME } from '../../config';
+import DocsLayout from '../../components/content/DocsLayout.astro';
+import Kbd from '../../components/content/Kbd.astro';
+import Shot from '../../components/content/Shot.astro';
+import snapLight from '../../assets/features/snapshots-light.webp';
+import snapDark from '../../assets/features/snapshots-dark.webp';
+---
+<DocsLayout title="Undo and redo" description={`How undo works in ${PRODUCT_NAME}: what ⌘Z can take back, where the history is stored, and what it can't undo.`}>
+  <p>Press <Kbd keys={['⌘', 'Z']} /> to undo the last change to your repository and <Kbd keys={['⇧', '⌘', 'Z']} /> to redo it. The Edit menu says what the next step is, for example “Undo Squash with parent”.</p>
+
+  <h2 id="what">What you can undo</h2>
+  <p><strong>Every change to branches, tags and HEAD:</strong> commit, amend, checkout, merge, rebase, cherry-pick, revert, pull, every history rewrite, and creating, renaming, moving or deleting a branch or tag.</p>
+  <p><strong>Actions that throw work away:</strong></p>
+  <ul>
+    <li>discarding files, hunks or single lines</li>
+    <li>a hard reset</li>
+    <li>using our or their version of a conflicted file (the file becomes conflicted again)</li>
+    <li>dropping, applying or popping a stash (a dropped stash comes back in its old place)</li>
+  </ul>
+  <p>Before one of these runs, {PRODUCT_NAME} saves the files it's about to touch, byte for byte. If that copy can't be saved, the action doesn't run.</p>
+
+  <h2 id="snapshots">Snapshots</h2>
+  <p>The Snapshots view (<Kbd keys={['⌘', '4']} />, or <Kbd keys={['G']} /> then <Kbd keys={['H']} />) lists every recorded step, newest first.{" "}
+    <strong>Restore before</strong> on a step moves branches, tags and HEAD back to how they were before it, in one go. A restore is itself a step, so you can undo it.</p>
+  <Shot light={snapLight} dark={snapDark} alt="The Snapshots view listing a recorded fixup, with Undo and Redo buttons" />
+
+  <h2 id="where">Where the history lives</h2>
+  <ul>
+    <li>In your repository, in <code>.git/gitlanes-history.json</code>. It survives quitting {PRODUCT_NAME} and restarting your Mac.</li>
+    <li>The commits and file contents a step needs are kept under <code>refs/gitlanes/</code>, so <code>git gc</code> doesn't delete them.</li>
+    <li>There is <strong>no step limit</strong>. Doing something new after an undo clears the redo steps, as in any editor.</li>
+  </ul>
+
+  <h2 id="limits">What undo can't do</h2>
+  <ul>
+    <li><strong>Pushes</strong> (including force pushes, pushing tags and deleting a remote branch) change another machine. Undoing them would need another push, so they aren't recorded. {PRODUCT_NAME} asks before a force push or a remote delete.</li>
+    <li><strong>Fetch</strong> only updates your copy of the remote's branches; the next fetch brings back anything it removed.</li>
+    <li><strong>Aborting</strong> a merge, rebase or cherry-pick in progress drops any conflict resolutions made so far.</li>
+    <li><strong>Staging and unstaging</strong> aren't steps on the undo stack.</li>
+    <li>If a file changed after the step you're undoing, undo stops and tells you, rather than overwrite your newer work.</li>
+  </ul>
+  <p>Only changes made in {PRODUCT_NAME} are recorded. For something you did on the command line, the <strong>Reflog</strong> view (<Kbd keys={['⌘', '5']} />) shows where your branches have been.</p>
+</DocsLayout>

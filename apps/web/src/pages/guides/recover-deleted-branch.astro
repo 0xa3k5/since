@@ -1,10 +1,47 @@
 ---
-import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
+import GuidePage from './_GuidePage.astro';
 ---
-<Stub
-  title={"How to recover a deleted git branch"}
-  heading={"How to recover a deleted git branch"}
-  description={`Find and restore a deleted git branch from the reflog, or undo the delete in ${PRODUCT_NAME}.`}
+<GuidePage
+  title="How to recover a deleted git branch"
+  heading="How to recover a deleted git branch"
+  description="Deleting a git branch deletes a name, not the commits. Find the last commit with the delete message, the reflog or git fsck, then recreate the branch."
+  lede="A branch is just a name pointing at a commit. Deleting it removes the name; the commits stay in your repository until git’s garbage collection cleans them up."
   ogTheme="light"
-></Stub>
+>
+  <h2>1. Use the SHA git printed when you deleted it</h2>
+  <p>If the terminal is still open, the delete command told you where the branch was:</p>
+  <pre set:text={`$ git branch -D feature
+Deleted branch feature (was 4c5d6e7).`} />
+  <p>Recreate it at that commit:</p>
+  <pre set:text={`git branch feature 4c5d6e7`} />
+
+  <h2>2. Otherwise, search the reflog</h2>
+  <p>The branch’s own reflog is deleted with the branch, but HEAD’s reflog remembers every commit you had checked out. Search it for the branch name:</p>
+  <pre set:text={`git reflog | grep feature
+
+7a8b9c0 HEAD@{4}: checkout: moving from feature to main
+4c5d6e7 HEAD@{5}: commit: Finish settings page`} />
+  <p>The line <code>moving from feature to main</code> means the commit just below it, <code>4c5d6e7</code>, was the last one you had on <code>feature</code>. Check it, then recreate the branch:</p>
+  <pre set:text={`git log --oneline -5 4c5d6e7
+git branch feature 4c5d6e7`} />
+  <p>If you committed to the branch after that, look for later <code>commit:</code> entries made while you were on it.</p>
+
+  <h2>3. If you never checked it out: git fsck</h2>
+  <p>A branch you fetched but never checked out won’t be in HEAD’s reflog. If it was pushed, the easiest fix is to fetch it again: <code>git switch feature</code> recreates it from <code>origin/feature</code>. If it only ever existed locally, list commits that nothing points to any more:</p>
+  <pre set:text={`git fsck --no-reflogs --unreachable | grep commit
+git show --stat <sha>     # inspect each candidate`} />
+  <p>When you find the tip, run <code>git branch feature &lt;sha&gt;</code>.</p>
+
+  <h2>Deleted on the remote too?</h2>
+  <p>Once the branch is back locally, push it again: <code>git push -u origin feature</code>. If someone else still has a copy, they can push it for you.</p>
+
+  <div class="callout">
+    <p><strong>Don’t wait.</strong> With default settings, reflog entries for commits no branch points to expire after 30 days, and <code>git gc</code> can then delete those commits. <code>git gc --prune=now</code> deletes unreachable commits that no reflog entry protects straight away.</p>
+  </div>
+
+  <Fragment slot="app-title">Press <kbd>⌘</kbd><kbd>Z</kbd></Fragment>
+  <Fragment slot="app">
+    <p>Deleted the branch in GitLanes? Press <kbd>⌘</kbd><kbd>Z</kbd>. The Edit menu shows <em>Undo Delete branch feature</em>, and undo puts the branch back on the same commit. The undo history is saved in the repository, so this still works after a restart.</p>
+    <p>Deleted it in the terminal? Open the Reflog view (<kbd>⌘</kbd><kbd>5</kbd>). It lists every ref’s history in one place and marks commits no branch can reach as <em>unreachable</em>. Right-click the last commit and choose <em>Create Branch Here…</em>.</p>
+  </Fragment>
+</GuidePage>

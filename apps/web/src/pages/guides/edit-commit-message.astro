@@ -1,0 +1,38 @@
+---
+import GuidePage from './_GuidePage.astro';
+---
+<GuidePage
+  title="How to change a git commit message"
+  heading="How to change a git commit message"
+  description="Fix a typo in your last git commit message with --amend, reword an older commit with interactive rebase, and update a branch you already pushed."
+  lede="Commit messages are part of a commit’s identity, so changing one creates a new commit. For the latest commit that’s one command. For older ones, git replays the commits after it."
+  ogTheme="dark"
+>
+  <h2>The last commit: --amend</h2>
+  <p>To rewrite the message of the commit you just made:</p>
+  <pre set:text={`git commit --amend -m "Add settings page"`} />
+  <p>Leave out <code>-m</code> to edit the existing message in your editor instead. Check <code>git status</code> first: anything you’ve staged is added to the amended commit too. To change only the message, unstage it first or run <code>git commit --amend --only -m "…"</code>.</p>
+
+  <h2>An older commit: interactive rebase</h2>
+  <p>Start a rebase from the parent of the commit you want to change (here <code>4c5d6e7</code>):</p>
+  <pre set:text={`git rebase -i 4c5d6e7~1`} />
+  <p>In the plan that opens, change <code>pick</code> to <code>reword</code> on that commit’s line, then save and close:</p>
+  <pre set:text={`reword 4c5d6e7 Add setings page
+pick 1a2b3c4 Add billing page`} />
+  <p>Git opens the message in your editor. Fix it, save and close, and git replays the commits after it. Every later commit gets a new SHA, even though its content doesn’t change.</p>
+  <p>If the commit is the very first one in the repository, use <code>git rebase -i --root</code>.</p>
+
+  <h2>If you already pushed</h2>
+  <p>The remote still has the old commits, so a normal push is rejected. Update it with:</p>
+  <pre set:text={`git push --force-with-lease`} />
+  <p><code>--force-with-lease</code> refuses if someone else pushed to the branch since you last fetched. On a shared branch, ask first: everyone who pulled the old commits has to reset to the new ones. On <code>main</code> or a release branch, it’s usually better to leave the message as it is.</p>
+
+  <h2>Changed the wrong one?</h2>
+  <p>Right after an amend, <code>{"git reset --soft 'HEAD@{1}'"}</code> moves back to the original commit and leaves anything the amend added staged. Right after a rebase, <code>git reset --hard ORIG_HEAD</code> takes you back (stash any uncommitted work first). For anything older, see <a href="/guides/undo-rebase">how to undo a git rebase</a>.</p>
+
+  <Fragment slot="app-title">Select a commit, press <kbd>E</kbd></Fragment>
+  <Fragment slot="app">
+    <p>In GitLanes, select any commit on your current branch and press <kbd>E</kbd>. Edit the message and press <kbd>⌘</kbd><kbd>↵</kbd> to save. GitLanes replays the commits above it for you, setting any uncommitted changes aside and putting them back afterwards.</p>
+    <p>For the latest commit you can also tick <em>Amend last commit</em> in the Commit view (<kbd>⌘</kbd><kbd>2</kbd>), which adds anything you’ve staged as well. Either way, <kbd>⌘</kbd><kbd>Z</kbd> restores the old message.</p>
+  </Fragment>
+</GuidePage>

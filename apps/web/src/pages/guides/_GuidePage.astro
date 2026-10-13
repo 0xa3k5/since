@@ -1,0 +1,73 @@
+---
+// Shared template for /guides/* (website plan §7.3): the command-line fix first, then one
+// short "In GitLanes" box. Not a route ("_" prefix).
+import Base from '../../layouts/Base.astro';
+import Breadcrumbs from './_Breadcrumbs.astro';
+import { DOWNLOAD_URL, PRODUCT_NAME, SITE_URL } from '../../config';
+import { GUIDE_LIST } from './_list';
+import './_content.css';
+
+export interface Props {
+  /** <title>, ≤ 60 characters. */
+  title: string;
+  heading: string;
+  /** Meta description, ≤ 155 characters. */
+  description: string;
+  lede: string;
+  ogTheme?: 'light' | 'dark';
+}
+
+const { title, heading, description, lede, ogTheme = 'dark' } = Astro.props;
+const path = Astro.url.pathname.replace(/\.html$/, '');
+const self = GUIDE_LIST.find((g) => g.href === path);
+const related = GUIDE_LIST.filter((g) => g.href !== path);
+const ld = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: heading,
+  description,
+  url: SITE_URL + path,
+  publisher: { '@type': 'Organization', name: PRODUCT_NAME },
+};
+---
+<Base title={title} description={description} ogTheme={ogTheme}>
+  <article class="wrap page guide">
+    <Breadcrumbs items={[{ href: '/guides', label: 'Guides' }, { href: path, label: self?.label ?? heading }]} />
+    <script type="application/ld+json" set:html={JSON.stringify(ld)} />
+
+    <header class="page-head">
+      <p class="eyebrow">Guide</p>
+      <h1>{heading}</h1>
+      <p class="lede">{lede}</p>
+    </header>
+
+    <div class="prose">
+      <slot />
+    </div>
+
+    <aside class="in-app" aria-labelledby="in-app-title">
+      <p class="eyebrow">In {PRODUCT_NAME}</p>
+      <h2 id="in-app-title"><slot name="app-title" /></h2>
+      <div class="prose"><slot name="app" /></div>
+      <p class="cta-row">
+        <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
+        <a class="btn btn-secondary" href="/features">See all features</a>
+      </p>
+    </aside>
+
+    <nav class="related" aria-label="Related pages">
+      <div>
+        <h2>More guides</h2>
+        <ul>{related.map((g) => <li><a href={g.href}>{g.label}</a></li>)}</ul>
+      </div>
+      <div>
+        <h2>Choosing a Git client?</h2>
+        <ul>
+          <li><a href="/compare">Mac Git clients compared</a></li>
+          <li><a href="/shortcuts">{PRODUCT_NAME} keyboard shortcuts</a></li>
+          <li><a href="/docs">{PRODUCT_NAME} docs</a></li>
+        </ul>
+      </div>
+    </nav>
+  </article>
+</Base>
