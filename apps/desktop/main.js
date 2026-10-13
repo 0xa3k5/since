@@ -6,6 +6,7 @@ const { spawn } = require('node:child_process');
 const git = require('./git');
 
 const isMac = process.platform === 'darwin';
+const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
 const sessions = new Map(); // webContents.id -> RepoSession
 
 // ---------------------------------------------------------------------------
@@ -371,6 +372,7 @@ function createWindow(repoDir) {
       spellcheck: false,
     },
   });
+  bench?.attach(win);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), repoDir ? { query: { repo: repoDir } } : undefined);
   win.once('ready-to-show', () => win.show());
   const id = win.webContents.id;

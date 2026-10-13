@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "desktop": "npm run start -w @gitlanes/desktop --",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "bench": "npm run bench -w @gitlanes/desktop --"
   },
   "repository": {
     "type": "git",

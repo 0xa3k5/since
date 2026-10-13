@@ -7,7 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "bench": "node bench/bench.js"
   },
   "devDependencies": {
     "electron": "44.7.0"
