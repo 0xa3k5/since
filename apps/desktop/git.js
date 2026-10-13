@@ -385,7 +385,7 @@ function remoteWebUrl(url) {
 }
 
 // ---------------------------------------------------------------------------
-// History rewriting (GitUp's in-place commit editing), implemented as a
+// History rewriting (in-place commit editing), implemented as a
 // non-interactive `git rebase -i` with a generated todo list.
 
 async function rewrite(cwd, op, sha, extra = {}) {

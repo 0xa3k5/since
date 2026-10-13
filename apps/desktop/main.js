@@ -37,8 +37,6 @@ class RepoSession {
     this.timer = null;
     this.busy = 0;
     this.historyFile = path.join(repo.gitDir, 'gitlanes-history.json');
-    const legacy = path.join(repo.gitDir, 'gitup-electron-history.json');
-    try { if (!fs.existsSync(this.historyFile) && fs.existsSync(legacy)) fs.renameSync(legacy, this.historyFile); } catch { /* keep going */ }
     try {
       const saved = JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
       this.undo = saved.undo || [];
@@ -58,7 +56,7 @@ class RepoSession {
       const abs = path.join(base, file.toString());
       if (abs.startsWith(gitDir + path.sep) || abs === gitDir) {
         const rel = path.relative(gitDir, abs);
-        if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('gitlanes') || rel.startsWith('gitup-electron') || rel.startsWith('logs')) return;
+        if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('gitlanes') || rel.startsWith('logs')) return;
         this.pending.refs = true;
         if (rel === 'index') this.pending.workdir = true;
       } else {
@@ -92,7 +90,7 @@ class RepoSession {
 
 // ---------------------------------------------------------------------------
 // Git API exposed to the renderer. Mutations that move refs are recorded
-// as undoable snapshots, mirroring GitUp's unlimited undo/redo.
+// as undoable snapshots, giving unlimited undo/redo.
 
 const reads = {
   refs: (s) => git.getRefs(s.repo.root),

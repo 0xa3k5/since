@@ -133,7 +133,7 @@ test('graph layout assigns lanes for branches and merges', async () => {
 });
 
 test('remoteWebUrl', () => {
-  assert.equal(git.remoteWebUrl('git@github.com:git-up/GitUp.git'), 'https://github.com/git-up/GitUp');
-  assert.equal(git.remoteWebUrl('https://github.com/git-up/GitUp.git'), 'https://github.com/git-up/GitUp');
+  assert.equal(git.remoteWebUrl('git@github.com:octo/hello.git'), 'https://github.com/octo/hello');
+  assert.equal(git.remoteWebUrl('https://github.com/octo/hello.git'), 'https://github.com/octo/hello');
   assert.equal(git.remoteWebUrl('ssh://git@gitlab.com:22/a/b.git'), 'https://gitlab.com/a/b');
 });
