@@ -1,0 +1,29 @@
+---
+import { PRODUCT_NAME } from '../config';
+import { FOOTER_NAV } from '../routes';
+import Logo from './Logo.astro';
+
+const year = new Date().getFullYear();
+---
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <Logo />
+        <p class="muted">A keyboard-first client for Git on macOS.</p>
+      </div>
+      {FOOTER_NAV.map((col) => (
+        <nav aria-label={col.title}>
+          <h2>{col.title}</h2>
+          <ul>
+            {col.links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
+          </ul>
+        </nav>
+      ))}
+    </div>
+    <div class="footer-legal">
+      <p>© {year} {PRODUCT_NAME} · Made for macOS · <a href="/contact">Contact</a></p>
+      <p>Git™ is a trademark of Software Freedom Conservancy. {PRODUCT_NAME} is not affiliated with or endorsed by the Git project.</p>
+    </div>
+  </div>
+</footer>

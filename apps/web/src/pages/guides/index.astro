@@ -1,0 +1,15 @@
+---
+import { PRODUCT_NAME } from '../../config';
+import Stub from '../../components/Stub.astro';
+import { GUIDES } from '../../routes';
+---
+<Stub
+  title={`Guides · ${PRODUCT_NAME}`}
+  heading={"Guides"}
+  description={`Problem-first guides to fixing common git mistakes, from the command line and in ${PRODUCT_NAME}.`}
+  ogTheme="light"
+>
+  <ul>
+    {GUIDES.map((g) => <li><a href={g.href}>{g.label}</a></li>)}
+  </ul>
+</Stub>

@@ -1,0 +1,37 @@
+---
+// <head> metadata: title, description, canonical, Open Graph and Twitter tags.
+// og:image takes one image, so each page picks its light or dark slot (or passes its own).
+import { PRODUCT_NAME, SITE_URL } from '../config';
+
+export interface Props {
+  title: string;
+  description: string;
+  /** Which default OG image to use. Subpages alternate; the landing page will get a split image. */
+  ogTheme?: 'light' | 'dark';
+  /** Path under /public, e.g. /og/pricing-dark.png. Overrides ogTheme. */
+  ogImage?: string;
+  noindex?: boolean;
+}
+
+const { title, description, ogTheme = 'dark', ogImage, noindex = false } = Astro.props;
+const path = Astro.url.pathname.replace(/\.html$/, '').replace(/\/index$/, '/').replace(/(.)\/$/, '$1');
+const canonical = SITE_URL + path;
+const image = SITE_URL + (ogImage ?? `/og/default-${ogTheme}.png`);
+---
+<title>{title}</title>
+<meta name="description" content={description}>
+<link rel="canonical" href={canonical}>
+{noindex && <meta name="robots" content="noindex">}
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content={PRODUCT_NAME}>
+<meta property="og:title" content={title}>
+<meta property="og:description" content={description}>
+<meta property="og:url" content={canonical}>
+<meta property="og:image" content={image}>
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content={title}>
+<meta name="twitter:description" content={description}>
+<meta name="twitter:image" content={image}>

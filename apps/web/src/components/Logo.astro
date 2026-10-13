@@ -1,0 +1,12 @@
+---
+import { PRODUCT_NAME } from '../config';
+---
+<a class="logo" href="/" aria-label={`${PRODUCT_NAME} home`}>
+  <svg class="logo-mark" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32" rx="8" fill="var(--accent)" />
+    <path d="M11 7v18M21 7v6c0 4-10 4-10 8" fill="none" stroke="var(--accent-text)" stroke-width="2.6" stroke-linecap="round" />
+    <circle cx="11" cy="24" r="3" fill="var(--accent-text)" />
+    <circle cx="21" cy="9" r="3" fill="var(--accent-text)" />
+  </svg>
+  <span class="logo-word">{PRODUCT_NAME}</span>
+</a>
