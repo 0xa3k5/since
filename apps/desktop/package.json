@@ -8,11 +8,14 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/**/*.test.js\"",
-    "test:e2e": "playwright test -c e2e"
+    "test:e2e": "playwright test -c e2e",
+    "dist": "electron-builder --mac --config electron-builder.config.js --publish never",
+    "brand-assets": "electron scripts/render-brand-assets.js"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
-    "electron": "44.7.0"
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
   },
   "private": true
 }
