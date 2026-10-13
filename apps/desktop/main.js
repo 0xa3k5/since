@@ -1,11 +1,15 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme } = require('electron');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const git = require('./git');
 const { Journal, workOps, worktreeOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
+const { Licensing } = require('./licence');
+const { loadConfig } = require('./licence/config');
+const { createStore } = require('./licence/stores');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -255,6 +259,12 @@ const plainMutations = {
 // The window showing a repository root, if any.
 const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
 
+// After the trial (or an unverified licence) the app stays usable read-only: reads and fetch
+// still work, anything that changes the repository is refused until a licence is added.
+// Undo, redo, restoring history and aborting a stuck rebase/merge stay available so nothing is
+// trapped by the trial ending mid-way.
+const READ_ONLY_ALLOWED = new Set(['fetch', 'undo', 'redo', 'restoreHistory', 'abortOp']);
+
 function session(e) {
   const s = sessions.get(e.sender.id);
   if (!s) throw new Error('No repository open in this window');
@@ -262,13 +272,16 @@ function session(e) {
 }
 
 function serializeError(err) {
-  return { message: err.message || String(err), stderr: err.stderr || null };
+  return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null };
 }
 
 ipcMain.handle('git', async (e, method, ...args) => {
   try {
     const s = session(e);
     if (reads[method]) return { ok: await reads[method](s, ...args) };
+    if (!READ_ONLY_ALLOWED.has(method) && !(await licensing.ensureCanMutate())) {
+      return { error: { message: 'GitLanes is read-only until you add a licence.', code: 'READ_ONLY' } };
+    }
     const label = args.length && args[args.length - 1] && args[args.length - 1].__label;
     const realArgs = label ? args.slice(0, -1) : args;
     s.busy++;
@@ -303,6 +316,48 @@ ipcMain.handle('app:platform', () => process.platform);
 ipcMain.handle('app:theme', () => currentTheme());
 ipcMain.handle('app:set-theme', (_e, mode) => setTheme(mode));
 ipcMain.handle('app:cycle-theme', () => cycleTheme());
+
+// ---------------------------------------------------------------------------
+// Trial & licence
+
+let licensing = null;
+
+function initLicensing() {
+  // Packaged builds use only the store profile baked in at build time; the environment can't change it.
+  const config = loadConfig(process.env, { packaged: app.isPackaged });
+  // Development only: shift the clock to see the trial's later days (GITLANES_CLOCK_OFFSET_DAYS=15).
+  const offset = app.isPackaged ? 0 : Number(process.env.GITLANES_CLOCK_OFFSET_DAYS || 0) * 86400000;
+  // Development only: keep the trial mirror elsewhere (e2e gives every launch its own).
+  const mirrorOverride = !app.isPackaged && process.env.GITLANES_TRIAL_MIRROR;
+  const suffix = config.profile === 'production' ? '' : `-${config.profile}`;
+  licensing = new Licensing({
+    config,
+    store: createStore(config),
+    stateFile: path.join(app.getPath('userData'), `licence${suffix}.json`),
+    // A second copy of the trial clock outside the app's folder, so deleting one doesn't restart the trial.
+    mirrorFile: mirrorOverride || path.join(os.homedir(), 'Library', 'Preferences', `.app.gitlanes.desktop${suffix}.trial`),
+    now: () => Date.now() + offset,
+    onChange: (status) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('licence', status);
+      buildMenu();
+    },
+  });
+}
+
+function revalidate() {
+  licensing?.maybeRefresh()?.catch((e) => console.warn('licence check failed', e.message));
+}
+
+const licenceCall = (fn) => async (_e, ...args) => {
+  try { return { ok: await fn(...args) }; } catch (err) { return { error: serializeError(err) }; }
+};
+ipcMain.handle('app:licence', () => licensing.status());
+ipcMain.handle('app:licence-activate', licenceCall((key) => licensing.activate(key)));
+ipcMain.handle('app:licence-refresh', licenceCall(() => licensing.refresh()));
+ipcMain.handle('app:licence-deactivate', licenceCall(() => licensing.deactivate()));
+ipcMain.handle('app:licence-dismiss', () => licensing.dismissNotice());
+ipcMain.handle('app:licence-buy', () => { const u = licensing.config.checkoutUrl; if (u) shell.openExternal(u); return Boolean(u); });
+ipcMain.handle('app:licence-portal', () => { const u = licensing.config.portalUrl; if (u) shell.openExternal(u); return Boolean(u); });
 
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
@@ -421,6 +476,17 @@ function createWindow(repoDir) {
 const THEME_ACCELERATOR = isMac ? 'Cmd+Ctrl+T' : 'Ctrl+Alt+Shift+T';
 const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webContents.send('command', cmd, ...args);
 
+// ⌥⌘L ("L" for Licence) opens the licence window from anywhere, including the welcome screen.
+const LICENCE_ACCELERATOR = 'CmdOrCtrl+Alt+L';
+
+function licenceItems() {
+  const licensed = licensing?.status().mode === 'licensed';
+  return [
+    { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: LICENCE_ACCELERATOR, click: send('licence') },
+    ...(licensed ? [] : [{ label: 'Buy GitLanes…', click: send('buy') }]),
+  ];
+}
+
 function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
   const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
@@ -428,7 +494,7 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -518,13 +584,18 @@ app.whenReady().then(() => {
   app.setName('GitLanes');
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
+  initLicensing();
   buildMenu();
-  app.on('browser-window-focus', buildMenu);
+  app.on('browser-window-focus', () => { buildMenu(); revalidate(); });
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // npm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran npm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
   createWindow(repoPath && fs.existsSync(repoPath) ? repoPath : undefined);
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
+  // Validate the licence at launch, then about daily while running (on focus and hourly ticks);
+  // offline is fine, the cached validation carries on.
+  licensing.refresh().catch((e) => console.warn('licence check failed', e.message));
+  setInterval(revalidate, 60 * 60 * 1000).unref();
 });
 
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });

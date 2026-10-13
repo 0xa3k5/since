@@ -1,6 +1,7 @@
 name: Release
 
-# A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release.
+# A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release. Tags and manual
+# runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
 # a workflow artifact. Signing secrets are optional; without them every run produces unsigned DMGs.
 on:
@@ -57,6 +58,12 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
+          # Licence store baked into the app: production for a final release tag, the Polar sandbox for
+          # release candidates and dry runs. A production build fails until licence/config.js has the
+          # production values, so a release can't ship selling through the test store.
+          store=sandbox
+          [ "$IS_TAG" = true ] && [ "${GITHUB_REF_NAME#v}" = "$version" ] && store=production
+          echo "GITLANES_STORE=$store" >> "$GITHUB_ENV"
           # A pre-release tag (v0.1.0-rc.1) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
           if [ "$IS_TAG" = true ]; then
@@ -76,6 +83,24 @@ jobs:
             [ "$IS_TAG" = true ] && echo "::warning::No signing secrets: this release's DMGs are unsigned and not notarized"
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # The end-to-end suite drives the real app, so it needs the Electron binary.
+      - name: Install Electron
+        if: github.event_name != 'pull_request'
+        run: node node_modules/electron/install.js
+      - name: End-to-end tests
+        if: github.event_name != 'pull_request'
+        run: npm run test:e2e
+      - name: Upload e2e results
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            apps/desktop/test-results/
+            apps/desktop/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build DMGs
         run: npm run dist -- -c.extraMetadata.version="${{ steps.plan.outputs.version }}"
