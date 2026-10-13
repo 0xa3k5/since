@@ -1,10 +1,5 @@
 ---
-import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
+import ComparePage from './_ComparePage.astro';
+import { bySlug } from './_data';
 ---
-<Stub
-  title={`${PRODUCT_NAME} vs Sublime Merge: an alternative for Mac`}
-  heading={`${PRODUCT_NAME} vs Sublime Merge`}
-  description={`A dated, sourced comparison of ${PRODUCT_NAME} and Sublime Merge.`}
-  ogTheme="light"
-></Stub>
+<ComparePage c={bySlug('sublime-merge')} ogTheme="light" />

@@ -1,10 +1,96 @@
 ---
-import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+import { BUY_URL, PRODUCT_NAME } from '../config';
+import Base from '../layouts/Base.astro';
+import { MACS_PER_LICENCE, PORTAL_URL } from '../components/commerce/links';
+import '../components/commerce/commerce.css';
 ---
-<Stub
+<Base
   title={`Licence help · ${PRODUCT_NAME}`}
-  heading={"Licence help"}
-  description={`Resend your licence key and get help activating ${PRODUCT_NAME} on your Mac.`}
+  description={`Enter your ${PRODUCT_NAME} licence key, move it to a new Mac, or get your key sent again.`}
   ogTheme="light"
-></Stub>
+>
+  <div class="wrap cm-page">
+    <header class="cm-head">
+      <p class="eyebrow">Licence help</p>
+      <h1>Your licence key</h1>
+      <p class="lede">
+        After you <a href={BUY_URL}>buy {PRODUCT_NAME}</a>, Polar, our reseller, emails you a licence key.
+        One key works on up to {MACS_PER_LICENCE} of your Macs at once.
+      </p>
+    </header>
+
+    <nav class="toc" aria-label="On this page">
+      <a href="#enter">Enter your key</a>
+      <a href="#devices">Manage your Macs</a>
+      <a href="#resend">Lost your key?</a>
+    </nav>
+
+    <section class="cm-section" id="enter" aria-labelledby="enter-h">
+      <h2 id="enter-h">Enter your key</h2>
+      <p class="cm-intro">You can enter a key during the trial or after it ends. Nothing is lost either way.</p>
+      <ol class="cm-steps">
+        <li><strong>Copy the key</strong> from the email Polar sent after your purchase.</li>
+        <li>
+          <strong>Open the licence window in {PRODUCT_NAME}.</strong> Choose <strong>{PRODUCT_NAME} → Enter Licence Key…</strong> in the menu bar,
+          or press <kbd>⌘</kbd><kbd>K</kbd> and type “licence”. After the trial, the <strong>Buy {PRODUCT_NAME}</strong> prompt has the same option.
+        </li>
+        <li><strong>Paste the key and press <kbd>↵</kbd>.</strong> {PRODUCT_NAME} activates it for this Mac. This needs an internet connection once.</li>
+      </ol>
+      <div class="cm-note">
+        <p>
+          <strong>Working offline.</strong> After activation, {PRODUCT_NAME} checks the licence with Polar now and then when you're online,
+          and keeps working offline for weeks between checks. The check sends your key and an activation ID, never your code.
+        </p>
+      </div>
+    </section>
+
+    <section class="cm-section" id="devices" aria-labelledby="devices-h">
+      <h2 id="devices-h">Manage your Macs</h2>
+      <p class="cm-intro">
+        Your key can be active on {MACS_PER_LICENCE} Macs at once. To use it on another Mac when all {MACS_PER_LICENCE} are taken,
+        remove one in the Polar customer portal. This works even if the old Mac is lost, sold or wiped.
+      </p>
+      <ol class="cm-steps">
+        <li><strong>Open the <a href={PORTAL_URL}>customer portal</a></strong> and enter the email address you bought {PRODUCT_NAME} with.</li>
+        <li><strong>Enter the one-time code</strong> Polar emails you. There's no password to remember.</li>
+        <li><strong>Find your {PRODUCT_NAME} licence key.</strong> It lists each Mac where the key is active.</li>
+        <li><strong>Deactivate the Mac you no longer use,</strong> then enter your key on the new one.</li>
+      </ol>
+      <p class="portal-cta"><a class="btn btn-secondary" href={PORTAL_URL}>Open the customer portal</a></p>
+    </section>
+
+    <section class="cm-section" id="resend" aria-labelledby="resend-h">
+      <h2 id="resend-h">Lost your key?</h2>
+      <p class="cm-intro">Your key is always in the customer portal, so you never depend on finding the original email.</p>
+      <ol class="cm-steps">
+        <li><strong>Open the <a href={PORTAL_URL}>customer portal</a></strong> and sign in with your purchase email and the one-time code.</li>
+        <li><strong>Copy your {PRODUCT_NAME} licence key</strong> from the portal. Your receipts are there too.</li>
+      </ol>
+      <div class="cm-note">
+        <p>
+          <strong>No code arriving?</strong> Check your spam folder for mail from Polar, and make sure you used the address you bought with.
+          Still stuck? <a href="/contact">Contact us</a> with your order details and we'll sort it out.
+        </p>
+      </div>
+    </section>
+
+    <nav class="cm-links" aria-label="Related">
+      <a href="/pricing">Pricing</a>
+      <a href="/download">Download</a>
+      <a href="/refunds">Refunds</a>
+      <a href="/eula">EULA</a>
+    </nav>
+  </div>
+</Base>
+
+<style>
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; }
+  .toc a {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px;
+    font-size: 14px; color: var(--text-2); text-decoration: none; background: var(--bg-content);
+  }
+  .toc a:hover { color: var(--text); background: var(--bg-hover); }
+  .cm-section:first-of-type { margin-top: 56px; }
+  .portal-cta { margin: 24px 0 0; }
+  section[id] { scroll-margin-top: 80px; }
+</style>

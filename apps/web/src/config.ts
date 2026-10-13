@@ -12,9 +12,9 @@ export const PRODUCT_NAME = 'GitLanes';
 
 /**
  * Polar checkout link. Sandbox until the owner provides production credentials.
- * TODO: replace REPLACE_ME with the sandbox checkout-link id once the Polar product exists.
+ * Sandbox checkout link from AK-61; swap for the production link when the owner provides it.
  */
-export const BUY_URL = 'https://sandbox-api.polar.sh/v1/checkout-links/REPLACE_ME/redirect';
+export const BUY_URL = 'https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_GXfjUuuabta8yx92TtKJEfyhrxLfblsgkgPm50EjZod/redirect';
 
 /** Latest DMG. Assumes the public releases-only repo from the website plan (D6). */
 export const DOWNLOAD_URL = 'https://github.com/0xa3k5/gitlanes-releases/releases/latest';

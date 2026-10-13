@@ -1,15 +1,36 @@
 ---
+import Base from '../../layouts/Base.astro';
+import Breadcrumbs from './_Breadcrumbs.astro';
 import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
-import { GUIDES } from '../../routes';
+import { GUIDE_LIST } from './_list';
+import './_content.css';
 ---
-<Stub
-  title={`Guides · ${PRODUCT_NAME}`}
-  heading={"Guides"}
-  description={`Problem-first guides to fixing common git mistakes, from the command line and in ${PRODUCT_NAME}.`}
+<Base
+  title={`Git guides: undo, recover and clean up history · ${PRODUCT_NAME}`}
+  description={`Step-by-step fixes for scary git moments: undo a rebase or hard reset, recover a deleted branch, squash commits. Command line first, then ${PRODUCT_NAME}.`}
   ogTheme="light"
 >
-  <ul>
-    {GUIDES.map((g) => <li><a href={g.href}>{g.label}</a></li>)}
-  </ul>
-</Stub>
+  <section class="wrap page">
+    <Breadcrumbs items={[{ href: '/guides', label: 'Guides' }]} />
+    <header class="page-head">
+      <p class="eyebrow">Guides</p>
+      <h1>Fix it with git, or with one key</h1>
+      <p class="lede">Each guide explains the command-line fix properly first, then shows how {PRODUCT_NAME} does the same thing.</p>
+    </header>
+    <section>
+      <ul class="card-list">
+        {GUIDE_LIST.map((g) => <li><a href={g.href}><strong>{g.label}</strong><span>{g.summary}</span></a></li>)}
+      </ul>
+    </section>
+    <nav class="related" aria-label="Related pages">
+      <div>
+        <h2>Choosing a Git client?</h2>
+        <ul><li><a href="/compare">Mac Git clients compared</a></li></ul>
+      </div>
+      <div>
+        <h2>Learn {PRODUCT_NAME}</h2>
+        <ul><li><a href="/shortcuts">Keyboard shortcuts</a></li><li><a href="/docs">Docs</a></li></ul>
+      </div>
+    </nav>
+  </section>
+</Base>

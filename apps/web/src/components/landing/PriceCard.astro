@@ -1,0 +1,58 @@
+---
+// The price card (website plan §5.1). Built for the landing page; /pricing can reuse it.
+// Wording rules: never "sale", "% off" or a struck-through $29, and no dates.
+import { BUY_URL, DOWNLOAD_URL, PRICE_LATER, PRICE_NOW, PRODUCT_NAME } from '../../config';
+
+export interface Props {
+  headingLevel?: 'h2' | 'h3';
+}
+
+const { headingLevel: H = 'h3' } = Astro.props;
+const includes = [
+  'Every feature, now and in every future version',
+  '14-day free trial, no account or card needed',
+  'macOS 12 or later, Apple silicon and Intel',
+];
+---
+<div class="price-card">
+  <H class="price-name">{PRODUCT_NAME} for macOS</H>
+  <p class="price"><span class="amount">${PRICE_NOW}</span> <span class="unit">one-time</span></p>
+  <p class="price-note"><strong>Launch price.</strong> It goes up to ${PRICE_LATER} later.</p>
+  <p class="price-terms">One payment. Lifetime updates. No subscription.</p>
+  <div class="price-actions">
+    <a class="btn btn-primary" href={BUY_URL}>Buy {PRODUCT_NAME}</a>
+    <a class="btn btn-secondary" href={DOWNLOAD_URL}>Download free trial</a>
+  </div>
+  <ul class="price-includes">
+    {includes.map((line) => (
+      <li>
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        {line}
+      </li>
+    ))}
+  </ul>
+  <p class="price-small">Prices in USD. VAT or sales tax is added at checkout where it applies. Payments are handled by Polar, our reseller and merchant of record.</p>
+</div>
+
+<style>
+  .price-card {
+    max-width: 440px;
+    padding: 32px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-content);
+    box-shadow: var(--shadow-sm);
+  }
+  .price-name { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--text-2); }
+  .price { margin: 12px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+  .amount { font-size: 56px; line-height: 1; font-weight: 680; letter-spacing: -0.03em; color: var(--text); }
+  .unit { color: var(--text-3); font-size: 15px; }
+  .price-note { margin: 12px 0 0; color: var(--text-2); }
+  .price-terms { margin: 4px 0 0; color: var(--text-2); }
+  .price-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0; }
+  .price-includes { list-style: none; margin: 0; padding: 20px 0 0; border-top: 1px solid var(--border); display: grid; gap: 10px; color: var(--text-2); font-size: 15px; }
+  .price-includes li { display: flex; gap: 10px; align-items: flex-start; }
+  .price-includes svg { flex: none; margin-top: 4px; color: var(--accent-fg); }
+  .price-small { margin: 20px 0 0; font-size: 13px; color: var(--text-3); }
+  @media (max-width: 520px) { .price-card { padding: 24px 20px; } }
+</style>

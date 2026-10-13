@@ -1,10 +1,45 @@
 ---
-import { PRODUCT_NAME } from '../../config';
-import Stub from '../../components/Stub.astro';
+import GuidePage from './_GuidePage.astro';
 ---
-<Stub
-  title={"How to squash git commits without an editor"}
-  heading={"How to squash git commits without an editor"}
-  description={`Squash git commits without an interactive-rebase editor, from the command line or in ${PRODUCT_NAME}.`}
-  ogTheme="dark"
-></Stub>
+<GuidePage
+  title="How to squash git commits without an editor"
+  heading="How to squash git commits without an editor"
+  description="Squash your last few git commits with a soft reset, fold fixes in with --fixup and --autosquash, or use interactive rebase when you need to pick."
+  lede="Squashing turns several commits into one. Which command fits depends on whether the commits are the most recent ones and whether you want to keep their messages."
+  ogTheme="light"
+>
+  <h2>Squash the last N commits: soft reset</h2>
+  <p>To combine your last three commits into one, move the branch back three commits while keeping all their changes staged, then commit once:</p>
+  <pre set:text={`git reset --soft HEAD~3
+git commit -m "Add settings page"`} />
+  <p>No editor opens, and nothing in your working tree changes. To reuse the oldest commit’s message instead of writing a new one, run <code>git commit -C ORIG_HEAD~2</code> in place of the second line (<code>ORIG_HEAD</code> is the tip before the reset).</p>
+
+  <h2>Fold a fix into an earlier commit: --fixup and --autosquash</h2>
+  <p>If you spot a mistake in a commit further back, commit the fix marked as a fixup of that commit, then let git move and squash it for you:</p>
+  <pre set:text={`git commit --fixup 4c5d6e7
+GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash 4c5d6e7~1`} />
+  <p><code>GIT_SEQUENCE_EDITOR=:</code> accepts git’s plan without opening an editor. The fix is folded into <code>4c5d6e7</code> and its message is dropped. Use <code>git commit --squash</code> instead of <code>--fixup</code> to keep both messages. Set <code>git config --global rebase.autoSquash true</code> to make <code>--autosquash</code> the default.</p>
+
+  <h2>Pick and choose: interactive rebase</h2>
+  <p>When the commits aren’t adjacent, or you want to squash some and keep others, edit the plan by hand:</p>
+  <pre set:text={`git rebase -i HEAD~4
+
+pick 1a2b3c4 Add settings page
+squash 5d6e7f8 Fix typo in settings page
+fixup 9a8b7c6 Fix lint
+pick 2b3c4d5 Add billing page`} />
+  <p>Change <code>pick</code> to <code>squash</code> to combine a commit with the one above it and keep both messages, or to <code>fixup</code> to combine it and drop its message. Save and close. If you used <code>squash</code>, git opens an editor once more for the combined message.</p>
+
+  <h2>Before you squash</h2>
+  <ul>
+    <li>Squashing rewrites commits. If you already pushed them, you’ll need <code>git push --force-with-lease</code>, so don’t do it on a branch others are building on.</li>
+    <li>Don’t squash across merge commits. A plain rebase flattens them.</li>
+    <li>If it goes wrong, <code>git reset --hard ORIG_HEAD</code> right after the rebase takes you back. See <a href="/guides/undo-rebase">how to undo a git rebase</a>.</li>
+  </ul>
+
+  <Fragment slot="app-title">Select a commit, press <kbd>S</kbd></Fragment>
+  <Fragment slot="app">
+    <p>In GitLanes, select a commit on the graph and press <kbd>S</kbd> to squash it into its parent, keeping both messages, or <kbd>F</kbd> to fix it up and keep only the parent’s message. Press it again on the combined commit to fold that into its parent too. GitLanes rewrites the commits above for you and sets any uncommitted changes aside and back.</p>
+    <p>It works on commits on your current branch and refuses to rewrite across merge commits rather than flattening them. Not what you wanted? <kbd>⌘</kbd><kbd>Z</kbd> puts the original commits back.</p>
+  </Fragment>
+</GuidePage>

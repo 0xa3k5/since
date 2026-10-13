@@ -1,10 +1,135 @@
 ---
-import { PRODUCT_NAME } from '../config';
-import Stub from '../components/Stub.astro';
+import { DOWNLOAD_URL, PRODUCT_NAME } from '../config';
+import Base from '../layouts/Base.astro';
+import { MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED } from '../components/commerce/links';
+import '../components/commerce/commerce.css';
+
+// Both builds live on the same release page; the file name says which chip it's for.
+const builds = [
+  { id: 'arm64', chip: 'Apple silicon', detail: 'M1 or later. Most Macs from late 2020 on.', file: 'arm64' },
+  { id: 'x64', chip: 'Intel', detail: 'Intel-based Macs.', file: 'x64' },
+];
 ---
-<Stub
+<Base
   title={`Download ${PRODUCT_NAME} for macOS`}
-  heading={`Download ${PRODUCT_NAME}`}
   description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. Your 14-day trial starts on first launch, with no account.`}
   ogTheme="light"
-></Stub>
+>
+  <div class="wrap cm-page">
+    <header class="cm-head">
+      <p class="eyebrow">Download</p>
+      <h1>Download {PRODUCT_NAME}</h1>
+      <p class="lede">Free for 14 days. Every feature, no account, no credit card.</p>
+    </header>
+
+    <fieldset class="arch">
+      <legend>Choose your Mac</legend>
+      {builds.map((b, i) => (
+        <label class="arch-opt">
+          <input type="radio" name="arch" value={b.id} checked={i === 0} />
+          <span class="arch-chip">{b.chip}</span>
+          <span class="arch-detail">{b.detail}</span>
+        </label>
+      ))}
+      <div class="arch-go">
+        {builds.map((b) => (
+          <p class={`arch-panel arch-${b.id}`}>
+            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download for {b.chip}</a>
+            <span class="muted">On the release page, pick the <code>.dmg</code> with <code>{b.file}</code> in its name.</span>
+          </p>
+        ))}
+      </div>
+    </fieldset>
+    <p class="arch-help muted">
+      Not sure which you have? Open the Apple menu → <strong>About This Mac</strong>. If it lists a <strong>Chip</strong>, you have Apple silicon. If it lists a <strong>Processor</strong>, you have Intel.
+    </p>
+
+    <section class="cm-section" aria-labelledby="req-h">
+      <h2 id="req-h">System requirements</h2>
+      <div class="cm-grid">
+        <div class="cm-tile">
+          <h3>macOS</h3>
+          <p>{MIN_MACOS} or later{!MIN_MACOS_VERIFIED && <span class="cm-tbd" title="Not yet tested on this version">TBD</span>}</p>
+        </div>
+        <div class="cm-tile">
+          <h3>Processor</h3>
+          <p>Apple silicon or Intel, each with its own download.</p>
+        </div>
+        <div class="cm-tile">
+          <h3>Git</h3>
+          <p>{PRODUCT_NAME} uses the <code>git</code> on your Mac. If it's missing, macOS offers to install the Command Line Tools the first time it's needed. Homebrew's git works too.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="cm-section" aria-labelledby="install-h">
+      <h2 id="install-h">Install</h2>
+      <ol class="cm-steps">
+        <li><strong>Open the downloaded <code>.dmg</code></strong> from your Downloads folder.</li>
+        <li><strong>Drag {PRODUCT_NAME} into Applications.</strong> Then eject the disk image.</li>
+        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository. Your trial starts now.</li>
+      </ol>
+      {NOTARIZED ? (
+        <div class="cm-note">
+          <p><strong>Signed and notarized.</strong> {PRODUCT_NAME} is signed with our Apple Developer ID and notarized by Apple, so it opens without warnings.</p>
+          <p>Each release lists a SHA-256 checksum for every file. To check your download, run <code>shasum -a 256 ~/Downloads/{PRODUCT_NAME}-*.dmg</code> in Terminal and compare the result.</p>
+        </div>
+      ) : (
+        <div class="cm-note">
+          <p><strong>Pre-release builds aren't notarized by Apple yet.</strong> The first time you open {PRODUCT_NAME}, macOS will block it. Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down and click <strong>Open Anyway</strong>. You only need to do this once.</p>
+        </div>
+      )}
+    </section>
+
+    <section class="cm-section" aria-labelledby="trial-h">
+      <h2 id="trial-h">What the trial includes</h2>
+      <div class="cm-grid">
+        <div class="cm-tile">
+          <h3>Every feature, for 14 days</h3>
+          <p>The trial is the full app. It starts on first launch and runs for 14 calendar days.</p>
+        </div>
+        <div class="cm-tile">
+          <h3>No account, no card</h3>
+          <p>Nothing to sign up for. The trial clock is kept on your Mac, with no server check.</p>
+        </div>
+        <div class="cm-tile">
+          <h3>Read-only afterwards</h3>
+          <p>When the trial ends, you can still browse history and diffs. Changes wait until you <a href="/pricing">buy a licence</a> and <a href="/licence#enter">enter your key</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <nav class="cm-links" aria-label="Related">
+      <a href="/pricing">Pricing</a>
+      <a href="/licence">Licence help</a>
+      <a href="/changelog">Changelog</a>
+      <a href={DOWNLOAD_URL}>All releases</a>
+    </nav>
+  </div>
+</Base>
+
+<style>
+  .arch { max-width: 720px; margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .arch legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 14px; color: var(--text-2); }
+  .arch-opt {
+    position: relative; display: grid; gap: 2px; padding: 16px 16px 16px 44px; cursor: pointer;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--bg-content);
+  }
+  .arch-opt:hover { background: var(--bg-hover); }
+  .arch-opt input { position: absolute; left: 16px; top: 19px; margin: 0; accent-color: var(--accent); }
+  .arch-opt:has(input:checked) { border-color: var(--accent); background: var(--bg-selected); }
+  .arch-opt:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .arch-chip { font-weight: 600; color: var(--text); }
+  .arch-detail { font-size: 14px; color: var(--text-3); }
+  .arch-go { grid-column: 1 / -1; margin-top: 8px; }
+  .arch-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; font-size: 14px; }
+  .arch-panel .btn { height: 40px; padding: 0 18px; font-size: 15px; }
+  .arch-help { max-width: 720px; margin: 16px 0 0; font-size: 14px; }
+  .arch-help strong { color: var(--text-2); font-weight: 600; }
+
+  /* Show the panel for the checked chip. Without :has() support both panels show, which still works. */
+  .arch:has(input[value="arm64"]:checked) .arch-x64,
+  .arch:has(input[value="x64"]:checked) .arch-arm64 { display: none; }
+
+  @media (max-width: 560px) { .arch { grid-template-columns: 1fr; } }
+</style>
