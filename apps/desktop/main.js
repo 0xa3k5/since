@@ -159,6 +159,9 @@ const reads = {
   logDetails: (s, shas) => git.getLogDetails(s.repo.root, shas),
   commit: (s, sha) => git.getCommit(s.repo.root, sha),
   commitFileDiff: (s, sha, file, parent) => git.commitFileDiff(s.repo.root, sha, file, parent),
+  commitDiffs: (s, sha) => git.commitDiffs(s.repo.root, sha),
+  // Throws the reason a commit can't be split (merge, not on this branch, merges above it).
+  checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
   status: (s) => git.getStatus(s.repo.root),
   opState: (s) => git.getOperationState(s.repo.gitDir),
