@@ -1,5 +1,6 @@
 import { h, icon } from './ui.js';
 import { findColors } from './colors.js';
+import { submoduleChange, describeSubmoduleChange } from './submodule.js';
 
 const LIMIT = 4000;
 
@@ -28,6 +29,8 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
   const root = h('div.diff');
   if (!diff) return h('div.diff-empty', null, 'No changes');
   if (diff.binary) return h('div.diff-empty', null, icon('file'), 'Binary file');
+  const sub = submoduleChange(diff);
+  if (sub) return h('div.diff-empty.diff-submodule', null, icon('submodule'), h('span', null, 'Submodule pointer: ', h('span.mono', { title: [sub.from, sub.to].filter(Boolean).join(' → ') }, describeSubmoduleChange(sub))));
   if (!diff.hunks.length) {
     const meta = diff.header.filter((l) => /^(old|new) mode|^rename|^similarity|^new file|^deleted file/.test(l));
     return h('div.diff-empty', null, meta.length ? meta.join(' · ') : 'Empty file');

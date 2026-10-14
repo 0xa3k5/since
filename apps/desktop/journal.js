@@ -320,12 +320,25 @@ class Journal {
     return worktree;
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, midSequence }) {
+  // Initialise or update submodules as an undoable step (see git.updateSubmodules).
+  runSubmodules(label, paths) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      const { changes, error } = await git.updateSubmodules(this.root, paths);
+      await this.finish({ id, label, method: 'updateSubmodules', before, submodules: changes });
+      if (error) throw error;
+      return changes.length;
+    });
+  }
+
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, submodules, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
     if (worktree) entry.worktree = worktree;
     let changed = !same(entry.before, entry.after) || !!worktree;
+    if (submodules?.length) { entry.submodules = submodules; changed = true; }
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path)).catch(() => null);
       if (!workAfter || git.workChanges(workBefore, workAfter).length) {
@@ -366,7 +379,7 @@ class Journal {
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
-      if (e.worktree) return null;
+      if (e.worktree || e.submodules) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
         const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
@@ -388,6 +401,7 @@ class Journal {
     const entry = from.top;
     if (!entry) return null;
     if (entry.worktree) await this.restoreWorktree(entry, dir);
+    else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
     from.hot.pop();
