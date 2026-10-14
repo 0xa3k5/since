@@ -97,7 +97,7 @@ export const INLINE = {
     title: 'Map',
     anchor: "scroller.addEventListener('keydown'",
     keys: [
-      { label: 'Next / previous commit', keys: ['J', 'K'], alt: ['↓', '↑'], src: ['j', 'k', 'ArrowDown', 'ArrowUp'] },
+      { label: 'Next / previous commit', keys: ['↓', '↑'], src: ['ArrowDown', 'ArrowUp'] },
       { label: 'Page down / up', keys: ['Page Down', 'Page Up'], src: ['PageDown', 'PageUp'] },
       { label: 'First / last commit', keys: ['Home', 'End'], src: ['Home', 'End'] },
       { label: 'Quick View (or pick the search result)', keys: ['↵'], src: ['Enter'] },
@@ -111,7 +111,7 @@ export const INLINE = {
     title: 'Quick View',
     anchor: "if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closeQuick(); }",
     keys: [
-      { label: 'Next / previous file', keys: ['J', 'K'], alt: ['↓', '↑'], src: ['j', 'k', 'ArrowDown', 'ArrowUp'] },
+      { label: 'Next / previous file', keys: ['↓', '↑'], src: ['ArrowDown', 'ArrowUp'] },
       { label: 'Back to the map', keys: ['Esc'], alt: ['Space'], src: ['Escape', ' '] },
     ],
   },
@@ -119,7 +119,7 @@ export const INLINE = {
     title: 'Commit view',
     anchor: 'if (e.target === textarea) return;',
     keys: [
-      { label: 'Next / previous file', keys: ['J', 'K'], alt: ['↓', '↑'], src: ['j', 'k', 'ArrowDown', 'ArrowUp'] },
+      { label: 'Next / previous file', keys: ['↓', '↑'], src: ['ArrowDown', 'ArrowUp'] },
       { label: 'Stage or unstage the selected file', keys: ['↵'], src: ['Enter'] },
       { label: 'Discard the selected unstaged file (undoable)', keys: ['⌫'], src: ['Backspace', 'Delete'] },
       { label: 'Write the commit message', keys: ['C'], src: ['c'] },

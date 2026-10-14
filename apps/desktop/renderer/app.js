@@ -962,8 +962,8 @@ function createMapView(container) {
     }
     const c = list[cur];
     switch (e.key) {
-      case 'ArrowDown': case 'j': move(1); break;
-      case 'ArrowUp': case 'k': move(-1); break;
+      case 'ArrowDown': move(1); break;
+      case 'ArrowUp': move(-1); break;
       case 'PageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
       case 'PageUp': move(-Math.floor(scroller.clientHeight / ROW_H)); break;
       case 'Home': move(-list.length); break;
@@ -1120,10 +1120,10 @@ function quickView({ sha, path }) {
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closeQuick(); }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const i = files.findIndex((f) => f.path === current);
-      const n = Math.max(0, Math.min(files.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)));
+      const n = Math.max(0, Math.min(files.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
       if (files[n]) { current = files[n].path; full = false; markActive(); renderFile(); side.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     }
   });
@@ -1279,9 +1279,9 @@ function splitView({ sha }) {
   el.addEventListener('keydown', (e) => {
     if (isEditable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
     const i = diffs.findIndex((d) => d.path === current);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)))];
+      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (n) { current = n.path; full = false; renderFiles(); renderFile(); files.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     } else if (e.key === 'a' && diffs[i]) { e.preventDefault(); toggleFile(diffs[i]); }
     else if (e.key === 'c') { e.preventDefault(); (first.value.trim() ? second : first).focus(); }
@@ -1661,9 +1661,9 @@ function createCommitView(container) {
     if (e.target.tagName === 'TEXTAREA') return;
     const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
     const i = all.findIndex(([l, f]) => l === state.cv.list && f.path === state.cv.path);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const n = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)))];
+      const n = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (n) { selectFile(n[0], n[1].path); lists.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     } else if (e.key === 'Enter' && i !== -1) {
       e.preventDefault();
@@ -1776,12 +1776,12 @@ function selectSnapshot(id) {
   document.querySelector('.timeline .tl-row.selected')?.scrollIntoView({ block: 'nearest' });
 }
 
-// ↑/↓ (or j/k) select a snapshot, ↵ previews restoring the state before it.
+// ↑/↓ select a snapshot, ↵ previews restoring the state before it.
 function snapshotKey(e) {
   const list = snapshotEntries();
   if (!list.length) return false;
   const at = list.findIndex((x) => x.id === state.snapSel);
-  const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[e.key];
+  const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
   if (step) { selectSnapshot(list[Math.max(0, Math.min(list.length - 1, at < 0 ? 0 : at + step))].id); return true; }
   if (e.key === 'Enter' && at >= 0 && document.activeElement?.tagName !== 'BUTTON') { if (list[at].movesRefs) restoreSnapshot(list[at]); return true; }
   return false;
@@ -2020,8 +2020,8 @@ function worktreesView() {
   );
   el.addEventListener('keydown', (e) => {
     const w = state.worktrees[idx];
-    if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
-    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
     else if (e.key === 'Enter' && w) { e.preventDefault(); if (e.metaKey || e.ctrlKey) openWorktreeWindow(w); else switchWorktree(w); }
     else if (e.metaKey || e.ctrlKey || e.altKey) return;
     else if (e.key === 'l' && w) { e.preventDefault(); toggleLock(w); }
