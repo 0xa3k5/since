@@ -138,6 +138,47 @@ test('renderer: PRs land on their branches, fork PRs only on branches tracking t
   assert.match(prTitle(theirs, true), /Draft\nNot refreshed/);
 });
 
+const SHA = 'a'.repeat(40);
+const HEAD = (o = {}) => JSON.stringify({ number: 12, headRefName: 'lanes', headRefOid: SHA, headRepositoryOwner: { login: 'acme' }, isCrossRepository: false, baseRefName: 'main', state: 'OPEN', ...o });
+
+test('parsePrHead: branch named like gh, fork heads track the PR ref', () => {
+  const mine = github.parsePrHead(HEAD(), 12);
+  assert.deepEqual(mine, { number: 12, branch: 'lanes', sha: SHA, cross: false, headOwner: 'acme', base: 'main', state: 'open', local: 'lanes' });
+  assert.equal(github.prUpstream(mine), 'refs/heads/lanes');
+  const fork = github.parsePrHead(HEAD({ headRefName: 'fix/x', isCrossRepository: true, headRepositoryOwner: { login: 'kim' } }), 12);
+  assert.equal(fork.local, 'fix/x');
+  assert.equal(github.prUpstream(fork), 'refs/pull/12/head');
+  // A fork's `main` would clash with ours: gh calls it `owner/main`.
+  assert.equal(github.parsePrHead(HEAD({ headRefName: 'main', isCrossRepository: true, headRepositoryOwner: { login: 'kim' } }), 12).local, 'kim/main');
+  assert.equal(github.parsePrHead(HEAD({ headRefName: 'main' }), 12).local, 'main');
+});
+
+test('parsePrHead: refuses odd output, wrong PR, bad shas and unsafe branch names', () => {
+  assert.throws(() => github.parsePrHead('nope', 12), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrHead('[]', 12), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrHead(HEAD(), 13), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrHead(HEAD({ headRefOid: 'HEAD' }), 12), /no head commit/);
+  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'semi;colon']) {
+    assert.throws(() => github.parsePrHead(HEAD({ headRefName: name }), 12), { code: 'gh-failed' }, name);
+  }
+});
+
+test('viewPr: off, bad numbers and missing gh run nothing; asks gh for one PR', async () => {
+  const dir = fakeGh();
+  const { calls, exec } = recorder(HEAD());
+  await assert.rejects(github.viewPr({ enabled: false, remotes: [ORIGIN], number: 12, dirs: [dir], exec }), { code: 'gh-off' });
+  for (const n of [0, -1, 1.5, '12', null]) await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: n, dirs: [dir], exec }));
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [], number: 12, dirs: [dir], exec }), { code: 'gh-no-remote' });
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-none-'))], exec }), { code: 'gh-missing' });
+  assert.equal(calls.length, 0);
+  const res = await github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [dir], exec });
+  assert.deepEqual(calls[0].args, ['pr', 'view', '12', '--repo', 'github.com/acme/app', '--json', github.VIEW_FIELDS.join(',')]);
+  assert.equal(res.remote.name, 'origin');
+  assert.equal(res.head.local, 'lanes');
+  const fail = async () => { throw new Error('HTTP 401: Bad credentials'); };
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [dir], exec: fail }), { code: 'gh-auth' });
+});
+
 // Approve, merge and close (AK-173).
 const VIEW = (o = {}) => JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }], headRefName: 'feat', ...o });
 const REPO = (o = {}) => JSON.stringify({ squashMergeAllowed: true, mergeCommitAllowed: false, rebaseMergeAllowed: true, deleteBranchOnMerge: false, viewerPermission: 'WRITE', ...o });

@@ -219,6 +219,49 @@ async function closePr({ enabled, remotes, number, body, dirs = searchDirs(), ex
   return { number };
 }
 
+// Checking out a PR: `gh pr view` says where its head is; git then fetches `refs/pull/<n>/head`
+// from the same remote (forks included, no fork remote needed), so every ref change goes through
+// the journal and ⌘Z undoes it.
+const VIEW_FIELDS = ['number', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'isCrossRepository', 'baseRefName', 'state'];
+
+// The local branch, named the way `gh pr checkout` names it: the PR's head branch, or
+// `owner/branch` when a fork's head branch has the same name as the base (a fork's `main`).
+function branchName(head) {
+  return head.cross && head.headOwner && head.branch === head.base ? `${head.headOwner}/${head.branch}` : head.branch;
+}
+
+// `gh pr view --json …` output → { number, branch, sha, cross, headOwner, base, state, local }.
+// Throws on anything that couldn't be a branch name or a commit, so nothing odd reaches git.
+function parsePrHead(out, number) {
+  const p = parseJson(out);
+  if (p.number !== number) throw coded(`GitHub CLI didn’t return pull request #${number}.`, 'gh-failed');
+  const head = {
+    number,
+    branch: text(p.headRefName, 255),
+    sha: text(p.headRefOid, 64).toLowerCase(),
+    cross: p.isCrossRepository === true,
+    headOwner: text(p.headRepositoryOwner?.login, 200),
+    base: text(p.baseRefName, 255),
+    state: text(p.state, 20).toLowerCase(),
+  };
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head.sha)) throw coded(`Pull request #${number} has no head commit.`, 'gh-failed');
+  head.local = branchName(head);
+  if (!head.branch || !/^[\w./-]+$/.test(head.local) || /^[-./]|\.\.|\/\/|[./]$|\.lock$/.test(head.local)) {
+    throw coded(`Pull request #${number} has a branch name GitLanes can’t use: “${head.branch}”.`, 'gh-failed');
+  }
+  return head;
+}
+
+async function viewPr({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote, repo } = target({ enabled, remotes, dirs });
+  const out = await ghRun(bin, ['pr', 'view', prNumber(number), '--repo', repo, '--json', VIEW_FIELDS.join(',')], { dirs, exec });
+  return { remote, head: parsePrHead(out, number) };
+}
+
+// The upstream a checked-out PR branch pulls from: the head branch on the same remote for a
+// PR from this repository, else the PR's own ref (which follows the fork's pushes).
+const prUpstream = (head) => (head.cross ? `refs/pull/${head.number}/head` : `refs/heads/${head.branch}`);
+
 // settings.json `github`: { repos: [repository roots with PR status on] }.
 function normalize(saved = {}) {
   return { repos: Array.isArray(saved?.repos) ? saved.repos.filter((r) => typeof r === 'string') : [] };
@@ -229,4 +272,4 @@ function setEnabled(saved, root, on) {
   return { ...normalize(saved), repos: on ? [...repos, root] : repos };
 }
 
-module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, normalize, isEnabled, setEnabled };
+module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, normalize, isEnabled, setEnabled };
