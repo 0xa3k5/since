@@ -131,6 +131,13 @@ pnpm --filter @gitlanes/desktop bench:lanes                          # 200 branc
 pnpm --filter @gitlanes/desktop bench:lanes -- --branches 500 --worktrees 30
 ```
 
+The conflict forecast (`git.forecastConflicts()`) runs after the lanes list shows, never before it. It merges
+each active lane with the base and pairs of active lanes with `git merge-tree --write-tree` (objects only, no
+refs or worktrees touched), four at a time and at most 45 lane pairs (the 10 newest active lanes). Results are
+cached by the two tips, so a refresh after a commit re-runs only the pairs whose tip moved, and a newer list
+cancels the forecast still running. Lanes merged, missing or untouched for 14 days are skipped; on git before
+2.38 there is no forecast.
+
 The app opens in a real window at 1440×900; keep the machine otherwise idle. Generated and cloned repositories
 live in `~/.cache/gitlanes-bench` (override with `--dir`). Cold runs delete the commit-graph file, so they're only
 done for repositories the benchmark owns. The raw results behind this page are in

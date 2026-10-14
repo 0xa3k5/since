@@ -1600,7 +1600,79 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
     };
   }));
   result.sort((x, y) => (y.activity || 0) - (x.activity || 0));
-  return { base: b ? b.name : null, baseRef: b ? b.ref : null, lanes: result };
+  return { base: b ? b.name : null, baseRef: b ? b.ref : null, baseSha: b ? b.sha : null, lanes: result };
+}
+
+// ---------------------------------------------------------------------------
+// Conflict forecast: which lanes would conflict, and on which files, before anyone merges. One
+// `git merge-tree --write-tree` per pair (each active lane against base, then pairs of active
+// lanes, newest first). merge-tree writes only objects, never refs, the index or a worktree.
+// Results are cached by the two tips, so a refresh only re-runs pairs where a tip moved.
+
+// git 2.38 added `merge-tree --write-tree`; older git gets no forecast at all.
+const mergeTreeSupported = (version) => {
+  const [major, minor] = (/(\d+)\.(\d+)/.exec(version) || [0, 0, 0]).slice(1).map(Number);
+  return major > 2 || (major === 2 && minor >= 38);
+};
+let mergeTreeOk = null;
+function canForecast(cwd) {
+  mergeTreeOk ||= run(cwd, ['version']).then(mergeTreeSupported, () => false);
+  return mergeTreeOk;
+}
+
+// Lanes untouched for longer than this are left out: nobody is about to merge them.
+const FORECAST_STALE = 14 * 24 * 3600e3;
+// At most this many lane-vs-lane merges per forecast (10 active lanes = 45 pairs).
+const FORECAST_PAIRS = 45;
+const FORECAST_CACHE = 2000;
+const forecastCache = new Map(); // "tipA tipB" (sorted) -> conflicting files
+
+// Files `git merge-tree` reports as conflicted when merging a and b, [] when it merges clean.
+async function mergeConflicts(cwd, a, b) {
+  const key = a < b ? `${a} ${b}` : `${b} ${a}`;
+  if (forecastCache.has(key)) return forecastCache.get(key);
+  // Exit 1 = conflicts. Unrelated histories and other refusals mean no forecast: [], not cached.
+  let out;
+  try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', a, b], { allowCodes: [0, 1] }); } catch { return []; }
+  const files = [...new Set(out.split('\0').slice(1).filter(Boolean))].sort();
+  if (forecastCache.size >= FORECAST_CACHE) forecastCache.delete(forecastCache.keys().next().value);
+  forecastCache.set(key, files);
+  return files;
+}
+
+// Lanes worth forecasting: real commits ahead of base, not merged, not the base, worktree not
+// missing, and touched within FORECAST_STALE. Newest first, so the pair cap keeps live work.
+function forecastLanes(lanes, now = Date.now()) {
+  return lanes
+    .filter((l) => l.head && l.ahead > 0 && !l.isBase && !l.merged && !l.worktree?.prunable && l.activity && now - l.activity < FORECAST_STALE)
+    .sort((x, y) => (y.activity || 0) - (x.activity || 0));
+}
+
+// `lanes` is the git.lanes result's list, `baseSha` its baseSha. `signal` (an AbortSignal) stops
+// it between merges; whatever is running finishes, the rest never starts. Returns
+// { supported, pairs: [{ a, b, files }] } with only conflicting pairs; `b` is null for the base.
+// Lanes come back as { name, branch, worktree: { path } | null }, enough for the renderer's laneKey.
+async function forecastConflicts(cwd, lanes, { baseSha, signal, now = Date.now(), maxPairs = FORECAST_PAIRS } = {}) {
+  if (!(await canForecast(cwd))) return { supported: false, pairs: [] };
+  const live = forecastLanes(lanes, now);
+  const jobs = [];
+  if (baseSha) for (const l of live) if (l.behind > 0) jobs.push([l, null]);
+  let left = maxPairs;
+  for (let i = 0; i < live.length && left > 0; i++) {
+    for (let j = i + 1; j < live.length && left > 0; j++) {
+      if (live[i].head === live[j].head) continue;
+      jobs.push([live[i], live[j]]);
+      left--;
+    }
+  }
+  const who = (l) => ({ name: l.name, branch: l.branch, worktree: l.worktree ? { path: l.worktree.path } : null });
+  const res = await mapLimit(jobs, 4, async ([a, b]) => {
+    if (signal?.aborted) return null;
+    const files = await mergeConflicts(cwd, a.head, b ? b.head : baseSha);
+    return files.length ? { a: who(a), b: b ? who(b) : null, files } : null;
+  });
+  if (signal?.aborted) throw Object.assign(new Error('Forecast cancelled'), { name: 'AbortError' });
+  return { supported: true, pairs: res.filter(Boolean) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1735,7 +1807,8 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
-  AGENT_HINTS, parseTrailers, agentGuess, laneBase, lanes,
+  AGENT_HINTS, parseTrailers, agentGuess, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
+  _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,
 };
