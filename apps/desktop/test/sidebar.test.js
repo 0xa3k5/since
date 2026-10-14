@@ -58,4 +58,7 @@ test('toggle label matches the state', async () => {
   assert.equal(sidebarToggleLabel({ width: 900, expanded: true }), 'Show sidebar');
   assert.equal(sidebarToggleLabel({ width: 900, expanded: false, pinned: false }), 'Show sidebar');
   assert.equal(sidebarToggleLabel({ width: 900, expanded: true, pinned: true }), 'Hide sidebar');
+  assert.equal(sidebarToggleLabel({ width: 900, expanded: false, hover: true }), 'Pin sidebar');
+  assert.equal(sidebarToggleLabel({ width: 900, expanded: false, pinned: true, hover: true }), 'Hide sidebar');
+  assert.equal(sidebarToggleLabel({ width: 1400, expanded: false, hover: true }), 'Expand sidebar');
 });
