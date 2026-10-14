@@ -159,7 +159,7 @@ test('parseLog and details', async () => {
   assert.deepEqual(commits.map((c) => [c.sha, c.parents]), [['a', ['b', 'c']], ['b', ['d']], ['c', ['d']], ['d', []]]);
   assert.equal(commits[0].subject, null);
   const full = parseLog('a\0b\0Ann\0ann@x\x00100\0Fix: it\x1e\n', 'full');
-  assert.deepEqual(full[0], { sha: 'a', parents: ['b'], author: 'Ann', email: 'ann@x', time: 100, subject: 'Fix: it' });
+  assert.deepEqual(full[0], { sha: 'a', parents: ['b'], author: 'Ann', email: 'ann@x', time: 100, subject: 'Fix: it', coAuthors: [] });
 
   const h = createHistory();
   // Details may arrive before the commit itself.
@@ -170,6 +170,22 @@ test('parseLog and details', async () => {
   assert.equal(h.commits[h.index.get('b')].author, 'Bo');
   assert.deepEqual(h.missingDetails(), ['a', 'c']);
   assert.equal(h.graph.length, 4);
+});
+
+test('parseCoAuthors: multiple, duplicate, author, malformed', async () => {
+  const { parseCoAuthors, parseLog, createHistory } = await import('../renderer/log.js');
+  assert.deepEqual(parseCoAuthors('', 'a@x'), []);
+  assert.deepEqual(parseCoAuthors('Bo <bo@x>\x1fCy Dee <cy@x>', 'a@x'), [{ name: 'Bo', email: 'bo@x' }, { name: 'Cy Dee', email: 'cy@x' }]);
+  assert.deepEqual(parseCoAuthors('Bo <bo@x>\x1fBob <BO@x>', 'a@x'), [{ name: 'Bo', email: 'bo@x' }], 'duplicate email');
+  assert.deepEqual(parseCoAuthors('Ann <ANN@x>\x1fBo <bo@x>', 'ann@x'), [{ name: 'Bo', email: 'bo@x' }], 'author as co-author');
+  assert.deepEqual(parseCoAuthors('just a name\x1fBo bo@x\x1f<>\x1f <only@x> \x1fBo <bo@x> trailing', 'a@x'), [{ name: 'only@x', email: 'only@x' }], 'malformed');
+
+  const full = parseLog('a\0b\0Ann\0ann@x\x00100\0Pair\0Bo <bo@x>\x1fAnn <ann@x>\x1e\n', 'full');
+  assert.deepEqual(full[0].coAuthors, [{ name: 'Bo', email: 'bo@x' }]);
+  const h = createHistory();
+  h.add(parseLog('c\0\x1e\n', 'topo'));
+  h.fill('c\0Cy\0cy@x\x00300\0Three\0Dee <dee@x>\x1e\n');
+  assert.deepEqual(h.commits[0].coAuthors, [{ name: 'Dee', email: 'dee@x' }]);
 });
 
 test('merge keeps an unchanged history and rebuilds from the first difference', async () => {

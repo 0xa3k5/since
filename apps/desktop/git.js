@@ -141,11 +141,27 @@ function logArgs({ remotes = true, tags = true, heads = [] } = {}) {
 // Log formats. Records end in REC; git adds a newline after each, which parsers skip.
 // TOPO is read from git's commit-graph without opening commit objects, so it is several times
 // faster than DETAILS, which needs every commit inflated.
+// CO_AUTHORS is the values of Co-authored-by trailers, \x1f-separated, so bodies aren't fetched.
+const CO_AUTHORS = '%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1f)';
 const LOG_FORMATS = {
   topo: `--format=%H%x00%P${REC}`,
-  details: `--format=%H%x00%an%x00%ae%x00%at%x00%s${REC}`,
-  full: `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%s${REC}`,
+  details: `--format=%H%x00%an%x00%ae%x00%at%x00%s%x00${CO_AUTHORS}${REC}`,
+  full: `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%s%x00${CO_AUTHORS}${REC}`,
 };
+
+// `Name <email>` trailer values (\x1f-separated) to [{ name, email }], deduped by email and
+// without the author. Same as parseCoAuthors in renderer/log.js.
+function parseCoAuthors(raw, author) {
+  if (!raw) return [];
+  const seen = new Set([(author || '').toLowerCase()]), out = [];
+  for (const v of raw.split('\x1f')) {
+    const m = /^\s*(.*?)\s*<([^<>\s]+)>\s*$/.exec(v);
+    if (!m || seen.has(m[2].toLowerCase())) continue;
+    seen.add(m[2].toLowerCase());
+    out.push({ name: m[1] || m[2], email: m[2] });
+  }
+  return out;
+}
 
 // History reads never go to the network: in a partial clone, a tag pointing at a missing tree
 // would otherwise make every log wait on a fetch.
@@ -158,8 +174,8 @@ async function getLog(cwd, { limit, ...opts } = {}) {
   for (const rec of out.split(REC)) {
     const r = rec.replace(/^\n/, '');
     if (!r) continue;
-    const [sha, parents, author, email, time, subject] = r.split(SEP);
-    commits.push({ sha, parents: parents ? parents.split(' ') : [], author, email, time: +time, subject });
+    const [sha, parents, author, email, time, subject, co] = r.split(SEP);
+    commits.push({ sha, parents: parents ? parents.split(' ') : [], author, email, time: +time, subject, coAuthors: parseCoAuthors(co, email) });
   }
   return commits;
 }
@@ -239,13 +255,13 @@ function writeCommitGraph(cwd) {
 }
 
 async function getCommit(cwd, sha) {
-  const out = await run(cwd, ['show', '-s', `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%G?%x00%GS%x00%B`, sha]);
-  const [h, parents, author, email, atime, committer, cemail, ctime, sig, signer, body] = out.split(SEP);
+  const out = await run(cwd, ['show', '-s', `--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%G?%x00%GS%x00${CO_AUTHORS}%x00%B`, sha]);
+  const [h, parents, author, email, atime, committer, cemail, ctime, sig, signer, co, body] = out.split(SEP);
   const ps = parents ? parents.split(' ') : [];
   const files = await diffTreeFiles(cwd, ps[0] || null, h);
   // Git reports an SSH signature it can't check (no allowed signers file) as unsigned; read the header instead.
   const signed = sig !== 'N' || /^gpgsig(-sha256)? /m.test((await run(cwd, ['cat-file', 'commit', h])).split('\n\n')[0]);
-  return { sha: h, parents: ps, author, email, time: +atime, committer, committerEmail: cemail, commitTime: +ctime, signature: signed ? signatureStatus(sig === 'N' ? 'E' : sig, signer) : null, message: body.replace(/\n+$/, ''), files };
+  return { sha: h, parents: ps, author, email, time: +atime, committer, committerEmail: cemail, commitTime: +ctime, signature: signed ? signatureStatus(sig === 'N' ? 'E' : sig, signer) : null, coAuthors: parseCoAuthors(co, email), message: body.replace(/\n+$/, ''), files };
 }
 
 // %G? codes: G good, U good but untrusted key, X/Y expired signature/key, R revoked,
@@ -1156,7 +1172,7 @@ async function mergetool(cwd, paths = []) {
 }
 
 module.exports = {
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
+  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
