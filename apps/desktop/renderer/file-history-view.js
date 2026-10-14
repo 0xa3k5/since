@@ -1,5 +1,6 @@
 import { h, icon, kbd, toast, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
 import { blameRows, historyRows, splitPath } from './blame.js';
+import * as keymap from './keymap.js';
 
 // File history & blame: the commits that touched a file (following renames) on the left,
 // streamed in pages so long histories show up at once; the blame of the selected version on
@@ -20,7 +21,7 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
   const count = h('span');
   const side = h('div.quick-side.fh-side', null,
     h('div.quick-head', null,
-      h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd('Esc')),
+      h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('fileHistory.close'))),
       h('div.quick-title.fh-title', { title: path }, icon('file', 14), name),
       h('div.quick-meta', null, dir ? h('span.mono.fh-dir', null, dir) : null, count),
     ),
@@ -84,8 +85,8 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
       h('span.fh-mode', null, 'Blame'),
       h('span.mono', null, r.path), h('span.muted', null, r.sha ? `at ${r.sha.slice(0, 7)}` : 'in the working tree'),
       h('span.spacer'),
-      r.sha ? h('button.btn.ghost.small', { onclick: () => onShow(r.sha), title: 'Show this commit in the Map' }, 'Show in Map', kbd('↵')) : null,
-      r.sha ? h('button.btn.ghost.small', { onclick: () => onOpen(r.sha, r.path), title: 'Open this commit’s changes' }, 'Open Commit', kbd('Space')) : null,
+      r.sha ? h('button.btn.ghost.small', { onclick: () => onShow(r.sha), title: 'Show this commit in the Map' }, 'Show in Map', kbd(...keymap.keys('fileHistory.show'))) : null,
+      r.sha ? h('button.btn.ghost.small', { onclick: () => onOpen(r.sha, r.path), title: 'Open this commit’s changes' }, 'Open Commit', kbd(...keymap.keys('fileHistory.open'))) : null,
     );
     blameTimer = setTimeout(async () => {
       let b;
@@ -117,13 +118,13 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
   }
 
   el.addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const id = keymap.match('fileHistory', e);
     const r = rows[sel];
-    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(rows.length - 1, sel + 1), true); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(0, sel - 1), true); }
-    else if (e.key === 'Enter' && r.sha) { e.preventDefault(); onShow(r.sha); }
-    else if (e.key === ' ' && r.sha) { e.preventDefault(); onOpen(r.sha, r.path); }
+    if (id === 'fileHistory.close') { e.preventDefault(); onClose(); }
+    else if (id === 'fileHistory.next') { e.preventDefault(); select(Math.min(rows.length - 1, sel + 1), true); }
+    else if (id === 'fileHistory.prev') { e.preventDefault(); select(Math.max(0, sel - 1), true); }
+    else if (id === 'fileHistory.show' && r.sha) { e.preventDefault(); onShow(r.sha); }
+    else if (id === 'fileHistory.open' && r.sha) { e.preventDefault(); onOpen(r.sha, r.path); }
   });
 
   updateCount();
