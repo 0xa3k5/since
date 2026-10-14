@@ -607,6 +607,7 @@ function buildMenu() {
         item('Toggle Sidebar', 'CmdOrCtrl+\\', 'sidebar'),
         item('Show Tags', 'CmdOrCtrl+Alt+T', 'toggle', 'tags'),
         item('Show Remote Branches', 'CmdOrCtrl+Alt+R', 'toggle', 'remotes'),
+        item('Show Colour Swatches in Diffs', 'CmdOrCtrl+Alt+C', 'toggle', 'swatches'),
         { type: 'separator' },
         {
           label: 'Theme',
