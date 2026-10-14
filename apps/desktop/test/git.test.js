@@ -202,6 +202,22 @@ test('partial stash: selected files and staged-only changes', async () => {
   await assert.rejects(git.stashPush(dir, { staged: true, untracked: true }), /untracked/);
 });
 
+test('partial stash: an untracked file and both sides of a staged rename', async () => {
+  const dir = await repo();
+  await commit(dir, 'a.txt', 'a\n', 'first');
+  fs.writeFileSync(path.join(dir, 'new.txt'), 'n\n');
+  await git.stashPush(dir, { message: 'untracked', untracked: true, paths: ['new.txt'] });
+  assert.equal(fs.existsSync(path.join(dir, 'new.txt')), false);
+
+  await git.run(dir, ['mv', 'a.txt', 'renamed.txt']);
+  await git.stashPush(dir, { message: 'rename', paths: ['renamed.txt', 'a.txt'] });
+  assert.equal((await git.run(dir, ['status', '--porcelain'])).trim(), '');
+  assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'a\n');
+  assert.equal(fs.existsSync(path.join(dir, 'renamed.txt')), false);
+  await git.run(dir, ['stash', 'apply', '--index', '-q']);
+  assert.equal((await git.run(dir, ['status', '--porcelain'])).trim(), 'R  a.txt -> renamed.txt');
+});
+
 test('partial stash: selected lines leave the working tree and apply back', async () => {
   const dir = await repo();
   await commit(dir, 'f.txt', '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n', 'first');
