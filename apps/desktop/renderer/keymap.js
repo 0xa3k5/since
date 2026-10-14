@@ -182,6 +182,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.filter', 'Filter lanes', '/'),
   c('lanes', null, 'lanes.clear', 'Clear the filter', 'Escape'),
   c('lanes', null, 'lanes.agents', 'Agent lanes only', 'a'),
+  c('lanes', null, 'lanes.conflicts', 'Lanes with predicted conflicts only', 'c'),
 
   // Welcome screen: recent repositories.
   c('recent', null, 'recent.next', 'Next repository', 'ArrowDown'),

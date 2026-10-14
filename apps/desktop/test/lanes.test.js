@@ -152,3 +152,74 @@ test('lanes: worktrees joined to branches, detached and prunable ones, uncommitt
   assert.ok(l.det.activity > 0);
   assert.deepEqual([l.gonewt.worktree.prunable, l.gonewt.changes], [true, null]);
 });
+
+// Conflict forecast (git.forecastConflicts): git merge-tree per pair, cached by the two tips.
+async function forecastRepo() {
+  const { parent, dir } = await repo();
+  await commit(dir, 'shared.txt', 'one\ntwo\nthree\n', 'shared');
+  for (const [branch, file, content] of [['left', 'shared.txt', 'one\nLEFT\nthree\n'], ['right', 'shared.txt', 'one\nRIGHT\nthree\n'], ['other', 'other.txt', 'other\n']]) {
+    await g(dir, ['checkout', '-q', '-b', branch, 'main']);
+    await commit(dir, file, content);
+  }
+  await g(dir, ['checkout', '-q', 'main']);
+  return { parent, dir };
+}
+const pairName = (p) => [p.a.name, p.b ? p.b.name : 'base'].join(' × ');
+
+test('forecastConflicts: a conflicting pair names both lanes and the files; clean pairs are left out', async () => {
+  const { parent, dir } = await forecastRepo();
+  try {
+    git._setForecastGate(null);
+    const res = await git.lanes(dir);
+    const now = clock * 1000 + 60e3;
+    const out = await git.forecastConflicts(dir, res.lanes, { baseSha: res.baseSha, now });
+    assert.equal(out.supported, true);
+    assert.deepEqual(out.pairs.map(pairName).map((s) => s.split(' × ').sort().join(' × ')), ['left × right']);
+    assert.deepEqual(out.pairs[0].files, ['shared.txt']);
+    assert.equal(out.pairs[0].a.worktree, null);
+
+    // Base moved on the same lines: every lane that touched them now conflicts with base.
+    await commit(dir, 'shared.txt', 'one\nMAIN\nthree\n');
+    const res2 = await git.lanes(dir);
+    const out2 = await git.forecastConflicts(dir, res2.lanes, { baseSha: res2.baseSha, now: clock * 1000 + 60e3 });
+    const names = out2.pairs.map(pairName).sort();
+    assert.ok(names.includes('left × base') && names.includes('right × base'), names.join(', '));
+    assert.ok(!names.some((n) => n.includes('other')));
+
+    // Stale lanes are skipped; the pair cap holds.
+    assert.deepEqual((await git.forecastConflicts(dir, res2.lanes, { baseSha: res2.baseSha, now: clock * 1000 + 30 * 24 * 3600e3 })).pairs, []);
+    const capped = await git.forecastConflicts(dir, res.lanes, { baseSha: res.baseSha, now, maxPairs: 0 });
+    assert.deepEqual(capped.pairs, []);
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('forecastConflicts: unchanged pairs come from the cache, keyed by both tips', async () => {
+  const { parent, dir } = await forecastRepo();
+  try {
+    const [left, right] = (await g(dir, ['rev-parse', 'left', 'right'])).trim().split('\n');
+    git._forecastCache.clear();
+    assert.deepEqual(await git.mergeConflicts(dir, left, right), ['shared.txt']);
+    assert.equal(git._forecastCache.size, 1);
+    // A planted entry proves the second call (either order) never runs git.
+    git._forecastCache.set([left, right].sort().join(' '), ['cached.txt']);
+    assert.deepEqual(await git.mergeConflicts(dir, right, left), ['cached.txt']);
+    assert.equal(git._forecastCache.size, 1);
+    git._forecastCache.clear();
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('forecastConflicts: hidden on git before 2.38; a cancelled forecast throws AbortError', async () => {
+  assert.equal(git.mergeTreeSupported('git version 2.37.3 (Apple Git-150)'), false);
+  assert.equal(git.mergeTreeSupported('git version 2.38.0'), true);
+  assert.equal(git.mergeTreeSupported('git version 3.0.1'), true);
+  const { parent, dir } = await forecastRepo();
+  try {
+    const res = await git.lanes(dir);
+    git._setForecastGate(false);
+    assert.deepEqual(await git.forecastConflicts(dir, res.lanes, { baseSha: res.baseSha, now: clock * 1000 }), { supported: false, pairs: [] });
+    git._setForecastGate(null);
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await assert.rejects(git.forecastConflicts(dir, res.lanes, { baseSha: res.baseSha, now: clock * 1000, signal: ctrl.signal }), { name: 'AbortError' });
+  } finally { git._setForecastGate(null); fs.rmSync(parent, { recursive: true, force: true }); }
+});

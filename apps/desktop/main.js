@@ -479,7 +479,27 @@ handle('app:lanes-list', async (e, opts) => {
     const remotes = await git.getRemotes(root);
     if (github.pickRemote(remotes)) listed = await github.listPrs({ enabled: true, remotes }).catch((err) => { prError = serializeError(err); return null; });
   }
+  const s = session(e);
+  s.lanes = { root, baseSha: rest.baseSha, lanes };
   return { ...rest, lanes: github.joinLanes(lanes, listed), prError };
+});
+
+// Conflict forecast for the lanes app:lanes-list last returned in this window (git-only, no
+// network). A new request cancels the one still running; the cancelled one resolves to null.
+handle('app:lanes-forecast', async (e) => {
+  const s = session(e);
+  if (!s.lanes || s.lanes.root !== s.repo.root) return { supported: true, pairs: [] };
+  s.forecast?.abort();
+  const ctrl = new AbortController();
+  s.forecast = ctrl;
+  try {
+    return await git.forecastConflicts(s.lanes.root, s.lanes.lanes, { baseSha: s.lanes.baseSha, signal: ctrl.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') return null;
+    throw err;
+  } finally {
+    if (s.forecast === ctrl) s.forecast = null;
+  }
 });
 
 // Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
