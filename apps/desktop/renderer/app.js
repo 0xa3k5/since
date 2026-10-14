@@ -1321,7 +1321,7 @@ function splitView({ sha }) {
       h('div.diff-head', null, statusBadge(statusOf(d)), h('span.mono', null, d.path), h('span.spacer'),
         h('button.btn.subtle.small', { onclick: () => toggleFile(d) }, fileState(d) === 'all' ? 'Deselect file' : 'Select file', kbd(...keymap.keys('split.toggleFile')))),
       h('div.diff-scroll', null, renderDiff(d, { selectable: true, selection: sel, onSelect, hunkActions, full, onShowAll: () => { full = true; renderFile(); } })),
-      h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges'),
+      h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges · Drag to select several'),
     );
   }
 
@@ -1815,7 +1815,7 @@ function createCommitView(container) {
         h('button.icon-btn', { title: 'Open file', onclick: () => api.app('open-file', file.path) }, icon('external', 14)),
       ),
       h('div.diff-scroll', null, renderDiff(d, { selectable: list !== 'conflicts', selection: sel, onSelect: updateBar, hunkActions, full: state.cv.full, onShowAll: () => { state.cv.full = true; renderDiffPane(); } })),
-      list !== 'conflicts' ? h('div.diff-hint', null, 'Click lines to select · Shift-click for ranges') : null,
+      list !== 'conflicts' ? h('div.diff-hint', null, 'Click lines to select · Shift-click for ranges · Drag to select several') : null,
     ].filter(Boolean));
     updateBar();
   }
