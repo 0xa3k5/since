@@ -137,3 +137,75 @@ test('renderer: PRs land on their branches, fork PRs only on branches tracking t
   assert.equal(prTitle(mine), '#1 Mine\nby kim · lanes → main\nApproved · Checks failed');
   assert.match(prTitle(theirs, true), /Draft\nNot refreshed/);
 });
+
+// Approve, merge and close (AK-173).
+const VIEW = (o = {}) => JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }], headRefName: 'feat', ...o });
+const REPO = (o = {}) => JSON.stringify({ squashMergeAllowed: true, mergeCommitAllowed: false, rebaseMergeAllowed: true, deleteBranchOnMerge: false, viewerPermission: 'WRITE', ...o });
+
+test('parseMergeInfo: allowed methods (squash first), state and checks', () => {
+  const i = github.parseMergeInfo(VIEW(), REPO());
+  assert.deepEqual(i.methods, ['squash', 'rebase']);
+  assert.equal(i.state, 'open');
+  assert.equal(i.checks, 'success');
+  assert.equal(i.review, 'approved');
+  assert.equal(i.admin, false);
+  assert.deepEqual(github.parseMergeInfo(VIEW(), REPO({ squashMergeAllowed: false, rebaseMergeAllowed: false, mergeCommitAllowed: false })).methods, ['squash']);
+  assert.equal(github.parseMergeInfo(VIEW({ mergeable: 'CONFLICTING' }), REPO()).conflicts, true);
+  assert.throws(() => github.parseMergeInfo('nope', REPO()), { code: 'gh-failed' });
+  assert.throws(() => github.parseMergeInfo('[]', REPO()), { code: 'gh-failed' });
+});
+
+test('mergeGate: hard blocks, soft blocks and who can override', () => {
+  const gate = (pr, repo) => github.mergeGate(github.parseMergeInfo(VIEW(pr), REPO(repo)));
+  assert.deepEqual(gate(), { hard: null, soft: [], needsAdmin: false, canOverride: true });
+  assert.match(gate({ isDraft: true }).hard, /draft/);
+  assert.match(gate({ state: 'MERGED' }).hard, /merged/);
+  assert.match(gate({ mergeStateStatus: 'DIRTY' }).hard, /conflicts/);
+  // Failing checks GitHub doesn't require: anyone can tick "merge anyway".
+  const unstable = gate({ mergeStateStatus: 'UNSTABLE', statusCheckRollup: [{ state: 'FAILURE' }] });
+  assert.deepEqual(unstable.soft, ['Checks are failing.']);
+  assert.equal(unstable.needsAdmin, false);
+  assert.equal(unstable.canOverride, true);
+  // Branch protection: only an admin can bypass.
+  const blocked = gate({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' });
+  assert.deepEqual(blocked.soft, ['A review is required.']);
+  assert.equal(blocked.needsAdmin, true);
+  assert.equal(blocked.canOverride, false);
+  assert.equal(gate({ mergeStateStatus: 'BLOCKED' }, { viewerPermission: 'ADMIN' }).canOverride, true);
+  assert.match(gate({ mergeStateStatus: 'BLOCKED' }).soft[0], /protection/);
+});
+
+test('PR actions: nothing runs while off; numbers must be positive integers', async () => {
+  const { calls, exec } = recorder('');
+  await assert.rejects(github.mergePr({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' });
+  await assert.rejects(github.approvePr({ enabled: true, remotes: [ORIGIN], number: 0, dirs: [fakeGh()], exec }), { code: 'gh-failed' });
+  await assert.rejects(github.closePr({ enabled: true, remotes: [ORIGIN], number: 1.5, dirs: [fakeGh()], exec }), { code: 'gh-failed' });
+  await assert.rejects(github.mergePr({ enabled: true, remotes: [ORIGIN], number: 7, method: '--admin', dirs: [fakeGh()], exec }), { code: 'gh-failed' });
+  assert.equal(calls.length, 0);
+});
+
+test('PR actions: gh arguments', async () => {
+  const run = async (fn, o) => { const { calls, exec } = recorder(''); await github[fn]({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec, ...o }); return calls[0].args; };
+  assert.deepEqual(await run('mergePr'), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--squash']);
+  assert.deepEqual(await run('mergePr', { method: 'rebase', deleteBranch: true, admin: true }), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--rebase', '--delete-branch', '--admin']);
+  assert.deepEqual(await run('approvePr'), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve']);
+  assert.deepEqual(await run('approvePr', { body: ' --admin looks good ' }), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve', '--body=--admin looks good']);
+  assert.deepEqual(await run('closePr', { body: 'superseded' }), ['pr', 'close', '7', '--repo', 'github.com/acme/app', '--comment=superseded']);
+  const fail = async () => { throw new Error('HTTP 401: Bad credentials'); };
+  await assert.rejects(github.closePr({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: fail }), { code: 'gh-auth' });
+});
+
+test('mergeInfo: one pr view and one repo view, with the gate', async () => {
+  const { calls, exec } = recorder((args) => (args[0] === 'pr' ? VIEW({ mergeStateStatus: 'BLOCKED' }) : REPO()));
+  const i = await github.mergeInfo({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
+  assert.deepEqual(calls.map((c) => c.args.slice(0, 2)), [['pr', 'view'], ['repo', 'view']]);
+  assert.equal(i.gate.needsAdmin, true);
+});
+
+test('ipc: prNumber and knownRemote', () => {
+  const check = require('../ipc');
+  assert.equal(check.prNumber(3), 3);
+  for (const bad of [0, -1, 1.5, '3', null]) assert.throws(() => check.prNumber(bad), check.IpcArgError);
+  assert.equal(check.knownRemote([ORIGIN], 'origin'), ORIGIN);
+  assert.throws(() => check.knownRemote([ORIGIN], 'upstream'), check.IpcArgError);
+});
