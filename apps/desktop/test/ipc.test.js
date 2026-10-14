@@ -34,6 +34,7 @@ test('calls the renderer actually makes pass', () => {
     ['checkSplit', [sha]],
     ['rewrite', ['split', sha, { files: { 'a.txt': 'all', 'b.txt': ['0:1', '1:4'] }, messages: ['First', 'Second'] }]],
     ['history', [200]],
+    ['previewRestore', [7]],
     ['worktrees', []],
     ['worktreeChanges', ['/repos/app-feature']],
     ['addWorktree', [{ dir: null, branch: 'feature', base: sha }]],

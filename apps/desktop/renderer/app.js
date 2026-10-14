@@ -34,6 +34,7 @@ const state = {
   stashes: [],
   history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
   historyLimit: 100, // snapshots loaded per stack; older ones load on request
+  snapSel: null, // selected row in the Snapshots view (journal entry id)
   reflog: [],
   config: [],
   configFilter: '',
@@ -1634,13 +1635,55 @@ function snapshotsView() {
         h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(MOD, 'Z')),
         h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(MOD, '⇧', 'Z'))),
     ),
-    entries.length ? h('div.timeline', null, entries.map((e, i) => h('div.tl-row' + (e.redo ? '.undone' : '') + (!e.redo && i === r.length ? '.current' : ''), null,
+    entries.length ? h('div.timeline', null, entries.map((e, i) => h('div.tl-row' + (e.redo ? '.undone' : '') + (!e.redo && i === r.length ? '.current' : '') + (e.id === state.snapSel ? '.selected' : ''), { 'data-id': e.id, onclick: (ev) => { if (!ev.target.closest('button')) selectSnapshot(e.id); } },
       h('span.tl-dot'),
       h('div.list-main', null, h('div.list-title', null, e.label), h('div.list-sub', null, e.redo ? 'Undone — can be redone' : i === r.length ? 'Latest' : fullDate(e.time / 1000))),
       h('span.when', null, timeAgo(e.time / 1000)),
-      !e.movesRefs ? null : h('button.btn.ghost.small', { title: 'Restore refs to the state before this operation', onclick: async () => { if (await confirm(`Restore the state before “${e.label}”?`, 'Branches, tags and HEAD will be moved. Uncommitted changes are kept when possible. You can undo this.', { submit: 'Restore', destructive: false })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]); } }, icon('restore', 13), 'Restore before'),
+      !e.movesRefs ? null : h('button.btn.ghost.small', { title: 'Preview and restore refs to the state before this operation (↵)', onclick: () => restoreSnapshot(e) }, icon('restore', 13), 'Restore before'),
     )), hidden > 0 ? h('div.tl-more', null, h('button.btn.subtle.small', { onclick: more }, `Show ${hidden.toLocaleString()} more`)) : null) : h('div.empty.big', null, icon('history', 28), h('div', null, 'No snapshots yet'), h('div.muted', null, 'Operations like commit, checkout, merge, rebase or discard will appear here.')),
   );
+}
+
+const snapshotEntries = () => [...state.history.redo, ...[...state.history.undo].reverse()];
+
+function selectSnapshot(id) {
+  state.snapSel = id;
+  for (const row of document.querySelectorAll('.timeline .tl-row')) row.classList.toggle('selected', Number(row.dataset.id) === id);
+  document.querySelector('.timeline .tl-row.selected')?.scrollIntoView({ block: 'nearest' });
+}
+
+// ↑/↓ (or j/k) select a snapshot, ↵ previews restoring the state before it.
+function snapshotKey(e) {
+  const list = snapshotEntries();
+  if (!list.length) return false;
+  const at = list.findIndex((x) => x.id === state.snapSel);
+  const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[e.key];
+  if (step) { selectSnapshot(list[Math.max(0, Math.min(list.length - 1, at < 0 ? 0 : at + step))].id); return true; }
+  if (e.key === 'Enter' && at >= 0 && document.activeElement?.tagName !== 'BUTTON') { if (list[at].movesRefs) restoreSnapshot(list[at]); return true; }
+  return false;
+}
+
+const refName = (r) => r.replace(/^refs\/(heads|tags)\//, '');
+const shortOid = (o) => o.slice(0, 7);
+const changeRow = (c) => {
+  const [kind, text] = c.kind === 'head'
+    ? ['HEAD', `${c.from ? (c.from.startsWith('refs/') ? refName(c.from) : shortOid(c.from)) : 'none'} → ${c.to.startsWith('refs/') ? refName(c.to) : `${shortOid(c.to)} (detached)`}`]
+    : c.kind === 'create' ? ['Create', `${refName(c.ref)} at ${shortOid(c.to)}`]
+      : c.kind === 'delete' ? ['Delete', `${refName(c.ref)} (was ${shortOid(c.from)})`]
+        : ['Move', `${refName(c.ref)} ${shortOid(c.from)} → ${shortOid(c.to)}`];
+  return h('li.restore-change.' + c.kind, null, h('span.restore-kind', null, kind), h('span.mono', null, text), c.ref.startsWith('refs/tags/') ? h('span.muted', null, ' tag') : null);
+};
+
+// Preview what "Restore before" would change, then apply it as one undoable step.
+async function restoreSnapshot(e) {
+  let p;
+  try { p = await git('previewRestore', e.id); } catch (err) { return toast('Can’t preview this snapshot', { kind: 'error', detail: err.message }); }
+  if (!p.changes.length && !p.movesHead) return toast(`Already at the state before “${e.label}”`);
+  const desc = h('div.restore-preview', null,
+    h('div', null, `${p.changes.length} change${p.changes.length === 1 ? '' : 's'}. You can undo this with ${MOD}Z.`),
+    h('ul.restore-changes', null, p.changes.map(changeRow)),
+    p.movesHead ? h('div.muted', null, 'The working copy moves with HEAD. Uncommitted changes are kept when possible; if they’d be overwritten, nothing changes.') : null);
+  if (await dialog({ title: `Restore the state before “${e.label}”?`, description: desc, submit: 'Restore', wide: true })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1896,6 +1939,8 @@ function openPalette() {
     add('Repository', 'Stash changes…', stashSave, { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
+    const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
+    if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: ['↵'], keywords: 'snapshot undo history timeline jump back restore' });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
@@ -2189,6 +2234,7 @@ window.addEventListener('keydown', (e) => {
       if (v) { e.preventDefault(); setView(v); return; }
     } else if (e.key === 'g' && state.view !== 'commit') { gPending = true; setTimeout(() => { gPending = false; }, 800); return; }
     if (e.key === '/' ) { e.preventDefault(); commands.search(); }
+    if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
 });
 let gPending = false;
