@@ -624,7 +624,7 @@ function renderTopbar() {
     );
   }
   if (state.view === 'commit') {
-    right.append(h('button.btn.subtle', { onclick: stashSave }, icon('stash', 14), 'Stash'));
+    right.append(h('button.btn.subtle', { onclick: () => stashSave() }, icon('stash', 14), 'Stash'));
   }
   const chip = licenceChip(state.licence, () => openLicence());
   if (chip) right.append(chip);
@@ -1517,6 +1517,7 @@ function createCommitView(container) {
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
+          list !== 'conflicts' ? { label: 'Stash File…', icon: 'stash', run: () => stashSave({ paths: [f.path] }) } : null,
           list === 'unstaged' ? '-' : null,
           list === 'unstaged' ? { label: 'Discard Changes…', icon: 'trash', danger: true, kbd: '⌫', run: () => discard([f]) } : null,
         ]);
@@ -1533,7 +1534,10 @@ function createCommitView(container) {
         h('button.btn.ghost.tiny', { onclick: () => discard(unstaged) }, 'Discard all'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
       ] : null),
-      section('Staged', staged, 'staged', staged.length ? h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all') : null),
+      section('Staged', staged, 'staged', staged.length ? [
+        h('button.btn.ghost.tiny', { title: `Stash only the staged changes (${MOD}⌥S)`, onclick: () => stashSave({ staged: true }) }, 'Stash'),
+        h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
+      ] : null),
     ].filter(Boolean));
     lists.querySelectorAll('.file-row').forEach((r) => r.classList.toggle('active', r.dataset.key === state.cv.list + ':' + state.cv.path));
     updateCommitBtn();
@@ -1605,6 +1609,7 @@ function createCommitView(container) {
       if (!sel.size || list === 'conflicts') return;
       bar.append(h('span.muted', null, `${sel.size} line${sel.size > 1 ? 's' : ''} selected`),
         list === 'unstaged' ? h('button.btn.ghost.small', { onclick: () => lineOp('discardLines') }, 'Discard') : null,
+        list === 'unstaged' ? h('button.btn.ghost.small', { onclick: () => lineOp('stashLines') }, 'Stash') : null,
         h('button.btn.primary.small', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines') }, list === 'unstaged' ? 'Stage lines' : 'Unstage lines'),
         h('button.icon-btn.tiny', { title: 'Clear selection', onclick: () => { sel.clear(); renderDiffPane(); } }, icon('x', 13)),
       );
@@ -1617,12 +1622,21 @@ function createCommitView(container) {
         await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [fileRef(file), keys]);
         return;
       }
+      if (method === 'stashLines') {
+        const what = hunk ? 'hunk' : `${keys.length} line${keys.length > 1 ? 's' : ''}`;
+        const v = await dialog({ title: `Stash selected ${what}`, submit: 'Stash', fields: [{ name: 'msg', label: 'Message', placeholder: 'WIP' }] });
+        if (!v) return;
+        sel.clear();
+        await act(`Stash ${what} in ${baseName(file.path)}`, 'stashLines', [fileRef(file), keys, v.msg.trim()], { undoable: false });
+        return;
+      }
       try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
       sel.clear();
       await refreshStatus();
     }
     const hunkActions = list === 'conflicts' ? null : (hi, hunk) => [
       list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('discardLines', hunkKeys(hunk, hi), true) }, 'Discard hunk') : null,
+      list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('stashLines', hunkKeys(hunk, hi), true) }, 'Stash hunk') : null,
       h('button.btn.ghost.tiny', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines', hunkKeys(hunk, hi)) }, list === 'unstaged' ? 'Stage hunk' : 'Unstage hunk'),
     ];
     diffPane.replaceChildren(...[
@@ -1677,7 +1691,7 @@ function stashesView() {
   let current = state.stashes[0]?.ref;
   function renderList() {
     list.replaceChildren(
-      h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: stashSave }, icon('plus', 13), 'Stash changes')),
+      h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: () => stashSave() }, icon('plus', 13), 'Stash changes')),
       state.stashes.length ? h('div', null, state.stashes.map((s) => h('div.list-row' + (s.ref === current ? '.active' : ''), {
         onclick: () => { current = s.ref; renderList(); renderDetail(); },
         oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
@@ -1715,9 +1729,14 @@ async function dropStash(s) {
   if (await confirm(`Drop ${s.ref}?`, `${s.message}\n\nYou can undo this with ${MOD}Z.`, { submit: 'Drop' })) act(`Drop ${s.ref} (${s.message})`, 'stashDrop', [s.ref]);
 }
 
-async function stashSave() {
-  const v = await dialog({ title: 'Stash changes', submit: 'Stash', fields: [{ name: 'msg', label: 'Message', placeholder: 'WIP' }, { name: 'u', type: 'checkbox', label: 'Include untracked files', value: true }] });
-  if (v) act('Stash changes', 'stashSave', [v.msg.trim(), v.u], { undoable: false });
+// Stash everything, only the staged changes, or only `paths`. Lines and hunks stash from the diff pane.
+async function stashSave({ staged = false, paths = null } = {}) {
+  const what = staged ? 'staged changes' : paths ? (paths.length === 1 ? baseName(paths[0]) : `${paths.length} files`) : 'changes';
+  if (staged && !state.status?.staged?.length) return toast('Nothing staged to stash');
+  const fields = [{ name: 'msg', label: 'Message', placeholder: 'WIP' }];
+  if (!staged) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
+  const v = await dialog({ title: `Stash ${what}`, submit: 'Stash', fields });
+  if (v) act(`Stash ${what}`, 'stashSave', [v.msg.trim(), !!v.u, { staged, paths }], { undoable: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -2112,7 +2131,8 @@ function openPalette() {
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: [MOD, '⌥', 'I'], keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
-    add('Repository', 'Stash changes…', stashSave, { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
+    add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
+    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: [MOD, '⌥', 'S'], keywords: 'partial stash index' });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
     const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
@@ -2332,6 +2352,7 @@ const commands = {
   push: () => state.repo && push(false),
   pushTags: () => state.repo && act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }),
   stashSave: () => state.repo && stashSave(),
+  stashStaged: () => state.repo && stashSave({ staged: true }),
   resetHard: () => state.repo && resetHard(),
   reveal: () => state.repo && api.app('reveal'),
   terminal: () => state.repo && api.app('terminal'),
