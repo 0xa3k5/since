@@ -676,6 +676,10 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-row .list-title { display: flex; align-items: center; gap: 6px; font-weight: 550; min-width: 0; }
 .lanes-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lanes-row .list-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lanes-conflict { gap: 3px; }
+.lanes-conflicts { display: none; margin-top: 2px; font-size: 12px; color: var(--warn); }
+.lanes-conflicts > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lanes-row.active .lanes-conflicts { display: block; }
 .badge.agent { color: var(--accent-fg); background: var(--accent-soft); }
 .lanes-changes, .lanes-ab, .lanes-pr, .lanes-time { flex: none; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
 .lanes-changes { min-width: 72px; }
