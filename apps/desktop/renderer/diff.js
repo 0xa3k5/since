@@ -24,7 +24,8 @@ function codeSpan(s) {
 }
 
 // Render a parsed file diff. When `selectable`, clicking +/- lines toggles them
-// in `selection` (keys "hunk:line"), shift-click selects a range.
+// in `selection` (keys "hunk:line"), shift-click selects a range, and
+// click-and-drag selects (or, starting on a selected line, deselects) every line passed over.
 export function renderDiff(diff, { selectable = false, selection = new Set(), onSelect, hunkActions, full = false, onShowAll } = {}) {
   const root = h('div.diff');
   if (!diff) return h('div.diff-empty', null, 'No changes');
@@ -36,9 +37,17 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
     return h('div.diff-empty', null, meta.length ? meta.join(' · ') : 'Empty file');
   }
   let anchor = null;
+  let drag = null; // { from, to, add, before }: an in-progress click-and-drag over lines
   let count = 0;
   const changeKeys = [];
   diff.hunks.forEach((hunk, hi) => hunk.lines.forEach((l, li) => { if (l.t !== ' ') changeKeys.push(`${hi}:${li}`); }));
+  const setRange = (from, to, add) => {
+    const a = changeKeys.indexOf(from), b = changeKeys.indexOf(to);
+    const [x, y] = a < b ? [a, b] : [b, a];
+    for (let i = x; i <= y; i++) add ? selection.add(changeKeys[i]) : selection.delete(changeKeys[i]);
+  };
+  const paint = () => root.querySelectorAll('.dl.pick').forEach((el) => el.classList.toggle('sel', selection.has(el.dataset.key)));
+  const endDrag = () => { drag = null; };
 
   for (let hi = 0; hi < diff.hunks.length; hi++) {
     const hunk = diff.hunks[hi];
@@ -68,17 +77,30 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
       if (selectable && l.t !== ' ') {
         row.dataset.key = key;
         row.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
           e.preventDefault();
           if (e.shiftKey && anchor) {
-            const a = changeKeys.indexOf(anchor), b = changeKeys.indexOf(key);
-            const [x, y] = a < b ? [a, b] : [b, a];
             const add = !selection.has(key) || selection.has(anchor);
-            for (let i = x; i <= y; i++) add ? selection.add(changeKeys[i]) : selection.delete(changeKeys[i]);
+            setRange(anchor, key, add);
           } else {
-            selection.has(key) ? selection.delete(key) : selection.add(key);
+            const add = !selection.has(key);
+            drag = { from: key, to: key, add, before: new Set(selection) };
+            add ? selection.add(key) : selection.delete(key);
             anchor = key;
+            document.addEventListener('mouseup', endDrag, { once: true });
           }
-          root.querySelectorAll('.dl.pick').forEach((el) => el.classList.toggle('sel', selection.has(el.dataset.key)));
+          paint();
+          onSelect?.(selection);
+        });
+        row.addEventListener('mouseenter', (e) => {
+          if (drag && !(e.buttons & 1)) endDrag(); // released outside the window
+          if (!drag || drag.to === key) return;
+          drag.to = key;
+          // Rebuild from the pre-drag selection so dragging back un-applies rows.
+          selection.clear();
+          drag.before.forEach((k) => selection.add(k));
+          setRange(drag.from, key, drag.add);
+          paint();
           onSelect?.(selection);
         });
       }
