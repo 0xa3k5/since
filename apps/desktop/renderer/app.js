@@ -8,6 +8,7 @@ import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
+import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 
 const api = window.gitlanes;
@@ -513,6 +514,21 @@ async function refreshRemotes() {
   $('.sb-origin')?.replaceChildren(...[originLink()].filter(Boolean));
 }
 
+// A person in the commit details; a link to their GitHub profile when we can place them.
+function personLink(name, email) {
+  const p = authorProfile(email, originRemote()?.web);
+  const body = [avatar(name, email, 18), h('span.person-name', null, name)];
+  if (!p) return h('span.prop-person', { title: `${name} <${email}>` }, ...body);
+  return h('a.prop-person.person-link', { href: p.url, title: `${p.label}\n${name} <${email}>`, onclick: (e) => { e.preventDefault(); api.app('external', p.url); } }, ...body, icon('external', 12));
+}
+
+// ⇧A: the selected commit's author on GitHub.
+function openAuthor(c) {
+  const p = authorProfile(c.email, originRemote()?.web);
+  if (p) api.app('external', p.url);
+  else toast(`No GitHub profile found for ${c.author}`, { kind: 'error' });
+}
+
 function openOrigin() {
   const r = originRemote();
   if (r?.web) api.app('external', r.web);
@@ -645,6 +661,7 @@ function renderTopbar() {
         toggleChip('Remotes', 'remotes'),
       ),
       h('label.search-wrap', null, icon('search', 14), search, h('kbd.inline', null, MOD + 'F')),
+      h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: `${detailToggleLabel()} (Space, ${MOD}⌥\\)`, 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')),
     );
   }
   if (state.view === 'commit') {
@@ -663,6 +680,13 @@ function renderTopbar() {
   if (search) { search.focus(); search.setSelectionRange(typing.selectionStart, typing.selectionEnd); }
 }
 
+// The commit details panel on the right of the map; shown and hidden from the top bar, Space or ⌘⌥\.
+const detailToggleLabel = () => (state.detail ? 'Hide commit details' : 'Show commit details');
+function toggleDetail() {
+  state.detail = !state.detail;
+  mapView?.refresh();
+  renderTopbar();
+}
 function toggleChip(label, key) {
   return h('button.chip' + (state.show[key] ? '.on' : ''), { onclick: () => toggleShow(key) }, label);
 }
@@ -993,7 +1017,7 @@ function createMapView(container) {
       case 'Home': move(-list.length); break;
       case 'End': move(list.length); break;
       case 'Enter': if (results) { clearSearch(); select(c.sha, 'center'); } else openQuick(state.selected); e.preventDefault(); break;
-      case ' ': e.preventDefault(); state.detail = !state.detail; renderDetail(); break;
+      case ' ': e.preventDefault(); toggleDetail(); break;
       case 'Escape': if (results) clearSearch(); break;
       case 'h': if (state.head.oid) select(state.head.oid, 'center'); break;
       default: if (c) commitShortcut(e, c);
@@ -1034,17 +1058,15 @@ function commitDetail(c) {
         h('button.btn.subtle', { onclick: () => checkoutCommit(c) }, icon('checkout', 14), 'Checkout'),
         h('button.btn.subtle', { onclick: () => createBranch(c.sha) }, icon('branch', 14), 'Branch'),
         h('button.icon-btn', { title: 'More actions', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); commitMenu(r.left, r.bottom + 4, c); } }, icon('more')),
-        h('span.spacer'),
-        h('button.icon-btn', { title: 'Close (Space)', onclick: () => { state.detail = false; mapView?.refresh(); } }, icon('x')),
       ),
       h('h2.detail-title', null, subject),
       refs.length ? h('div.pills.wrap', null, refs.map(refPill)) : null,
       body ? h('pre.detail-body', null, body) : null,
     ),
     h('div.props', null,
-      prop('Author', h('span.prop-person', null, avatar(c.author, c.email, 18), c.author)),
-      c.coAuthors?.length ? prop('Co-authors', h('span.prop-people', null, c.coAuthors.map((p) => h('span.prop-person', { title: `${p.name} <${p.email}>` }, avatar(p.name, p.email, 18), p.name)))) : null,
-      c.committer !== c.author ? prop('Committer', h('span.prop-person', null, avatar(c.committer, c.committerEmail, 18), c.committer)) : null,
+      prop('Author', personLink(c.author, c.email)),
+      c.coAuthors?.length ? prop('Co-authors', h('span.prop-people', null, c.coAuthors.map((p) => personLink(p.name, p.email)))) : null,
+      c.committer !== c.author ? prop('Committer', personLink(c.committer, c.committerEmail)) : null,
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
       c.signature ? prop('Signature', signatureBadge(c.signature)) : null,
       prop('Commit', h('button.mono-link', { onclick: () => copy(c.sha, 'Copied SHA') }, c.sha.slice(0, 12), icon('copy', 12))),
@@ -1324,7 +1346,7 @@ function commitShortcut(e, c) {
     b: () => createBranch(c.sha), t: () => createTag(c.sha), m: () => mergeCommit(c), r: () => rebaseOnto(c),
     p: () => cherryPick(c), v: () => revertCommit(c), e: () => editMessage(c), s: () => rewriteOp('squash', c),
     f: () => rewriteOp('fixup', c), Backspace: () => rewriteOp('drop', c), Delete: () => rewriteOp('drop', c),
-    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }), S: () => openSplit(c),
+    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }), S: () => openSplit(c), A: () => openAuthor(c),
   };
   if (map[k]) { e.preventDefault(); map[k](); }
 }
@@ -1363,6 +1385,7 @@ function commitMenu(x, y, c) {
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: [MOD, 'C'], run: () => copy(c.sha, 'Copied SHA') },
     { label: 'Copy Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
+    authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: ['⇧', 'A'], run: () => openAuthor(c) } : null,
     remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
   ]);
 }
@@ -2318,11 +2341,13 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: [MOD, '⌥', 'C'], keywords: 'color colour swatch preview css hex rgb settings' });
+    add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: [MOD, '⌥', '\\'], keywords: 'toggle commit details inspector right panel sidebar show hide' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'], keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
     if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: [MOD, '↵'], detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
+    if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: ['⇧', 'A'], detail: sel.author, keywords: 'author profile github user person' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
@@ -2638,6 +2663,10 @@ window.addEventListener('keydown', (e) => {
     } else if (e.key === 'g' && state.view !== 'commit') { gPending = true; setTimeout(() => { gPending = false; }, 800); return; }
     if (e.key === '/' ) { e.preventDefault(); commands.search(); }
     if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
+  }
+  if (state.repo && e.code === 'Backslash' && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();
   }
 });
 let gPending = false;
