@@ -16,6 +16,7 @@ import rewriteDark from '../../assets/features/rewrite-dark.webp';
       <tr><td>Edit message</td><td><Kbd keys={['E']} /></td><td>Opens the full message for editing. Save to reword the commit.</td></tr>
       <tr><td>Squash with parent</td><td><Kbd keys={['S']} /></td><td>Combines the commit with its parent and keeps both messages.</td></tr>
       <tr><td>Fixup with parent</td><td><Kbd keys={['F']} /></td><td>Combines the commit with its parent and keeps only the parent's message.</td></tr>
+      <tr><td>Split commit</td><td><Kbd keys={['⇧', 'S']} /></td><td>Pick the lines that go into each new commit and give each one a message. Merge commits can't be split.</td></tr>
       <tr><td>Swap with parent</td><td>••• menu</td><td>Swaps the order of the commit and its parent.</td></tr>
       <tr><td>Delete commit</td><td><Kbd keys={['⌫']} /></td><td>Removes the commit's changes from the branch.</td></tr>
     </tbody>

@@ -374,6 +374,20 @@ kbd.inline { flex: none; }
 .pill.worktree { border-style: dashed; color: var(--text-2); }
 .pill.worktree .icon, .pill.in-worktree .icon:last-child { color: var(--accent-fg); }
 .track { font-size: 10.5px; color: var(--text-3); margin-left: 2px; font-variant-numeric: tabular-nums; }
+/* Pull request badge on a branch pill, and the marks it shares with the sidebar list. */
+.pr-badge { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; padding: 0 4px; border-radius: 4px; background: var(--bg-hover); color: var(--text-2); font-size: 10.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.pr-badge:hover { color: var(--text); background: var(--bg-active); }
+.pr-badge.stale, .pr-item.stale .pr-num { opacity: 0.6; }
+.pr-draft { font-size: 10px; color: var(--text-3); }
+.pr-review.approved, .pr-ci.success { color: var(--green); }
+.pr-review.changes, .pr-ci.failure { color: var(--red); }
+.pr-ci.pending { color: var(--yellow); }
+.pr-ci { font-size: 9px; }
+.pr-num { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pr-item .pr-open { margin-left: auto; opacity: 0; }
+.pr-item:hover .pr-open, .pr-item .pr-open:focus-visible { opacity: 1; }
+.pr-quick { display: grid; gap: 4px; margin-top: 8px; }
+.pr-stale-note { color: var(--text-3); font-size: 12px; }
 
 /* Detail side panel */
 .detail { border-left: 1px solid var(--border); overflow-y: auto; min-width: 0; background: var(--bg-content); }
@@ -777,37 +791,51 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lfs-state.lfs-downloaded { color: var(--green); }
 .lfs-state.lfs-pointer { color: var(--warn); }
 
-/* Welcome playground: a pretend repository to move a branch in and undo it. Beside the card on
-   wide windows, under it on narrow ones. */
-.welcome { overflow-y: auto; }
-.welcome-layout { display: flex; align-items: center; justify-content: center; gap: 56px; padding: 56px 24px 32px; margin: auto; }
-@media (max-width: 1000px) { .welcome-layout { flex-direction: column; gap: 32px; } }
-.tour { width: 380px; max-width: calc(100vw - 32px); padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-content); box-shadow: var(--shadow-sm); }
-.tour-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+/* Welcome screen, split down the middle: open/clone/recent on the left, a short hands-on tour of
+   GitLanes on the right (a pretend repository, four lessons). Stacks on narrow windows. */
+.welcome { display: block; overflow-y: auto; }
+.welcome-layout { display: grid; grid-template-columns: 1fr 1fr; min-height: 100%; }
+.welcome-main, .welcome-learn { display: flex; align-items: center; justify-content: center; padding: 64px 32px 40px; }
+.welcome-learn { border-left: 1px solid var(--border); background: var(--bg-sidebar); }
+@media (max-width: 900px) {
+  .welcome-layout { grid-template-columns: 1fr; }
+  .welcome-learn { border-left: 0; border-top: 1px solid var(--border); padding-top: 40px; }
+}
+.tour { width: 420px; max-width: 100%; }
 .tour-eyebrow { font-size: 11.5px; font-weight: 550; color: var(--accent-fg); }
-.tour-head h2 { margin: 2px 0 0; font-size: 14px; font-weight: 600; color: var(--text); }
-.tour-tools { display: flex; gap: 2px; }
-.tour-tools .icon-btn:disabled { opacity: 0.4; background: none; color: var(--text-3); }
+.tour h2 { margin: 4px 0 16px; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); }
+.tour-tabs { display: flex; gap: 2px; padding: 2px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-content); }
+.tour-tab { flex: 1; height: 26px; border-radius: calc(var(--radius) - 2px); font-size: 12px; font-weight: 500; color: var(--text-3); }
+.tour-tab:hover { color: var(--text); background: var(--bg-hover); }
+.tour-tab[aria-selected="true"] { color: var(--text); background: var(--bg-selected); }
+.tour-stage { min-height: 172px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-content); box-shadow: var(--shadow-sm); }
 .tour-graph { position: relative; padding-left: 40px; }
 .tour-lanes { position: absolute; left: 0; top: 0; pointer-events: none; }
 .tour-lanes path { fill: none; stroke-width: 2; stroke-linecap: round; }
-.tour-lanes circle { stroke: var(--bg-content); stroke-width: 2; }
 .tour-lanes .lane-0 { stroke: var(--lane-0); }
 .tour-lanes .lane-1 { stroke: var(--lane-1); }
-.tour-lanes circle.lane-0 { fill: var(--lane-0); stroke: var(--bg-content); }
-.tour-lanes circle.lane-1 { fill: var(--lane-1); stroke: var(--bg-content); }
-.tour-rows { display: grid; }
-.tour-row { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: var(--radius); text-align: left; color: var(--text-2); font-size: 12.5px; }
-.tour-row:hover { background: var(--bg-hover); color: var(--text); }
-.tour-row.tip { background: var(--bg-selected); color: var(--text); }
+.tour-lanes circle.lane-0 { fill: var(--lane-0); stroke: var(--bg-content); stroke-width: 2; }
+.tour-lanes circle.lane-1 { fill: var(--lane-1); stroke: var(--bg-content); stroke-width: 2; }
+.tour-rows, .tour-cmds { display: grid; }
+.tour-row, .tour-cmd { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: var(--radius); text-align: left; color: var(--text-2); font-size: 12.5px; }
+.tour-row:hover, .tour-cmd:hover { background: var(--bg-hover); color: var(--text); }
+.tour-row.tip { color: var(--text); }
+.tour-row.sel { background: var(--bg-selected); color: var(--text); }
+.tour-cmd.static { cursor: default; }
+.tour-cmd > svg { flex: none; color: var(--text-3); }
 .tour-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tour-pill { height: 18px; color: var(--accent-fg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); animation: tour-pill 160ms ease-out; }
+.tour-pill { height: 18px; animation: tour-pill 160ms ease-out; }
+.tour-pill.main { color: var(--accent-fg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.tour-pill.feature { color: var(--text-2); }
 @keyframes tour-pill { from { opacity: 0; transform: translateY(-3px); } }
+.tour-search-wrap { position: relative; margin-bottom: 6px; }
+.tour-search-wrap > svg { position: absolute; left: 10px; top: 9px; color: var(--text-3); pointer-events: none; }
+.tour-search { padding-left: 30px; }
+.tour-empty { padding: 8px; font-size: 12px; color: var(--text-3); }
+.tour-tools { display: flex; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.tour-tools .btn { gap: 6px; }
+.tour-tools .btn:disabled { opacity: 0.45; }
 .tour-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-height: 36px; margin-top: 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--bg-hover); font-size: 12px; color: var(--text-2); }
-.tour-hint > span:first-child { margin-right: 2px; }
-.tour-facts { list-style: none; display: grid; gap: 8px; margin: 14px 0 0; padding: 14px 0 0; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
-.tour-facts li { display: flex; align-items: flex-start; gap: 8px; }
-.tour-facts li > svg { flex: none; margin-top: 1px; color: var(--accent-fg); }
-.tour-facts b { font-weight: 550; color: var(--text); }
-.tour-facts .kbd-group { margin-left: 4px; vertical-align: 1px; }
+.tour-hint > span:first-child { margin-right: 4px; }
+.tour-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 12px; color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) { .tour-pill { animation: none; } }

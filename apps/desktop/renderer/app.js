@@ -12,6 +12,7 @@ import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from '.
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
+import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -55,6 +56,7 @@ const state = {
   collapsed: loadPref('collapsed', {}),
   theme: 'system',
   licence: null,
+  prs: null, // pull requests from GitHub (see loadPrs); null until known
 };
 
 state.graph = state.hist.graph;
@@ -427,6 +429,7 @@ function indexRefs() {
   for (const w of state.worktrees) if (!w.current && w.detached && w.head) push(w.head, { kind: 'worktree', short: w.name, worktree: w });
   for (const [, list] of by) list.sort((a, b) => rank(a) - rank(b));
   state.byRef = by;
+  indexPrs();
 }
 const rank = (r) => (r.kind === 'head' ? 0 : r.kind === 'branch' ? (r.short === state.head.branch ? 0 : 1) : r.kind === 'worktree' ? 1 : r.kind === 'remote' ? 2 : 3);
 
@@ -444,6 +447,7 @@ function refPill(r) {
     wt && r.kind === 'branch' ? icon('worktree', 12) : null,
     synced && state.show.remotes ? icon('cloud', 12) : null,
     r.kind === 'branch' && (r.ahead || r.behind) ? h('span.track', null, r.ahead ? `↑${r.ahead}` : '', r.behind ? `↓${r.behind}` : '') : null,
+    prBadge(prFor(r)),
   );
 }
 
@@ -580,6 +584,13 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'missing') : null,
   );
 
+  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => goToPr(pr) },
+    icon('merge', 14),
+    h('span.sb-label', null, h('span.pr-num', null, `#${pr.number}`), ' ', pr.title),
+    prMarks(pr),
+    h('button.icon-btn.tiny.pr-open', { title: 'Open on GitHub', 'aria-label': `Open #${pr.number} on GitHub`, onclick: (e) => { e.stopPropagation(); openPrOnGitHub(pr); } }, icon('external', 12)),
+  );
+
   const submoduleItem = (m) => h('div.sb-item', {
     title: `${m.path}${m.url ? `\n${m.url}` : ''}\n${SUBMODULE_STATES[m.state][1]}`,
     ondblclick: () => openSubmodule(m),
@@ -608,6 +619,7 @@ function renderSidebar() {
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
       state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
+      state.prs?.enabled ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
     ),
     // Icons-only stand-ins for the sections above, shown in the rail.
     h('div.sb-rail-items', null,
@@ -616,6 +628,7 @@ function renderSidebar() {
       [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
       railItem('tags', 'Tags', 'tag'),
       state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
+      state.prs?.enabled ? railItem('prs', 'Pull requests', 'merge') : null,
     ),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
@@ -2034,7 +2047,7 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false }); }
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs() }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
@@ -2290,6 +2303,138 @@ async function writeMessageWithAi() {
   ta.focus();
 }
 
+// ---------------------------------------------------------------------------
+// Pull requests (read-only), through the user's GitHub CLI. Off per repository until turned on;
+// `gh` only runs on Fetch or Refresh, never in the background. The last result is kept per
+// repository and shown as stale until the next successful refresh.
+
+const prCacheKey = (root) => 'prs:' + root;
+async function loadPrs() {
+  const repo = state.repo;
+  const st = await api.app('pr-state').catch(() => null);
+  if (!st || state.repo !== repo) return;
+  let data = null;
+  if (st.enabled) { try { data = JSON.parse(localStorage.getItem(prCacheKey(repo.root))); } catch { /* none */ } }
+  state.prs = { ...st, data, stale: Boolean(data), error: null, busy: false, byRef: new Map() };
+  showPrs();
+}
+function indexPrs() { if (state.prs) state.prs.byRef = prsByRef(state.prs.data, state.refs); }
+function showPrs() { indexPrs(); renderSidebar(); mapView?.refresh(); }
+const prFor = (r) => (state.prs?.enabled ? state.prs.byRef.get(refKey(r)) : null);
+const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
+
+// Draft, review and CI marks, shared by graph badges and the sidebar list.
+const prMarks = (pr) => [
+  pr.draft ? h('span.pr-draft', null, 'draft') : null,
+  pr.review === 'approved' ? h('span.pr-review.approved', null, '✓') : pr.review === 'changes' ? h('span.pr-review.changes', null, '✗') : null,
+  pr.checks ? h('span.pr-ci.' + pr.checks, null, '●') : null,
+];
+function prBadge(pr) {
+  if (!pr) return null;
+  const stop = (e) => e.stopPropagation();
+  return h('span.pr-badge' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onmousedown: stop, onclick: (e) => { stop(e); openPr(pr); } }, `#${pr.number}`, prMarks(pr));
+}
+
+// Quick view: the PR's summary, with Open on GitHub.
+async function openPr(pr) {
+  const updated = Date.parse(pr.updatedAt);
+  const ok = await dialog({
+    title: `#${pr.number} ${pr.title}`,
+    description: h('div.pr-quick', null,
+      prop('Author', pr.author || '—'),
+      prop('Branch', `${pr.branch} → ${pr.base}`),
+      prop('Review', pr.draft ? 'Draft' : REVIEW_LABELS[pr.review] || 'No review yet'),
+      prop('Checks', CHECK_LABELS[pr.checks] || 'No checks'),
+      Number.isFinite(updated) ? prop('Updated', `${timeAgo(updated / 1000)} ago`) : null,
+      state.prs.stale ? h('div.pr-stale-note', null, 'Not refreshed: this is the last result GitLanes got.') : null,
+    ),
+    submit: 'Open on GitHub',
+  });
+  if (ok) openPrOnGitHub(pr);
+}
+
+function goToPr(pr) {
+  const r = prRef(pr, state.refs, state.prs.byRef);
+  if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Fetch to get it, or open the pull request on GitHub.', action: { label: 'Open on GitHub', run: () => openPrOnGitHub(pr) } });
+  setView('map');
+  selectCommit(r.target, 'center');
+}
+
+async function refreshPrs({ manual = false } = {}) {
+  const p = state.prs;
+  if (!p?.enabled) return manual ? setupPrs() : undefined;
+  if (p.busy) return;
+  p.busy = true;
+  const busy = manual ? toast('Refreshing pull requests…', { kind: 'busy', timeout: 0 }) : null;
+  const res = await api.app('pr-list').catch((e) => ({ error: { message: e.message } }));
+  busy?.close();
+  p.busy = false;
+  if (state.prs !== p) return; // another repository by now
+  if (res.ok) {
+    p.data = res.ok;
+    p.stale = false;
+    p.error = null;
+    try { localStorage.setItem(prCacheKey(state.repo.root), JSON.stringify(res.ok)); } catch { /* full */ }
+    if (manual) toast(`${res.ok.prs.length} open pull request${res.ok.prs.length === 1 ? '' : 's'}`, { kind: 'success' });
+  } else if (res.ok === null) {
+    p.enabled = false; // turned off in another window
+  } else {
+    // Offline or a `gh` error: keep what we had, marked stale. After a fetch this stays quiet.
+    p.stale = Boolean(p.data);
+    p.error = res.error.message;
+    if (manual) toast('Couldn’t refresh pull requests', { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then refresh.' : res.error.message });
+  }
+  showPrs();
+}
+
+async function setupPrs() {
+  const st = await api.app('pr-state');
+  const r = st.remote;
+  if (!r) return toast('This repository has no GitHub remote');
+  const ok = await dialog({
+    title: 'Show pull requests from GitHub?',
+    description: `Uses your GitHub CLI login. Talks to GitHub only when you fetch or refresh PRs. Shows open pull requests for ${r.owner}/${r.repo} on ${r.host} in the graph and the sidebar.`,
+    submit: 'Turn on',
+  });
+  if (!ok) return;
+  const det = await api.app('pr-detect');
+  if (det.error) return toast('Couldn’t check GitHub CLI', { kind: 'error', detail: det.error.message });
+  if (det.ok.gh === 'missing') {
+    const install = await dialog({ title: 'Install GitHub CLI', description: 'GitLanes reads pull requests through GitHub’s own `gh` command, so it never handles your token. Install it, run `gh auth login` once, then turn pull requests on again.', submit: 'Open cli.github.com' });
+    if (install) api.app('external', st.installUrl);
+    return;
+  }
+  if (det.ok.gh === 'logged-out') {
+    const cmd = r.host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${r.host}`;
+    const login = await dialog({ title: `Log in to ${r.host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
+    if (login) copy(cmd, 'Copied the login command');
+    return;
+  }
+  const next = await api.app('pr-enable', true);
+  state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
+  showPrs();
+  refreshPrs({ manual: true });
+}
+
+async function turnOffPrs() {
+  const next = await api.app('pr-enable', false);
+  try { localStorage.removeItem(prCacheKey(state.repo.root)); } catch { /* ignore */ }
+  state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
+  showPrs();
+  toast('Pull requests are off for this repository');
+}
+
+// ⌘⌥P: open PRs, newest update first; pick one to jump to its branch.
+function prList() {
+  if (!state.prs?.enabled) return setupPrs();
+  const prs = state.prs.data?.prs || [];
+  palette(() => [
+    ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
+    { group: 'Pull requests', label: 'Refresh pull requests', icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], run: () => refreshPrs({ manual: true }) },
+    { group: 'Pull requests', label: 'Show in sidebar', icon: 'sidebar', run: () => openSidebarAt('prs') },
+  ], { placeholder: 'Go to pull request…' });
+}
+
 function submoduleSwitcher() {
   if (!state.repo) return;
   if (!state.submodules.length) return toast('This repository has no submodules');
@@ -2327,6 +2472,9 @@ function openPalette() {
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: [MOD, '⇧', 'P'] });
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
     add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: [MOD, '⌥', 'G'], detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
+    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: [MOD, '⌥', 'P'], detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
+    add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], keywords: 'pr github gh' });
+    if (state.prs?.enabled) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
     add('Repository', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: [MOD, '⌥', 'I'], keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
@@ -2451,7 +2599,7 @@ async function openHosting() {
 // ---------------------------------------------------------------------------
 // Welcome screen / repository lifecycle
 
-// The welcome playground; ⌘Z / ⇧⌘Z drive it while no repository is open.
+// The welcome tour; ⌘Z / ⇧⌘Z drive it while no repository is open.
 let tour = null;
 
 async function renderWelcome() {
@@ -2468,7 +2616,7 @@ async function renderWelcome() {
   tour = tourView({ mod: MOD });
   const el = h('div.welcome', { tabIndex: 0 },
     h('div.welcome-drag'),
-    h('div.welcome-layout', null, h('div.welcome-card', null,
+    h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card', null,
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
       h('h1', null, 'GitLanes'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
@@ -2480,7 +2628,7 @@ async function renderWelcome() {
       ),
       recent.length ? h('div.recent-head', null, 'Recent') : null,
       list,
-    ), tour.el),
+    )), h('div.welcome-learn', null, tour.el)),
   );
   el.addEventListener('keydown', (e) => {
     if (tour.el.contains(e.target)) return;
@@ -2517,8 +2665,10 @@ async function loadRepo(repo) {
   state.configFilter = '';
   commitCache.clear();
   state.remotes = [];
+  state.prs = null;
   document.title = repo.name;
   renderShell();
+  loadPrs();
   await refreshAll();
   if (state.head.oid) selectCommit(state.head.oid, 'center');
   mapView?.focus();
@@ -2588,6 +2738,8 @@ const commands = {
   identity: () => openIdentity(),
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
+  prs: () => state.repo && prList(),
+  prRefresh: () => state.repo && refreshPrs({ manual: true }),
   licence: () => openLicence(),
   buy,
 };

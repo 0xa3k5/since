@@ -37,11 +37,13 @@ export const US = {
   undo: '⌘Z / ⌘⇧Z steps back and forward through every operation, with no step limit: branch, tag and HEAD changes, plus discarded files and hard resets. The history is saved in the repo, so it survives a restart.',
   keyboard: 'Single-key commit actions on the graph (E edit message, S squash, F fixup, R rebase, M merge…), arrow keys to move, ⌘K command menu.',
   history: 'Edit message, squash or fixup with parent, delete a commit, move a branch tip, all by key on the graph. No drag and drop.',
-  splitter: 'Not yet.',
-  worktrees: 'Not yet.',
-  submodulesLfs: 'Submodules: not yet. LFS works through your own git, with no special UI.',
+  splitter: 'Yes. Select a commit, press ⇧S and pick the lines that go into each new commit.',
+  worktrees: 'Yes (⌘7): add, switch, open in a new window, lock and remove. Other worktrees’ branches are marked on the graph.',
+  submodulesLfs: 'Yes, both. Submodule status, update and open (⌥⌘B); LFS detection and a list of LFS files (⌥⌘F).',
+  conflicts: 'Built-in 3-way merge editor (⌥⌘M), or pick ours or theirs per file. Your own merge tool opens with ⌘⇧M.',
+  blame: 'File history and blame (⌘⇧H).',
   forge: 'Opens the commit or branch on your hosting service. No pull request features.',
-  ai: 'None.',
+  ai: 'Off by default. When you turn it on, the staged diff goes to a tool you already use (Claude Code or Codex CLI) or to Ollama on your Mac. Before the first send you see exactly what goes out and agree. Nothing passes through our servers.',
   tech: 'Electron, using the git installed on your Mac.',
 };
 
@@ -60,7 +62,6 @@ export const COMPETITORS: Competitor[] = [
     ],
     chooseThem: [
       'You need Windows as well as macOS.',
-      'You rely on worktrees, submodules or AI commit messages today.',
       'You prefer drag and drop for merging, rebasing and reordering.',
     ],
     rows: [
@@ -81,7 +82,7 @@ export const COMPETITORS: Competitor[] = [
     ],
     betterChoice: [
       'Fork runs on Windows as well as macOS. GitLanes is Mac-only.',
-      'Fork has worktrees, AI commit messages, drag and drop and a repository manager with tabs today. GitLanes has none of these yet.',
+      'Fork has drag and drop and a repository manager with tabs today. GitLanes has neither.',
       'Fork has a long release history with roughly monthly Mac updates.',
     ],
     switching: [
@@ -110,7 +111,7 @@ export const COMPETITORS: Competitor[] = [
     ],
     chooseThem: [
       'You want pull requests, stacked branches or Graphite inside your Git client.',
-      'You need worktrees, submodules or Windows.',
+      'You need Windows.',
       'Your team wants managed licences or single sign-on.',
     ],
     rows: [
@@ -133,7 +134,6 @@ export const COMPETITORS: Competitor[] = [
     betterChoice: [
       'Tower has pull requests, stacked branches, Graphite and team management. GitLanes has none of these.',
       'Tower runs on Windows and is a native Mac app.',
-      'Tower already has worktrees and AI commit messages.',
       'Tower’s free licences for students, educators and non-profits make it the cheaper option for those groups.',
     ],
     switching: [
@@ -175,7 +175,8 @@ export const COMPETITORS: Competitor[] = [
       { label: 'History editing', us: US.history, them: 'Interactive rebase view and drag and drop.', src: ['K12'] },
       { label: 'Commit splitter', us: US.splitter, them: 'No manual splitter (requested since 2021). AI Commit Composer can regroup changes.', src: ['K10', 'K13'] },
       { label: 'Worktrees', us: US.worktrees, them: 'Yes, with agent sessions per worktree.', src: ['K5'] },
-      { label: 'Forge and AI', us: `${US.forge} No AI.`, them: 'Integrations with hosting services and issue trackers; AI commit messages, conflict resolution and Commit Composer.', src: ['K1', 'K13'] },
+      { label: 'Forge integration', us: US.forge, them: 'Integrations with hosting services and issue trackers.', src: ['K1'] },
+      { label: 'AI', us: US.ai, them: 'AI commit messages, conflict resolution and Commit Composer.', src: ['K13'] },
       { label: 'Large repositories', us: 'The graph shows the full history, streamed in from git as it loads.', them: 'Official help suggests limiting the number of commits in the graph for performance.', src: ['K9'] },
       { label: 'Tech', us: US.tech, them: 'Electron (widely reported; not stated on an official page, unverified).', src: ['K1'] },
     ],
@@ -186,9 +187,9 @@ export const COMPETITORS: Competitor[] = [
     ],
     betterChoice: [
       'GitKraken runs on Windows and Linux as well as macOS.',
-      'It integrates with hosting services and issue trackers, and has AI features and agent sessions. GitLanes has none of these.',
+      'It integrates with hosting services and issue trackers, and has agent sessions and more AI features. GitLanes has only opt-in AI commit messages.',
       'Its free Community plan costs nothing for public and local repositories.',
-      'It already supports worktrees and workspaces across many repositories.',
+      'It has workspaces across many repositories.',
     ],
     switching: [
       'Both apps work on ordinary git repositories, so there is nothing to import. Open the same folder in GitLanes.',
@@ -222,7 +223,7 @@ export const COMPETITORS: Competitor[] = [
     ],
     chooseThem: [
       'You need Windows or Linux.',
-      'You want a 3-way merge editor and custom key bindings.',
+      'You want custom key bindings.',
       'You want to keep evaluating for free with no time limit.',
     ],
     rows: [
@@ -231,9 +232,11 @@ export const COMPETITORS: Competitor[] = [
       { label: 'Undo of branch and history changes', us: US.undo, them: 'Repository → Undo / Redo steps back and forward through the reflog.', src: ['S6'] },
       { label: 'Keyboard and command palette', us: US.keyboard, them: 'Command palette and customisable key bindings.', src: ['S10'] },
       { label: 'History editing', us: US.history, them: 'Edit, squash and reword from the commit context menu.', src: ['S5', 'S6'] },
-      { label: 'Merge conflicts', us: 'Pick ours or theirs per file, then mark resolved. No 3-way editor.', them: '3-way merge tool.', src: ['S2'] },
+      { label: 'Merge conflicts', us: US.conflicts, them: '3-way merge tool.', src: ['S2'] },
       { label: 'Worktrees', us: US.worktrees, them: 'Yes (added in build 2130).', src: ['S1'] },
-      { label: 'Forge and AI', us: `${US.forge} No AI.`, them: 'No pull request features and no AI.', src: ['S3'] },
+      { label: 'File history and blame', us: US.blame, them: 'Yes, file history and blame views.', src: ['S2'] },
+      { label: 'Forge integration', us: US.forge, them: 'No pull request features.', src: ['S3'] },
+      { label: 'AI commit messages', us: US.ai, them: 'No AI.', src: ['S3'] },
       { label: 'Tech', us: US.tech, them: 'Custom C++ UI toolkit shared with Sublime Text, plus its own git-reading library.', src: ['S2'] },
     ],
     differences: [
@@ -243,8 +246,8 @@ export const COMPETITORS: Competitor[] = [
     ],
     betterChoice: [
       'Sublime Merge runs on Windows and Linux as well as macOS.',
-      'Its 3-way merge tool, diff and blame views are more capable than GitLanes’ conflict handling.',
-      'It has customisable key bindings and worktrees today.',
+      'Its diff and merge tools have had many more years of refinement.',
+      'It has customisable key bindings today.',
       'You can evaluate it with no time limit.',
     ],
     switching: [
@@ -277,7 +280,7 @@ export const COMPETITORS: Competitor[] = [
     chooseThem: [
       'You need a free client.',
       'Your team works in Bitbucket.',
-      'You need Windows, or rely on submodules today.',
+      'You need Windows.',
     ],
     rows: [
       { label: 'Price and model', us: US.price, them: 'Free.', src: ['ST1'] },
@@ -291,12 +294,12 @@ export const COMPETITORS: Competitor[] = [
     ],
     differences: [
       { title: 'Undo for every step', body: 'GitLanes records each operation before it runs. ⌘Z puts branches, tags, HEAD and any overwritten files back, and ⌘⇧Z redoes it.' },
-      { title: 'Keyboard first', body: 'j and k move through the graph, single keys act on the selected commit, and ⌘K finds any command by name.' },
+      { title: 'Keyboard first', body: 'Arrow keys move through the graph, single keys act on the selected commit, and ⌘K finds any command by name.' },
       { title: 'Live graph', body: 'GitLanes watches your repository and refreshes the graph when anything changes, including commands you run in the terminal.' },
     ],
     betterChoice: [
       'Sourcetree is free. GitLanes costs money after the 14-day trial.',
-      'It integrates with Bitbucket and has submodule support today.',
+      'It integrates with Bitbucket accounts.',
       'It runs on Windows as well as macOS.',
     ],
     switching: [
