@@ -733,7 +733,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .recent-name { font-weight: 550; color: var(--text); }
 .recent-path { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.map-list:focus-visible, .commit-view:focus-visible, .quick:focus-visible, .welcome:focus-visible, .diff-scroll:focus-visible { outline: none; }
+/* Whole-view containers take focus only for arrow-key navigation; the selected row shows where you are. */
+.map-list:focus-visible, .commit-view:focus-visible, .quick:focus-visible, .welcome:focus-visible, .diff-scroll:focus-visible, .split-view:focus-visible, .page:focus-visible { outline: none; }
 /* These inputs show focus through their own border/ring (or the surrounding field). */
 .palette-input:focus-visible, .search:focus-visible, .input:focus-visible, .composer-input:focus-visible { outline: none; }
 .recent { text-align: left; min-width: 0; }
