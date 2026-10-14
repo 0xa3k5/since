@@ -180,6 +180,7 @@ const reads = {
   config: (s) => git.getConfig(s.repo.root),
   remotes: (s) => git.getRemotes(s.repo.root),
   history: (s, limit) => s.journal.list(limit),
+  previewRestore: (s, id) => s.journal.previewRestore(id),
   worktrees: (s) => git.getWorktrees(s.repo.root),
   worktreeChanges: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);

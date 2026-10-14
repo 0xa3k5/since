@@ -169,6 +169,7 @@ const gitSchemas = {
   config: [],
   remotes: [],
   history: [optional(int)],
+  previewRestore: [int],
   worktrees: [],
   worktreeChanges: [worktreeDir],
   conflict: [repoPath],

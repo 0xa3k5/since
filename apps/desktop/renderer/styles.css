@@ -537,6 +537,14 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .tl-row.undone { opacity: 0.55; }
 .tl-row.undone .tl-dot { border-style: dashed; }
 .tl-more { padding: 8px 0 8px 28px; }
+.tl-row.selected { background: var(--bg-hover); box-shadow: inset 2px 0 0 var(--accent); }
+.tl-row.selected .btn { opacity: 1; }
+.restore-preview { display: grid; gap: 10px; white-space: normal; }
+.restore-changes { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 240px; overflow: auto; }
+.restore-change { display: flex; align-items: baseline; gap: 8px; color: var(--text-2); }
+.restore-kind { flex: none; min-width: 52px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); }
+.restore-change.delete .restore-kind { color: var(--red); }
+.restore-change.create .restore-kind, .restore-change.head .restore-kind { color: var(--accent); }
 
 .table { padding: 0 16px 24px; }
 .table-row { display: grid; grid-template-columns: 80px 180px 1fr auto 100px; align-items: center; gap: 12px; height: 34px; padding: 0 16px; border-radius: var(--radius); }
