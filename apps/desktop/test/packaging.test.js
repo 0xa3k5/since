@@ -101,5 +101,5 @@ test('brand assets use the orange brand, not the retired indigo', () => {
     const svg = fs.readFileSync(path.join(root, file), 'utf8').toLowerCase();
     assert.ok(!svg.includes('#5e6ad2') && !svg.includes('#7170ff'), file);
   }
-  assert.match(fs.readFileSync(path.join(root, 'build/icon.svg'), 'utf8'), /#ff6a1a/i);
+  assert.match(fs.readFileSync(path.join(root, 'build/icon.svg'), 'utf8'), /#e67233/i);
 });
