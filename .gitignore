@@ -4,3 +4,4 @@ playwright-report/
 apps/desktop/dist/
 apps/web/dist/
 apps/web/.astro/
+package-lock.json

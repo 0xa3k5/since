@@ -1,7 +1,7 @@
 // Builds the /shortcuts table from the desktop app's own source, so the site can't drift from the app.
 // Generated: menu accelerators (main.js), commit actions (commitMenu), views (VIEWS + "g then x"), the ⌘K command list.
 // Hand-described: keys handled inline in the map, Quick View and Commit view. test/keymap.test.mjs checks those
-// against the source in both directions, so a key added or removed in the app fails `npm test` until this file follows.
+// against the source in both directions, so a key added or removed in the app fails `pnpm test` until this file follows.
 import fs from 'node:fs';
 import path from 'node:path';
 

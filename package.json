@@ -4,24 +4,21 @@
   "private": true,
   "license": "UNLICENSED",
   "description": "GitLanes monorepo: desktop app and website",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "desktop": "npm run start -w @gitlanes/desktop --",
-    "dist": "npm run dist -w @gitlanes/desktop --",
-    "web": "npm run dev -w @gitlanes/web --",
-    "web:build": "npm run build -w @gitlanes/web",
-    "test": "npm test --workspaces --if-present",
-    "test:e2e": "npm run test:e2e -w @gitlanes/desktop",
-    "bench": "npm run bench -w @gitlanes/desktop --"
+    "desktop": "pnpm --filter @gitlanes/desktop start",
+    "dist": "pnpm --filter @gitlanes/desktop dist",
+    "web": "pnpm --filter @gitlanes/web dev",
+    "web:build": "pnpm --filter @gitlanes/web build",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @gitlanes/desktop test:e2e",
+    "bench": "pnpm --filter @gitlanes/desktop bench"
   },
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/0xa3k5/gitlanes.git"
-  }
+  },
+  "packageManager": "pnpm@10.34.7"
 }

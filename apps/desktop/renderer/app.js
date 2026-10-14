@@ -27,6 +27,7 @@ const state = {
   split: null,
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
+  lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
   show: loadPref('show', { tags: true, remotes: true }),
   search: '',
   stashes: [],
@@ -239,6 +240,7 @@ function loadHistory() {
   const seq = ++loadSeq;
   const opts = logOpts();
   const fresh = !state.hist.complete;
+  const head = state.head.oid;
   let shown;
   const firstScreen = new Promise((r) => { shown = r; });
   let live = false; // is the history being built already on screen?
@@ -260,13 +262,15 @@ function loadHistory() {
     if (fresh) {
       const ahead = previewAhead && (await previewAhead);
       previewAhead = null;
-      const preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
+      let preview = ahead && ahead.repo === state.repo && ahead.opts === JSON.stringify(opts) ? ahead : await readPreview(opts);
       if (seq !== loadSeq) return;
       if (!preview) { state.logKey = ''; return; }
+      // The preview may have been read before HEAD was known.
+      if (preview.graph.head !== head) preview = preview.fork(preview.length, head);
       if (preview.length < PREVIEW) preview.complete = true; // that was all of it, though maybe unordered
       show(preview);
       // The ordered history, with the preview's details carried over.
-      target = createHistory();
+      target = createHistory(head);
       for (const c of preview.commits) target.seed(c);
       // Rows without details stay placeholders until fetched on demand, so a failure here only
       // leaves the loading marker up; it must not surface as an unhandled rejection.
@@ -287,7 +291,7 @@ function loadHistory() {
     }
     // Reload: keep showing the current history while the new one is replayed against it.
     shown();
-    const merge = createMerge(state.hist);
+    const merge = createMerge(state.hist, head);
     const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
       merge.push(parseLog(text, 'topo'));
       const next = merge.next;
@@ -360,10 +364,21 @@ async function refreshAux() {
   const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog, state.view === 'config' && state.config]);
   const before = shown();
   state.stashes = await git('stashes').catch(() => []);
+  refreshLfs();
   if (state.view === 'reflog') state.reflog = await git('reflog').catch(() => []);
   if (state.view === 'config') state.config = await git('config').catch(() => []);
   renderNavCounts();
   if (['stashes', 'reflog', 'config'].includes(state.view) && shown() !== before) renderView(true);
+}
+
+async function refreshLfs() {
+  const root = state.repo?.root;
+  const lfs = await git('lfs').catch(() => null);
+  if (!state.repo || state.repo.root !== root) return;
+  const warn = (l) => !!(l?.used && !l.installed);
+  const changed = warn(lfs) !== warn(state.lfs);
+  state.lfs = lfs;
+  if (changed) renderBanner();
 }
 
 async function refreshAll() {
@@ -514,7 +529,7 @@ function renderSidebar() {
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)` }, icon('fetch'), 'Fetch'),
       h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)` }, icon('pull'), 'Pull'),
-      h('button.sb-action', { onclick: push, title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
+      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
     ),
   );
   renderNavCounts();
@@ -587,7 +602,7 @@ function toggleSidebar() {
 
 function renderBanner() {
   if (!bannerEl) return;
-  if (!state.opState) return bannerEl.replaceChildren();
+  if (!state.opState) return renderLfsBanner();
   const n = state.status.conflicts.length;
   const name = { rebase: 'Rebase', merge: 'Merge', 'cherry-pick': 'Cherry-pick', revert: 'Revert' }[state.opState];
   bannerEl.replaceChildren(h('div.banner', null,
@@ -598,6 +613,59 @@ function renderBanner() {
     h('button.btn.subtle', { onclick: () => act(`Abort ${name.toLowerCase()}`, 'abortOp', [], { undoable: false }) }, 'Abort'),
     h('button.btn.primary', { disabled: n > 0, onclick: () => act(`Continue ${name.toLowerCase()}`, 'continueOp') }, 'Continue'),
   ));
+}
+
+// Without git-lfs, LFS files check out as pointer text and new ones get committed whole.
+function renderLfsBanner() {
+  if (!state.lfs?.used || state.lfs.installed || lfsDismissed.has(state.repo?.root)) return bannerEl.replaceChildren();
+  bannerEl.replaceChildren(h('div.banner', null,
+    icon('warning'),
+    h('span', null, h('b', null, 'Git LFS isn’t installed'), ' · this repository stores large files in LFS. They show as pointer text, and staging them may fail or commit them in full.'),
+    h('span.spacer'),
+    h('button.btn.subtle', { onclick: () => openLfs() }, 'Details'),
+    h('button.btn.subtle', { onclick: () => { lfsDismissed.add(state.repo.root); renderBanner(); } }, 'Dismiss'),
+  ));
+}
+const lfsDismissed = new Set();
+
+const LFS_STATES = {
+  downloaded: ['Downloaded', 'The working tree holds the real file.'],
+  pointer: ['Pointer only', 'Not downloaded: the working tree holds the small LFS pointer text.'],
+  missing: ['Deleted', 'Missing from the working tree.'],
+};
+const lfsBadge = () => h('span.badge.lfs', { title: 'Stored with Git LFS' }, 'LFS');
+
+function formatSize(n) {
+  if (n == null) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${i ? n.toFixed(n < 10 ? 1 : 0) : n} ${units[i]}`;
+}
+
+async function openLfs() {
+  if (!state.repo) return;
+  const root = state.repo.root;
+  const lfs = await git('lfs').catch((e) => { toast('Couldn’t read Git LFS status', { kind: 'error', detail: e.message }); return null; });
+  if (!lfs || state.repo?.root !== root) return;
+  state.lfs = lfs;
+  renderBanner();
+  if (!lfs.used) return toast('This repository doesn’t use Git LFS', { detail: lfs.installed ? lfs.version : 'git-lfs isn’t installed either.' });
+  const count = (k) => lfs.files.filter((f) => f.state === k).length;
+  const whole = lfs.files.filter((f) => !f.stored).length;
+  const summary = [
+    lfs.installed ? lfs.version : 'git-lfs isn’t installed. Install it (brew install git-lfs, then git lfs install) to download and commit LFS files correctly.',
+    `${lfs.files.length}${lfs.truncated ? '+' : ''} files · ${count('downloaded')} downloaded · ${count('pointer')} pointer only${count('missing') ? ` · ${count('missing')} deleted` : ''}`,
+    whole ? `${whole} file${whole > 1 ? 's are' : ' is'} committed or staged in full instead of as an LFS pointer.` : null,
+    lfs.patterns.length ? `Tracked patterns: ${lfs.patterns.join('  ')}` : null,
+  ];
+  const list = h('div.lfs-list', null, lfs.files.map((f) => h('div.lfs-row', { title: LFS_STATES[f.state][1] },
+    h(`span.lfs-state.lfs-${f.state}`, null, LFS_STATES[f.state][0]),
+    h('span.mono.lfs-path', null, f.path),
+    !f.stored ? h('span.badge.warn', { title: 'Git stores the whole file here, not an LFS pointer' }, 'Not in LFS') : null,
+    h('span.lfs-size', null, formatSize(f.size)),
+  )));
+  await dialog({ title: 'Git LFS files', description: h('div', null, summary.filter(Boolean).map((t) => h('div', null, t)), list), submit: 'Done', wide: true });
 }
 
 function renderView(soft = false) {
@@ -852,6 +920,7 @@ function commitDetail(c) {
       prop('Author', h('span.prop-person', null, avatar(c.author, c.email, 18), c.author)),
       c.committer !== c.author ? prop('Committer', h('span.prop-person', null, avatar(c.committer, c.committerEmail, 18), c.committer)) : null,
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
+      c.signature ? prop('Signature', signatureBadge(c.signature)) : null,
       prop('Commit', h('button.mono-link', { onclick: () => copy(c.sha, 'Copied SHA') }, c.sha.slice(0, 12), icon('copy', 12))),
       c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => selectCommit(p, 'center') }, p.slice(0, 7))))) : null,
     ),
@@ -861,6 +930,11 @@ function commitDetail(c) {
   );
 }
 
+const SIGNATURE_LABELS = { good: 'Verified', expired: 'Expired', revoked: 'Revoked', bad: 'Bad signature', unverified: 'Signed, not verified' };
+const SIGNATURE_TIPS = { unverified: 'Signed, but the key is not in your keyring or allowed signers file' };
+const signatureBadge = ({ state, signer }) => h(`span.sig-badge.sig-${state}`, { title: [SIGNATURE_TIPS[state], signer].filter(Boolean).join(' · ') || null },
+  SIGNATURE_LABELS[state], signer ? h('span.sig-signer', null, signer) : null);
+
 const prop = (label, value) => h('div.prop', null, h('span.prop-label', null, label), h('span.prop-value', null, value));
 
 function fileRow(f, onclick, extra) {
@@ -868,6 +942,7 @@ function fileRow(f, onclick, extra) {
   return h('div.file-row', { onclick, title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path },
     statusBadge(f.status),
     h('span.fname', null, name),
+    f.lfs ? lfsBadge() : null,
     h('span.fdir', null, dir),
     f.add != null && (f.add || f.del) ? h('span.stat.small', null, f.add ? h('span.add', null, '+' + f.add) : null, f.del ? h('span.del', null, '−' + f.del) : null) : null,
     extra || null,
@@ -1417,7 +1492,7 @@ function createCommitView(container) {
       h('button.btn.ghost.tiny', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines', hunkKeys(hunk, hi)) }, list === 'unstaged' ? 'Stage hunk' : 'Unstage hunk'),
     ];
     diffPane.replaceChildren(...[
-      h('div.diff-head', null, statusBadge(file.status), h('span.mono', null, file.oldPath ? `${file.oldPath} → ${file.path}` : file.path), h('span.spacer'), bar,
+      h('div.diff-head', null, statusBadge(file.status), h('span.mono', null, file.oldPath ? `${file.oldPath} → ${file.path}` : file.path), file.lfs ? lfsBadge() : null, h('span.spacer'), bar,
         list === 'conflicts' ? null : h('button.btn.subtle.small', { onclick: () => quiet(list === 'unstaged' ? 'stageFiles' : 'unstageFiles', [file.path]) }, list === 'unstaged' ? 'Stage file' : 'Unstage file'),
         h('button.icon-btn', { title: 'Open file', onclick: () => api.app('open-file', file.path) }, icon('external', 14)),
       ),
@@ -1612,7 +1687,7 @@ async function editConfig(c) {
 
 function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
-async function push(force) { return act('Push', 'push', [{ force }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
+async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
 // ---------------------------------------------------------------------------
 // Worktrees: extra working folders of this repository, each with its own
@@ -1788,6 +1863,7 @@ function openPalette() {
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
+    add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
     add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: [MOD, '⌥', 'N'] });
     add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: [MOD, '⌥', 'W'] });
     if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
@@ -1912,6 +1988,7 @@ async function loadRepo(repo) {
   // Switching between worktrees of one repository keeps the current view.
   const sameRepo = state.repo && state.repo.commonDir === repo.commonDir;
   state.repo = repo;
+  state.lfs = null;
   if (!sameRepo) { state.view = 'map'; state.worktrees = []; }
   state.selected = null;
   state.logKey = '';
@@ -1981,6 +2058,7 @@ const commands = {
   hosting: () => state.repo && openHosting(),
   worktreeAdd: () => state.repo && addWorktree(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
+  lfs: () => openLfs(),
   licence: () => openLicence(),
   buy,
 };

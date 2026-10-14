@@ -64,14 +64,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Dark: warm, orange-tinted near-black neutrals with a vivid pop orange. */
+    /* Dark: warm, orange-tinted near-black neutrals with a softened (not fully saturated) orange. */
     --bg: #0e0b09;
     --bg-sidebar: #0e0b09;
     --bg-content: #15110e;
     --bg-elevated: #201a16;
     --bg-hover: rgba(255, 236, 220, 0.04);
     --bg-active: rgba(255, 236, 220, 0.07);
-    --bg-selected: rgba(255, 106, 26, 0.12);
+    --bg-selected: rgba(230, 114, 51, 0.12);
     --bg-input: #1a1511;
     --border: #2a221c;
     --border-strong: #3a2f27;
@@ -79,12 +79,12 @@
     --text-2: #d9cfc6;
     --text-3: #a59689;
     --text-4: #85766a;
-    --accent: #ff6a1a;
-    --accent-hover: #ff8340;
+    --accent: #e67233;
+    --accent-hover: #ea8955;
     --accent-text: #1a0d05;
-    --accent-fg: #ff8a4c;
-    --accent-soft: rgba(255, 106, 26, 0.16);
-    --focus-ring: #ff8a4c;
+    --accent-fg: #eb9060;
+    --accent-soft: rgba(230, 114, 51, 0.16);
+    --focus-ring: #eb9060;
     --green: #4cc38a;
     --red: #f0506e;
     --red-text: #1a0d05;
@@ -97,17 +97,17 @@
     --scrim: rgba(0, 0, 0, 0.55);
     --btn-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.18);
     --avatar-text: #140d08;
-    --logo-bg: linear-gradient(140deg, #ffa066, #ff6a1a 55%, #d94a00);
-    --logo-shadow: 0 8px 30px rgba(255, 106, 26, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    --logo-bg: linear-gradient(140deg, #eea477, #e67233 55%, #c15218);
+    --logo-shadow: 0 8px 30px rgba(230, 114, 51, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
     --shadow: 0 0 0 1px rgba(255, 236, 220, 0.06), 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-    --lane-0: #ff6a1a;
+    --lane-0: #e67233;
     --lane-1: #c5d8fd;
     --lane-2: #ffd16b;
     --lane-3: #e1a0fe;
     --lane-4: #2fe0d8;
-    --lane-5: #d481a2;
+    --lane-5: #d485a6;
     --lane-6: #8ddc7c;
     --lane-7: #50b9df;
     --lane-8: #8a82e9;
@@ -165,7 +165,8 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 /* ---------------------------------------------------------------- Sidebar */
 .sidebar { display: flex; flex-direction: column; min-height: 0; background: var(--bg-sidebar); padding: 0 8px; }
 .sb-top { display: flex; align-items: center; gap: 4px; height: 52px; padding-top: 6px; -webkit-app-region: drag; }
-.mac .sb-top { padding-left: 72px; }
+/* macOS: the repo switcher sits on its own row under the traffic lights, not beside them. */
+.mac .sb-top { height: 76px; padding-top: 40px; }
 .sb-top > * { -webkit-app-region: no-drag; }
 .repo-switch { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: var(--radius); flex: 1; min-width: 0; font-weight: 560; }
 .repo-switch:hover { background: var(--bg-hover); }
@@ -350,6 +351,12 @@ kbd.inline { flex: none; }
 .mono-link:hover { background: var(--bg-hover); color: var(--text); }
 .mono-link .icon { color: var(--text-4); }
 .parents { display: inline-flex; gap: 4px; }
+.sig-badge { display: inline-flex; align-items: center; gap: 8px; }
+.sig-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); flex: none; }
+.sig-good::before { background: var(--green); }
+.sig-expired::before, .sig-unverified::before { background: var(--warn); }
+.sig-bad::before, .sig-revoked::before { background: var(--red); }
+.sig-signer { color: var(--text-3); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .files-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px 6px; font-size: 12.5px; color: var(--text-3); font-weight: 500; }
 .files-head > span:first-child { flex: 1; }
 .stat { display: inline-flex; gap: 6px; font-family: var(--mono); font-size: 11.5px; }
@@ -614,3 +621,14 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .licence-profile { position: absolute; top: 18px; right: 20px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-strong); font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
 .licence .dialog-foot { align-items: center; }
 .licence .dialog-foot > :first-child.btn.ghost { margin-right: auto; }
+
+/* Git LFS */
+.badge.lfs { height: 16px; padding: 0 4px; font-size: 9.5px; color: var(--accent-fg); background: var(--accent-soft); flex: none; }
+.lfs-list { margin-top: 10px; max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.lfs-row { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.lfs-row:last-child { border-bottom: 0; }
+.lfs-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.lfs-size { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.lfs-state { flex: none; width: 92px; color: var(--text-3); }
+.lfs-state.lfs-downloaded { color: var(--green); }
+.lfs-state.lfs-pointer { color: var(--warn); }

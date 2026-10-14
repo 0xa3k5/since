@@ -97,6 +97,18 @@ const arch = () => (app.runningUnderARM64Translation ? 'arm64' : process.arch);
 
 const auto = () => config?.auto?.() !== false;
 
+// The private session the feed is fetched in. main.js locks every session down to local files;
+// this one may also reach the feed's host (feedOrigins), over https.
+const PARTITION = 'gitlanes-updates';
+// GitHub answers release downloads with a redirect to its asset hosts.
+const GITHUB_ASSET_HOSTS = ['https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com'];
+function feedOrigins(url) {
+  let u;
+  try { u = new URL(url); } catch { return []; }
+  return [u.origin, ...(u.hostname === 'github.com' ? GITHUB_ASSET_HOSTS : [])];
+}
+const allowedOrigins = () => (config && state.status !== 'disabled' ? feedOrigins(config.url) : []);
+
 /**
  * opts.auto() -> false turns off the launch and daily checks; manual checks still work. opts.feed: base URL holding update-mac-<arch>.json. opts.page: where to send people when
  * an update can't be installed in place. opts.onChange(state) runs after every state change.
@@ -134,7 +146,7 @@ async function check({ manual = false } = {}) {
   set({ status: 'checking', manual });
   try {
     // A private in-memory session: no cookies, cache or keychain access shared with anything else.
-    const res = await session.fromPartition('gitlanes-updates', { cache: false }).fetch(config.url, {
+    const res = await session.fromPartition(PARTITION, { cache: false }).fetch(config.url, {
       headers: { 'Cache-Control': 'no-cache' }, credentials: 'omit', signal: AbortSignal.timeout(30_000),
     });
     // No published release carries a feed yet.
@@ -162,4 +174,4 @@ const refresh = () => set({ ...state, manual: false });
 const getState = () => state;
 const page = () => config?.page || null;
 
-module.exports = { init, check, install, refresh, getState, page, isSignedOutput, compareVersions, parseVersion, buildFeed, readFeed, feedName, feedUrl, zipName };
+module.exports = { PARTITION, feedOrigins, allowedOrigins, init, check, install, refresh, getState, page, isSignedOutput, compareVersions, parseVersion, buildFeed, readFeed, feedName, feedUrl, zipName };
