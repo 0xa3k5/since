@@ -13,8 +13,8 @@ const DEBOUNCE = 400;
 
 // load({ prs }) → app:lanes-list result; prsOn() and markAgents() read current settings;
 // onOpen(lane) opens it in the graph. actions(lane) → extra context-menu items, the hook for
-// later row actions (review, merge, delete); none yet.
-export function lanesView({ load, prsOn, markAgents, onOpen, actions = () => [] }) {
+// later row actions (review, merge, delete); none yet. onCleanup() opens Clean up.
+export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions = () => [] }) {
   let lanes = [];
   let shown = [];
   let selKey = null;
@@ -32,7 +32,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, actions = () => [] 
   const el = h('div.page.flush.lanes', { tabIndex: 0 },
     h('div.page-head', null,
       h('div', null, h('h1', null, 'Lanes'), h('p.muted', null, 'Every branch and worktree in this repository. Lanes that need you come first.')),
-      h('div.page-actions', null, count)),
+      h('div.page-actions', null, count, onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null)),
     h('div.lanes-bar', null, icon('search', 14), filter, agentChip),
     list,
     empty,

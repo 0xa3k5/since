@@ -9,6 +9,8 @@ import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { lanesView } from './lanes-view.js';
+import { cleanupView } from './cleanup-view.js';
+import { STALE_DAYS } from './cleanup.js';
 import { laneTarget } from './lanes.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
@@ -170,7 +172,7 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
-  if (state.view === 'lanes') lanesPage?.refresh();
+  if (state.view === 'lanes') (state.cleanup ? cleanupPage : lanesPage)?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
 });
@@ -463,7 +465,7 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null;
+let mapView = null, commitView = null, lanesPage = null, cleanupPage = null;
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 
@@ -501,6 +503,7 @@ function setView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
+  state.cleanup = false;
   state.view = v;
   renderSidebar();
   renderTopbar();
@@ -868,7 +871,7 @@ function renderView(soft = false) {
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
-    case 'lanes': contentEl.append(openLanes().el); break;
+    case 'lanes': contentEl.append(state.cleanup ? openCleanup().el : openLanes().el); break;
   }
 }
 
@@ -2230,8 +2233,33 @@ function openLanes() {
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
+    onCleanup: startCleanup,
   });
   return lanesPage;
+}
+
+// Lanes → Clean up (cleanup-view.js): stale branches and worktrees, removed in bulk as one undo step.
+function startCleanup() {
+  if (!state.repo) return;
+  setView('lanes');
+  state.cleanup = true;
+  renderView();
+}
+const cleanupPrefs = () => loadPref('cleanup', { days: STALE_DAYS });
+function openCleanup() {
+  cleanupPage = cleanupView({
+    load: () => api.app('lanes-list'),
+    run: (items, label) => git('cleanupLanes', items, { __label: label }),
+    runRemote: (names) => git('deleteRemoteBranches', names),
+    days: () => cleanupPrefs().days,
+    setDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
+    onProgress: (fn) => api.on('cleanup:progress', fn),
+    onDone: refreshAll,
+    onUndo: undo,
+    onBack: () => setView('lanes'),
+    mod: MOD,
+  });
+  return cleanupPage;
 }
 function openLane(lane) {
   const t = laneTarget(lane);
@@ -2893,6 +2921,7 @@ function openPalette() {
     if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: keymap.keys('repo.origin'), detail: originRemote().label });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
+    add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
@@ -3343,6 +3372,7 @@ window.addEventListener('keydown', (e) => {
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
     if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
+  if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {

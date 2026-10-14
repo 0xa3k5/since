@@ -684,6 +684,15 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 84px; }
 .lanes-time { min-width: 36px; color: var(--text-4); }
 .lanes-count { font-size: 12px; }
+.cleanup-bar { display: flex; align-items: center; gap: 16px; margin: 0 16px 8px; padding: 0 16px; min-height: 32px; font-size: 12px; }
+.cleanup-days { width: 64px; height: 26px; padding: 0 6px; font-variant-numeric: tabular-nums; }
+.cleanup-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
+.cleanup-progress[hidden] { display: none; }
+.cleanup-group { display: flex; align-items: center; gap: 8px; cursor: default; }
+.cleanup-group input, .cleanup .lanes-row input { accent-color: var(--accent); margin: 0; flex: none; }
+.cleanup .lanes-row.blocked { opacity: 0.55; }
+.cleanup-remote { flex: none; }
+.cleanup-remote.on { color: var(--red-text); background: var(--red); }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }
 
