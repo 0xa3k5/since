@@ -160,6 +160,7 @@ const gitSchemas = {
   compare: [rev, rev],
   status: [],
   opState: [],
+  lfs: [],
   workingDiff: [fileEntry, optional(bool)],
   stashes: [],
   reflog: [],

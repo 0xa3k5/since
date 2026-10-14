@@ -167,7 +167,8 @@ const reads = {
   // Throws the reason a commit can't be split (merge, not on this branch, merges above it).
   checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
-  status: (s) => git.getStatus(s.repo.root),
+  status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
+  lfs: (s) => git.getLfs(s.repo.root),
   opState: (s) => git.getOperationState(s.repo.gitDir),
   workingDiff: (s, file, staged) => git.workingDiff(s.repo.root, file, { staged }),
   stashes: (s) => git.getStashes(s.repo.root),
@@ -628,6 +629,8 @@ function buildMenu() {
         { type: 'separator' },
         item('New Worktree…', 'CmdOrCtrl+Alt+N', 'worktreeAdd'),
         item('Switch Worktree…', 'CmdOrCtrl+Alt+W', 'worktreeSwitch'),
+        { type: 'separator' },
+        item('Git LFS Files…', 'CmdOrCtrl+Alt+F', 'lfs'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
         item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),
