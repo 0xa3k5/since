@@ -21,7 +21,7 @@ import quickDark from '../../assets/features/quick-dark.webp';
   <h2 id="moving">Moving around</h2>
   <table>
     <tbody>
-      <tr><td>Next or previous commit</td><td><Kbd keys={['↓']} /> <Kbd keys={['↑']} /></td></tr>
+      <tr><td>Next or previous commit</td><td><Kbd keys={['J']} /> <Kbd keys={['K']} /> or <Kbd keys={['↓']} /> <Kbd keys={['↑']} /></td></tr>
       <tr><td>A page down or up</td><td><Kbd keys={['Page Down']} /> <Kbd keys={['Page Up']} /></td></tr>
       <tr><td>First or last commit</td><td><Kbd keys={['Home']} /> <Kbd keys={['End']} /></td></tr>
       <tr><td>Jump to HEAD</td><td><Kbd keys={['H']} /></td></tr>
@@ -35,7 +35,7 @@ import quickDark from '../../assets/features/quick-dark.webp';
 
   <h2 id="inspect">Inspecting a commit</h2>
   <p>The <strong>detail panel</strong> on the right shows the selected commit's message, author, date, parents and files. <Kbd keys={['Space']} /> shows or hides it.</p>
-  <p><strong>Quick View</strong> opens a commit full height, with its diff. Press <Kbd keys={['↵']} /> on a commit, step through its files with <Kbd keys={['↓']} /> <Kbd keys={['↑']} />, and press <Kbd keys={['Esc']} /> to go back.
+  <p><strong>Quick View</strong> opens a commit full height, with its diff. Press <Kbd keys={['↵']} /> on a commit, step through its files with <Kbd keys={['J']} /> <Kbd keys={['K']} />, and press <Kbd keys={['Esc']} /> to go back.
     To compare a commit with where you are now, press <Kbd keys={['D']} /> for a diff with HEAD.</p>
   <Shot light={quickLight} dark={quickDark} alt="Quick View showing a commit's file list and diff" />
 
