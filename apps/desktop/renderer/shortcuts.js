@@ -44,7 +44,7 @@ export function shortcutSections({ first = null, query = '', custom = new Set(),
       labels: ids.map((x) => command(x).label),
       section: sections.get(id).title,
       // A pair shows its two keys side by side: ↓ ↑.
-      keys: cmd.pair ? [[...main[0], ...keys(cmd.pair, { mac })], ...main.slice(1)] : main,
+      keys: cmd.pair ? [[...(main[0] ?? []), ...keys(cmd.pair, { mac })], ...main.slice(1)].filter((k) => k.length) : main,
       custom: ids.some((x) => custom.has(x)),
     };
     sections.get(id).rows.push(row);
