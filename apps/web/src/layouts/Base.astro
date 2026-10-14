@@ -40,5 +40,18 @@ export type Props = SeoProps;
       <slot />
     </main>
     <Footer />
+    <!-- Reveal on scroll for [data-reveal]; skipped when the reader prefers reduced motion. -->
+    <script is:inline>
+      (() => {
+        if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const items = document.querySelectorAll('[data-reveal]');
+        if (!items.length) return;
+        document.documentElement.classList.add('reveal-on');
+        const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+          if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+        }), { rootMargin: '0px 0px -8% 0px' });
+        items.forEach((el) => io.observe(el));
+      })();
+    </script>
   </body>
 </html>
