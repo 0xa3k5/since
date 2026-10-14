@@ -96,6 +96,8 @@ export const COMMANDS = [
   c('global', 'global', 'global.close', 'Close Quick View', 'Escape'),
   c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
+  c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
+  c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
 
   // Map, with the commit list focused.
   c('map', 'map', 'map.next', 'Next / previous commit', 'ArrowDown', { pair: 'map.prev' }),

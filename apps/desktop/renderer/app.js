@@ -2574,41 +2574,60 @@ async function refreshPrs({ manual = false } = {}) {
   showPrs();
 }
 
-async function setupPrs() {
-  const st = await api.app('pr-state');
-  const r = st.remote;
-  if (!r) return toast('This repository has no GitHub remote');
-  const ok = await dialog({
-    title: 'Show pull requests from GitHub?',
-    description: `Uses your GitHub CLI login. Talks to GitHub only when you fetch or refresh PRs. Shows open pull requests for ${r.owner}/${r.repo} on ${r.host} in the graph and the sidebar.`,
-    submit: 'Turn on',
-  });
-  if (!ok) return;
-  const det = await api.app('pr-detect');
-  if (det.error) return toast('Couldn’t check GitHub CLI', { kind: 'error', detail: det.error.message });
-  if (det.ok.gh === 'missing') {
+const setPrState = (next) => { state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() }; showPrs(); };
+let prLoggedOut = false; // the last turn-on found `gh` logged out, so setup shows Set up… until it works
+
+// One switch for every repository. `ask` explains first (⌘K, ⌘⌥P); the setup switch skips that.
+async function setupPrs({ ask = true } = {}) {
+  const st = await api.app('pr-state').catch(() => null);
+  if (!st) return toast('Open a repository to turn on pull requests', { detail: 'After that they’re on in every repository.' });
+  if (st.enabled && st.hidden) return hidePrs(false);
+  if (st.enabled && !st.remote) return toast('This repository has no GitHub remote', { detail: 'Pull requests are on and show in repositories that have one.' });
+  if (ask) {
+    const ok = await dialog({
+      title: 'Show pull requests from GitHub?',
+      description: 'Shows open pull requests in the graph and the sidebar of every repository with a GitHub remote. Uses your GitHub CLI login and talks to GitHub only when you fetch or refresh.',
+      submit: 'Turn on',
+    });
+    if (!ok) return;
+  }
+  if (st.gh === 'missing') {
     const install = await dialog({ title: 'Install GitHub CLI', description: 'GitLanes reads pull requests through GitHub’s own `gh` command, so it never handles your token. Install it, run `gh auth login` once, then turn pull requests on again.', submit: 'Open cli.github.com' });
     if (install) api.app('external', st.installUrl);
     return;
   }
-  if (det.ok.gh === 'logged-out') {
-    const cmd = r.host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${r.host}`;
-    const login = await dialog({ title: `Log in to ${r.host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
-    if (login) copy(cmd, 'Copied the login command');
-    return;
+  // Login is per host, so it's checked against this repository's remote when there is one.
+  if (st.remote) {
+    const det = await api.app('pr-detect');
+    if (det.error) return toast('Couldn’t check GitHub CLI', { kind: 'error', detail: det.error.message });
+    prLoggedOut = det.ok.gh === 'logged-out';
+    if (prLoggedOut) {
+      const host = st.remote.host;
+      const cmd = host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${host}`;
+      const login = await dialog({ title: `Log in to ${host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
+      if (login) copy(cmd, 'Copied the login command');
+      return;
+    }
   }
   const next = await api.app('pr-enable', true);
-  state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
-  showPrs();
-  refreshPrs({ manual: true });
+  setPrState(next);
+  toast('Pull requests on', { kind: 'success', action: { label: 'Undo', run: () => turnOffPrs() } });
+  if (next.active) refreshPrs();
 }
 
 async function turnOffPrs() {
   const next = await api.app('pr-enable', false);
   try { localStorage.removeItem(prCacheKey(state.repo.root)); } catch { /* ignore */ }
-  state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
-  showPrs();
-  toast('Pull requests are off');
+  setPrState(next);
+  toast('Pull requests off', { action: { label: 'Undo', run: () => setupPrs({ ask: false }) } });
+}
+const togglePrs = () => (state.prs?.enabled ? turnOffPrs() : setupPrs());
+
+// The per-repository escape hatch. The cache stays, so showing them again is instant.
+async function hidePrs(hide) {
+  const next = await api.app('pr-hide', hide);
+  if (hide) setPrState(next); else await loadPrs();
+  toast(hide ? 'Hidden in this repository' : 'Shown in this repository', { action: { label: 'Undo', run: () => hidePrs(!hide) } });
 }
 
 // ⌘⌥P: open PRs, newest update first; pick one to jump to its branch.
@@ -2781,7 +2800,8 @@ function openPalette() {
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
-    if (state.prs?.active) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
+    add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
+    if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
@@ -2923,15 +2943,26 @@ async function setupFeature(id, on) {
   savePref('show', state.show);
   if (id === 'swatches') setSwatches(on);
 }
+// The PR row: a switch once GitHub CLI is installed and logged in, else Set up…. Without a
+// repository the main process can't answer yet, so the row offers Set up….
+async function prSetup() {
+  const st = state.repo ? await api.app('pr-state').catch(() => null) : null;
+  if (!st) return { on: false, setup: true };
+  return { on: st.enabled, setup: !st.enabled && (st.gh === 'missing' || prLoggedOut) };
+}
 const aiLabel = () => (aiOn() && state.ai.providers.find((p) => p.id === state.ai.provider)?.label) || 'Off';
 function setupPanel(onDone, done) {
+  let pr = { on: false, setup: true };
   const view = setupView({
     mod: MOD, values: setupState(), theme: state.theme, themes: THEMES, ai: aiLabel(), onToggle: setupFeature, onTheme: setTheme, done,
     onAi: async () => { await setupAi(); return aiLabel(); },
+    pr: { setup: true },
+    onPr: async (on) => { await (on ? setupPrs({ ask: false }) : turnOffPrs()); return prSetup(); },
     onDone: () => { savePref(SETUP_PREF, { done: true }); onDone(); },
   });
   // The AI choice is saved by the main process; show it once it's read.
-  api.app('ai-settings').then((a) => { state.ai = a; view.refresh(setupState(), state.theme, aiLabel()); }).catch(() => {});
+  Promise.all([api.app('ai-settings').then((a) => { state.ai = a; }).catch(() => {}), prSetup().then((p) => { pr = p; })])
+    .then(() => view.refresh({ ...setupState(), prs: pr.on }, state.theme, aiLabel(), pr));
   return view.el;
 }
 function openSetup() {
@@ -3246,6 +3277,8 @@ window.addEventListener('keydown', (e) => {
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
     if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
+  if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
+  if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
     e.preventDefault();
     if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();
