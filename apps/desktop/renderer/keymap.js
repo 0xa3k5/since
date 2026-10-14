@@ -97,6 +97,8 @@ export const COMMANDS = [
   c('global', 'global', 'global.close', 'Close Quick View', 'Escape'),
   c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
+  c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
+  c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
 
   // Map, with the commit list focused.
   c('map', 'map', 'map.next', 'Next / previous commit', 'ArrowDown', { pair: 'map.prev' }),
@@ -110,6 +112,7 @@ export const COMMANDS = [
   c('map', 'map', 'map.clearSearch', 'Clear search', 'Escape'),
   c('map', 'map', 'map.head', 'Jump to HEAD', 'h'),
   c('map', 'map', 'map.copySha', 'Copy SHA', 'Mod+c'),
+  c('map', 'map', 'map.copyLink', 'Copy link to commit', 'Mod+Shift+C'),
   // Commit actions: single keys on the selected commit. The commit's right-click menu shows the same keys.
   c('map', 'commit-actions', 'commit.checkoutBranch', 'Checkout branch', 'Mod+Enter'),
   c('map', 'commit-actions', 'commit.checkout', 'Checkout (detached)', 'o'),

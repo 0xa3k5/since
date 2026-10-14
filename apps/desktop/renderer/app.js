@@ -539,6 +539,13 @@ function openAuthor(c) {
   else toast(`No GitHub profile found for ${c.author}`, { kind: 'error' });
 }
 
+// ⌘⇧C: the selected commit's page on the origin's web host.
+function copyCommitLink(sha) {
+  const r = originRemote();
+  if (r?.web) copy(`${r.web}/commit/${sha}`, 'Copied link to commit');
+  else toast(r ? `${r.name} is not on a web host` : 'This repository has no remotes', { kind: 'error' });
+}
+
 function openOrigin() {
   const r = originRemote();
   if (r?.web) api.app('external', r.web);
@@ -623,7 +630,7 @@ function renderSidebar() {
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
       state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
-      state.prs?.enabled ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
+      state.prs?.active ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
     ),
     // Icons-only stand-ins for the sections above, shown in the rail.
     h('div.sb-rail-items', null,
@@ -632,7 +639,7 @@ function renderSidebar() {
       [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
       railItem('tags', 'Tags', 'tag'),
       state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
-      state.prs?.enabled ? railItem('prs', 'Pull requests', 'merge') : null,
+      state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
     ),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: tip('Fetch all', 'repo.fetch'), 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
@@ -1035,6 +1042,7 @@ function createMapView(container) {
     switch (id) {
       case 'commit.checkoutBranch': if (!isEditable(e.target)) { e.preventDefault(); if (c) checkoutSelected(c); } break;
       case 'map.copySha': if (!window.getSelection().toString()) { e.preventDefault(); copy(state.selected, 'Copied SHA'); } break;
+      case 'map.copyLink': e.preventDefault(); copyCommitLink(state.selected); break;
       case 'map.next': move(1); break;
       case 'map.prev': move(-1); break;
       case 'map.pageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
@@ -1050,8 +1058,8 @@ function createMapView(container) {
   });
 
   refresh();
-  const i = state.index.get(state.selected);
-  if (i != null) requestAnimationFrame(() => vl.scrollToIndex(i, 'center'));
+  // Read the selection on the frame: a jump right after this view opens (a sidebar PR or branch) has moved it by then.
+  requestAnimationFrame(() => { const i = state.index.get(state.selected); if (i != null) vl.scrollToIndex(i, 'center'); });
   scroller.focus({ preventScroll: true });
 
   return {
@@ -1412,6 +1420,7 @@ function commitMenu(x, y, c) {
     { label: 'Delete Commit', icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: c.parents.length > 1, run: () => rewriteOp('drop', c) },
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
+    remote?.web ? { label: 'Copy Link to Commit', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
     { label: 'Copy Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
     authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => openAuthor(c) } : null,
     remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
@@ -1429,8 +1438,8 @@ function refMenu(x, y, r) {
       { label: `Merge into ${state.head.branch || 'HEAD'}`, icon: 'merge', disabled: cur, run: () => act(`Merge ${r.short}`, 'merge', [r.short]) },
       { label: `Rebase ${state.head.branch || 'HEAD'} onto ${r.short}`, icon: 'rebase', disabled: cur, run: () => act(`Rebase onto ${r.short}`, 'rebaseOnto', [r.short]) },
       '-',
-      state.prs?.enabled && !prFor(r) ? { label: 'New Pull Request…', icon: 'plus', kbd: cur ? [MOD, '⌥', '⇧', 'N'] : null, run: () => createPr(r.short) } : null,
-      state.prs?.enabled && !prFor(r) ? '-' : null,
+      state.prs?.active && !prFor(r) ? { label: 'New Pull Request…', icon: 'plus', kbd: cur ? [MOD, '⌥', '⇧', 'N'] : null, run: () => createPr(r.short) } : null,
+      state.prs?.active && !prFor(r) ? '-' : null,
       { label: 'Rename…', icon: 'edit', run: () => renameBranch(r) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied branch name') },
       '-',
@@ -2387,7 +2396,7 @@ async function writeMessageWithAi() {
 }
 
 // ---------------------------------------------------------------------------
-// Pull requests (read-only), through the user's GitHub CLI. Off per repository until turned on;
+// Pull requests (read-only), through the user’s GitHub CLI. One user-wide switch (plus a per-repo hide);
 // `gh` only runs on Fetch or Refresh, never in the background. The last result is kept per
 // repository and shown as stale until the next successful refresh.
 
@@ -2397,13 +2406,13 @@ async function loadPrs() {
   const st = await api.app('pr-state').catch(() => null);
   if (!st || state.repo !== repo) return;
   let data = null;
-  if (st.enabled) { try { data = JSON.parse(localStorage.getItem(prCacheKey(repo.root))); } catch { /* none */ } }
+  if (st.active) { try { data = JSON.parse(localStorage.getItem(prCacheKey(repo.root))); } catch { /* none */ } }
   state.prs = { ...st, data, stale: Boolean(data), error: null, busy: false, byRef: new Map() };
   showPrs();
 }
 function indexPrs() { if (state.prs) state.prs.byRef = prsByRef(state.prs.data, state.refs); }
 function showPrs() { indexPrs(); renderSidebar(); mapView?.refresh(); }
-const prFor = (r) => (state.prs?.enabled ? state.prs.byRef.get(refKey(r)) : null);
+const prFor = (r) => (state.prs?.active ? state.prs.byRef.get(refKey(r)) : null);
 const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
 
 // Draft, review and CI marks, shared by graph badges and the sidebar list.
@@ -2439,6 +2448,7 @@ async function openPr(pr) {
 function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
   if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });
+  if (!state.index.has(r.target)) return openQuick(r.target);
   setView('map');
   selectCommit(r.target, 'center');
 }
@@ -2482,7 +2492,7 @@ async function checkoutPr(pr, { worktree = false } = {}) {
 
 // ⌘⌥⇧O / ⌘⌥⇧L: pick an open PR to check out here or in a new worktree.
 function pickPr(worktree) {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   const prs = state.prs.data?.prs || [];
   if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${keyText('repo.prRefresh')}.` });
   palette(() => prs.map((pr) => ({ group: 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: worktree ? 'worktree' : 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => checkoutPr(pr, { worktree }) })),
@@ -2492,7 +2502,7 @@ function pickPr(worktree) {
 // ⌘⌥⇧N: open a PR from the current (or a picked) branch. Title and body come from its commits.
 // A branch that isn't on GitHub yet is only pushed after the user ticks the confirm.
 async function createPr(branch = state.head.branch) {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   if (!branch) return toast('Check out a branch first', { detail: 'A pull request needs a branch to merge from.' });
   const open = prFor({ kind: 'branch', short: branch });
   if (open) return toast(`${branch} already has #${open.number}`, { action: { label: 'Open', run: () => openPr(open) } });
@@ -2548,7 +2558,7 @@ function pickPrBranch() {
 
 async function refreshPrs({ manual = false } = {}) {
   const p = state.prs;
-  if (!p?.enabled) return manual ? setupPrs() : undefined;
+  if (!p?.active) return manual ? setupPrs() : undefined;
   if (p.busy) return;
   p.busy = true;
   const busy = manual ? toast('Refreshing pull requests…', { kind: 'busy', timeout: 0 }) : null;
@@ -2563,7 +2573,7 @@ async function refreshPrs({ manual = false } = {}) {
     try { localStorage.setItem(prCacheKey(state.repo.root), JSON.stringify(res.ok)); } catch { /* full */ }
     if (manual) toast(`${res.ok.prs.length} open pull request${res.ok.prs.length === 1 ? '' : 's'}`, { kind: 'success' });
   } else if (res.ok === null) {
-    p.enabled = false; // turned off in another window
+    p.active = false; // turned off or hidden in another window
   } else {
     // Offline or a `gh` error: keep what we had, marked stale. After a fetch this stays quiet.
     p.stale = Boolean(p.data);
@@ -2573,46 +2583,65 @@ async function refreshPrs({ manual = false } = {}) {
   showPrs();
 }
 
-async function setupPrs() {
-  const st = await api.app('pr-state');
-  const r = st.remote;
-  if (!r) return toast('This repository has no GitHub remote');
-  const ok = await dialog({
-    title: 'Show pull requests from GitHub?',
-    description: `Uses your GitHub CLI login. Talks to GitHub only when you fetch or refresh PRs. Shows open pull requests for ${r.owner}/${r.repo} on ${r.host} in the graph and the sidebar.`,
-    submit: 'Turn on',
-  });
-  if (!ok) return;
-  const det = await api.app('pr-detect');
-  if (det.error) return toast('Couldn’t check GitHub CLI', { kind: 'error', detail: det.error.message });
-  if (det.ok.gh === 'missing') {
+const setPrState = (next) => { state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() }; showPrs(); };
+let prLoggedOut = false; // the last turn-on found `gh` logged out, so setup shows Set up… until it works
+
+// One switch for every repository. `ask` explains first (⌘K, ⌘⌥P); the setup switch skips that.
+async function setupPrs({ ask = true } = {}) {
+  const st = await api.app('pr-state').catch(() => null);
+  if (!st) return toast('Open a repository to turn on pull requests', { detail: 'After that they’re on in every repository.' });
+  if (st.enabled && st.hidden) return hidePrs(false);
+  if (st.enabled && !st.remote) return toast('This repository has no GitHub remote', { detail: 'Pull requests are on and show in repositories that have one.' });
+  if (ask) {
+    const ok = await dialog({
+      title: 'Show pull requests from GitHub?',
+      description: 'Shows open pull requests in the graph and the sidebar of every repository with a GitHub remote. Uses your GitHub CLI login and talks to GitHub only when you fetch or refresh.',
+      submit: 'Turn on',
+    });
+    if (!ok) return;
+  }
+  if (st.gh === 'missing') {
     const install = await dialog({ title: 'Install GitHub CLI', description: 'GitLanes reads pull requests through GitHub’s own `gh` command, so it never handles your token. Install it, run `gh auth login` once, then turn pull requests on again.', submit: 'Open cli.github.com' });
     if (install) api.app('external', st.installUrl);
     return;
   }
-  if (det.ok.gh === 'logged-out') {
-    const cmd = r.host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${r.host}`;
-    const login = await dialog({ title: `Log in to ${r.host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
-    if (login) copy(cmd, 'Copied the login command');
-    return;
+  // Login is per host, so it's checked against this repository's remote when there is one.
+  if (st.remote) {
+    const det = await api.app('pr-detect');
+    if (det.error) return toast('Couldn’t check GitHub CLI', { kind: 'error', detail: det.error.message });
+    prLoggedOut = det.ok.gh === 'logged-out';
+    if (prLoggedOut) {
+      const host = st.remote.host;
+      const cmd = host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${host}`;
+      const login = await dialog({ title: `Log in to ${host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
+      if (login) copy(cmd, 'Copied the login command');
+      return;
+    }
   }
   const next = await api.app('pr-enable', true);
-  state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
-  showPrs();
-  refreshPrs({ manual: true });
+  setPrState(next);
+  toast('Pull requests on', { kind: 'success', action: { label: 'Undo', run: () => turnOffPrs() } });
+  if (next.active) refreshPrs();
 }
 
 async function turnOffPrs() {
   const next = await api.app('pr-enable', false);
   try { localStorage.removeItem(prCacheKey(state.repo.root)); } catch { /* ignore */ }
-  state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
-  showPrs();
-  toast('Pull requests are off for this repository');
+  setPrState(next);
+  toast('Pull requests off', { action: { label: 'Undo', run: () => setupPrs({ ask: false }) } });
+}
+const togglePrs = () => (state.prs?.enabled ? turnOffPrs() : setupPrs());
+
+// The per-repository escape hatch. The cache stays, so showing them again is instant.
+async function hidePrs(hide) {
+  const next = await api.app('pr-hide', hide);
+  if (hide) setPrState(next); else await loadPrs();
+  toast(hide ? 'Hidden in this repository' : 'Shown in this repository', { action: { label: 'Undo', run: () => hidePrs(!hide) } });
 }
 
 // ⌘⌥P: open PRs, newest update first; pick one to jump to its branch.
 function prList() {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   const prs = state.prs.data?.prs || [];
   palette(() => [
     ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
@@ -2634,7 +2663,7 @@ const prRemote = () => state.prs?.data?.remote?.name;
 
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
 function withPr(pr, verb, fn) {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   if (pr) return fn(pr);
   const mine = state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null;
   if (mine) return fn(mine);
@@ -2769,18 +2798,19 @@ function openPalette() {
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
     add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: keymap.keys('repo.aiMessage'), detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
-    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: keymap.keys('repo.prs'), detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
+    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: keymap.keys('repo.prs'), detail: state.prs?.active ? null : 'off', keywords: 'pr github gh review checks ci' });
     add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: keymap.keys('repo.prRefresh'), keywords: 'pr github gh' });
     add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: keymap.keys('repo.prCreate'), keywords: 'pr github gh create open push' });
     add('Repository', 'New pull request from branch…', pickPrBranch, { icon: 'plus', keywords: 'pr github gh create open branch' });
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
     add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh lane review' });
-    if (state.prs?.enabled) {
+    if (state.prs?.active) {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
-    if (state.prs?.enabled) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
+    add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
+    if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
@@ -2847,6 +2877,7 @@ function openPalette() {
     const sel = state.commits[state.index.get(state.selected)];
     if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: keymap.keys('commit.checkoutBranch'), detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
     if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: keymap.keys('commit.author'), detail: sel.author, keywords: 'author profile github user person' });
+    if (sel && originRemote()?.web) add('Commit', 'Copy link to selected commit', () => copyCommitLink(sel.sha), { icon: 'copy', kbd: keymap.keys('map.copyLink'), detail: sel.sha.slice(0, 7), keywords: 'copy link url share permalink github web' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: keymap.keys('commit.split'), detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: keymap.keys('file.open') });
@@ -2925,15 +2956,26 @@ async function setupFeature(id, on) {
   savePref('show', state.show);
   if (id === 'swatches') setSwatches(on);
 }
+// The PR row: a switch once GitHub CLI is installed and logged in, else Set up…. Without a
+// repository the main process can't answer yet, so the row offers Set up….
+async function prSetup() {
+  const st = state.repo ? await api.app('pr-state').catch(() => null) : null;
+  if (!st) return { on: false, setup: true };
+  return { on: st.enabled, setup: !st.enabled && (st.gh === 'missing' || prLoggedOut) };
+}
 const aiLabel = () => (aiOn() && state.ai.providers.find((p) => p.id === state.ai.provider)?.label) || 'Off';
 function setupPanel(onDone, done) {
+  let pr = { on: false, setup: true };
   const view = setupView({
     mod: MOD, values: setupState(), theme: state.theme, themes: THEMES, ai: aiLabel(), onToggle: setupFeature, onTheme: setTheme, done,
     onAi: async () => { await setupAi(); return aiLabel(); },
+    pr: { setup: true },
+    onPr: async (on) => { await (on ? setupPrs({ ask: false }) : turnOffPrs()); return prSetup(); },
     onDone: () => { savePref(SETUP_PREF, { done: true }); onDone(); },
   });
   // The AI choice is saved by the main process; show it once it's read.
-  api.app('ai-settings').then((a) => { state.ai = a; view.refresh(setupState(), state.theme, aiLabel()); }).catch(() => {});
+  Promise.all([api.app('ai-settings').then((a) => { state.ai = a; }).catch(() => {}), prSetup().then((p) => { pr = p; })])
+    .then(() => view.refresh({ ...setupState(), prs: pr.on }, state.theme, aiLabel(), pr));
   return view.el;
 }
 function openSetup() {
@@ -2960,7 +3002,8 @@ function shortcutsScope() {
 }
 function openShortcuts() {
   if (shortcuts) return shortcuts.close();
-  if (document.querySelector('.overlay:not(.closing)')) return; // the ⌘K menu is still fading out when it runs this
+  // A palette that just ran this command is still fading out; only a live dialog blocks the window.
+  if (document.querySelector('.overlay:not(.closing)')) return;
   shortcuts = shortcutsWindow({
     first: shortcutsScope(),
     save: (o) => api.app('set-keymap', o),
@@ -3275,6 +3318,8 @@ window.addEventListener('keydown', (e) => {
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
     if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
+  if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
+  if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
     e.preventDefault();
     if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();

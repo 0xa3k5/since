@@ -1,6 +1,6 @@
 ---
-// Built at build time from the desktop app's source (src/lib/keymap.mjs). test/keymap.test.mjs fails
-// when the app's keys change and this page would drift.
+// Built at build time from the desktop app's keymap registry (apps/desktop/renderer/keymap.js, read by
+// src/lib/keymap.mjs), the same list the app's key handlers, menus and ⌘K use, so the page can't drift.
 import { PRODUCT_NAME } from '../config';
 import Base from '../layouts/Base.astro';
 import PageHead from '../components/content/PageHead.astro';

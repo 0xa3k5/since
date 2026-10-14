@@ -104,15 +104,34 @@ test('listPrs / detect: missing gh, logged out and other errors', async () => {
   assert.deepEqual(calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
 });
 
-test('settings: per-repository toggle', () => {
-  assert.deepEqual(github.normalize(undefined), { repos: [] });
-  assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { repos: ['/a'] });
-  let s = github.setEnabled(undefined, '/a', true);
-  s = github.setEnabled(s, '/b', true);
-  s = github.setEnabled(s, '/a', true);
-  assert.deepEqual(s.repos, ['/b', '/a']);
-  assert.ok(github.isEnabled(s, '/a'));
-  assert.ok(!github.isEnabled(github.setEnabled(s, '/a', false), '/a'));
+test('settings: one user-wide flag, a per-repository hide, and the old per-repository keys migrated', () => {
+  assert.deepEqual(github.normalize(undefined), { on: null, hidden: [] });
+  assert.deepEqual(github.normalize({ on: false, hidden: ['/a', 3] }), { on: false, hidden: ['/a'] });
+  // Upgrades: on if any repository had it on; the old `repos` key is dropped.
+  assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { on: true, hidden: [] });
+  assert.deepEqual(github.normalize({ repos: [] }), { on: null, hidden: [] });
+  assert.equal(github.normalize({ on: false, repos: ['/a'] }).on, false, 'an explicit choice wins');
+  let s = github.setEnabled(undefined, true);
+  assert.ok(github.isEnabled(s, '/a') && github.isEnabled(s, '/b'), 'on for every repository');
+  s = github.setHidden(s, '/a', true);
+  s = github.setHidden(s, '/a', true);
+  assert.deepEqual(s, { on: true, hidden: ['/a'] });
+  assert.ok(!github.isEnabled(s, '/a') && github.isHidden(s, '/a') && github.isEnabled(s, '/b'));
+  assert.ok(github.isEnabled(github.setHidden(s, '/a', false), '/a'));
+  assert.ok(!github.isEnabled(github.setEnabled(s, false), '/b'), 'off everywhere');
+  assert.deepEqual(github.setEnabled(s, false).hidden, ['/a'], 'turning it off keeps the hidden list');
+});
+
+test('ghStatus: the fresh-install default is on only when gh is installed and logged in', async () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gl-nogh-'));
+  const fail = (msg) => async () => { throw new Error(msg); };
+  assert.equal(await github.ghStatus({ dirs: [empty] }), 'missing');
+  assert.equal(github.ghInstalled({ dirs: [empty] }), false);
+  assert.equal(github.ghInstalled({ dirs: [fakeGh()] }), true);
+  assert.equal(await github.ghStatus({ dirs: [fakeGh()], exec: fail('not logged in') }), 'logged-out');
+  const { calls, exec } = recorder('');
+  assert.equal(await github.ghStatus({ dirs: [fakeGh()], exec }), 'ready');
+  assert.deepEqual(calls[0].args, ['auth', 'status']);
 });
 
 test('renderer: PRs land on their branches, fork PRs only on branches tracking that fork', async () => {
@@ -293,4 +312,22 @@ test('create PR: gh pr create gets plain flags and the body on stdin', async () 
   await assert.rejects(github.createPr({ ...t, base: '--admin', head: 'feat/x', title: 'x' }), { code: 'gh-failed' });
   await assert.rejects(github.createPr({ ...t, enabled: false, base: 'main', head: 'feat/x', title: 'x' }), { code: 'gh-off' });
   assert.equal(calls.length, 1);
+});
+
+test('joinLanes: PRs attach by upstream branch, forks only to lanes tracking them, off means null', () => {
+  const pr = (number, branch, headOwner, extra = {}) => ({ number, title: `PR ${number}`, branch, headOwner, draft: false, checks: 'success', review: 'approved', url: `https://github.com/acme/app/pull/${number}`, ...extra });
+  const listed = { owners: { origin: 'acme', fork: 'bob' }, prs: [pr(1, 'feat', 'acme', { draft: true, checks: 'pending' }), pr(2, 'fix', 'bob'), pr(3, 'local-only', 'acme'), pr(4, 'main', 'acme')] };
+  const lanes = [
+    { name: 'feat', branch: 'feat', upstream: 'origin/feat' },
+    { name: 'my-fix', branch: 'my-fix', upstream: 'fork/fix' },
+    { name: 'fix', branch: 'fix', upstream: 'origin/fix' },
+    { name: 'local-only', branch: 'local-only', upstream: null },
+    { name: 'main', branch: 'main', upstream: 'origin/main', isBase: true },
+    { name: 'det', branch: null, upstream: null },
+  ];
+  const out = github.joinLanes(lanes, listed);
+  assert.deepEqual(out.map((l) => l.pr?.number ?? null), [1, 2, null, 3, null, null]);
+  assert.deepEqual(out[0].pr, { number: 1, title: 'PR 1', state: 'open', draft: true, checks: 'pending', review: 'approved', url: 'https://github.com/acme/app/pull/1' });
+  assert.equal(out[0].name, 'feat', 'lane fields kept');
+  assert.ok(github.joinLanes(lanes, null).every((l) => l.pr === null));
 });
