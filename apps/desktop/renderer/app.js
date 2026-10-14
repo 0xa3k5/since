@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
+import { h, $, icon, kbd, loading, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -938,7 +938,11 @@ function createMapView(container) {
     const sha = state.selected;
     const token = ++detailToken;
     const cached = commitCache.get(sha);
-    if (!cached) detail.classList.add('loading');
+    if (!cached) {
+      detail.classList.add('loading');
+      detail.querySelector(':scope > .loading-state')?.remove();
+      detail.prepend(loading('Loading commit…'));
+    }
     let c;
     try { c = await loadCommit(sha); } catch (e) { detail.replaceChildren(h('div.empty', null, e.message)); return; }
     if (token !== detailToken) return;
@@ -1070,14 +1074,15 @@ function closeQuick() {
 function quickView({ sha, path }) {
   const el = h('div.quick');
   const side = h('div.quick-side');
-  const main = h('div.quick-main');
+  const main = h('div.quick-main', null, loading('Loading commit…'));
   el.append(side, main);
   let files = [];
   let current = path;
   let full = false;
 
   (async () => {
-    const c = await loadCommit(sha);
+    const c = await loadCommit(sha).catch((e) => { main.replaceChildren(h('div.empty', null, e.message)); return null; });
+    if (!c) return;
     files = c.files;
     if (!current && files[0]) current = files[0].path;
     side.replaceChildren(
@@ -1101,7 +1106,7 @@ function quickView({ sha, path }) {
   async function renderFile() {
     const f = files.find((x) => x.path === current);
     if (!f) { main.replaceChildren(h('div.empty', null, 'No changes in this commit')); return; }
-    main.replaceChildren(h('div.diff-loading'));
+    main.replaceChildren(loading('Loading diff…'));
     const c = await loadCommit(sha);
     if (state.quick?.sha === sha) Object.assign(state.quick, { file: f, parent: c.parents[0] || null });
     const d = await git('commitFileDiff', sha, fileRef(f), c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
@@ -1150,7 +1155,7 @@ function splitView({ sha }) {
   const el = h('div.quick.split', { tabIndex: 0 });
   const side = h('div.quick-side.split-side');
   const files = h('div.file-list.split-files');
-  const main = h('div.quick-main');
+  const main = h('div.quick-main', null, loading('Loading commit…'));
   el.append(side, main);
   let diffs = [], current = null, full = false;
   const picked = new Map(); // path -> Set of line keys in the first commit
@@ -1702,7 +1707,7 @@ function stashesView() {
   async function renderDetail() {
     const s = state.stashes.find((x) => x.ref === current);
     if (!s) return detail.replaceChildren();
-    detail.replaceChildren(h('div.diff-loading'));
+    detail.replaceChildren(loading('Loading diff…'));
     const diffs = await git('compare', `${s.sha}^1`, s.sha).catch(() => []);
     detail.replaceChildren(
       h('div.diff-head', null, h('span.title', null, s.message), h('span.spacer'),
