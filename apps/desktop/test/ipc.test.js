@@ -248,3 +248,28 @@ test('commit file entries, trimmed by fileRef, pass the file-entry check (AK-131
   check.checkGit('difftool', [fileRef(entry), false, sha, null]);
   check.checkGit('discardFiles', [[{ path: 'a.txt', status: 'M', lfs: true }].map(fileRef)]);
 });
+
+test('PR calls: positive PR numbers, a known remote, fixed merge options', () => {
+  for (const n of [1, 42, Number.MAX_SAFE_INTEGER]) assert.strictEqual(check.prNumber(n), n);
+  for (const n of [0, -1, 1.5, NaN, Infinity, '7', null, undefined, 2 ** 53]) rejects(() => check.prNumber(n), /positive integer/);
+  const remotes = [{ name: 'origin', url: 'git@github.com:acme/app.git' }, { name: 'fork', url: 'https://github.com/kim/app' }];
+  assert.strictEqual(check.knownRemote(remotes, 'fork'), remotes[1]);
+  rejects(() => check.knownRemote(remotes, 'upstream'), /not a remote/);
+  rejects(() => check.knownRemote(remotes, 'git@github.com:evil/app.git'), /not a remote/);
+  rejects(() => check.knownRemote(remotes, 7));
+  rejects(() => check.knownRemote([], 'origin'), /not a remote/);
+  const method = check.oneOf(...require('../github').MERGE_METHODS);
+  for (const m of ['squash', 'merge', 'rebase']) assert.strictEqual(method(m, 'merge method'), m);
+  for (const m of ['--admin', 'squash --admin', '', undefined]) rejects(() => method(m, 'merge method'));
+  rejects(() => check.bool('true', 'delete branch'));
+  rejects(() => check.str('a\0b', 'review comment', { empty: true }), /NUL/);
+});
+
+test('main.js checks the PR number and remote before any PR action reaches gh', () => {
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const action = main.slice(main.indexOf('const prAction'), main.indexOf("handle('app:pr-merge-info'"));
+  assert.ok(action.indexOf('check.prNumber(number)') > 0 && action.indexOf('check.knownRemote(') > action.indexOf('check.prNumber'), 'prAction checks the number, then the remote');
+  assert.ok(action.indexOf('fn({') > action.indexOf('check.knownRemote('), 'checks run before gh');
+  for (const ch of ['pr-merge-info', 'pr-approve', 'pr-merge', 'pr-close']) assert.match(main, new RegExp(`handle\\('app:${ch}', prAction\\(`), ch);
+  assert.match(main, /handle\('app:pr-list'[\s\S]{0,200}if \(!prEnabled\(root\)\) return null;/, 'pr-list returns before gh while off');
+});
