@@ -109,6 +109,7 @@ export const COMMANDS = [
   c('map', 'map', 'map.clearSearch', 'Clear search', 'Escape'),
   c('map', 'map', 'map.head', 'Jump to HEAD', 'h'),
   c('map', 'map', 'map.copySha', 'Copy SHA', 'Mod+c'),
+  c('map', 'map', 'map.copyLink', 'Copy link to commit', 'Mod+Shift+C'),
   // Commit actions: single keys on the selected commit. The commit's right-click menu shows the same keys.
   c('map', 'commit-actions', 'commit.checkoutBranch', 'Checkout branch', 'Mod+Enter'),
   c('map', 'commit-actions', 'commit.checkout', 'Checkout (detached)', 'o'),
