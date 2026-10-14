@@ -268,7 +268,7 @@ const plainMutations = {
   pushTags: (s) => r(s, ['push', '--tags']),
   deleteRemoteBranch: (s, short) => {
     const i = short.indexOf('/');
-    return r(s, ['push', short.slice(0, i), '--delete', short.slice(i + 1)]);
+    return r(s, ['push', short.slice(0, i), '--delete', '--', short.slice(i + 1)]);
   },
   setConfig: (s, key, value) => r(s, ['config', '--local', key, value]),
   unsetConfig: (s, key) => r(s, ['config', '--local', '--unset-all', key]),
@@ -277,7 +277,21 @@ const plainMutations = {
   lockWorktree: (s, dir, reason) => git.lockWorktree(s.repo.root, dir, reason),
   unlockWorktree: (s, dir) => git.unlockWorktree(s.repo.root, dir),
   pruneWorktrees: (s) => git.pruneWorktrees(s.repo.root),
+  // Not undoable: the renderer asks for an explicit confirmation that says so.
+  deleteRemoteBranches: (s, shorts) => git.deleteRemoteBranches(s.repo.root, shorts),
 };
+
+// Lanes → Clean up: one journal step for the whole batch, with progress sent to the window.
+async function cleanupLanes(s, items, label) {
+  const list = await git.getWorktrees(s.repo.root);
+  for (const i of items) {
+    if (!i.worktree) continue;
+    i.worktree = check.knownWorktree(list, i.worktree, git.samePath);
+    if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another window. Close that window first.`);
+  }
+  const onProgress = (p) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
+  return s.journal.runCleanup(label || `Clean up ${items.length} lane${items.length === 1 ? '' : 's'}`, items, { onProgress });
+}
 
 // The window showing a repository root, if any.
 const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
@@ -338,6 +352,7 @@ handle('git', async (e, method, ...args) => {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
       }
+      if (method === 'cleanupLanes') return { ok: await cleanupLanes(s, realArgs[0], label) };
       if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
       if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method) };

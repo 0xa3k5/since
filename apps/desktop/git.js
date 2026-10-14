@@ -1348,6 +1348,109 @@ const lockWorktree = async (cwd, dir, reason) => run(cwd, ['worktree', 'lock', .
 const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (await findWorktree(cwd, dir)).path], { env: W_ENV });
 const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 
+// Lanes → Clean up: remove worktrees and delete branches in bulk. Each item is
+// { branch, head, worktree, force }: `head` is the branch tip the user saw (a branch that has
+// moved since is kept), `force` allows removing a dirty worktree (its uncommitted files are lost).
+// Worktrees go first, since a branch checked out in one can't be deleted: one `worktree remove`
+// each, or a single `worktree prune` when every missing folder is selected. Branches then go in
+// one `git branch -D` per 200. Never throws part-way: returns { removed, deleted, failed } so the
+// journal can record exactly what happened. `onProgress({ done, total })` after each step.
+async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
+  const worktrees = await getWorktrees(cwd);
+  const removed = [];
+  const failed = [];
+  const keep = new Set(); // branches whose worktree is still there
+  const wtItems = items.filter((i) => i.worktree);
+  const found = wtItems.map((i) => ({ item: i, wt: worktrees.find((w) => samePath(w.path, i.worktree)) }));
+  const branches = items.filter((i) => i.branch);
+  const batches = chunk(branches, 200);
+  const total = wtItems.length + batches.length;
+  let done = 0;
+  const tick = () => onProgress({ done: ++done, total });
+
+  const missing = worktrees.filter((w) => w.missing && !w.locked);
+  const pruneAll = missing.length > 0 && missing.every((m) => found.some((f) => f.wt === m));
+  if (pruneAll) {
+    try { await pruneWorktrees(cwd); } catch { /* fall back to one remove each below */ }
+  }
+  const after = pruneAll ? await getWorktrees(cwd) : worktrees;
+  for (const { item, wt } of found) {
+    try {
+      if (!wt) throw new GitError('That worktree no longer exists.');
+      if (wt.missing && !after.some((w) => w.path === wt.path)) {
+        removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: true, lost: 0 });
+        continue;
+      }
+      if (wt.main) throw new GitError('The main worktree can’t be removed.');
+      if (wt.current) throw new GitError('This window is showing it.');
+      if (wt.locked) throw new GitError('It is locked.');
+      let lost = 0;
+      if (!wt.missing) {
+        lost = await worktreeChanges(wt.path);
+        if (lost && !item.force) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
+        const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+        if (op) throw new GitError(`It has a ${op} in progress.`);
+      }
+      await run(cwd, ['worktree', 'remove', ...(lost || wt.missing ? ['--force'] : []), wt.path], { env: W_ENV });
+      removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost });
+    } catch (err) {
+      failed.push({ name: wt?.name || path.basename(item.worktree), message: err.message });
+      if (item.branch) keep.add(item.branch);
+    } finally {
+      tick();
+    }
+  }
+
+  const deleted = [];
+  if (branches.length) {
+    const tips = new Map((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads'])).split('\n').filter(Boolean).map((l) => l.split(SEP)));
+    for (const batch of batches) {
+      const go = [];
+      for (const i of batch) {
+        if (keep.has(i.branch)) continue;
+        if (!tips.has(i.branch)) failed.push({ name: i.branch, message: 'That branch no longer exists.' });
+        else if (i.head && tips.get(i.branch) !== i.head) failed.push({ name: i.branch, message: 'It has new commits since. Kept.' });
+        else go.push(i.branch);
+      }
+      let error = null;
+      if (go.length) await run(cwd, ['branch', '-D', '--', ...go], { env: W_ENV }).catch((err) => { error = err; });
+      const left = error ? new Set((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)', ...go.map((b) => `refs/heads/${b}`)])).split('\n').filter(Boolean)) : new Set();
+      for (const b of go) {
+        if (!left.has(b)) deleted.push(b);
+        else failed.push({ name: b, message: (error.stderr || error.message).split('\n').find((l) => l.includes(`'${b}'`))?.replace(/^error: /, '') || error.message });
+      }
+      tick();
+    }
+  }
+  return { removed, deleted, failed };
+}
+
+// Delete branches on their remotes, one `git push --delete` per remote. `shorts` are
+// remote-tracking names ("origin/feature/x"), split on the longest matching remote name.
+// Not undoable. Returns { deleted, failed }.
+async function deleteRemoteBranches(cwd, shorts) {
+  const remotes = (await getRemotes(cwd)).map((r) => r.name).sort((a, b) => b.length - a.length);
+  const byRemote = new Map();
+  const failed = [];
+  for (const s of shorts) {
+    const remote = remotes.find((r) => s.startsWith(`${r}/`) && s.length > r.length + 1);
+    if (!remote) { failed.push({ name: s, message: 'No such remote.' }); continue; }
+    byRemote.set(remote, [...(byRemote.get(remote) || []), s.slice(remote.length + 1)]);
+  }
+  const deleted = [];
+  for (const [remote, names] of byRemote) {
+    try {
+      await run(cwd, ['push', remote, '--delete', '--', ...names]);
+      deleted.push(...names.map((n) => `${remote}/${n}`));
+    } catch (err) {
+      // A partial push still deleted some: whatever is no longer listed as a remote-tracking ref is gone.
+      const left = new Set((await run(cwd, ['for-each-ref', '--format=%(refname:short)', `refs/remotes/${remote}`]).catch(() => '')).split('\n'));
+      for (const n of names) (left.has(`${remote}/${n}`) ? failed.push({ name: `${remote}/${n}`, message: err.message }) : deleted.push(`${remote}/${n}`));
+    }
+  }
+  return { deleted, failed };
+}
+
 // ---------------------------------------------------------------------------
 // Lanes: one record per local branch and per worktree, measured against the repository's
 // default branch. A fixed handful of git calls however many branches there are (one
@@ -1806,7 +1909,7 @@ module.exports = {
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
-  restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
+  restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
   AGENT_HINTS, parseTrailers, agentGuess, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
