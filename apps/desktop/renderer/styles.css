@@ -374,6 +374,20 @@ kbd.inline { flex: none; }
 .pill.worktree { border-style: dashed; color: var(--text-2); }
 .pill.worktree .icon, .pill.in-worktree .icon:last-child { color: var(--accent-fg); }
 .track { font-size: 10.5px; color: var(--text-3); margin-left: 2px; font-variant-numeric: tabular-nums; }
+/* Pull request badge on a branch pill, and the marks it shares with the sidebar list. */
+.pr-badge { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; padding: 0 4px; border-radius: 4px; background: var(--bg-hover); color: var(--text-2); font-size: 10.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.pr-badge:hover { color: var(--text); background: var(--bg-active); }
+.pr-badge.stale, .pr-item.stale .pr-num { opacity: 0.6; }
+.pr-draft { font-size: 10px; color: var(--text-3); }
+.pr-review.approved, .pr-ci.success { color: var(--green); }
+.pr-review.changes, .pr-ci.failure { color: var(--red); }
+.pr-ci.pending { color: var(--yellow); }
+.pr-ci { font-size: 9px; }
+.pr-num { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pr-item .pr-open { margin-left: auto; opacity: 0; }
+.pr-item:hover .pr-open, .pr-item .pr-open:focus-visible { opacity: 1; }
+.pr-quick { display: grid; gap: 4px; margin-top: 8px; }
+.pr-stale-note { color: var(--text-3); font-size: 12px; }
 
 /* Detail side panel */
 .detail { border-left: 1px solid var(--border); overflow-y: auto; min-width: 0; background: var(--bg-content); }

@@ -74,14 +74,14 @@ function findBinary(name, dirs = searchDirs()) {
   return null;
 }
 
-function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT } = {}) {
+function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env = {} } = {}) {
   return new Promise((resolve, reject) => {
     // An empty folder, so the CLI never reads or edits the repository on its own.
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-ai-'));
     const done = (fn, v) => { clearTimeout(timer); try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* best effort */ } fn(v); };
     // PATH includes the usual install folders: npm-installed CLIs start with `env node`.
     // Own process group, so a timeout stops the CLI and anything it started.
-    const child = spawn(bin, args, { cwd, env: { ...process.env, PATH: dirs.join(path.delimiter) }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    const child = spawn(bin, args, { cwd, env: { ...process.env, ...env, PATH: dirs.join(path.delimiter) }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     let out = '', err = '';
     // Decode as a stream, so a character split across two chunks stays whole.
     child.stdout.setEncoding('utf8');
