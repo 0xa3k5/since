@@ -98,6 +98,7 @@ const sections = [
     points: [
       ['Open the command menu', ['⌘', 'K']],
     ],
+    link: ['/shortcuts', 'See every keyboard shortcut'],
     shot: [paletteLight, paletteDark, 'The command menu filtered to push commands, with their shortcuts'],
   },
 ];
@@ -141,6 +142,7 @@ const tiles = [
             ))}
           </dl>
           {s.foot && <p class="feature-foot">{s.foot}</p>}
+          {s.link && <p class="feature-foot"><a href={s.link[0]}>{s.link[1]}</a></p>}
         </div>
         <Shot light={s.shot[0] as ImageMetadata} dark={s.shot[1] as ImageMetadata} alt={s.shot[2] as string} eager={i === 0} />
       </section>
