@@ -81,6 +81,7 @@ const P = {
   moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
   worktree: '<rect x="2" y="2.5" width="5.5" height="4" rx="1"/><rect x="8.5" y="9.5" width="5.5" height="4" rx="1"/><path d="M4.75 6.5v3.5a1.5 1.5 0 0 0 1.5 1.5H8.5"/>',
   update: '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.6 2.4v2.9h-2.9M8 5.5v5M6 8.6l2 1.9 2-1.9"/>',
+  sparkle: '<path d="M7 2.5 8.3 6.2 12 7.5 8.3 8.8 7 12.5 5.7 8.8 2 7.5 5.7 6.2z"/><path d="M12.5 10.5v3M11 12h3"/>',
   key: '<circle cx="5" cy="11" r="2.5"/><path d="m6.8 9.2 6-6M11 5l1.5 1.5"/>',
 };
 
@@ -158,7 +159,7 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
           return h('label.check', null, inputs[f.name], h('span', null, f.label));
         }
         inputs[f.name] = f.multiline
-          ? h('textarea.input', { rows: f.rows || 6, placeholder: f.placeholder || '', value: f.value || '', spellcheck: false })
+          ? h('textarea.input', { rows: f.rows || 6, placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, readonly: f.readonly })
           : h('input.input', { type: 'text', placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, autocomplete: 'off' });
         if (f.multiline) inputs[f.name].addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) form.requestSubmit(); });
         return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
@@ -246,8 +247,8 @@ export function fuzzy(q, s) {
   return j === q.length ? score : 0;
 }
 
-export function palette(getItems, { placeholder = 'Type a command or search…' } = {}) {
-  if ($('.palette-overlay')) return;
+export function palette(getItems, { placeholder = 'Type a command or search…', onDismiss } = {}) {
+  if ($('.palette-overlay:not(.closing)')) return;
   const prev = document.activeElement;
   const input = h('input.palette-input', { placeholder, spellcheck: false, autocomplete: 'off' });
   const list = h('div.palette-list');
@@ -280,8 +281,8 @@ export function palette(getItems, { placeholder = 'Type a command or search…' 
     list.querySelectorAll('.palette-item').forEach((el, i) => el.classList.toggle('active', i === idx));
     list.querySelectorAll('.palette-item')[idx]?.scrollIntoView({ block: 'nearest' });
   }
-  function choose(i) { const it = results[i]; close(); if (it) setTimeout(() => it.run(), 0); }
-  function close() { overlay.classList.remove('in'); setTimeout(() => overlay.remove(), 100); prev?.focus?.(); }
+  function choose(i) { const it = results[i]; close(Boolean(it)); if (it) setTimeout(() => it.run(), 0); }
+  function close(picked) { overlay.classList.remove('in'); overlay.classList.add('closing'); setTimeout(() => overlay.remove(), 100); prev?.focus?.(); if (!picked) onDismiss?.(); }
   input.addEventListener('input', () => { idx = 0; render(); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); idx = Math.min(idx + 1, results.length - 1); mark(); }
