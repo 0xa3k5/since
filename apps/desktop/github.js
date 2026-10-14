@@ -137,7 +137,7 @@ const prNumber = (n) => {
 };
 
 const MERGE_METHODS = ['squash', 'merge', 'rebase'];
-const PR_VIEW_FIELDS = ['number', 'state', 'isDraft', 'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'headRefName'];
+const PR_VIEW_FIELDS = ['number', 'state', 'isDraft', 'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'headRefName', 'headRefOid'];
 const REPO_VIEW_FIELDS = ['squashMergeAllowed', 'mergeCommitAllowed', 'rebaseMergeAllowed', 'deleteBranchOnMerge', 'viewerPermission'];
 
 function parseJson(out) {
@@ -158,6 +158,9 @@ function parseMergeInfo(prOut, repoOut) {
     review: REVIEW[p.reviewDecision] || null,
     checks: checksState(p.statusCheckRollup),
     branch: text(p.headRefName),
+    headOid: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
+    // GitHub is still working out mergeability (right after a push); `gh pr merge` may refuse.
+    checking: p.mergeable === 'UNKNOWN',
     methods: methods.length ? methods : ['squash'],
     deleteBranchOnMerge: r.deleteBranchOnMerge === true,
     admin: r.viewerPermission === 'ADMIN',

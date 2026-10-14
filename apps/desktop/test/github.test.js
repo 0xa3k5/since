@@ -349,3 +349,11 @@ test('prPushPlan pushes new PR branches to the GitHub remote and keeps a mirror 
   assert.equal(p.push, null);
   assert.equal(p.pushArgs, null);
 });
+
+test('parseMergeInfo: head commit and the still-checking state', () => {
+  const oid = 'a'.repeat(40);
+  assert.equal(github.parseMergeInfo(VIEW({ headRefOid: oid }), REPO()).headOid, oid);
+  assert.equal(github.parseMergeInfo(VIEW({ headRefOid: 'nope' }), REPO()).headOid, null);
+  assert.equal(github.parseMergeInfo(VIEW({ mergeable: 'UNKNOWN' }), REPO()).checking, true);
+  assert.equal(github.parseMergeInfo(VIEW(), REPO()).checking, false);
+});
