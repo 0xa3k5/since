@@ -4,6 +4,7 @@ import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -13,7 +14,8 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 const state = {
   repo: null,
   view: 'map',
-  sidebar: true,
+  // expanded: saved choice for wide windows; pinned/hover: the overlay on narrow ones (see sidebar.js).
+  sidebar: { expanded: loadPref('sidebar', { expanded: true }).expanded, pinned: false, hover: false },
   refs: [],
   head: { branch: null, oid: null, detached: false },
   hist: createHistory(), // the history on screen; commits/index/graph below are its parts
@@ -442,8 +444,11 @@ function renderShell() {
   bannerEl = h('div.banner-slot');
   contentEl = h('div.content');
   root.append(sidebarEl, h('main.main', null, topbarEl, bannerEl, contentEl));
-  root.classList.toggle('no-sidebar', !state.sidebar);
+  sidebarEl.addEventListener('mouseenter', () => sidebarHover(true));
+  sidebarEl.addEventListener('mouseleave', () => sidebarHover(false));
+  root.querySelector('.main').addEventListener('mousedown', () => { if (sidebarMode(sbState()) === 'overlay') setSidebar({ ...state.sidebar, pinned: false, hover: false }); });
   renderSidebar();
+  applySidebar();
   renderTopbar();
   renderBanner();
   renderView();
@@ -481,7 +486,7 @@ function renderSidebar() {
 
   const section = (id, title, items, renderItem) => {
     const collapsed = state.collapsed[id];
-    return h('div.sb-section', null,
+    return h('div.sb-section', { 'data-section': id },
       h('button.sb-section-head', { onclick: () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); } },
         h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, items.length)),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
@@ -516,13 +521,14 @@ function renderSidebar() {
 
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
+      h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
       h('button.repo-switch', { onclick: (e) => repoMenu(e.currentTarget) },
         h('span.repo-icon', null, state.repo.name.slice(0, 1).toUpperCase()),
         h('span.repo-name', null, state.repo.name),
         icon('chevronDown', 12)),
       h('button.icon-btn', { title: `Command menu (${MOD}K)`, onclick: openPalette }, icon('search')),
     ),
-    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id },
+    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: `${v.label} (${MOD}${v.key})`, 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, MOD + v.key)))),
     h('div.sb-scroll', null,
       state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
@@ -530,13 +536,25 @@ function renderSidebar() {
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
     ),
+    // Icons-only stand-ins for the sections above, shown in the rail.
+    h('div.sb-rail-items', null,
+      state.worktrees.length > 1 ? railItem('worktrees', 'Worktrees', 'worktree') : null,
+      railItem('branches', 'Branches', 'branch'),
+      [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
+      railItem('tags', 'Tags', 'tag'),
+    ),
     h('div.sb-foot', null,
-      h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)` }, icon('fetch'), 'Fetch'),
-      h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)` }, icon('pull'), 'Pull'),
-      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
+      h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
+      h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)`, 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
+      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)`, 'aria-label': 'Push' }, icon('push'), h('span', null, 'Push')),
     ),
   );
   renderNavCounts();
+  applySidebar();
+}
+
+function railItem(id, label, ic) {
+  return h('button.icon-btn.sb-rail-item', { title: label, 'aria-label': label, onclick: () => openSidebarAt(id) }, icon(ic));
 }
 
 function renderNavCounts() {
@@ -551,7 +569,6 @@ function renderTopbar() {
   if (!topbarEl) return;
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
-    h('button.icon-btn.sb-toggle', { title: `Toggle sidebar (${MOD}\\)`, onclick: toggleSidebar }, icon('sidebar')),
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
@@ -600,10 +617,50 @@ function toggleShow(key) {
   refreshHistory();
   renderTopbar();
 }
-function toggleSidebar() {
-  state.sidebar = !state.sidebar;
-  root.classList.toggle('no-sidebar', !state.sidebar);
+// Sidebar modes (expanded / rail / overlay); the rules live in sidebar.js.
+let sbHideTimer = 0;
+const sbState = () => ({ ...state.sidebar, width: window.innerWidth });
+function applySidebar() {
+  if (!sidebarEl) return;
+  const mode = sidebarMode(sbState());
+  root.classList.toggle('sb-rail', mode === 'rail');
+  root.classList.toggle('sb-overlay', mode === 'overlay');
+  const label = sidebarToggleLabel(sbState());
+  const btn = sidebarEl.querySelector('.sb-toggle');
+  if (btn) { btn.title = `${label} (${MOD}\\)`; btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
+  // Don't leave focus inside parts of the sidebar the rail hides.
+  if (mode === 'rail' && sidebarEl.contains(document.activeElement) && !document.activeElement.checkVisibility()) btn?.focus();
 }
+function setSidebar(next) {
+  if (next.expanded !== state.sidebar.expanded) savePref('sidebar', { expanded: next.expanded });
+  state.sidebar = next;
+  applySidebar();
+}
+function toggleSidebar() {
+  clearTimeout(sbHideTimer);
+  setSidebar(toggleSidebarState(state.sidebar, window.innerWidth));
+}
+// Narrow windows: hovering the rail opens the overlay; leaving it closes it after a beat.
+function sidebarHover(on) {
+  clearTimeout(sbHideTimer);
+  if (!isNarrow(window.innerWidth)) return;
+  if (on) setSidebar({ ...state.sidebar, hover: true });
+  // Keep it open while one of its context menus or dialogs is up.
+  else sbHideTimer = setTimeout(() => { if (!document.querySelector('.menu, .overlay')) setSidebar({ ...state.sidebar, hover: false }); }, 200);
+}
+// A rail icon: open the full sidebar scrolled to that section.
+function openSidebarAt(id) {
+  if (state.collapsed[id]) { state.collapsed[id] = false; savePref('collapsed', state.collapsed); renderSidebar(); }
+  setSidebar(isNarrow(window.innerWidth) ? { ...state.sidebar, pinned: true } : { ...state.sidebar, expanded: true });
+  sidebarEl.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });
+}
+let sbNarrow = isNarrow(window.innerWidth);
+window.addEventListener('resize', () => {
+  if (isNarrow(window.innerWidth) === sbNarrow) return;
+  sbNarrow = !sbNarrow;
+  state.sidebar = { ...state.sidebar, pinned: false, hover: false };
+  applySidebar();
+});
 
 function renderBanner() {
   if (!bannerEl) return;
@@ -1935,7 +1992,7 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: [MOD, '⌥', 'C'], keywords: 'color colour swatch preview css hex rgb settings' });
-    add('View', 'Toggle sidebar', toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'] });
+    add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'], keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
@@ -2179,6 +2236,14 @@ function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName ===
 
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('.overlay')) return;
+  if (e.key === 'Escape' && sidebarMode(sbState()) === 'overlay') {
+    e.preventDefault();
+    clearTimeout(sbHideTimer);
+    const inside = sidebarEl.contains(document.activeElement);
+    setSidebar({ ...state.sidebar, pinned: false, hover: false });
+    if (inside) sidebarEl.querySelector('.sb-toggle')?.focus();
+    return;
+  }
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
   if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation

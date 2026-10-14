@@ -147,9 +147,8 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ---------------------------------------------------------------- Layout */
-#app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
-#app.no-sidebar { grid-template-columns: 0 1fr; }
-#app.no-sidebar .sidebar { visibility: hidden; }
+#app { --sb-w: 232px; --sb-rail-w: 52px; display: grid; grid-template-columns: var(--sb-w) 1fr; height: 100vh; transition: grid-template-columns 120ms ease; }
+#app.sb-rail, #app.sb-overlay { grid-template-columns: var(--sb-rail-w) 1fr; }
 .main {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   margin: 8px 8px 8px 0;
@@ -159,11 +158,38 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
   overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
-#app.no-sidebar .main { margin-left: 8px; }
+#app > .main { grid-column: 2; }
 .content { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 
 /* ---------------------------------------------------------------- Sidebar */
-.sidebar { display: flex; flex-direction: column; min-height: 0; background: var(--bg-sidebar); padding: 0 8px; }
+.sidebar { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-sidebar); padding: 0 8px; }
+.sb-rail-items { display: none; }
+
+/* Rail: icons only. */
+#app.sb-rail .sidebar { align-items: center; }
+#app.sb-rail .repo-switch,
+#app.sb-rail .nav-item > span,
+#app.sb-rail .sb-scroll,
+#app.sb-rail .sb-action > span { display: none; }
+#app.sb-rail .sb-top { flex-direction: column; justify-content: flex-end; height: auto; min-height: 52px; gap: 2px; }
+.mac #app.sb-rail .sb-top { min-height: 76px; }
+#app.sb-rail .nav-item { width: 36px; padding: 0; justify-content: center; }
+#app.sb-rail .sb-rail-items { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 2px; min-height: 0; overflow-y: auto; padding-top: 6px; border-top: 1px solid var(--border); }
+#app.sb-rail .sb-rail-item { width: 36px; color: var(--text-3); }
+#app.sb-rail .sb-foot { flex-direction: column; align-items: center; }
+#app.sb-rail .sb-action { flex: none; width: 36px; }
+
+/* Overlay (narrow windows): the full sidebar floats over the content; the layout keeps the rail's width. */
+#app.sb-overlay .sidebar {
+  position: fixed; top: 0; bottom: 0; left: 0; width: var(--sb-w); z-index: 40;
+  border-right: 1px solid var(--border-strong); box-shadow: var(--shadow);
+  animation: sb-slide 120ms ease;
+}
+@keyframes sb-slide { from { width: var(--sb-rail-w); } }
+@media (prefers-reduced-motion: reduce) {
+  #app { transition: none; }
+  #app.sb-overlay .sidebar { animation: none; }
+}
 .sb-top { display: flex; align-items: center; gap: 4px; height: 52px; padding-top: 6px; -webkit-app-region: drag; }
 /* macOS: the repo switcher sits on its own row under the traffic lights, not beside them. */
 .mac .sb-top { height: 76px; padding-top: 40px; }
@@ -223,9 +249,9 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-3); }
 .crumb { color: var(--text); font-weight: 550; }
 .crumb-muted { color: var(--text-3); }
-.sb-toggle { margin-right: 2px; }
-#app:not(.no-sidebar) .sb-toggle { display: none; }
-.mac #app.no-sidebar .crumbs { padding-left: 64px; }
+.sb-toggle { color: var(--text-3); }
+/* The rail is narrower than the traffic lights. */
+.mac #app:is(.sb-rail, .sb-overlay) .crumbs { padding-left: 28px; }
 .head-chip { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--border-strong); font-size: 12px; color: var(--text-2); font-weight: 500; max-width: 260px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .head-chip .icon { color: var(--accent-fg); }
 .head-chip.detached { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
