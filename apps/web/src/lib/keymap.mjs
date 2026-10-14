@@ -59,6 +59,7 @@ export const GROUPS = [
   { id: 'repository', title: 'Repository menu' },
   { id: 'file', title: 'File menu' },
   { id: 'view', title: 'View menu' },
+  { id: 'help', title: 'Help menu' },
 ];
 
 export function loadKeymap(sources = readSources()) {
