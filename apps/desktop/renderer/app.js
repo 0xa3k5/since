@@ -1422,6 +1422,8 @@ function refMenu(x, y, r) {
       { label: `Merge into ${state.head.branch || 'HEAD'}`, icon: 'merge', disabled: cur, run: () => act(`Merge ${r.short}`, 'merge', [r.short]) },
       { label: `Rebase ${state.head.branch || 'HEAD'} onto ${r.short}`, icon: 'rebase', disabled: cur, run: () => act(`Rebase onto ${r.short}`, 'rebaseOnto', [r.short]) },
       '-',
+      state.prs?.enabled && !prFor(r) ? { label: 'New Pull Request…', icon: 'plus', kbd: cur ? [MOD, '⌥', '⇧', 'N'] : null, run: () => createPr(r.short) } : null,
+      state.prs?.enabled && !prFor(r) ? '-' : null,
       { label: 'Rename…', icon: 'edit', run: () => renameBranch(r) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied branch name') },
       '-',
@@ -2408,6 +2410,63 @@ function pickPr(worktree) {
     { placeholder: worktree ? 'Check out pull request in a new worktree…' : 'Check out pull request…' });
 }
 
+// ⌘⌥⇧N: open a PR from the current (or a picked) branch. Title and body come from its commits.
+// A branch that isn't on GitHub yet is only pushed after the user ticks the confirm.
+async function createPr(branch = state.head.branch) {
+  if (!state.prs?.enabled) return setupPrs();
+  if (!branch) return toast('Check out a branch first', { detail: 'A pull request needs a branch to merge from.' });
+  const open = prFor({ kind: 'branch', short: branch });
+  if (open) return toast(`${branch} already has #${open.number}`, { action: { label: 'Open', run: () => openPr(open) } });
+  const t = toast(`Preparing a pull request for ${branch}…`, { kind: 'busy', timeout: 0 });
+  const info = await api.app('pr-create-info', branch).catch((e) => ({ error: { message: e.message } }));
+  t.close();
+  if (info.error) return prError(`Couldn’t prepare a pull request for ${branch}`, info.error);
+  const { base, remote, push } = info.ok;
+  const bases = [...new Set([base, ...state.refs.filter((r) => r.kind === 'remote' && r.short.startsWith(`${remote}/`)).map((r) => r.short.slice(remote.length + 1)).filter((b) => b !== 'HEAD' && b !== branch)])];
+  const aiReady = state.ai?.provider !== 'off' && state.ai?.consented;
+  const v = await dialog({
+    title: `New pull request from ${branch}`,
+    description: h('div.pr-merge', null,
+      h('div', null, `${info.ok.head} → ${base} on ${remote}`),
+      push ? h('div.pr-blocked', null, push.isNew ? `${branch} isn’t on ${remote} yet.` : `${branch} has ${push.ahead} commit${push.ahead === 1 ? '' : 's'} that ${push.ahead === 1 ? 'isn’t' : 'aren’t'} on ${push.remote} yet.`) : null,
+      h('div.pr-remote-note', null, REMOTE_NOTE),
+    ),
+    submit: push ? 'Push and create' : 'Create pull request',
+    wide: true,
+    gate: push ? 'push' : undefined,
+    fields: [
+      bases.length > 1 ? { name: 'base', type: 'select', label: 'Base branch', value: base, options: bases.map((b) => ({ value: b, label: b })) } : null,
+      { name: 'title', label: 'Title', value: info.ok.title },
+      { name: 'body', label: 'Description', multiline: true, rows: 10, value: info.ok.body },
+      aiReady ? { name: 'ai', type: 'button', icon: 'sparkle', label: 'Draft with AI', run: async (inputs) => {
+        const busy = toast('Drafting the pull request…', { kind: 'busy', timeout: 0 });
+        const res = await api.app('pr-ai-draft', branch, inputs.base?.value || base).catch((e) => ({ error: { message: e.message } }));
+        busy.close();
+        if (res.error) return toast('Couldn’t draft the pull request', { kind: 'error', detail: res.error.message });
+        if (res.ok.title) inputs.title.value = res.ok.title;
+        inputs.body.value = res.ok.body;
+      } } : null,
+      { name: 'draft', type: 'checkbox', label: 'Create as draft', value: false },
+      push ? { name: 'push', type: 'checkbox', label: `Push ${branch} to ${push.remote} first`, value: false } : null,
+    ].filter(Boolean),
+  });
+  if (!v) return;
+  if (!v.title.trim()) return toast('A pull request needs a title', { kind: 'error' });
+  const busy = toast(push ? `Pushing ${branch} and creating the pull request…` : 'Creating the pull request…', { kind: 'busy', timeout: 0 });
+  const res = await api.app('pr-create', branch, { base: v.base || base, title: v.title, body: v.body, draft: v.draft, push: Boolean(v.push) }).catch((e) => ({ error: { message: e.message } }));
+  busy.close();
+  if (res.error) return prError(`Couldn’t create the pull request`, res.error);
+  const { number, url } = res.ok;
+  toast(`Opened #${number}${v.draft ? ' as a draft' : ''}`, { kind: 'success', detail: url, action: { label: 'Open on GitHub', run: () => openPrOnGitHub({ url }) } });
+  refreshPrs();
+}
+
+// Pick a local branch for a new PR when the current one can't be used (⌘K entry).
+function pickPrBranch() {
+  const branches = state.refs.filter((r) => r.kind === 'branch' && !prFor(r));
+  palette(() => branches.map((r) => ({ group: 'Branches', label: r.short, icon: 'branch', detail: r.upstream || 'not pushed', run: () => createPr(r.short) })), { placeholder: 'New pull request from branch…' });
+}
+
 async function refreshPrs({ manual = false } = {}) {
   const p = state.prs;
   if (!p?.enabled) return manual ? setupPrs() : undefined;
@@ -2479,6 +2538,7 @@ function prList() {
   palette(() => [
     ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
     { group: 'Pull requests', label: 'Refresh pull requests', icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], run: () => refreshPrs({ manual: true }) },
+    { group: 'Pull requests', label: 'New pull request…', icon: 'plus', kbd: [MOD, '⌥', '⇧', 'N'], run: () => createPr() },
     { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], run: () => pickPr(false) },
     { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], run: () => pickPr(true) },
     { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], run: () => approvePr() },
@@ -2632,6 +2692,8 @@ function openPalette() {
     add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: [MOD, '⌥', 'G'], detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
     add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: [MOD, '⌥', 'P'], detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
     add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], keywords: 'pr github gh' });
+    add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: [MOD, '⌥', '⇧', 'N'], keywords: 'pr github gh create open push' });
+    add('Repository', 'New pull request from branch…', pickPrBranch, { icon: 'plus', keywords: 'pr github gh create open branch' });
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], keywords: 'pr github gh branch review' });
     add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], keywords: 'pr github gh lane review' });
     if (state.prs?.enabled) {
@@ -2935,6 +2997,7 @@ const commands = {
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
   prRefresh: () => state.repo && refreshPrs({ manual: true }),
+  prCreate: () => state.repo && createPr(),
   prCheckout: () => state.repo && pickPr(false),
   prWorktree: () => state.repo && pickPr(true),
   prApprove: () => state.repo && approvePr(),
