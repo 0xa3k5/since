@@ -9,7 +9,9 @@ import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { lanesView } from './lanes-view.js';
-import { laneTarget } from './lanes.js';
+import { laneTarget, laneKey } from './lanes.js';
+import { reviewView } from './review-view.js';
+import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 import { authorProfile } from './profile.js';
@@ -171,6 +173,7 @@ const refreshHistory = coalesce(async () => {
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
   if (state.view === 'lanes') lanesPage?.refresh();
+  if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
 });
@@ -463,7 +466,7 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null;
+let mapView = null, commitView = null, lanesPage = null, reviewPage = null;
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 
@@ -501,6 +504,7 @@ function setView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
+  state.review = null;
   state.view = v;
   renderSidebar();
   renderTopbar();
@@ -671,13 +675,13 @@ function renderTopbar() {
   if (!topbarEl) return;
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
-  const onMap = state.view === 'map' && !state.quick && !state.split && !state.fileHistory;
+  const onMap = state.view === 'map' && !state.quick && !state.split && !state.fileHistory && !state.review;
   if (onMap) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
@@ -859,6 +863,8 @@ function renderView(soft = false) {
   contentEl.dataset.view = state.view;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
+  reviewPage = null;
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -1143,6 +1149,7 @@ function fileRow(f, onclick, extra) {
 function openQuick(sha, path, back = null) {
   if (!sha) return;
   state.fileHistory = null;
+  state.review = null;
   state.quick = { sha, path, back };
   renderTopbar();
   renderView();
@@ -1225,6 +1232,7 @@ async function openSplit(c) {
   try { await git('checkSplit', c.sha); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
   state.quick = null;
   state.fileHistory = null;
+  state.review = null;
   state.split = { sha: c.sha };
   renderTopbar();
   renderView();
@@ -2231,8 +2239,32 @@ function openLanes() {
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
+    onReview: (lane, base) => openReview(lane, base),
+    progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
   });
   return lanesPage;
+}
+// Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
+function openReview(lane, base = null) {
+  if (!state.repo) return;
+  if (!lane) {
+    if (!state.head.oid) return toast('Nothing to review yet', { detail: 'This branch has no commits.' });
+    lane = state.head.branch ? { name: state.head.branch, branch: state.head.branch, head: state.head.oid } : { name: state.head.oid.slice(0, 7), branch: null, head: state.head.oid, worktree: state.worktrees.find((w) => w.current) };
+  }
+  if (lane.isBase) return toast(`${lane.name} is the base branch`, { detail: 'Review a branch made from it instead.' });
+  const rev = lane.branch || lane.head;
+  if (!rev) return toast(`${lane.name} has no commits yet`);
+  state.quick = null;
+  state.split = null;
+  state.fileHistory = null;
+  state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base };
+  renderTopbar();
+  renderView();
+}
+function closeReview() {
+  state.review = null;
+  renderTopbar();
+  renderView();
 }
 function openLane(lane) {
   const t = laneTarget(lane);
@@ -2848,6 +2880,7 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: keymap.keys('repo.lfs'), detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
+    add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base lane files progress' });
     add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: keymap.keys('repo.fileHistory'), detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: keymap.keys('repo.difftool'), keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
@@ -3023,6 +3056,7 @@ let shortcuts = null;
 function shortcutsScope() {
   if (!state.repo) return tour ? 'tour' : 'recent';
   if (state.fileHistory) return 'fileHistory';
+  if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
   return ['commit', 'stashes', 'snapshots', 'worktrees'].includes(state.view) ? state.view : 'map';
@@ -3115,6 +3149,7 @@ async function loadRepo(repo) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
+  state.review = null;
   state.search = '';
   state.configFilter = '';
   commitCache.clear();
@@ -3189,6 +3224,7 @@ const commands = {
   mergetool: () => openMergetool(),
   conflicts: () => openConflicts(),
   fileHistory: () => openFileHistory(),
+  review: () => openReview(),
   identity: () => openIdentity(),
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
@@ -3254,12 +3290,14 @@ async function openFileHistory(path = fileHistoryTarget()) {
   }
   state.quick = null;
   state.split = null;
+  state.review = null;
   state.fileHistory = { path };
   renderTopbar();
   renderView();
 }
 function closeFileHistory() {
   state.fileHistory = null;
+  state.review = null;
   renderTopbar();
   renderView();
 }
@@ -3349,7 +3387,7 @@ window.addEventListener('keydown', (e) => {
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
     e.preventDefault();
-    if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();
+    if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory && !state.review) toggleDetail();
   }
 });
 let gPending = null;

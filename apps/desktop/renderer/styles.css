@@ -688,6 +688,22 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 84px; }
 .lanes-time { min-width: 36px; color: var(--text-4); }
 .lanes-count { font-size: 12px; }
+.lanes-review { flex: none; min-width: 92px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
+.lanes-review.done { color: var(--accent-fg); }
+.lanes-review.moved, .lanes-moved { color: var(--warn); }
+/* Branch review (review-view.js) */
+.review-side { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.review-side .quick-head { margin-bottom: 0; }
+.review-side .quick-meta { flex-wrap: wrap; }
+.review-tools { display: flex; gap: 6px; margin-top: 8px; margin-left: -8px; }
+.review-tools .chip:disabled { opacity: 0.5; }
+.review-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 8px 12px; }
+.review-progress.done { color: var(--accent-fg); }
+.review-changed { color: var(--warn); }
+.review-row.reviewed .fname { color: var(--text-3); }
+.review-tick { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--accent-text); }
+.review-tick.on { background: var(--accent); border-color: var(--accent); }
+.review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }
 
