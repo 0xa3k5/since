@@ -135,7 +135,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const current = () => shown.find((l) => laneKey(l) === selKey);
 
   function toggleAgents() {
-    if (!agentsOnly && !markAgents()) return toast('Agent lanes are hidden', { detail: 'Turn on “Mark lanes that look agent-made” in Choose defaults (⌘⇧,).' });
+    if (!agentsOnly && !markAgents()) return toast('Agent lanes are hidden', { detail: 'Turn on “Mark lanes that look agent-made” in Choose defaults (⇧⌘,).' });
     agentsOnly = !agentsOnly;
     render();
   }

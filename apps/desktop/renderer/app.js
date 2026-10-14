@@ -772,7 +772,7 @@ function sidebarHover(on) {
 // Keep it open while one of its context menus or dialogs is up, and check again once it closes.
 function sidebarHoverClose() {
   if (document.querySelector('.menu, .overlay')) { sbHideTimer = setTimeout(sidebarHoverClose, 200); return; }
-  if (!sidebarEl.matches(':hover')) setSidebar({ ...state.sidebar, hover: false });
+  if (sidebarEl && !sidebarEl.matches(':hover')) setSidebar({ ...state.sidebar, hover: false });
 }
 // A rail icon: open the full sidebar scrolled to that section.
 function openSidebarAt(id) {
@@ -1321,7 +1321,7 @@ function splitView({ sha }) {
       h('div.diff-head', null, statusBadge(statusOf(d)), h('span.mono', null, d.path), h('span.spacer'),
         h('button.btn.subtle.small', { onclick: () => toggleFile(d) }, fileState(d) === 'all' ? 'Deselect file' : 'Select file', kbd(...keymap.keys('split.toggleFile')))),
       h('div.diff-scroll', null, renderDiff(d, { selectable: true, selection: sel, onSelect, hunkActions, full, onShowAll: () => { full = true; renderFile(); } })),
-      h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges'),
+      h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges · Drag to select several'),
     );
   }
 
@@ -1815,7 +1815,7 @@ function createCommitView(container) {
         h('button.icon-btn', { title: 'Open file', onclick: () => api.app('open-file', file.path) }, icon('external', 14)),
       ),
       h('div.diff-scroll', null, renderDiff(d, { selectable: list !== 'conflicts', selection: sel, onSelect: updateBar, hunkActions, full: state.cv.full, onShowAll: () => { state.cv.full = true; renderDiffPane(); } })),
-      list !== 'conflicts' ? h('div.diff-hint', null, 'Click lines to select · Shift-click for ranges') : null,
+      list !== 'conflicts' ? h('div.diff-hint', null, 'Click lines to select · Shift-click for ranges · Drag to select several') : null,
     ].filter(Boolean));
     updateBar();
   }
@@ -1992,9 +1992,13 @@ const changeRow = (c) => {
 };
 
 // Preview what "Restore before" would change, then apply it as one undoable step.
+// One preview at a time: a second ↵ (or key repeat) during the preview's git call would stack a second dialog.
+let restorePending = false;
 async function restoreSnapshot(e) {
+  if (restorePending) return;
+  restorePending = true;
   let p;
-  try { p = await git('previewRestore', e.id); } catch (err) { return toast('Can’t preview this snapshot', { kind: 'error', detail: err.message }); }
+  try { p = await git('previewRestore', e.id); } catch (err) { return toast('Can’t preview this snapshot', { kind: 'error', detail: err.message }); } finally { restorePending = false; }
   if (!p.changes.length && !p.movesHead) return toast(`Already at the state before “${e.label}”`);
   const desc = h('div.restore-preview', null,
     h('div', null, `${p.changes.length} change${p.changes.length === 1 ? '' : 's'}. You can undo this with ${MOD}Z.`),
@@ -3266,6 +3270,7 @@ async function cloneRepo() {
 }
 async function closeRepo() {
   cancelHistory();
+  clearTimeout(sbHideTimer); // the sidebar's hover-close poll would hit the removed sidebar
   await api.app('close-repo');
   state.repo = null;
   sidebarEl = topbarEl = bannerEl = contentEl = null;
@@ -3471,7 +3476,8 @@ window.addEventListener('keydown', (e) => {
       if (v) { e.preventDefault(); setView(v); return; }
     } else if (state.view !== 'commit' && (gPending = keymap.chordStart('menu', e))) { setTimeout(() => { gPending = null; }, 800); return; }
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
-    if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
+    // Not while File History, Quick View or Split covers the Snapshots view: their keys would reach the hidden list.
+    if (state.view === 'snapshots' && !state.fileHistory && !state.quick && !state.split && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
   if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }

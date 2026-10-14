@@ -44,7 +44,7 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
         const key = r.ids.join(' ');
         const el = h('div.shortcuts-row' + (editing === key ? '.editing' : ''), {
           role: 'listitem', 'data-ids': key,
-          onmousemove: () => { idx = rows.indexOf(el); mark(); },
+          onmousemove: () => { idx = rows.indexOf(el); mark(false); }, // hover only highlights; scrolling follows ↑↓
           onclick: () => toggleEdit(key),
         },
         h('span.palette-label', null, r.label),
