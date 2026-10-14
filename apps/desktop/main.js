@@ -15,6 +15,7 @@ const updater = require('./updater');
 const pkg = require('./package.json');
 const check = require('./ipc');
 const ai = require('./ai');
+const github = require('./github');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -416,6 +417,30 @@ handle('app:ai-generate', aiCall(async (e, consent, hash) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Pull request status through the user's GitHub CLI (github.js), per repository and off by
+// default. `gh` only runs when the user turns it on (auth check) or fetches/refreshes PRs.
+
+const prEnabled = (root) => github.isEnabled(readSettings().github, root);
+async function prState(e) {
+  const s = session(e);
+  const remotes = await git.getRemotes(s.repo.root).catch(() => []);
+  return { enabled: prEnabled(s.repo.root), remote: github.pickRemote(remotes), installUrl: github.INSTALL_URL };
+}
+handle('app:pr-state', (e) => prState(e));
+handle('app:pr-detect', aiCall(async (e) => github.detect({ remotes: await git.getRemotes(session(e).repo.root) })));
+handle('app:pr-enable', async (e, on) => {
+  const root = session(e).repo.root;
+  writeSettings({ github: github.setEnabled(readSettings().github, root, check.bool(on, 'pull requests on')) });
+  return prState(e);
+});
+handle('app:pr-list', aiCall(async (e) => {
+  const root = session(e).repo.root;
+  // Checked before anything else, so nothing runs for a repository that hasn't opted in.
+  if (!prEnabled(root)) return null;
+  return github.listPrs({ enabled: true, remotes: await git.getRemotes(root) });
+}));
+
+// ---------------------------------------------------------------------------
 // Trial & licence
 
 let licensing = null;
@@ -712,6 +737,9 @@ function buildMenu() {
         item('Commit Identity…', 'CmdOrCtrl+Alt+I', 'identity'),
         item('Write Commit Message with AI', 'CmdOrCtrl+Alt+G', 'aiMessage'),
         item('AI Commit Messages…', undefined, 'aiSetup'),
+        { type: 'separator' },
+        item('Pull Requests…', 'CmdOrCtrl+Alt+P', 'prs'),
+        item('Refresh Pull Requests', 'CmdOrCtrl+Alt+Shift+P', 'prRefresh'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
         item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),
