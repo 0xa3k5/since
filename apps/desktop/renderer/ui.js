@@ -35,6 +35,7 @@ const P = {
   commit: '<circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/>',
   stash: '<path d="M2.5 5.5h11v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/><path d="M1.8 3h12.4v2.5H1.8zM6.5 8.5h3"/>',
   history: '<path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8L2.5 5.9"/><path d="M2.5 2.8v3.1h3.1M8 5.2V8l2 1.4"/>',
+  submodule: '<rect x="2" y="2" width="12" height="12" rx="2"/><rect x="5.5" y="5.5" width="5" height="5" rx="1"/>',
   reflog: '<path d="M3 3.5h10M3 8h10M3 12.5h6"/>',
   config: '<circle cx="8" cy="8" r="2"/><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6"/>',
   branch: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/>',

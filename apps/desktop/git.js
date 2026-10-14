@@ -476,6 +476,103 @@ async function markLfs(cwd, status) {
   return status;
 }
 
+// Submodules. The superproject records one commit per submodule (a gitlink entry in the
+// index); each submodule's `state` compares its own checkout with that:
+//   uninitialized: not cloned or not checked out yet (Update fixes that)
+//   outdated: checked out at another commit than the one recorded
+//   modified: its work tree has uncommitted changes or untracked files
+//   conflict: the recorded commit is in a merge conflict
+//   clean: checked out at the recorded commit, nothing changed
+const SUBMODULE_CAP = 500;
+
+// .gitmodules as `git config -z --get-regexp` prints it → Map(path → { name, url }).
+function parseGitmodules(out) {
+  const byName = new Map();
+  for (const rec of out.split('\0')) {
+    const nl = rec.indexOf('\n');
+    if (nl === -1) continue;
+    const m = /^submodule\.(.+)\.(path|url)$/.exec(rec.slice(0, nl));
+    if (!m) continue;
+    const e = byName.get(m[1]) || { name: m[1] };
+    e[m[2]] = rec.slice(nl + 1);
+    byName.set(m[1], e);
+  }
+  return new Map([...byName.values()].filter((e) => e.path).map((e) => [e.path, { name: e.name, url: e.url || '' }]));
+}
+
+// The submodule's checked-out commit and branch, or null when it isn't checked out.
+async function submoduleHead(cwd, p) {
+  const abs = path.join(cwd, p);
+  if (!fs.existsSync(path.join(abs, '.git'))) return null;
+  const sha = (await run(abs, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] }).catch(() => '')).trim();
+  if (!sha) return null;
+  const branch = (await run(abs, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowCodes: [0, 1] }).catch(() => '')).trim();
+  return { sha, branch: branch || null };
+}
+
+const submoduleDirty = async (cwd, p) => !!(await run(path.join(cwd, p), ['status', '--porcelain', '-z', '--ignore-submodules=none']).catch(() => ''));
+
+async function getSubmodules(cwd) {
+  // Runs on every status refresh, so the index is only read at the paths .gitmodules lists.
+  if (!fs.existsSync(path.join(cwd, '.gitmodules'))) return [];
+  const info = parseGitmodules(await run(cwd, ['config', '-z', '-f', '.gitmodules', '--get-regexp', '^submodule\\.'], { allowCodes: [0, 1] }));
+  if (!info.size) return [];
+  const staged = await run(cwd, ['ls-files', '-s', '-z', '--', ...[...info.keys()].map((p) => `:(literal)${p}`)]);
+  const links = new Map(); // path → { recorded, conflict }
+  for (const rec of staged.split('\0')) {
+    const m = /^160000 ([0-9a-f]+) (\d)\t(.+)$/.exec(rec);
+    if (!m) continue;
+    const e = links.get(m[3]) || { recorded: null, conflict: false };
+    if (m[2] === '0') e.recorded = m[1]; else e.conflict = true;
+    links.set(m[3], e);
+  }
+  const list = [...links].slice(0, SUBMODULE_CAP);
+  return Promise.all(list.map(async ([p, l]) => {
+    const head = await submoduleHead(cwd, p);
+    const dirty = head ? await submoduleDirty(cwd, p) : false;
+    const state = l.conflict ? 'conflict' : !head ? 'uninitialized' : dirty ? 'modified' : head.sha !== l.recorded ? 'outdated' : 'clean';
+    return { path: p, name: info.get(p)?.name || p, url: info.get(p)?.url || '', recorded: l.recorded, head: head?.sha || null, branch: head?.branch || null, state };
+  }));
+}
+
+// `git submodule update --init` for `paths` (all when empty). Refuses submodules with local
+// changes, so nothing uncommitted is lost. Returns [{ path, before, after }] (each { sha, branch }
+// or null when not checked out) for undo, plus the error if git failed part-way.
+async function updateSubmodules(cwd, paths = []) {
+  const subs = await getSubmodules(cwd);
+  const chosen = paths.length ? subs.filter((s) => paths.includes(s.path)) : subs;
+  if (!chosen.length) throw new GitError(paths.length ? 'That submodule no longer exists.' : 'This repository has no submodules.');
+  const busy = chosen.filter((s) => s.state === 'modified' || s.state === 'conflict');
+  if (busy.length) throw new GitError(`${busy.map((s) => s.path).join(', ')} ${busy.length > 1 ? 'have' : 'has'} local changes or a conflict. Commit or stash them in the submodule first.`);
+  const before = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
+  let error = null;
+  await run(cwd, ['submodule', 'update', '--init', '--', ...chosen.map((s) => s.path)]).catch((err) => { error = err; });
+  const after = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
+  const changes = chosen.map((s, i) => ({ path: s.path, before: before[i], after: after[i] })).filter((c) => !sameHead(c.before, c.after));
+  return { changes, error };
+}
+
+const sameHead = (a, b) => (a?.sha || null) === (b?.sha || null) && (a?.branch || null) === (b?.branch || null);
+
+// Undo or redo `updateSubmodules` changes. Each submodule must still be where the change left
+// it (`after` for undo) and clean; going back to "not checked out" deinitialises it, which
+// keeps its clone under .git/modules so redo needs no network.
+async function restoreSubmodules(cwd, changes, dir) {
+  const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
+  for (const c of changes) {
+    if (!sameHead(await submoduleHead(cwd, c.path), c[cur])) throw new GitError(`submodule ${c.path} has moved since.`);
+    if (c[cur] && (await submoduleDirty(cwd, c.path))) throw new GitError(`submodule ${c.path} has local changes. Commit or stash them first.`);
+  }
+  for (const c of changes) {
+    const want = c[next];
+    if (!want) { await run(cwd, ['submodule', 'deinit', '-q', '--', c.path]); continue; }
+    if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '-q', '--', c.path]);
+    const abs = path.join(cwd, c.path);
+    const onBranch = want.branch && (await run(abs, ['rev-parse', '-q', '--verify', `refs/heads/${want.branch}`], { allowCodes: [0, 1] })).trim() === want.sha;
+    await run(abs, onBranch ? ['checkout', '-q', want.branch] : ['checkout', '-q', '--detach', want.sha]);
+  }
+}
+
 async function getOperationState(gitDir) {
   const exists = (p) => fs.existsSync(path.join(gitDir, p));
   if (exists('rebase-merge') || exists('rebase-apply')) return 'rebase';
@@ -1360,7 +1457,7 @@ function parseBlame(out) {
 
 module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
-  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseDiff, buildPartialPatch, applyPatch,
+  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
