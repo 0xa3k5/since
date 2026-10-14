@@ -166,6 +166,7 @@ const gitSchemas = {
   commitDiffs: [rev],
   checkSplit: [rev],
   compare: [rev, rev],
+  branchReview: [rev, optional(rev)],
   status: [],
   opState: [],
   lfs: [],
