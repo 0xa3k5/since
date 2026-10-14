@@ -352,4 +352,19 @@ async function ghStatus({ dirs = searchDirs(), exec } = {}) {
   }
 }
 
-module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+// Lanes (git.lanes) with their open PR attached by head branch: the upstream's branch when the
+// lane has one, else the local name. A PR from a fork only matches a lane tracking that fork.
+// `listed` is a listPrs result, or null while PRs are off (lanes then get `pr: null`).
+function joinLanes(lanes = [], listed = null) {
+  const prs = listed?.prs || [];
+  const owners = listed?.owners || {};
+  return lanes.map((l) => {
+    const slash = l.upstream ? l.upstream.indexOf('/') : -1;
+    const head = slash > 0 ? l.upstream.slice(slash + 1) : l.branch;
+    const owner = slash > 0 ? owners[l.upstream.slice(0, slash)] : null;
+    const p = head && !l.isBase ? prs.find((x) => x.branch === head && (!owner || !x.headOwner || x.headOwner.toLowerCase() === owner.toLowerCase())) : null;
+    return { ...l, pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, review: p.review, url: p.url } : null };
+  });
+}
+
+module.exports = { joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

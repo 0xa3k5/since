@@ -313,3 +313,21 @@ test('create PR: gh pr create gets plain flags and the body on stdin', async () 
   await assert.rejects(github.createPr({ ...t, enabled: false, base: 'main', head: 'feat/x', title: 'x' }), { code: 'gh-off' });
   assert.equal(calls.length, 1);
 });
+
+test('joinLanes: PRs attach by upstream branch, forks only to lanes tracking them, off means null', () => {
+  const pr = (number, branch, headOwner, extra = {}) => ({ number, title: `PR ${number}`, branch, headOwner, draft: false, checks: 'success', review: 'approved', url: `https://github.com/acme/app/pull/${number}`, ...extra });
+  const listed = { owners: { origin: 'acme', fork: 'bob' }, prs: [pr(1, 'feat', 'acme', { draft: true, checks: 'pending' }), pr(2, 'fix', 'bob'), pr(3, 'local-only', 'acme'), pr(4, 'main', 'acme')] };
+  const lanes = [
+    { name: 'feat', branch: 'feat', upstream: 'origin/feat' },
+    { name: 'my-fix', branch: 'my-fix', upstream: 'fork/fix' },
+    { name: 'fix', branch: 'fix', upstream: 'origin/fix' },
+    { name: 'local-only', branch: 'local-only', upstream: null },
+    { name: 'main', branch: 'main', upstream: 'origin/main', isBase: true },
+    { name: 'det', branch: null, upstream: null },
+  ];
+  const out = github.joinLanes(lanes, listed);
+  assert.deepEqual(out.map((l) => l.pr?.number ?? null), [1, 2, null, 3, null, null]);
+  assert.deepEqual(out[0].pr, { number: 1, title: 'PR 1', state: 'open', draft: true, checks: 'pending', review: 'approved', url: 'https://github.com/acme/app/pull/1' });
+  assert.equal(out[0].name, 'feat', 'lane fields kept');
+  assert.ok(github.joinLanes(lanes, null).every((l) => l.pr === null));
+});
