@@ -262,6 +262,64 @@ async function viewPr({ enabled, remotes, number, dirs = searchDirs(), exec } = 
 // PR from this repository, else the PR's own ref (which follows the fork's pushes).
 const prUpstream = (head) => (head.cross ? `refs/pull/${head.number}/head` : `refs/heads/${head.branch}`);
 
+// Creating a PR. The sheet asks `gh repo view` for the default branch (the usual base) and fills
+// the title and body from the branch's own commits; `gh pr create` then gets the body on stdin
+// (`--body-file -`) and `--head`, so it never pushes or reads the local checkout itself.
+function parseDefaultBranch(out) {
+  const branch = text(parseJson(out).defaultBranchRef?.name, 255);
+  if (!branch) throw coded('GitHub CLI didn’t say which branch is the default.', 'gh-failed');
+  return branch;
+}
+
+async function defaultBranch({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  return parseDefaultBranch(await ghRun(bin, ['repo', 'view', repo, '--json', 'defaultBranchRef'], { dirs, exec }));
+}
+
+// Commits (newest first, as `git log` lists them) → { title, body }. One commit: its message.
+// Several: the oldest subject as the title and every subject as a bullet, oldest first.
+function prDraft(commits = []) {
+  const list = commits.filter((c) => c && c.subject);
+  if (!list.length) return { title: '', body: '' };
+  if (list.length === 1) return { title: list[0].subject, body: (list[0].body || '').trim() };
+  const oldest = [...list].reverse();
+  return { title: oldest[0].subject, body: oldest.map((c) => `- ${c.subject}`).join('\n') };
+}
+
+// `git log --format=%s%x00%b%x1e` output → [{ subject, body }].
+const parseCommits = (out) => String(out || '').split('\x1e').map((rec) => rec.replace(/^\n+/, '')).filter(Boolean)
+  .map((rec) => { const i = rec.indexOf('\0'); return { subject: (i < 0 ? rec : rec.slice(0, i)).trim(), body: i < 0 ? '' : rec.slice(i + 1).trim() }; });
+
+// Branch names as they reach `gh`: plain names only, never something that reads as an option.
+// A head can carry a fork owner (`owner:branch`).
+const BRANCH = /^(?![-./])(?!.*(?:\.\.|\/\/|@\{))[\w./-]+(?<![./]|\.lock)$/;
+function branchArg(v, what) {
+  const s = typeof v === 'string' ? v : '';
+  const i = s.indexOf(':');
+  const owner = i < 0 ? null : s.slice(0, i), name = i < 0 ? s : s.slice(i + 1);
+  if (!BRANCH.test(name) || name.length > 255 || (owner !== null && !/^[\w.-]{1,100}$/.test(owner))) throw coded(`Invalid ${what} branch.`, 'gh-failed');
+  return s;
+}
+
+// `gh pr create` prints the new PR's URL last.
+function parseCreated(out) {
+  const m = /(https:\/\/\S+\/pull\/(\d+))\s*$/.exec(String(out || '').trim());
+  if (!m) throw coded('GitHub CLI didn’t return the new pull request’s link.', 'gh-failed');
+  return { url: m[1], number: Number(m[2]) };
+}
+
+async function createPr({ enabled, remotes, base, head, title, body = '', draft = false, dirs = searchDirs(), exec = runCli } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const t = typeof title === 'string' ? title.trim().replace(/\s+/g, ' ') : '';
+  if (!t) throw coded('A pull request needs a title.', 'gh-failed');
+  const args = ['pr', 'create', '--repo', repo, `--base=${branchArg(base, 'base')}`, `--head=${branchArg(head, 'head')}`, `--title=${t.slice(0, 256)}`, '--body-file', '-', ...(draft ? ['--draft'] : [])];
+  let out;
+  try {
+    out = await exec(bin, args, typeof body === 'string' ? body.slice(0, 65_536) : '', { dirs, timeout: TIMEOUT, env: GH_ENV });
+  } catch (err) { throw coded(err.message, authProblem(err.message) ? 'gh-auth' : 'gh-failed'); }
+  return parseCreated(out);
+}
+
 // settings.json `github`: { repos: [repository roots with PR status on] }.
 function normalize(saved = {}) {
   return { repos: Array.isArray(saved?.repos) ? saved.repos.filter((r) => typeof r === 'string') : [] };
@@ -272,4 +330,4 @@ function setEnabled(saved, root, on) {
   return { ...normalize(saved), repos: on ? [...repos, root] : repos };
 }
 
-module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, normalize, isEnabled, setEnabled };
+module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, setEnabled };

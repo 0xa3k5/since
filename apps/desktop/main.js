@@ -503,6 +503,85 @@ handle('app:pr-checkout', aiCall(async (e, number, opts) => {
   }
 }));
 
+// Create a PR from a local branch. Main works out what the branch needs (its GitHub head, whether
+// it's pushed) itself, so the renderer only names the branch; a push happens only when the user
+// ticked the confirm in the sheet, and `gh pr create` runs only on an up-to-date remote branch.
+async function prBranch(s, branch) {
+  check.rev(branch, 'branch');
+  const root = s.repo.root;
+  const remotes = await git.getRemotes(root);
+  const enabled = prEnabled(root);
+  const target = github.pickRemote(remotes);
+  if (!enabled) throw Object.assign(new Error('Pull requests are off for this repository.'), { code: 'gh-off' });
+  if (!target) throw Object.assign(new Error('This repository has no GitHub remote.'), { code: 'gh-no-remote' });
+  const line = (await r(s, ['for-each-ref', '--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:track,nobracket)', `refs/heads/${branch}`])).trim();
+  if (!line) throw new git.GitError(`${branch} isn’t a local branch.`);
+  const [upRemote, upRef, track] = line.split('\0');
+  const up = upRemote && upRef.startsWith('refs/heads/') ? github.parseRemote(remotes.find((x) => x.name === upRemote)) : null;
+  // Pushes go where the branch already tracks (a fork, say); a branch with no upstream goes to the
+  // GitHub remote and starts tracking it.
+  const dest = up ? { remote: up, ref: upRef.slice('refs/heads/'.length) } : { remote: target, ref: branch };
+  const head = dest.remote.owner !== target.owner ? `${dest.remote.owner}:${dest.ref}` : dest.ref;
+  const ahead = Number(/ahead (\d+)/.exec(track || '')?.[1] || 0);
+  const push = !up ? { remote: dest.remote.name, isNew: true, ahead: 0 } : ahead || /gone/.test(track) ? { remote: dest.remote.name, isNew: /gone/.test(track), ahead } : null;
+  return { enabled, remotes, target, dest, head, push };
+}
+handle('app:pr-create-info', aiCall(async (e, branch) => {
+  const s = session(e);
+  const b = await prBranch(s, branch);
+  const base = await github.defaultBranch({ enabled: b.enabled, remotes: b.remotes });
+  // Commits not on the remote's base yet; without a remote base, just the branch tip.
+  const baseRef = `refs/remotes/${b.target.name}/${base}`;
+  const hasBase = (await r(s, ['rev-parse', '-q', '--verify', baseRef], { allowCodes: [0, 1] })).trim();
+  const log = await r(s, ['log', '--format=%s%x00%b%x1e', '-n', hasBase ? '50' : '1', hasBase ? `${baseRef}..refs/heads/${branch}` : `refs/heads/${branch}`, '--']);
+  return { branch, base, remote: b.target.name, head: b.head, push: b.push, ...github.prDraft(github.parseCommits(log)) };
+}));
+// "Draft with AI": the provider set up for commit messages, and only once the user has agreed
+// to send it diffs (the commit composer asks); this sheet never widens that consent.
+handle('app:pr-ai-draft', aiCall(async (e, branch, base) => {
+  const a = aiSettings();
+  if (a.provider === 'off' || !a.consent.includes(a.provider)) throw Object.assign(new Error('Set up AI commit messages first.'), { code: 'ai-off' });
+  const s = session(e);
+  const b = await prBranch(s, branch);
+  check.rev(base, 'base');
+  const baseRef = `refs/remotes/${b.target.name}/${base}`;
+  const range = (await r(s, ['rev-parse', '-q', '--verify', baseRef], { allowCodes: [0, 1] })).trim() ? `${baseRef}...refs/heads/${branch}` : `refs/heads/${branch}^!`;
+  const env = { GIT_OPTIONAL_LOCKS: '1' };
+  const [log, stat, diff] = await Promise.all([
+    r(s, ['log', '--format=- %s', '-n', '50', range.replace('...', '..'), '--'], { env }),
+    r(s, ['diff', '--stat=100', '--no-color', range, '--'], { env }),
+    r(s, ['diff', '--no-color', '--no-ext-diff', '-M', range, '--'], { env }),
+  ]);
+  return ai.splitPr(await ai.generate(a, ai.buildPrPrompt({ branch, base, log, stat, diff })));
+}));
+const prCreateOpts = (v) => check.obj(v, 'pull request', {
+  base: (x, w) => check.rev(x, w),
+  title: (x, w) => check.str(x, w, { max: 1024 }),
+  body: (x, w) => check.str(x, w, { empty: true }),
+  draft: check.bool,
+  push: check.bool,
+});
+handle('app:pr-create', aiCall(async (e, branch, opts) => {
+  const o = prCreateOpts(opts);
+  const s = session(e);
+  const b = await prBranch(s, branch);
+  if (b.push) {
+    if (!o.push) throw Object.assign(new Error(`${branch} has commits that aren’t on GitHub yet. Push it first.`), { code: 'needs-push' });
+    if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
+    s.busy++;
+    try {
+      // The current branch takes the usual push path; another branch pushes to the same place.
+      if (branch === (await git.getRefs(s.repo.root)).head.branch) await plainMutations.push(s);
+      else await r(s, ['push', ...(b.push.isNew ? ['-u'] : []), '--', b.dest.remote.name, `refs/heads/${branch}:refs/heads/${b.dest.ref}`]);
+    } finally {
+      s.busy--;
+      s.pending.refs = true;
+      s.schedule();
+    }
+  }
+  return github.createPr({ enabled: b.enabled, remotes: b.remotes, base: o.base, head: b.head, title: o.title, body: o.body, draft: o.draft });
+}));
+
 // ---------------------------------------------------------------------------
 // Trial & licence
 
@@ -803,6 +882,7 @@ function buildMenu() {
         { type: 'separator' },
         item('Pull Requests…', 'CmdOrCtrl+Alt+P', 'prs'),
         item('Refresh Pull Requests', 'CmdOrCtrl+Alt+Shift+P', 'prRefresh'),
+        item('New Pull Request…', 'CmdOrCtrl+Alt+Shift+N', 'prCreate'),
         item('Check Out Pull Request…', 'CmdOrCtrl+Alt+Shift+O', 'prCheckout'),
         item('Check Out Pull Request in New Worktree…', 'CmdOrCtrl+Alt+Shift+L', 'prWorktree'),
         item('Approve Pull Request…', 'CmdOrCtrl+Alt+Shift+A', 'prApprove'),
