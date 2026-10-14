@@ -69,6 +69,7 @@ const P = {
   eye: '<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
   diff: '<path d="M4.5 2v6M1.5 5h6M8.5 11h6M11.5 2.5l-7 11"/>',
   sidebar: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M6 2.5v11"/>',
+  panelRight: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M10 2.5v11"/>',
   warning: '<path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11.2v.1"/>',
   file: '<path d="M4 1.8h5l3 3V14H4z"/><path d="M9 1.8v3h3"/>',
   restore: '<path d="M2.5 8a5.5 5.5 0 1 0 1.8-4.1"/><path d="M2.5 2.5v3h3"/>',
