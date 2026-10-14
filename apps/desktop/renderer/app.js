@@ -53,7 +53,7 @@ const state = {
   remotes: [],
   worktrees: [],
   submodules: [], // see git.getSubmodules
-  cv: { list: 'unstaged', path: null, lines: new Set(), diff: null, full: false },
+  cv: { list: 'unstaged', path: null, sel: new Set(), anchor: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
   theme: 'system',
@@ -1565,23 +1565,39 @@ function createCommitView(container) {
   const section = (title, files, list, actions) => h('div.cv-section', null,
     h('div.cv-section-head', null, h('span', null, title), h('span.sb-count', null, files.length), h('span.spacer'), actions),
     files.length ? h('div.file-list', null, files.map((f) => {
-      const row = fileRow(f, () => selectFile(list, f.path), h('span.row-actions', null,
+      const row = fileRow(f, (e) => clickFile(e, list, f.path), h('span.row-actions', null,
         list === 'unstaged' ? [
-          h('button.icon-btn.tiny', { title: 'Discard changes', onclick: (e) => { e.stopPropagation(); discard([f]); } }, icon('trash', 13)),
-          h('button.icon-btn.tiny', { title: 'Stage', onclick: (e) => { e.stopPropagation(); quiet('stageFiles', [f.path]); } }, icon('plus', 13)),
+          h('button.icon-btn.tiny', { title: 'Discard changes', onclick: (e) => { e.stopPropagation(); discard(targets(list, f)); } }, icon('trash', 13)),
+          h('button.icon-btn.tiny', { title: 'Stage', onclick: (e) => { e.stopPropagation(); quiet('stageFiles', paths(targets(list, f))); } }, icon('plus', 13)),
         ] : list === 'staged' ? [
-          h('button.icon-btn.tiny', { title: 'Unstage', onclick: (e) => { e.stopPropagation(); quiet('unstageFiles', [f.path]); } }, icon('minus', 13)),
+          h('button.icon-btn.tiny', { title: 'Unstage', onclick: (e) => { e.stopPropagation(); quiet('unstageFiles', paths(targets(list, f))); } }, icon('minus', 13)),
         ] : [
           h('button.btn.ghost.tiny', { title: 'Use our version', onclick: (e) => { e.stopPropagation(); chooseSide(f.path, 'ours'); } }, 'Ours'),
           h('button.btn.ghost.tiny', { title: 'Use their version', onclick: (e) => { e.stopPropagation(); chooseSide(f.path, 'theirs'); } }, 'Theirs'),
           h('button.icon-btn.tiny', { title: 'Mark as resolved', onclick: (e) => { e.stopPropagation(); quiet('markResolved', f.path); } }, icon('check', 13)),
         ]));
-      row.dataset.key = list + ':' + f.path;
-      row.addEventListener('dblclick', () => {
+      row.dataset.list = list; row.dataset.path = f.path;
+      row.addEventListener('mousedown', (e) => { if (e.shiftKey) e.preventDefault(); });
+      row.addEventListener('dblclick', (e) => {
+        if (e.shiftKey || e.metaKey || e.ctrlKey) return;
         if (list === 'unstaged') quiet('stageFiles', [f.path]); else if (list === 'staged') quiet('unstageFiles', [f.path]);
       });
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
+        if (list !== state.cv.list || !state.cv.sel.has(f.path)) selectFile(list, f.path);
+        const t = targets(list, f);
+        if (t.length > 1) {
+          const n = `${t.length} Files`;
+          return contextMenu(e.clientX, e.clientY, [
+            list === 'unstaged' ? { label: `Stage ${n}`, icon: 'plus', kbd: '↵', run: () => quiet('stageFiles', paths(t)) } : null,
+            list === 'staged' ? { label: `Unstage ${n}`, icon: 'minus', kbd: '↵', run: () => quiet('unstageFiles', paths(t)) } : null,
+            list === 'conflicts' ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool(paths(t)) } : null,
+            { label: 'Copy Paths', icon: 'copy', run: () => copy(paths(t).join('\n'), 'Copied paths') },
+            list !== 'conflicts' ? { label: `Stash ${n}…`, icon: 'stash', run: () => stashSave({ paths: t.flatMap((x) => (x.oldPath ? [x.path, x.oldPath] : [x.path])), untracked: t.some((x) => x.status === '?') }) } : null,
+            list === 'unstaged' ? '-' : null,
+            list === 'unstaged' ? { label: `Discard Changes to ${n}…`, icon: 'trash', danger: true, kbd: '⌫', run: () => discard(t) } : null,
+          ]);
+        }
         contextMenu(e.clientX, e.clientY, [
           list === 'unstaged' ? { label: 'Stage', icon: 'plus', kbd: '↵', run: () => quiet('stageFiles', [f.path]) } : null,
           list === 'staged' ? { label: 'Unstage', icon: 'minus', kbd: '↵', run: () => quiet('unstageFiles', [f.path]) } : null,
@@ -1614,15 +1630,59 @@ function createCommitView(container) {
         h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
       ] : null),
     ].filter(Boolean));
-    lists.querySelectorAll('.file-row').forEach((r) => r.classList.toggle('active', r.dataset.key === state.cv.list + ':' + state.cv.path));
+    // Files that were staged, unstaged or discarded drop out of the selection.
+    const left = new Set(paths(listFiles(state.cv.list)));
+    state.cv.sel = new Set([...state.cv.sel].filter((p) => left.has(p)));
+    markSelection();
     updateCommitBtn();
   }
 
-  function selectFile(list, path) {
+  // Multi-select: `sel` holds the selected paths of `state.cv.list`; the diff pane shows `state.cv.path`.
+  const listFiles = (list) => state.status[list] || [];
+  const paths = (files) => files.map((f) => f.path);
+  const selected = () => listFiles(state.cv.list).filter((f) => state.cv.sel.has(f.path));
+  // A row action applies to the whole selection when the row is part of it, otherwise to that row only.
+  const targets = (list, f) => (list === state.cv.list && state.cv.sel.size > 1 && state.cv.sel.has(f.path) ? selected() : [f]);
+
+  function markSelection() {
+    const many = state.cv.sel.size > 1;
+    lists.classList.toggle('multi', many);
+    lists.querySelectorAll('.file-row').forEach((r) => {
+      const mine = r.dataset.list === state.cv.list;
+      r.classList.toggle('active', mine && r.dataset.path === state.cv.path);
+      r.classList.toggle('selected', many && mine && state.cv.sel.has(r.dataset.path));
+    });
+  }
+
+  function selectFile(list, path, keep = false) {
     if (state.cv.list !== list || state.cv.path !== path) { state.cv.lines = new Set(); state.cv.full = false; }
+    if (!keep) { state.cv.sel = new Set([path]); state.cv.anchor = path; }
     state.cv.list = list; state.cv.path = path;
-    lists.querySelectorAll('.file-row').forEach((r) => r.classList.toggle('active', r.dataset.key === list + ':' + path));
+    markSelection();
     renderDiffPane();
+  }
+
+  // Shift selects a range from the anchor, Cmd toggles one file. Both stay inside one list.
+  function selectRange(list, path) {
+    const all = paths(listFiles(list));
+    const a = all.indexOf(state.cv.anchor), b = all.indexOf(path);
+    if (list !== state.cv.list || a === -1 || b === -1) return selectFile(list, path);
+    state.cv.sel = new Set(all.slice(Math.min(a, b), Math.max(a, b) + 1));
+    selectFile(list, path, true);
+  }
+  function clickFile(e, list, path) {
+    if (e.shiftKey) return selectRange(list, path);
+    if (!(e.metaKey || e.ctrlKey) || list !== state.cv.list) return selectFile(list, path);
+    const sel = new Set(state.cv.sel);
+    if (sel.has(path) && sel.size > 1) sel.delete(path); else sel.add(path);
+    state.cv.sel = sel; state.cv.anchor = path;
+    selectFile(list, sel.has(path) ? path : paths(listFiles(list)).find((p) => sel.has(p)), true);
+  }
+  function selectAll() {
+    const all = paths(listFiles(state.cv.list));
+    if (!all.length) return;
+    state.cv.sel = new Set(all);
+    selectFile(state.cv.list, all.includes(state.cv.path) ? state.cv.path : all[0], true);
   }
 
   async function discard(files) {
@@ -1731,16 +1791,23 @@ function createCommitView(container) {
     if (e.target.tagName === 'TEXTAREA') return;
     const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
     const i = all.findIndex(([l, f]) => l === state.cv.list && f.path === state.cv.path);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'a') {
+      if (isEditable(e.target)) return;
+      e.preventDefault(); selectAll();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const n = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
-      if (n) { selectFile(n[0], n[1].path); lists.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
+      // Shift+arrows extend the selection, but never across into another list.
+      if (n && e.shiftKey) { if (n[0] === state.cv.list) selectRange(n[0], n[1].path); } else if (n) selectFile(n[0], n[1].path);
+      lists.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Escape' && state.cv.sel.size > 1) {
+      e.preventDefault(); selectFile(state.cv.list, state.cv.path);
     } else if (e.key === 'Enter' && i !== -1) {
       e.preventDefault();
       const [l, f] = all[i];
-      if (l === 'unstaged') quiet('stageFiles', [f.path]); else if (l === 'staged') quiet('unstageFiles', [f.path]);
+      if (l === 'unstaged') quiet('stageFiles', paths(targets(l, f))); else if (l === 'staged') quiet('unstageFiles', paths(targets(l, f)));
     } else if ((e.key === 'Backspace' || e.key === 'Delete') && i !== -1 && all[i][0] === 'unstaged') {
-      e.preventDefault(); discard([all[i][1]]);
+      e.preventDefault(); discard(targets('unstaged', all[i][1]));
     } else if (e.key === 'c' && !e.metaKey && !e.ctrlKey) {
       e.preventDefault(); textarea.focus();
     }
@@ -1752,6 +1819,7 @@ function createCommitView(container) {
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
     refresh: () => { renderLists(); renderDiffPane(); },
+    selectAll,
   };
 }
 
@@ -2654,6 +2722,7 @@ function openPalette() {
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
     add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⇧', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
+    if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: [MOD, 'A'], keywords: 'select all multi stage unstage discard files changes' });
     if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
       const a = conflictEd.actions, k = CONFLICT_KEYS;
