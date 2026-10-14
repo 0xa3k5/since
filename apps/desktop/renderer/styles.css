@@ -859,11 +859,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 @media (prefers-reduced-motion: reduce) { .tour-pill { animation: none; } }
 
 /* First-run "choose your defaults" step, shown in the tour's place until it's finished. */
-.setup-lede { margin: -10px 0 12px; font-size: 12.5px; color: var(--text-3); }
+.setup h2 { margin-bottom: 4px; line-height: 1.3; }
+.setup-lede { margin: 0 0 14px; font-size: 12.5px; line-height: 1.45; color: var(--text-3); }
 .setup-list { display: grid; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-content); box-shadow: var(--shadow-sm); }
 .setup-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px; border-radius: var(--radius); }
 .setup-row + .setup-row { border-top: 1px solid var(--border); border-radius: 0; }
-.setup-row > svg, .setup-later-row > svg { flex: none; color: var(--text-3); }
+.setup-row > svg { flex: none; color: var(--text-3); }
 .setup-text { flex: 1; min-width: 0; }
 .setup-label { font-size: 12.5px; font-weight: 550; color: var(--text); }
 .setup-detail { font-size: 11.5px; color: var(--text-3); }
@@ -878,11 +879,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .setup-seg button[aria-pressed="true"] { color: var(--text); background: var(--bg-selected); }
 .setup-pick { flex: none; gap: 4px; }
 .setup-pick > svg { color: var(--text-3); }
-.setup-later { margin-top: 12px; }
-.setup-later-head { margin: 0 0 4px 8px; font-size: 11.5px; font-weight: 550; color: var(--text-3); }
-.setup-later-row { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; }
-.setup-later-row .setup-label { font-weight: 500; color: var(--text-2); }
-.setup-later-row .setup-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup .tour-foot .btn { gap: 6px; }
 .overlay .setup { width: 460px; padding: 20px; border-radius: var(--radius-lg); background: var(--bg-elevated); box-shadow: var(--shadow); }
 @media (prefers-reduced-motion: reduce) { .switch, .switch-knob { transition: none; } }
