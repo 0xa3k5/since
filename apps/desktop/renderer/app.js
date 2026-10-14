@@ -2500,11 +2500,11 @@ window.addEventListener('keydown', (e) => {
       if (v) { e.preventDefault(); setView(v); return; }
     } else if (e.key === 'g' && state.view !== 'commit') { gPending = true; setTimeout(() => { gPending = false; }, 800); return; }
     if (e.key === '/' ) { e.preventDefault(); commands.search(); }
+    if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
   if (state.repo && e.code === 'Backslash' && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey) {
     e.preventDefault();
     if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();
-    if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
 });
 let gPending = false;
