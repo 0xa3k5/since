@@ -2662,7 +2662,7 @@ function openPalette() {
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
-    add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: [MOD, ','], keywords: 'settings preferences setup onboarding defaults features welcome' });
+    add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: [MOD, '⇧', ','], keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
     for (const r of state.refs) {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
@@ -2713,7 +2713,7 @@ async function openHosting() {
 // The welcome tour; ⌘Z / ⇧⌘Z drive it while no repository is open.
 let tour = null;
 
-// "Choose your defaults" (setup.js): first launch shows it in the tour's place; ⌘, or ⌘K reopens
+// "Choose your defaults" (setup.js): first launch shows it in the tour's place; ⌘⇧, or ⌘K reopens
 // it. Switches write the same saved choices as ⌘K and the View menu, and apply at once.
 const setupState = () => setupValues({ show: state.show, autoUpdate: update.auto });
 async function setupFeature(id, on) {
@@ -3002,8 +3002,8 @@ window.addEventListener('keydown', (e) => {
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
   if (isRepoSwitchKey(e)) { e.preventDefault(); commands.repoSwitch(); return; }
-  // ⌘, (Ctrl+, off macOS): choose defaults
-  if (e.key === ',' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) { e.preventDefault(); openSetup(); return; }
+  // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
+  if ((e.key === ',' || e.key === '<') && (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
   if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation
