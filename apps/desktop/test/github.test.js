@@ -209,3 +209,17 @@ test('ipc: prNumber and knownRemote', () => {
   assert.equal(check.knownRemote([ORIGIN], 'origin'), ORIGIN);
   assert.throws(() => check.knownRemote([ORIGIN], 'upstream'), check.IpcArgError);
 });
+
+test('toggle off: no PR call spawns gh, with the real runner', async () => {
+  // A `gh` that leaves a mark if it ever runs; no exec stub, so this goes through ai.runCli.
+  const dir = fakeGh();
+  const mark = path.join(dir, 'ran');
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\n/usr/bin/touch '${mark}'\necho '[]'\n`, { mode: 0o755 });
+  const off = { enabled: false, remotes: [ORIGIN], number: 7, dirs: [dir] };
+  assert.equal(await github.listPrs(off), null);
+  for (const fn of ['mergeInfo', 'approvePr', 'mergePr', 'closePr']) await assert.rejects(github[fn](off), { code: 'gh-off' }, fn);
+  assert.equal(fs.existsSync(mark), false, 'gh ran while pull requests were off');
+  // The same gh does run once the toggle is on, so the mark would have shown up.
+  await github.listPrs({ ...off, enabled: true });
+  assert.equal(fs.existsSync(mark), true);
+});
