@@ -6,7 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const git = require('./git');
-const { Journal, workOps, worktreeOps } = require('./journal');
+const { Journal, workOps, worktreeOps, laneOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
 const { loadConfig } = require('./licence/config');
@@ -170,6 +170,12 @@ const reads = {
   checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
   branchReview: (s, branch, base) => git.branchReview(s.repo.root, branch, base),
+  // Merge and tidy: the plan, with the squash commit message drafted from the branch's commits.
+  mergeLanePlan: async (s, branch, base) => {
+    const plan = await git.mergeLanePlan(s.repo.root, branch, base);
+    const d = github.prDraft(plan.commits);
+    return { ...plan, message: [d.title, d.body].filter(Boolean).join('\n\n') };
+  },
   status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
   lfs: (s) => git.getLfs(s.repo.root),
   submodules: (s) => git.getSubmodules(s.repo.root),
@@ -337,6 +343,14 @@ handle('git', async (e, method, ...args) => {
       if (worktreeOps[method]) {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
+      }
+      if (laneOps.has(method)) {
+        // Merge and tidy (git.mergeLane); tidyLane only removes the worktree and branch, after a GitHub merge.
+        const [branch, base, message] = realArgs;
+        const wt = (await git.getWorktrees(s.repo.root)).find((w) => w.branch === branch);
+        if (wt && ![undefined, s.win].includes(windowFor(wt.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        const opts = method === 'mergeLane' ? { branch, base, message } : { branch, merge: false };
+        return { ok: await s.journal.runLane(label || method, method, (done) => git.mergeLane(s.repo.root, opts, done)) };
       }
       if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };

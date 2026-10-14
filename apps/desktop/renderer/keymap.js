@@ -186,10 +186,12 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.agents', 'Agent lanes only', 'a'),
   c('lanes', null, 'lanes.conflicts', 'Lanes with predicted conflicts only', 'c'),
   c('lanes', null, 'lanes.review', 'Review the lane’s branch', 'r'),
+  c('lanes', null, 'lanes.merge', 'Merge and tidy the lane', 'm'),
   c('review', null, 'review.next', 'Next file', ['ArrowDown', 'j']),
   c('review', null, 'review.prev', 'Previous file', ['ArrowUp', 'k']),
   c('review', null, 'review.tick', 'Mark the file reviewed (or not)', 'v'),
   c('review', null, 'review.delta', 'Only what changed since you last looked', 'd'),
+  c('review', null, 'review.merge', 'Merge and tidy the branch', 'm'),
   c('review', null, 'review.close', 'Back', 'Escape'),
 
   // Welcome screen: recent repositories.
