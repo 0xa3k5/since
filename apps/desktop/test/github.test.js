@@ -104,15 +104,34 @@ test('listPrs / detect: missing gh, logged out and other errors', async () => {
   assert.deepEqual(calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
 });
 
-test('settings: per-repository toggle', () => {
-  assert.deepEqual(github.normalize(undefined), { repos: [] });
-  assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { repos: ['/a'] });
-  let s = github.setEnabled(undefined, '/a', true);
-  s = github.setEnabled(s, '/b', true);
-  s = github.setEnabled(s, '/a', true);
-  assert.deepEqual(s.repos, ['/b', '/a']);
-  assert.ok(github.isEnabled(s, '/a'));
-  assert.ok(!github.isEnabled(github.setEnabled(s, '/a', false), '/a'));
+test('settings: one user-wide flag, a per-repository hide, and the old per-repository keys migrated', () => {
+  assert.deepEqual(github.normalize(undefined), { on: null, hidden: [] });
+  assert.deepEqual(github.normalize({ on: false, hidden: ['/a', 3] }), { on: false, hidden: ['/a'] });
+  // Upgrades: on if any repository had it on; the old `repos` key is dropped.
+  assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { on: true, hidden: [] });
+  assert.deepEqual(github.normalize({ repos: [] }), { on: null, hidden: [] });
+  assert.equal(github.normalize({ on: false, repos: ['/a'] }).on, false, 'an explicit choice wins');
+  let s = github.setEnabled(undefined, true);
+  assert.ok(github.isEnabled(s, '/a') && github.isEnabled(s, '/b'), 'on for every repository');
+  s = github.setHidden(s, '/a', true);
+  s = github.setHidden(s, '/a', true);
+  assert.deepEqual(s, { on: true, hidden: ['/a'] });
+  assert.ok(!github.isEnabled(s, '/a') && github.isHidden(s, '/a') && github.isEnabled(s, '/b'));
+  assert.ok(github.isEnabled(github.setHidden(s, '/a', false), '/a'));
+  assert.ok(!github.isEnabled(github.setEnabled(s, false), '/b'), 'off everywhere');
+  assert.deepEqual(github.setEnabled(s, false).hidden, ['/a'], 'turning it off keeps the hidden list');
+});
+
+test('ghStatus: the fresh-install default is on only when gh is installed and logged in', async () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gl-nogh-'));
+  const fail = (msg) => async () => { throw new Error(msg); };
+  assert.equal(await github.ghStatus({ dirs: [empty] }), 'missing');
+  assert.equal(github.ghInstalled({ dirs: [empty] }), false);
+  assert.equal(github.ghInstalled({ dirs: [fakeGh()] }), true);
+  assert.equal(await github.ghStatus({ dirs: [fakeGh()], exec: fail('not logged in') }), 'logged-out');
+  const { calls, exec } = recorder('');
+  assert.equal(await github.ghStatus({ dirs: [fakeGh()], exec }), 'ready');
+  assert.deepEqual(calls[0].args, ['auth', 'status']);
 });
 
 test('renderer: PRs land on their branches, fork PRs only on branches tracking that fork', async () => {

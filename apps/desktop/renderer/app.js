@@ -623,7 +623,7 @@ function renderSidebar() {
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
       state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
-      state.prs?.enabled ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
+      state.prs?.active ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
     ),
     // Icons-only stand-ins for the sections above, shown in the rail.
     h('div.sb-rail-items', null,
@@ -632,7 +632,7 @@ function renderSidebar() {
       [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
       railItem('tags', 'Tags', 'tag'),
       state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
-      state.prs?.enabled ? railItem('prs', 'Pull requests', 'merge') : null,
+      state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
     ),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
@@ -1429,8 +1429,8 @@ function refMenu(x, y, r) {
       { label: `Merge into ${state.head.branch || 'HEAD'}`, icon: 'merge', disabled: cur, run: () => act(`Merge ${r.short}`, 'merge', [r.short]) },
       { label: `Rebase ${state.head.branch || 'HEAD'} onto ${r.short}`, icon: 'rebase', disabled: cur, run: () => act(`Rebase onto ${r.short}`, 'rebaseOnto', [r.short]) },
       '-',
-      state.prs?.enabled && !prFor(r) ? { label: 'New Pull Request…', icon: 'plus', kbd: cur ? [MOD, '⌥', '⇧', 'N'] : null, run: () => createPr(r.short) } : null,
-      state.prs?.enabled && !prFor(r) ? '-' : null,
+      state.prs?.active && !prFor(r) ? { label: 'New Pull Request…', icon: 'plus', kbd: cur ? [MOD, '⌥', '⇧', 'N'] : null, run: () => createPr(r.short) } : null,
+      state.prs?.active && !prFor(r) ? '-' : null,
       { label: 'Rename…', icon: 'edit', run: () => renameBranch(r) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied branch name') },
       '-',
@@ -2387,7 +2387,7 @@ async function writeMessageWithAi() {
 }
 
 // ---------------------------------------------------------------------------
-// Pull requests (read-only), through the user's GitHub CLI. Off per repository until turned on;
+// Pull requests (read-only), through the user’s GitHub CLI. One user-wide switch (plus a per-repo hide);
 // `gh` only runs on Fetch or Refresh, never in the background. The last result is kept per
 // repository and shown as stale until the next successful refresh.
 
@@ -2397,13 +2397,13 @@ async function loadPrs() {
   const st = await api.app('pr-state').catch(() => null);
   if (!st || state.repo !== repo) return;
   let data = null;
-  if (st.enabled) { try { data = JSON.parse(localStorage.getItem(prCacheKey(repo.root))); } catch { /* none */ } }
+  if (st.active) { try { data = JSON.parse(localStorage.getItem(prCacheKey(repo.root))); } catch { /* none */ } }
   state.prs = { ...st, data, stale: Boolean(data), error: null, busy: false, byRef: new Map() };
   showPrs();
 }
 function indexPrs() { if (state.prs) state.prs.byRef = prsByRef(state.prs.data, state.refs); }
 function showPrs() { indexPrs(); renderSidebar(); mapView?.refresh(); }
-const prFor = (r) => (state.prs?.enabled ? state.prs.byRef.get(refKey(r)) : null);
+const prFor = (r) => (state.prs?.active ? state.prs.byRef.get(refKey(r)) : null);
 const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
 
 // Draft, review and CI marks, shared by graph badges and the sidebar list.
@@ -2482,7 +2482,7 @@ async function checkoutPr(pr, { worktree = false } = {}) {
 
 // ⌘⌥⇧O / ⌘⌥⇧L: pick an open PR to check out here or in a new worktree.
 function pickPr(worktree) {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   const prs = state.prs.data?.prs || [];
   if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${MOD}⌥⇧P.` });
   palette(() => prs.map((pr) => ({ group: 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: worktree ? 'worktree' : 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => checkoutPr(pr, { worktree }) })),
@@ -2492,7 +2492,7 @@ function pickPr(worktree) {
 // ⌘⌥⇧N: open a PR from the current (or a picked) branch. Title and body come from its commits.
 // A branch that isn't on GitHub yet is only pushed after the user ticks the confirm.
 async function createPr(branch = state.head.branch) {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   if (!branch) return toast('Check out a branch first', { detail: 'A pull request needs a branch to merge from.' });
   const open = prFor({ kind: 'branch', short: branch });
   if (open) return toast(`${branch} already has #${open.number}`, { action: { label: 'Open', run: () => openPr(open) } });
@@ -2548,7 +2548,7 @@ function pickPrBranch() {
 
 async function refreshPrs({ manual = false } = {}) {
   const p = state.prs;
-  if (!p?.enabled) return manual ? setupPrs() : undefined;
+  if (!p?.active) return manual ? setupPrs() : undefined;
   if (p.busy) return;
   p.busy = true;
   const busy = manual ? toast('Refreshing pull requests…', { kind: 'busy', timeout: 0 }) : null;
@@ -2563,7 +2563,7 @@ async function refreshPrs({ manual = false } = {}) {
     try { localStorage.setItem(prCacheKey(state.repo.root), JSON.stringify(res.ok)); } catch { /* full */ }
     if (manual) toast(`${res.ok.prs.length} open pull request${res.ok.prs.length === 1 ? '' : 's'}`, { kind: 'success' });
   } else if (res.ok === null) {
-    p.enabled = false; // turned off in another window
+    p.active = false; // turned off or hidden in another window
   } else {
     // Offline or a `gh` error: keep what we had, marked stale. After a fetch this stays quiet.
     p.stale = Boolean(p.data);
@@ -2607,12 +2607,12 @@ async function turnOffPrs() {
   try { localStorage.removeItem(prCacheKey(state.repo.root)); } catch { /* ignore */ }
   state.prs = { ...next, data: null, stale: false, error: null, busy: false, byRef: new Map() };
   showPrs();
-  toast('Pull requests are off for this repository');
+  toast('Pull requests are off');
 }
 
 // ⌘⌥P: open PRs, newest update first; pick one to jump to its branch.
 function prList() {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   const prs = state.prs.data?.prs || [];
   palette(() => [
     ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
@@ -2634,7 +2634,7 @@ const prRemote = () => state.prs?.data?.remote?.name;
 
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
 function withPr(pr, verb, fn) {
-  if (!state.prs?.enabled) return setupPrs();
+  if (!state.prs?.active) return setupPrs();
   if (pr) return fn(pr);
   const mine = state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null;
   if (mine) return fn(mine);
@@ -2769,18 +2769,18 @@ function openPalette() {
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
     add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: keymap.keys('repo.aiMessage'), detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
-    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: keymap.keys('repo.prs'), detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
+    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: keymap.keys('repo.prs'), detail: state.prs?.active ? null : 'off', keywords: 'pr github gh review checks ci' });
     add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: keymap.keys('repo.prRefresh'), keywords: 'pr github gh' });
     add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: keymap.keys('repo.prCreate'), keywords: 'pr github gh create open push' });
     add('Repository', 'New pull request from branch…', pickPrBranch, { icon: 'plus', keywords: 'pr github gh create open branch' });
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
     add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh lane review' });
-    if (state.prs?.enabled) {
+    if (state.prs?.active) {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
-    if (state.prs?.enabled) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
+    if (state.prs?.active) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
