@@ -760,10 +760,11 @@ function remoteWebUrl(url) {
 }
 
 // Short label for a remote: "host/owner/repo", or the path of a local remote.
+// The fallback drops any userinfo, so a token in the URL is never shown.
 function remoteLabel(url) {
   const web = remoteWebUrl(url);
   if (web) return web.slice('https://'.length);
-  return String(url || '').trim().replace(/^file:\/\//i, '');
+  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, '$1');
 }
 
 // ---------------------------------------------------------------------------
