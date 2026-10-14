@@ -73,11 +73,12 @@ test('every handler refers to a registered command', async () => {
 });
 
 test('no inline key checks remain outside text inputs', () => {
-  // The only e.key comparisons left are on <input> fields: map search, licence key, tour search.
+  // The only e.key comparisons left are on <input> fields (map search, licence key, tour search) and the
+  // shortcut recorder's fixed Esc (cancel) and ⌫ (remove), which must work whatever the keymap says.
   const inline = SOURCES.flatMap((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n')
     .map((l, i) => [`${f}:${i + 1}`, l]).filter(([, l]) => /\be\.(key|code) ===/.test(l)));
   assert.deepEqual(inline.map(([at]) => at.split(':')[0]).sort(), [
-    'renderer/app.js', 'renderer/app.js', 'renderer/app.js', 'renderer/licence.js', 'renderer/tour-view.js',
+    'renderer/app.js', 'renderer/app.js', 'renderer/app.js', 'renderer/licence.js', 'renderer/shortcuts-view.js', 'renderer/shortcuts-view.js', 'renderer/tour-view.js',
   ], inline.map(([at, l]) => `${at} ${l.trim()}`).join('\n'));
 });
 
@@ -132,4 +133,89 @@ test('menu accelerators and keycaps per platform', async () => {
 test('main.js takes every menu accelerator from the keymap', () => {
   const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
   assert.doesNotMatch(main, /'(CmdOrCtrl|Cmd|Ctrl)\+/, 'a hard-coded accelerator is left in main.js');
+});
+
+// ---------------------------------------------------------------------------
+// Custom key bindings (AK-203).
+
+const kev = (key, code, mods = {}) => ({ key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
+
+test('overrides replace a command’s keys everywhere: match, labels, accelerator; reset restores them', async () => {
+  const k = await load();
+  try {
+    k.setOverrides({ 'commit.checkout': ['x'], 'repo.fetch': ['Mod+Alt+Shift+F'] });
+    assert.equal(k.match('map', kev('x', 'KeyX'), null, true), 'commit.checkout');
+    assert.equal(k.match('map', kev('o', 'KeyO'), null, true), null, 'the old key stops working');
+    assert.deepEqual(k.keys('commit.checkout', { mac: true }), ['X']);
+    assert.equal(k.accelerator('repo.fetch', true), 'CmdOrCtrl+Alt+Shift+F');
+    assert.ok(k.isCustom('commit.checkout') && !k.isCustom('commit.diffHead'));
+    k.setOverrides({ 'commit.checkout': [] });
+    assert.equal(k.match('map', kev('o', 'KeyO'), null, true), null, 'a cleared command has no keys');
+    k.setOverrides({});
+    assert.equal(k.match('map', kev('o', 'KeyO'), null, true), 'commit.checkout');
+    assert.equal(k.accelerator('repo.fetch', true), 'CmdOrCtrl+Shift+F');
+  } finally { k.setOverrides({}); }
+});
+
+test('sanitize keeps only known, non-reserved commands with valid bindings', async () => {
+  const { sanitize } = await load();
+  assert.deepEqual(sanitize({ 'commit.checkout': ['x', 'x'], 'app.quit': ['Mod+Y'], nope: ['a'], 'commit.tag': ['Hyper+T'], 'commit.branch': 'b' }), { 'commit.checkout': ['x'] });
+  assert.deepEqual(sanitize(null), {});
+  assert.deepEqual(sanitize(['x']), {});
+});
+
+test('withBinding stores overrides only, dropping a list equal to the defaults', async () => {
+  const { withBinding } = await load();
+  assert.deepEqual(withBinding({}, 'commit.checkout', ['x'], true), { 'commit.checkout': ['x'] });
+  assert.deepEqual(withBinding({ 'commit.checkout': ['x'] }, 'commit.checkout', ['o'], true), {});
+  assert.deepEqual(withBinding({}, 'repo.fileHistory', ['Mod+Shift+h'], true), {}, 'spelling doesn’t matter');
+});
+
+test('fromEvent records keys in the keymap’s spelling', async () => {
+  const { fromEvent } = await load();
+  assert.equal(fromEvent(kev('K', 'KeyK', { metaKey: true, shiftKey: true }), true), 'Mod+Shift+k');
+  assert.equal(fromEvent(kev('å', 'KeyA', { metaKey: true, altKey: true }), true), 'Mod+Alt+KeyA');
+  assert.equal(fromEvent(kev('?', 'Slash', { shiftKey: true }), true), 'Shift+Slash');
+  assert.equal(fromEvent(kev('!', 'Digit1', { shiftKey: true }), true), 'Shift+Digit1');
+  assert.equal(fromEvent(kev(' ', 'Space'), true), 'Space');
+  assert.equal(fromEvent(kev('k', 'KeyK', { metaKey: true, ctrlKey: true }), true), 'Mod+Ctrl+k');
+  assert.equal(fromEvent(kev('k', 'KeyK', { ctrlKey: true }), false), 'Mod+k');
+  assert.equal(fromEvent(kev('Shift', 'ShiftLeft', { shiftKey: true }), true), null);
+});
+
+test('recorded keys match the events that recorded them', async () => {
+  const k = await load();
+  const cases = [kev('K', 'KeyK', { metaKey: true, shiftKey: true }), kev('å', 'KeyA', { metaKey: true, altKey: true }), kev('?', 'Slash', { shiftKey: true }), kev(']', 'BracketRight'), kev('ArrowDown', 'ArrowDown', { altKey: true })];
+  try {
+    for (const e of cases) {
+      k.setOverrides({ 'commit.checkout': [k.fromEvent(e, true)] });
+      assert.equal(k.match('map', e, null, true), 'commit.checkout', k.fromEvent(e, true));
+    }
+  } finally { k.setOverrides({}); }
+});
+
+test('conflicts: same scope, the always-on menu and global keys, and chord starts', async () => {
+  const { conflicts } = await load();
+  assert.deepEqual(conflicts('commit.checkout', 'd', true), ['commit.diffHead']);
+  assert.deepEqual(conflicts('commit.checkout', 'Mod+K', true), ['view.palette'], 'menu keys work in every view');
+  assert.deepEqual(conflicts('commit.checkout', '/', true), ['global.search']);
+  assert.deepEqual(conflicts('conflict.ours', 'd', true), [], 'other views don’t clash');
+  assert.ok(conflicts('commit.checkout', 'g', true).includes('view.commit'), 'G starts the view chords');
+  assert.deepEqual(conflicts('view.map', 'g d', true), [], 'a free chord');
+  assert.deepEqual(conflicts('repo.fetch', 'Mod+Alt+KeyO', true), ['file.repoSwitch'], 'key codes compare by key');
+});
+
+test('refusal: reserved commands and keys, macOS keys, and menu keys without a modifier', async () => {
+  const { refusal } = await load();
+  assert.match(refusal('app.quit', 'Mod+Y', true), /can’t be changed/);
+  assert.match(refusal('repo.fetch', 'Mod+Q', true), /Quit GitLanes/);
+  assert.match(refusal('repo.fetch', 'Mod+Tab', true), /macOS/);
+  assert.match(refusal('repo.fetch', 'Mod+Shift+Digit4', true), /screenshot/);
+  assert.match(refusal('repo.fetch', 'f', true), /need ⌘/);
+  assert.match(refusal('repo.fetch', 'g f', true), /Only the views/);
+  assert.match(refusal('map.head', 'x y', true), /Only the views/);
+  assert.match(refusal('map.head', 'Mod+g c', true), /plain keys/);
+  assert.equal(refusal('view.map', 'g x', true), null);
+  assert.equal(refusal('map.head', 'x', true), null);
+  assert.equal(refusal('repo.fetch', 'Mod+Alt+Shift+F', true), null);
 });

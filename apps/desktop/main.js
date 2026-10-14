@@ -463,6 +463,25 @@ handle('app:pr-list', aiCall(async (e) => {
   return github.listPrs({ enabled: true, remotes });
 }));
 
+// Lanes overview: every local branch and worktree (git.lanes), with open PRs joined on by head
+// branch. Local only unless the caller asks for PRs ({ prs: true }) and pull requests are on
+// here; then it's the same single `gh pr list` as app:pr-list. A gh failure leaves `pr: null`
+// on every lane and comes back as `prError`, so the local data still shows.
+handle('app:lanes-list', async (e, opts) => {
+  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['base', 'prs'].includes(k)))) throw new check.IpcArgError('Invalid lanes options');
+  const base = opts?.base == null ? undefined : check.rev(opts.base, 'base');
+  const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
+  const root = session(e).repo.root;
+  const { lanes, ...rest } = await git.lanes(root, { base });
+  let listed = null;
+  let prError = null;
+  if (withPrs && (await prEnabled(root))) {
+    const remotes = await git.getRemotes(root);
+    if (github.pickRemote(remotes)) listed = await github.listPrs({ enabled: true, remotes }).catch((err) => { prError = serializeError(err); return null; });
+  }
+  return { ...rest, lanes: github.joinLanes(lanes, listed), prError };
+});
+
 // Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
 // renderer names the PR and the remote it came from; both are checked before `gh` runs.
 const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
@@ -793,6 +812,38 @@ function createWindow(repoDir) {
 // Menu accelerators come from the keymap (renderer/keymap.js), the one list of every shortcut.
 const keymap = require('./renderer/keymap.js');
 const acc = (id) => keymap.accelerator(id, isMac);
+
+// Custom key bindings: overrides only, under `keymap` in settings.json. A change rebuilds the menu and reaches
+// every window, so menus, ⌘K and the rest show the new keys without a restart.
+function setKeymap(o) {
+  keymap.setOverrides(o);
+  const next = keymap.getOverrides();
+  writeSettings({ keymap: next });
+  buildMenu();
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('keymap', next);
+  return next;
+}
+handle('app:keymap', () => keymap.getOverrides());
+// While the Keyboard Shortcuts window records new keys, the menu must not run the keys being pressed.
+handle('app:keymap-recording', (e, on) => e.sender.setIgnoreMenuShortcuts(check.bool(on, 'recording')));
+handle('app:set-keymap', (_e, o) => {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) throw new check.IpcArgError('key bindings: expected an object');
+  return setKeymap(o); // sanitize() drops unknown commands, reserved keys and bad bindings
+});
+handle('app:keymap-export', async (e) => {
+  const res = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), { defaultPath: 'gitlanes-shortcuts.json', message: 'Export your custom shortcuts' });
+  if (res.canceled || !res.filePath) return null;
+  fs.writeFileSync(res.filePath, JSON.stringify({ gitlanes: 'keymap', version: 1, keymap: keymap.getOverrides() }, null, 2));
+  return res.filePath;
+});
+handle('app:keymap-import', async (e) => {
+  const res = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }], message: 'Import shortcuts' });
+  if (res.canceled || !res.filePaths[0]) return null;
+  let data;
+  try { data = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf8')); } catch { throw new Error('That file isn\u2019t a shortcuts file.'); }
+  const o = data?.gitlanes === 'keymap' ? data.keymap : data;
+  return setKeymap({ ...keymap.getOverrides(), ...keymap.sanitize(o) });
+});
 const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webContents.send('command', cmd, ...args);
 
 
@@ -857,6 +908,7 @@ function buildMenu() {
         item('Reflog', acc('view.reflog'), 'view', 'reflog'),
         item('Configuration', acc('view.config'), 'view', 'config'),
         item('Worktrees', acc('view.worktrees'), 'view', 'worktrees'),
+        item('Lanes', acc('view.lanes'), 'view', 'lanes'),
         { type: 'separator' },
         item('Toggle Sidebar', acc('view.sidebar'), 'sidebar'),
         item('Show Tags', acc('view.tags'), 'toggle', 'tags'),
@@ -968,6 +1020,7 @@ app.whenReady().then(() => {
   lockDownSession(electronSession.defaultSession);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
+  keymap.setOverrides(readSettings().keymap);
   initLicensing();
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
