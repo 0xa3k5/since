@@ -1050,8 +1050,8 @@ function createMapView(container) {
   });
 
   refresh();
-  const i = state.index.get(state.selected);
-  if (i != null) requestAnimationFrame(() => vl.scrollToIndex(i, 'center'));
+  // Read the selection on the frame: a jump right after this view opens (a sidebar PR or branch) has moved it by then.
+  requestAnimationFrame(() => { const i = state.index.get(state.selected); if (i != null) vl.scrollToIndex(i, 'center'); });
   scroller.focus({ preventScroll: true });
 
   return {
@@ -2439,6 +2439,7 @@ async function openPr(pr) {
 function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
   if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });
+  if (!state.index.has(r.target)) return openQuick(r.target);
   setView('map');
   selectCommit(r.target, 'center');
 }
