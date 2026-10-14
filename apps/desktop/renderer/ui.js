@@ -145,7 +145,8 @@ export function toast(message, { kind = 'info', action, timeout = 4200, detail }
 }
 
 // --- Modal dialogs -------------------------------------------------------------
-export function dialog({ title, description, fields = [], submit = 'Continue', destructive = false, wide = false }) {
+// `gate` names a checkbox field that must be ticked before submit is enabled ("merge anyway").
+export function dialog({ title, description, fields = [], submit = 'Continue', destructive = false, wide = false, gate }) {
   return new Promise((resolve) => {
     const inputs = {};
     const prev = document.activeElement;
@@ -158,6 +159,10 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
           inputs[f.name] = h('input', { type: 'checkbox', checked: !!f.value });
           return h('label.check', null, inputs[f.name], h('span', null, f.label));
         }
+        if (f.type === 'select') {
+          inputs[f.name] = h('select.input', null, f.options.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
+          return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
+        }
         inputs[f.name] = f.multiline
           ? h('textarea.input', { rows: f.rows || 6, placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, readonly: f.readonly })
           : h('input.input', { type: 'text', placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, autocomplete: 'off' });
@@ -169,12 +174,18 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
         h('button.btn.' + (destructive ? 'danger' : 'primary'), { type: 'submit' }, submit, kbd('↵')),
       ),
     );
+    if (gate && inputs[gate]) {
+      const btn = form.querySelector('button[type=submit]');
+      const sync = () => { btn.disabled = !inputs[gate].checked; };
+      inputs[gate].addEventListener('change', sync);
+      sync();
+    }
     const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
     overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); finish(null); } });
     document.body.append(overlay);
     requestAnimationFrame(() => overlay.classList.add('in'));
-    const first = Object.values(inputs).find((i) => i.type !== 'checkbox');
-    (first || form.querySelector('.btn.primary, .btn.danger')).focus();
+    const first = Object.values(inputs).find((i) => i.type !== 'checkbox' && i.tagName !== 'SELECT');
+    (first || form.querySelector('.btn.primary:not(:disabled), .btn.danger:not(:disabled)') || form.querySelector('.btn.ghost')).focus();
     if (first && first.select && first.tagName === 'INPUT') first.select();
     function finish(v) {
       overlay.classList.remove('in');
