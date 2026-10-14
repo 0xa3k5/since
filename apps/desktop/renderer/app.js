@@ -366,6 +366,7 @@ const refreshStatus = coalesce(async () => {
 
 async function refreshAux() {
   if (!state.repo) return;
+  refreshRemotes();
   // Re-render only when the data changed: a rebuild drops filters, selection and in-flight clicks.
   const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog, state.view === 'config' && state.config]);
   const before = shown();
@@ -479,6 +480,31 @@ function setView(v) {
   if (v === 'worktrees') refreshHistory();
 }
 
+// The origin remote (or the first one), as pushes and "View on Hosting Service" pick it.
+const originRemote = () => state.remotes.find((r) => r.name === 'origin') || state.remotes[0];
+
+function originLink() {
+  const r = originRemote();
+  if (!r) return null;
+  // Never show the raw URL: it can hold credentials.
+  if (!r.web) return h('span.repo-origin', { title: r.label }, r.label);
+  return h('a.repo-origin', { href: r.web, title: r.web, onclick: (e) => { e.preventDefault(); openOrigin(); } }, r.label);
+}
+
+// Remotes change through `git remote` or the config view; the watcher brings us here.
+async function refreshRemotes() {
+  const remotes = await git('remotes').catch(() => []);
+  if (JSON.stringify(remotes) === JSON.stringify(state.remotes)) return;
+  state.remotes = remotes;
+  $('.sb-origin')?.replaceChildren(...[originLink()].filter(Boolean));
+}
+
+function openOrigin() {
+  const r = originRemote();
+  if (r?.web) api.app('external', r.web);
+  else toast(r ? `${r.name} is not on a web host` : 'This repository has no remotes', { kind: 'error' });
+}
+
 function renderSidebar() {
   if (!sidebarEl) return;
   const branches = state.refs.filter((r) => r.kind === 'branch').sort((a, b) => (a.short === state.head.branch ? -1 : b.short === state.head.branch ? 1 : a.short.localeCompare(b.short)));
@@ -531,6 +557,7 @@ function renderSidebar() {
         icon('chevronDown', 12)),
       h('button.icon-btn', { title: `Command menu (${MOD}K)`, onclick: openPalette }, icon('search')),
     ),
+    h('div.sb-origin', null, originLink()),
     h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: `${v.label} (${MOD}${v.key})`, 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, MOD + v.key)))),
     h('div.sb-scroll', null,
@@ -1273,7 +1300,7 @@ function commitShortcut(e, c) {
 function commitMenu(x, y, c) {
   const locals = branchesAt(c.sha);
   const isHead = c.sha === state.head.oid;
-  const remote = state.remotes.find((r) => r.name === 'origin') || state.remotes[0];
+  const remote = originRemote();
   contextMenu(x, y, [
     { label: 'Quick View', icon: 'eye', kbd: '↵', run: () => openQuick(c.sha) },
     { label: 'Diff with HEAD', icon: 'diff', kbd: 'D', disabled: isHead, run: () => diffWithHead(c) },
@@ -2043,6 +2070,7 @@ function openPalette() {
     add('Repository', 'Open in Finder', () => api.app('reveal'), { icon: 'folder' });
     add('Repository', 'Open in Terminal', () => api.app('terminal'), { icon: 'terminal' });
     add('Repository', 'Open in hosting service', openHosting, { icon: 'external' });
+    if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: [MOD, '⇧', 'G'], detail: originRemote().label });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: [MOD, '⌥', 'C'], keywords: 'color colour swatch preview css hex rgb settings' });
@@ -2166,10 +2194,10 @@ async function loadRepo(repo) {
   state.search = '';
   state.configFilter = '';
   commitCache.clear();
+  state.remotes = [];
   document.title = repo.name;
   renderShell();
   await refreshAll();
-  state.remotes = await git('remotes').catch(() => []);
   if (state.head.oid) selectCommit(state.head.oid, 'center');
   mapView?.focus();
 }
@@ -2222,6 +2250,7 @@ const commands = {
   resetHard: () => state.repo && resetHard(),
   reveal: () => state.repo && api.app('reveal'),
   terminal: () => state.repo && api.app('terminal'),
+  origin: () => state.repo && openOrigin(),
   hosting: () => state.repo && openHosting(),
   worktreeAdd: () => state.repo && addWorktree(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),

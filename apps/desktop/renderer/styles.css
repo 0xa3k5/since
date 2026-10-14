@@ -197,6 +197,10 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .repo-switch { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: var(--radius); flex: 1; min-width: 0; font-weight: 560; }
 .repo-switch:hover { background: var(--bg-hover); }
 .repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-origin { padding: 0 6px 6px 32px; margin-top: -4px; min-width: 0; }
+.sb-origin:empty { display: none; }
+.repo-origin { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-4); text-decoration: none; }
+a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .repo-icon {
   width: 18px; height: 18px; border-radius: 5px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;

@@ -649,6 +649,7 @@ function buildMenu() {
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
         item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),
         item('Open in Hosting Service', undefined, 'hosting'),
+        item('Open Origin in Browser', 'CmdOrCtrl+Shift+G', 'origin'),
       ],
     },
     { role: 'windowMenu' },
