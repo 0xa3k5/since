@@ -2332,7 +2332,7 @@ const prMarks = (pr) => [
 function prBadge(pr) {
   if (!pr) return null;
   const stop = (e) => e.stopPropagation();
-  return h('span.pr-badge' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onmousedown: stop, onclick: (e) => { stop(e); openPr(pr); } }, `#${pr.number}`, prMarks(pr));
+  return h('span.pr-badge' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onmousedown: stop, onclick: (e) => { stop(e); openPr(pr); }, oncontextmenu: (e) => { stop(e); prMenu(e, pr); } }, `#${pr.number}`, prMarks(pr));
 }
 
 // Quick view: the PR's summary, with Open on GitHub.
@@ -2355,9 +2355,55 @@ async function openPr(pr) {
 
 function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
-  if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Fetch to get it, or open the pull request on GitHub.', action: { label: 'Open on GitHub', run: () => openPrOnGitHub(pr) } });
+  if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });
   setView('map');
   selectCommit(r.target, 'center');
+}
+
+// Check out a PR as a branch (gh's branch name), here or in a new worktree. Undoable with ⌘Z.
+// An existing branch that points somewhere else is only moved after asking.
+async function checkoutPr(pr, { worktree = false } = {}) {
+  let opts = { worktree };
+  if (worktree) {
+    const main = state.worktrees.find((w) => w.main);
+    const v = await dialog({
+      title: `Check out #${pr.number} in a new worktree`,
+      description: `Fetches ${pr.branch} from GitHub and checks it out in its own folder, as a new lane.`,
+      submit: 'Create worktree',
+      fields: [
+        { name: 'dir', label: 'Location (optional)', placeholder: main ? `${tildify(parentDir(main.path))}/${main.name}-${pr.branch.replace(/\//g, '-')}` : '' },
+        { name: 'open', type: 'checkbox', label: 'Switch this window to it', value: false },
+      ],
+    });
+    if (!v) return;
+    opts = { worktree, dir: v.dir.trim() || null, open: v.open };
+  }
+  const run = async (update) => {
+    const t = toast(`Checking out #${pr.number}…`, { kind: 'busy', timeout: 0 });
+    const res = await api.app('pr-checkout', pr.number, { worktree, dir: opts.dir || null, update }).catch((e) => ({ error: { message: e.message } }));
+    t.close();
+    return res;
+  };
+  let res = await run(false);
+  if (res.ok?.confirm) {
+    const c = res.ok.confirm;
+    const ok = await confirm(`Update ${c.branch}?`, `${c.branch} is at ${c.from.slice(0, 7)}. Pull request #${pr.number} is at ${c.to.slice(0, 7)}. Moving the branch there is undoable with ${MOD}Z.`, { submit: 'Update branch' });
+    if (!ok) return;
+    res = await run(true);
+  }
+  if (res.error) return toast(`Couldn’t check out #${pr.number}`, { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : res.error.stderr || res.error.message });
+  const { branch, worktree: wt } = res.ok;
+  toast(wt ? `New worktree for #${pr.number} on ${branch}` : `Switched to ${branch} (#${pr.number})`, { kind: 'success', action: { label: 'Undo', run: undo } });
+  if (wt && opts.open) openRepo(wt.path);
+}
+
+// ⌘⌥⇧O / ⌘⌥⇧L: pick an open PR to check out here or in a new worktree.
+function pickPr(worktree) {
+  if (!state.prs?.enabled) return setupPrs();
+  const prs = state.prs.data?.prs || [];
+  if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${MOD}⌥⇧P.` });
+  palette(() => prs.map((pr) => ({ group: 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: worktree ? 'worktree' : 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => checkoutPr(pr, { worktree }) })),
+    { placeholder: worktree ? 'Check out pull request in a new worktree…' : 'Check out pull request…' });
 }
 
 async function refreshPrs({ manual = false } = {}) {
@@ -2431,6 +2477,8 @@ function prList() {
   palette(() => [
     ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
     { group: 'Pull requests', label: 'Refresh pull requests', icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], run: () => refreshPrs({ manual: true }) },
+    { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], run: () => pickPr(false) },
+    { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], run: () => pickPr(true) },
     { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], run: () => approvePr() },
     { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: [MOD, '⌥', '⇧', 'M'], run: () => mergePr() },
     { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: [MOD, '⌥', '⇧', 'W'], run: () => closePr() },
@@ -2531,10 +2579,15 @@ const closePr = (given) => withPr(given, 'Close', async (pr) => {
 function prMenu(e, pr) {
   e.preventDefault();
   contextMenu(e.clientX, e.clientY, [
+    { label: 'Go to Branch', icon: 'branch', kbd: '↵', run: () => goToPr(pr) },
+    { label: 'Check Out', icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], run: () => checkoutPr(pr) },
+    { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], run: () => checkoutPr(pr, { worktree: true }) },
+    '-',
     { label: 'Approve…', icon: 'check', run: () => approvePr(pr) },
     { label: 'Merge…', icon: 'merge', run: () => mergePr(pr) },
     { label: 'Close…', icon: 'x', danger: true, run: () => closePr(pr) },
-    { label: 'Open on GitHub', icon: 'external', run: () => openPrOnGitHub(pr) },
+    '-',
+    { label: 'Open on GitHub', icon: 'external', disabled: !pr.url, run: () => openPrOnGitHub(pr) },
   ]);
 }
 
@@ -2577,6 +2630,8 @@ function openPalette() {
     add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: [MOD, '⌥', 'G'], detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
     add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: [MOD, '⌥', 'P'], detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
     add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], keywords: 'pr github gh' });
+    add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], keywords: 'pr github gh branch review' });
+    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], keywords: 'pr github gh lane review' });
     if (state.prs?.enabled) {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], keywords: 'pr github gh review approve' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: [MOD, '⌥', '⇧', 'M'], keywords: 'pr github gh squash rebase merge' });
@@ -2848,6 +2903,8 @@ const commands = {
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
   prRefresh: () => state.repo && refreshPrs({ manual: true }),
+  prCheckout: () => state.repo && pickPr(false),
+  prWorktree: () => state.repo && pickPr(true),
   prApprove: () => state.repo && approvePr(),
   prMerge: () => state.repo && mergePr(),
   prClose: () => state.repo && closePr(),
