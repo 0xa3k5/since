@@ -1,0 +1,61 @@
+'use strict';
+// Sidebar modes: window width × saved choice × overlay state (renderer/sidebar.js).
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const load = () => import('../renderer/sidebar.js');
+
+test('wide windows follow the saved choice and ignore overlay state', async () => {
+  const { sidebarMode, SIDEBAR_BREAKPOINT: bp } = await load();
+  assert.equal(sidebarMode({ width: bp, expanded: true }), 'expanded');
+  assert.equal(sidebarMode({ width: 1600, expanded: false }), 'rail');
+  assert.equal(sidebarMode({ width: 1600, expanded: false, pinned: true, hover: true }), 'rail');
+  assert.equal(sidebarMode({ width: 1600, expanded: true, hover: true }), 'expanded');
+});
+
+test('narrow windows show the rail, or the overlay when pinned or hovered', async () => {
+  const { sidebarMode, SIDEBAR_BREAKPOINT: bp } = await load();
+  for (const expanded of [true, false]) {
+    assert.equal(sidebarMode({ width: bp - 1, expanded }), 'rail');
+    assert.equal(sidebarMode({ width: 800, expanded, hover: true }), 'overlay');
+    assert.equal(sidebarMode({ width: 800, expanded, pinned: true }), 'overlay');
+  }
+});
+
+test('breakpoint is 1100 px', async () => {
+  const { SIDEBAR_BREAKPOINT, isNarrow } = await load();
+  assert.equal(SIDEBAR_BREAKPOINT, 1100);
+  assert.equal(isNarrow(1099), true);
+  assert.equal(isNarrow(1100), false);
+});
+
+test('toggle flips the saved choice on wide windows', async () => {
+  const { toggleSidebarState } = await load();
+  assert.deepEqual(toggleSidebarState({ expanded: true, pinned: false, hover: false }, 1400), { expanded: false, pinned: false, hover: false });
+  assert.deepEqual(toggleSidebarState({ expanded: false, pinned: true, hover: false }, 1400), { expanded: true, pinned: false, hover: false });
+});
+
+test('toggle pins and unpins the overlay on narrow windows without touching the saved choice', async () => {
+  const { toggleSidebarState } = await load();
+  assert.deepEqual(toggleSidebarState({ expanded: true, pinned: false, hover: false }, 900), { expanded: true, pinned: true, hover: false });
+  assert.deepEqual(toggleSidebarState({ expanded: false, pinned: true, hover: false }, 900), { expanded: false, pinned: false, hover: false });
+  // Opened by hover: the toggle pins it.
+  assert.deepEqual(toggleSidebarState({ expanded: true, pinned: false, hover: true }, 900), { expanded: true, pinned: true, hover: false });
+});
+
+test('shrinking and growing the window restores the saved choice', async () => {
+  const { sidebarMode } = await load();
+  const s = { expanded: true, pinned: false, hover: false };
+  assert.equal(sidebarMode({ ...s, width: 1400 }), 'expanded');
+  assert.equal(sidebarMode({ ...s, width: 900 }), 'rail');
+  assert.equal(sidebarMode({ ...s, width: 1400 }), 'expanded');
+});
+
+test('toggle label matches the state', async () => {
+  const { sidebarToggleLabel } = await load();
+  assert.equal(sidebarToggleLabel({ width: 1400, expanded: true }), 'Minimize sidebar');
+  assert.equal(sidebarToggleLabel({ width: 1400, expanded: false, pinned: true }), 'Expand sidebar');
+  assert.equal(sidebarToggleLabel({ width: 900, expanded: true }), 'Show sidebar');
+  assert.equal(sidebarToggleLabel({ width: 900, expanded: false, pinned: false }), 'Show sidebar');
+  assert.equal(sidebarToggleLabel({ width: 900, expanded: true, pinned: true }), 'Hide sidebar');
+});
