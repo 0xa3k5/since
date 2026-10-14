@@ -137,7 +137,7 @@ const prNumber = (n) => {
 };
 
 const MERGE_METHODS = ['squash', 'merge', 'rebase'];
-const PR_VIEW_FIELDS = ['number', 'state', 'isDraft', 'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'headRefName'];
+const PR_VIEW_FIELDS = ['number', 'state', 'isDraft', 'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'headRefName', 'headRefOid'];
 const REPO_VIEW_FIELDS = ['squashMergeAllowed', 'mergeCommitAllowed', 'rebaseMergeAllowed', 'deleteBranchOnMerge', 'viewerPermission'];
 
 function parseJson(out) {
@@ -158,6 +158,9 @@ function parseMergeInfo(prOut, repoOut) {
     review: REVIEW[p.reviewDecision] || null,
     checks: checksState(p.statusCheckRollup),
     branch: text(p.headRefName),
+    headOid: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
+    // GitHub is still working out mergeability (right after a push); `gh pr merge` may refuse.
+    checking: p.mergeable === 'UNKNOWN',
     methods: methods.length ? methods : ['squash'],
     deleteBranchOnMerge: r.deleteBranchOnMerge === true,
     admin: r.viewerPermission === 'ADMIN',
@@ -352,4 +355,34 @@ async function ghStatus({ dirs = searchDirs(), exec } = {}) {
   }
 }
 
-module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+// Lanes (git.lanes) with their open PR attached by head branch: the upstream's branch when the
+// lane has one, else the local name. A PR from a fork only matches a lane tracking that fork.
+// `listed` is a listPrs result, or null while PRs are off (lanes then get `pr: null`).
+function joinLanes(lanes = [], listed = null) {
+  const prs = listed?.prs || [];
+  const owners = listed?.owners || {};
+  return lanes.map((l) => {
+    const slash = l.upstream ? l.upstream.indexOf('/') : -1;
+    const head = slash > 0 ? l.upstream.slice(slash + 1) : l.branch;
+    const owner = slash > 0 ? owners[l.upstream.slice(0, slash)] : null;
+    const p = head && !l.isBase ? prs.find((x) => x.branch === head && (!owner || !x.headOwner || x.headOwner.toLowerCase() === owner.toLowerCase())) : null;
+    return { ...l, pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, review: p.review, url: p.url } : null };
+  });
+}
+
+// Where a PR branch pushes and the head `gh pr create` names. A branch tracking a GitHub remote
+// pushes there (a fork, say); anything else pushes to the GitHub remote. Only a branch with no
+// upstream starts tracking it, so a non-GitHub upstream (a mirror) is never re-pointed silently.
+function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
+  const up = upRemote && upRef.startsWith('refs/heads/') ? parseRemote(remotes.find((x) => x.name === upRemote)) : null;
+  const dest = up ? { remote: up, ref: upRef.slice('refs/heads/'.length) } : { remote: target, ref: branch };
+  const head = dest.remote.owner !== target.owner ? `${dest.remote.owner}:${dest.ref}` : dest.ref;
+  const ahead = Number(/ahead (\d+)/.exec(track || '')?.[1] || 0);
+  const gone = /gone/.test(track || '');
+  const push = !up ? { remote: dest.remote.name, isNew: true, ahead: 0 } : ahead || gone ? { remote: dest.remote.name, isNew: gone, ahead } : null;
+  const setUpstream = !!push?.isNew && (!upRemote || !!up);
+  const pushArgs = push && ['push', ...(setUpstream ? ['-u'] : []), '--', dest.remote.name, `refs/heads/${branch}:refs/heads/${dest.ref}`];
+  return { dest, head, push, pushArgs };
+}
+
+module.exports = { joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

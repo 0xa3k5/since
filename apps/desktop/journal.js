@@ -52,6 +52,7 @@ function pins(entry) {
   }
   if (entry.stash) objects.push(entry.stash.sha);
   if (entry.worktree) objects.push(entry.worktree.head);
+  for (const w of entry.cleanup || []) objects.push(w.head);
   return { blobs: [...git.snapshotBlobs(entry.work?.before), ...git.snapshotBlobs(entry.work?.after)], objects };
 }
 
@@ -73,6 +74,9 @@ const workOps = {
   stashApply: { run: git.stashApply, paths: git.stashPaths, stash: true },
   stashDrop: { run: git.stashDrop, stash: true },
 };
+
+// Lane steps (runLane) that can also remove a worktree.
+const laneOps = new Set(['mergeLane', 'tidyLane']);
 
 const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
 
@@ -150,7 +154,7 @@ class Journal {
 
   // Newest `limit` entries of each stack, plus the full sizes.
   list(limit = 100) {
-    const strip = (e) => ({ id: e.id, label: e.label, time: e.time, movesRefs: !e.worktree && !same(e.before, e.after) });
+    const strip = (e) => ({ id: e.id, label: e.label, time: e.time, movesRefs: (!e.worktree || laneOps.has(e.method)) && !same(e.before, e.after) });
     const newest = (s) => {
       let out = s.hot.slice(-limit);
       for (let i = s.pages.length - 1; i >= 0 && out.length < limit; i--) out = [...this.readPage(s.pages[i]).slice(out.length - limit), ...out];
@@ -320,6 +324,40 @@ class Journal {
     return worktree;
   }
 
+  // Merge and tidy a lane (git.mergeLane) as one undoable step: the base moved, the worktree
+  // removed and the branch deleted all come back with one undo. `fn(done)` fills `done`.
+  runLane(label, method, fn) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      const done = {};
+      try {
+        return await fn(done);
+      } finally {
+        const wt = done.worktree;
+        const worktree = wt && { op: 'remove', path: wt.path, branch: wt.branch, head: wt.head };
+        await this.finish({ id, label, method, before, worktree }).catch((err) => console.warn('journal failed', err.message));
+      }
+    });
+  }
+
+  // Lanes → Clean up (git.cleanupLanes): every worktree removed and branch deleted is one
+  // undoable step. Returns git.cleanupLanes' result; `onProgress` is passed through.
+  runCleanup(label, items, opts) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      let res = { removed: [], deleted: [], failed: [] };
+      try {
+        res = await git.cleanupLanes(this.root, items, opts);
+      } finally {
+        const cleanup = res.removed.map(({ path: p, branch, head, pruned }) => ({ path: p, branch, head, pruned }));
+        await this.finish({ id, label, method: 'cleanupLanes', before, cleanup }).catch((err) => console.warn('journal failed', err.message));
+      }
+      return res;
+    });
+  }
+
   // Initialise or update submodules as an undoable step (see git.updateSubmodules).
   runSubmodules(label, paths) {
     return this.lock(async () => {
@@ -332,12 +370,13 @@ class Journal {
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, submodules, midSequence }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
     if (worktree) entry.worktree = worktree;
     let changed = !same(entry.before, entry.after) || !!worktree;
+    if (cleanup) { entry.cleanup = cleanup; changed ||= cleanup.length > 0; }
     if (submodules?.length) { entry.submodules = submodules; changed = true; }
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path)).catch(() => null);
@@ -379,7 +418,7 @@ class Journal {
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
-      if (e.worktree || e.submodules) return null;
+      if (e.worktree || e.cleanup || e.submodules) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
         const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
@@ -400,7 +439,9 @@ class Journal {
     const to = dir === 'undo' ? this.redo : this.undo;
     const entry = from.top;
     if (!entry) return null;
+    let note = null;
     if (entry.worktree) await this.restoreWorktree(entry, dir);
+    else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
@@ -412,7 +453,7 @@ class Journal {
       this.removePages(loaded);
       if (archived) await this.prunePins().catch((err) => console.warn('prune failed', err.message));
     }
-    return entry.label;
+    return note ? `${entry.label} (${note})` : entry.label;
   }
 
   // Undo or redo an entry with a work snapshot or a dropped stash. The current
@@ -446,7 +487,8 @@ class Journal {
 
   // Undo or redo adding or removing a worktree. Removing again needs the worktree
   // clean and unlocked (git.removeWorktree checks); a branch created with it is
-  // deleted only if nothing has moved since.
+  // deleted only if nothing has moved since. A lane step can also have moved the
+  // branch checked out here (its base), so the working copy follows HEAD.
   async restoreWorktree(entry, dir) {
     const cwd = this.root;
     const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
@@ -457,15 +499,59 @@ class Journal {
     const adding = (wt.op === 'add') === (dir === 'redo');
     try {
       if (adding) {
-        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
+        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
         await git.restoreWorktree(cwd, wt);
       } else {
         await git.removeWorktree(cwd, wt.path);
-        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
+        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
       }
     } catch (err) {
       throw fail(err.message);
     }
+  }
+
+  // Undo or redo a bulk cleanup. Only the branches it deleted must be where it left them;
+  // other refs (agents committing elsewhere) may move freely. Undo puts the branches back,
+  // then re-adds each removed worktree at its path where nothing is in the way. Worktrees that
+  // were already missing (pruned) aren't re-added, and a dirty worktree comes back clean: its
+  // uncommitted files were deleted with it. Redo removes them again (only if still clean).
+  // Returns a note about worktrees that couldn't be re-added, or null.
+  async restoreCleanup(entry, dir) {
+    const cwd = this.root;
+    const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
+    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const names = [...new Set([...Object.keys(entry.before.refs), ...Object.keys(entry.after.refs)])].filter((n) => entry.before.refs[n] !== entry.after.refs[n]);
+    const now = await git.captureRefState(cwd);
+    const moved = names.filter((n) => now.refs[n] !== entry[cur].refs[n]);
+    if (moved.length) throw fail(`${listPaths(moved.map((n) => n.replace(/^refs\/(heads|tags)\//, '')))} changed since.`);
+    const refs = { ...now.refs };
+    for (const n of names) {
+      if (entry[next].refs[n]) refs[n] = entry[next].refs[n];
+      else delete refs[n];
+    }
+    const target = { ...now, refs };
+    const worktrees = entry.cleanup.filter((w) => !w.pruned);
+    if (dir === 'redo') {
+      const list = await git.getWorktrees(cwd);
+      const back = worktrees.filter((w) => list.some((x) => !x.missing && git.samePath(x.path, w.path)));
+      for (const w of back) {
+        const n = await git.worktreeChanges(w.path);
+        if (n) throw fail(`${path.basename(w.path)} has ${n} uncommitted change${n > 1 ? 's' : ''}.`);
+      }
+      try {
+        for (const w of back) await git.removeWorktree(cwd, w.path);
+        await git.restoreRefState(cwd, target, { refsOnly: true });
+      } catch (err) {
+        throw fail(err.message);
+      }
+      return null;
+    }
+    await git.restoreRefState(cwd, target, { refsOnly: true }).catch((err) => { throw fail(err.message); });
+    const skipped = [];
+    for (const w of worktrees) {
+      try { await git.restoreWorktree(cwd, w); } catch { skipped.push(path.basename(w.path)); }
+    }
+    return skipped.length ? `couldn't re-add ${listPaths(skipped)}: the folder is in the way` : null;
   }
 
   // What "Restore before" an entry would change right now, without changing anything.
@@ -486,4 +572,4 @@ class Journal {
   }
 }
 
-module.exports = { Journal, workOps, worktreeOps, PAGE, refChanges };
+module.exports = { Journal, workOps, worktreeOps, laneOps, PAGE, refChanges };

@@ -313,3 +313,47 @@ test('create PR: gh pr create gets plain flags and the body on stdin', async () 
   await assert.rejects(github.createPr({ ...t, enabled: false, base: 'main', head: 'feat/x', title: 'x' }), { code: 'gh-off' });
   assert.equal(calls.length, 1);
 });
+
+test('joinLanes: PRs attach by upstream branch, forks only to lanes tracking them, off means null', () => {
+  const pr = (number, branch, headOwner, extra = {}) => ({ number, title: `PR ${number}`, branch, headOwner, draft: false, checks: 'success', review: 'approved', url: `https://github.com/acme/app/pull/${number}`, ...extra });
+  const listed = { owners: { origin: 'acme', fork: 'bob' }, prs: [pr(1, 'feat', 'acme', { draft: true, checks: 'pending' }), pr(2, 'fix', 'bob'), pr(3, 'local-only', 'acme'), pr(4, 'main', 'acme')] };
+  const lanes = [
+    { name: 'feat', branch: 'feat', upstream: 'origin/feat' },
+    { name: 'my-fix', branch: 'my-fix', upstream: 'fork/fix' },
+    { name: 'fix', branch: 'fix', upstream: 'origin/fix' },
+    { name: 'local-only', branch: 'local-only', upstream: null },
+    { name: 'main', branch: 'main', upstream: 'origin/main', isBase: true },
+    { name: 'det', branch: null, upstream: null },
+  ];
+  const out = github.joinLanes(lanes, listed);
+  assert.deepEqual(out.map((l) => l.pr?.number ?? null), [1, 2, null, 3, null, null]);
+  assert.deepEqual(out[0].pr, { number: 1, title: 'PR 1', state: 'open', draft: true, checks: 'pending', review: 'approved', url: 'https://github.com/acme/app/pull/1' });
+  assert.equal(out[0].name, 'feat', 'lane fields kept');
+  assert.ok(github.joinLanes(lanes, null).every((l) => l.pr === null));
+});
+
+test('prPushPlan pushes new PR branches to the GitHub remote and keeps a mirror upstream', () => {
+  const mirror = remote('origin', '/srv/mirror/app.git');
+  const gh = remote('github', 'git@github.com:acme/app.git');
+  const remotes = [mirror, gh];
+  const target = github.pickRemote(remotes);
+  // No upstream: push to GitHub and start tracking it.
+  let p = github.prPushPlan({ branch: 'feat', upRemote: '', upRef: '', track: '', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '-u', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  assert.equal(p.head, 'feat');
+  // Tracks the non-GitHub mirror: push to GitHub without re-pointing the upstream.
+  p = github.prPushPlan({ branch: 'feat', upRemote: 'origin', upRef: 'refs/heads/feat', track: 'ahead 2', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  // Tracks GitHub and is up to date: nothing to push.
+  p = github.prPushPlan({ branch: 'feat', upRemote: 'github', upRef: 'refs/heads/feat', track: '', remotes, target });
+  assert.equal(p.push, null);
+  assert.equal(p.pushArgs, null);
+});
+
+test('parseMergeInfo: head commit and the still-checking state', () => {
+  const oid = 'a'.repeat(40);
+  assert.equal(github.parseMergeInfo(VIEW({ headRefOid: oid }), REPO()).headOid, oid);
+  assert.equal(github.parseMergeInfo(VIEW({ headRefOid: 'nope' }), REPO()).headOid, null);
+  assert.equal(github.parseMergeInfo(VIEW({ mergeable: 'UNKNOWN' }), REPO()).checking, true);
+  assert.equal(github.parseMergeInfo(VIEW(), REPO()).checking, false);
+});
