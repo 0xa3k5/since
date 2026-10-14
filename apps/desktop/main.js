@@ -173,6 +173,7 @@ const reads = {
   // Read-only: the tool gets temporary copies; for the working tree it may edit the real file.
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
   opState: (s) => git.getOperationState(s.repo.gitDir),
+  conflict: (s, p) => git.getConflict(s.repo.root, p),
   workingDiff: (s, file, staged) => git.workingDiff(s.repo.root, file, { staged }),
   stashes: (s) => git.getStashes(s.repo.root),
   reflog: (s) => git.getReflog(s.repo.root),
@@ -636,6 +637,7 @@ function buildMenu() {
         { type: 'separator' },
         item('Git LFS Files…', 'CmdOrCtrl+Alt+F', 'lfs'),
         item('Open in Difftool', 'CmdOrCtrl+Shift+D', 'difftool'),
+        item('Resolve Conflicts', 'CmdOrCtrl+Alt+M', 'conflicts'),
         item('Open in Mergetool', 'CmdOrCtrl+Shift+M', 'mergetool'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),

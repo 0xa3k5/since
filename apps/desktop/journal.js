@@ -51,6 +51,7 @@ const workOps = {
   discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path] },
   resetHard: { run: git.resetHard, paths: (cwd, sha) => git.resetHardPaths(cwd, sha || 'HEAD') },
   chooseSide: { run: git.chooseSide, paths: (cwd, p) => [p] },
+  resolveConflict: { run: git.resolveConflict, paths: (cwd, p) => [p] },
   stashApply: { run: git.stashApply, paths: git.stashPaths, stash: true },
   stashDrop: { run: git.stashDrop, stash: true },
 };

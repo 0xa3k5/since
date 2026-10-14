@@ -1001,8 +1001,47 @@ async function discardLines(cwd, file, selected) {
 
 const resetHard = (cwd, sha) => run(cwd, ['reset', '--hard', sha || 'HEAD'], { env: W_ENV });
 
+// Index stages of one conflicted path: { 1: base oid, 2: ours oid, 3: theirs oid }, absent sides missing.
+async function conflictStages(cwd, p) {
+  const stages = {};
+  for (const rec of (await run(cwd, ['ls-files', '-u', '-z', '--', p])).split('\0')) {
+    const m = /^\d+ ([0-9a-f]+) ([123])\t/.exec(rec);
+    if (m) stages[m[2]] = m[1];
+  }
+  return stages;
+}
+
+// A side that deleted the file has no stage; choosing it removes the file.
 async function chooseSide(cwd, p, side) {
+  if (!(await conflictStages(cwd, p))[side === 'ours' ? 2 : 3]) {
+    await run(cwd, ['rm', '-q', '-f', '--', p], { env: W_ENV });
+    return;
+  }
   await run(cwd, ['checkout', `--${side}`, '--', p], { env: W_ENV });
+  await run(cwd, ['add', '--', p], { env: W_ENV });
+}
+
+// Built-in conflict editor. The editor works on the conflict markers in the working
+// file, so every operation that leaves them (merge, rebase, cherry-pick, revert, stash
+// apply) works the same. Binary, missing or very large files can only take a whole side.
+const CONFLICT_TEXT_MAX = 2 * 1024 * 1024;
+async function getConflict(cwd, p) {
+  const stages = await conflictStages(cwd, p);
+  const sides = { base: !!stages[1], ours: !!stages[2], theirs: !!stages[3] };
+  const st = await fs.promises.lstat(path.join(cwd, p)).catch(() => null);
+  if (!st?.isFile()) return { path: p, ...sides, kind: st ? 'binary' : 'missing', text: null };
+  const data = await fs.promises.readFile(path.join(cwd, p));
+  if (data.subarray(0, 8000).includes(0)) return { path: p, ...sides, kind: 'binary', text: null };
+  if (data.length > CONFLICT_TEXT_MAX) return { path: p, ...sides, kind: 'large', text: null };
+  return { path: p, ...sides, kind: 'text', text: data.toString('utf8') };
+}
+
+// Writes the edited result and stages it, which marks the path resolved.
+async function resolveConflict(cwd, p, content) {
+  const st = await fs.promises.lstat(path.join(cwd, p)).catch(() => null);
+  if (st && !st.isFile()) throw new GitError(`${p} is not a regular file. Pick a whole side instead.`);
+  if (!Object.keys(await conflictStages(cwd, p)).length) throw new GitError(`${p} has no conflict to resolve.`);
+  await fs.promises.writeFile(path.join(cwd, p), content);
   await run(cwd, ['add', '--', p], { env: W_ENV });
 }
 
@@ -1161,7 +1200,7 @@ module.exports = {
   getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
-  discardFiles, discardLines, resetHard, chooseSide, stashApply, stashDrop,
+  discardFiles, discardLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
