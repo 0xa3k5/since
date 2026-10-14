@@ -105,3 +105,11 @@ export function fileName(p) {
   const i = p.lastIndexOf('/');
   return i === -1 ? [p, ''] : [p.slice(i + 1), p.slice(0, i)];
 }
+
+// The fields of a file entry that file IPC calls accept (ipc.js fileEntry). Commit files also
+// carry numstat counts (add/del/binary), which the strict validator rejects.
+export function fileRef(f) {
+  const r = { path: f.path };
+  for (const k of ['oldPath', 'status', 'xy']) if (f[k] != null) r[k] = f[k];
+  return r;
+}
