@@ -121,13 +121,13 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.equal(accelerator('view.cycleTheme', true), 'Ctrl+Cmd+T');
   assert.equal(accelerator('view.cycleTheme', false), 'Ctrl+Alt+Shift+T');
   assert.equal(accelerator('app.settings', true), 'CmdOrCtrl+,');
-  assert.deepEqual(keys('repo.prRefresh', { mac: true }), ['⌘', '⌥', '⇧', 'P']);
+  assert.deepEqual(keys('repo.prRefresh', { mac: true }), ['⌥', '⇧', '⌘', 'P']);
   assert.deepEqual(keys('repo.prRefresh', { mac: false }), ['Ctrl', '⌥', '⇧', 'P']);
   assert.deepEqual(keys('view.cycleTheme', { mac: true }), ['⌃', '⌘', 'T']);
   assert.deepEqual(keys('view.worktrees', { mac: true, index: 1 }), ['G', 'W']);
   assert.deepEqual(keys('commit.split', { mac: true }), ['⇧', 'S']);
   assert.deepEqual(keys('commit.drop', { mac: true }), ['⌫']);
-  assert.deepEqual(keys('global.setup', { mac: true }), ['⌘', '⇧', ',']);
+  assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {

@@ -388,7 +388,10 @@ export function keys(id, { index = 0, mac = IS_MAC } = {}) {
 /** Any binding as keycaps, like `keys`. */
 export function caps(binding, mac = IS_MAC) {
   const MOD = { Mod: mac ? '⌘' : 'Ctrl', Ctrl: mac ? '⌃' : 'Ctrl', Alt: '⌥', Shift: '⇧' };
-  return parse(binding).flatMap((s) => [...[...s.mods].map((m) => MOD[m]), keyLabel(s.key)]);
+  // macOS lists modifiers as ⌃⌥⇧⌘ (⇧⌘F, not ⌘⇧F), like its menus and the website.
+  const ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod'];
+  const order = (mods) => (mac ? [...mods].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)) : [...mods]);
+  return parse(binding).flatMap((s) => [...order(s.mods).map((m) => MOD[m]), keyLabel(s.key)]);
 }
 
 const ACCEL = { Mod: 'CmdOrCtrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' };
