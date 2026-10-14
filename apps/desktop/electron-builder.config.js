@@ -1,5 +1,5 @@
 'use strict';
-// Packaging for `npm run dist`. Build-time only: nothing here loads in the app.
+// Packaging for `pnpm dist`. Build-time only: nothing here loads in the app.
 //
 // Signing switches on by itself when a Developer ID certificate is available, either from
 // CSC_LINK (+ CSC_KEY_PASSWORD) in CI or from the login keychain. Notarization then runs through
@@ -33,7 +33,7 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'log-streams.js', 'updater.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
   // The store profile is baked into the packaged package.json; the packaged app ignores GITLANES_STORE
   // at run time. Production unless the build asks for the test store (GITLANES_STORE=sandbox).
   extraMetadata: { gitlanes: { store: STORE } },
