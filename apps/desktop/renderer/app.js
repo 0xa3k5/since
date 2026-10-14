@@ -8,6 +8,7 @@ import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
+import { authorProfile } from './profile.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -499,6 +500,21 @@ async function refreshRemotes() {
   if (JSON.stringify(remotes) === JSON.stringify(state.remotes)) return;
   state.remotes = remotes;
   $('.sb-origin')?.replaceChildren(...[originLink()].filter(Boolean));
+}
+
+// A person in the commit details; a link to their GitHub profile when we can place them.
+function personLink(name, email) {
+  const p = authorProfile(email, originRemote()?.web);
+  const body = [avatar(name, email, 18), h('span.person-name', null, name)];
+  if (!p) return h('span.prop-person', { title: `${name} <${email}>` }, ...body);
+  return h('a.prop-person.person-link', { href: p.url, title: `${p.label}\n${name} <${email}>`, onclick: (e) => { e.preventDefault(); api.app('external', p.url); } }, ...body, icon('external', 12));
+}
+
+// ⇧A: the selected commit's author on GitHub.
+function openAuthor(c) {
+  const p = authorProfile(c.email, originRemote()?.web);
+  if (p) api.app('external', p.url);
+  else toast(`No GitHub profile found for ${c.author}`, { kind: 'error' });
 }
 
 function openOrigin() {
@@ -1018,9 +1034,9 @@ function commitDetail(c) {
       body ? h('pre.detail-body', null, body) : null,
     ),
     h('div.props', null,
-      prop('Author', h('span.prop-person', null, avatar(c.author, c.email, 18), c.author)),
-      c.coAuthors?.length ? prop('Co-authors', h('span.prop-people', null, c.coAuthors.map((p) => h('span.prop-person', { title: `${p.name} <${p.email}>` }, avatar(p.name, p.email, 18), p.name)))) : null,
-      c.committer !== c.author ? prop('Committer', h('span.prop-person', null, avatar(c.committer, c.committerEmail, 18), c.committer)) : null,
+      prop('Author', personLink(c.author, c.email)),
+      c.coAuthors?.length ? prop('Co-authors', h('span.prop-people', null, c.coAuthors.map((p) => personLink(p.name, p.email)))) : null,
+      c.committer !== c.author ? prop('Committer', personLink(c.committer, c.committerEmail)) : null,
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
       c.signature ? prop('Signature', signatureBadge(c.signature)) : null,
       prop('Commit', h('button.mono-link', { onclick: () => copy(c.sha, 'Copied SHA') }, c.sha.slice(0, 12), icon('copy', 12))),
@@ -1300,7 +1316,7 @@ function commitShortcut(e, c) {
     b: () => createBranch(c.sha), t: () => createTag(c.sha), m: () => mergeCommit(c), r: () => rebaseOnto(c),
     p: () => cherryPick(c), v: () => revertCommit(c), e: () => editMessage(c), s: () => rewriteOp('squash', c),
     f: () => rewriteOp('fixup', c), Backspace: () => rewriteOp('drop', c), Delete: () => rewriteOp('drop', c),
-    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }), S: () => openSplit(c),
+    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }), S: () => openSplit(c), A: () => openAuthor(c),
   };
   if (map[k]) { e.preventDefault(); map[k](); }
 }
@@ -1339,6 +1355,7 @@ function commitMenu(x, y, c) {
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: [MOD, 'C'], run: () => copy(c.sha, 'Copied SHA') },
     { label: 'Copy Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
+    authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: ['⇧', 'A'], run: () => openAuthor(c) } : null,
     remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
   ]);
 }
@@ -2188,6 +2205,7 @@ function openPalette() {
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
     if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: [MOD, '↵'], detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
+    if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: ['⇧', 'A'], detail: sel.author, keywords: 'author profile github user person' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
