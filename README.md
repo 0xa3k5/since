@@ -15,7 +15,21 @@ pnpm is required; npm, yarn and bun installs are blocked. Enable it with `corepa
     corepack enable      # once: provides the pnpm version pinned in package.json
     pnpm install
     pnpm desktop [-- path/to/repo]
-    pnpm testcertificate** (the default today) you get `GitLanes-<version>-<arch>-unsigned.dmg`.
+    pnpm test
+    pnpm dist         # build the macOS DMGs into apps/desktop/dist
+    pnpm web          # website dev server
+    pnpm web:build    # static build into apps/web/dist, plus an internal link check
+
+## Building the DMG
+
+`pnpm dist` builds `GitLanes.app` and one DMG each for Apple silicon (`arm64`) and Intel (`x64`)
+into `apps/desktop/dist/`. It needs macOS.
+
+- **Licence store:** the build bakes in the `production` Polar store and fails until its values in
+  `apps/desktop/licence/config.js` are filled in. For a test build use `GITLANES_STORE=sandbox pnpm dist`;
+  the app then says "sandbox store" in its licence window. CI does this for everything except final release tags.
+
+- **Without a Developer ID certificate** (the default today) you get `GitLanes-<version>-<arch>-unsigned.dmg`.
   The app is ad-hoc signed so it launches on Apple silicon. Gatekeeper still blocks it on other Macs
   until the user right-clicks → Open, or allows it in System Settings → Privacy & Security.
 - **With a certificate**, signing switches on by itself. electron-builder looks for it in `CSC_LINK`
