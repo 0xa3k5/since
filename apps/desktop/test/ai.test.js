@@ -124,3 +124,12 @@ test('runCli keeps a UTF-8 character that is split across output chunks', async 
   const p = fakeCli(dir, 'claude', 'cat >/dev/null; printf "caf\\303"; sleep 0.2; printf "\\251\\n"');
   assert.equal(await ai.runCli(p, [], 'x', { dirs: [dir, '/usr/bin', '/bin'] }), 'café\n');
 });
+
+test('PR draft prompt and split', () => {
+  const ai = require('../ai');
+  const p = ai.buildPrPrompt({ branch: 'feat/x', base: 'main', log: '- Add x\n', stat: ' a.js | 2 +\n', diff: '+x\n' });
+  assert.match(p, /merging feat\/x into main/);
+  assert.match(p, /Commits:\n- Add x\n/);
+  assert.deepEqual(ai.splitPr('Add x\n\n- does y\n- does z'), { title: 'Add x', body: '- does y\n- does z' });
+  assert.deepEqual(ai.splitPr('Title: Add x'), { title: 'Add x', body: '' });
+});

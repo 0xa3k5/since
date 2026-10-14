@@ -21,7 +21,7 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
   const count = h('span');
   const side = h('div.quick-side.fh-side', null,
     h('div.quick-head', null,
-      h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd('Esc')),
+      h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('fileHistory.close'))),
       h('div.quick-title.fh-title', { title: path }, icon('file', 14), name),
       h('div.quick-meta', null, dir ? h('span.mono.fh-dir', null, dir) : null, count),
     ),
@@ -85,8 +85,8 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
       h('span.fh-mode', null, 'Blame'),
       h('span.mono', null, r.path), h('span.muted', null, r.sha ? `at ${r.sha.slice(0, 7)}` : 'in the working tree'),
       h('span.spacer'),
-      r.sha ? h('button.btn.ghost.small', { onclick: () => onShow(r.sha), title: 'Show this commit in the Map' }, 'Show in Map', kbd('↵')) : null,
-      r.sha ? h('button.btn.ghost.small', { onclick: () => onOpen(r.sha, r.path), title: 'Open this commit’s changes' }, 'Open Commit', kbd('Space')) : null,
+      r.sha ? h('button.btn.ghost.small', { onclick: () => onShow(r.sha), title: 'Show this commit in the Map' }, 'Show in Map', kbd(...keymap.keys('fileHistory.show'))) : null,
+      r.sha ? h('button.btn.ghost.small', { onclick: () => onOpen(r.sha, r.path), title: 'Open this commit’s changes' }, 'Open Commit', kbd(...keymap.keys('fileHistory.open'))) : null,
     );
     blameTimer = setTimeout(async () => {
       let b;

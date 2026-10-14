@@ -105,7 +105,7 @@ export async function openLicence({ blocked = false } = {}) {
       ),
       h('div.dialog-foot', null,
         keyEntry ? [
-          btn('ghost', 'Not now', close, kbd('Esc')),
+          btn('ghost', 'Not now', close, kbd(...keymap.keys('dialog.cancel'))),
           btn('subtle', 'Buy GitLanes', buy, icon('external', 13)),
           btn('primary', busy || 'Activate', activate, busy ? null : kbd('↵')),
         ] : [
@@ -114,7 +114,7 @@ export async function openLicence({ blocked = false } = {}) {
           s.mode === 'revoked' ? btn('subtle', 'Buy GitLanes', buy, icon('external', 13)) : null,
           s.mode === 'unverified' || s.mode === 'revoked'
             ? btn('primary', busy || 'Check again', check)
-            : [btn('subtle', busy || 'Check now', check), btn('primary', 'Done', close, kbd('Esc'))],
+            : [btn('subtle', busy || 'Check now', check), btn('primary', 'Done', close, kbd(...keymap.keys('dialog.cancel')))],
         ],
       ),
     );

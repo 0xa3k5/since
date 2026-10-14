@@ -264,3 +264,33 @@ test('toggle off: no PR call spawns gh, with the real runner', async () => {
   await github.listPrs({ ...off, enabled: true });
   assert.equal(fs.existsSync(mark), true);
 });
+
+test('create PR: default branch, prefill from commits, parsed link', () => {
+  assert.equal(github.parseDefaultBranch('{"defaultBranchRef":{"name":"main"}}'), 'main');
+  assert.throws(() => github.parseDefaultBranch('{"defaultBranchRef":null}'), { code: 'gh-failed' });
+  // `git log --format=%s%x00%b%x1e`, newest first.
+  const log = 'Add tests\0\x1e\nAdd the sheet\0Longer body\nline two\n\x1e\n';
+  const commits = github.parseCommits(log);
+  assert.deepEqual(commits, [{ subject: 'Add tests', body: '' }, { subject: 'Add the sheet', body: 'Longer body\nline two' }]);
+  assert.deepEqual(github.prDraft(commits.slice(1)), { title: 'Add the sheet', body: 'Longer body\nline two' });
+  assert.deepEqual(github.prDraft(commits), { title: 'Add the sheet', body: '- Add the sheet\n- Add tests' });
+  assert.deepEqual(github.prDraft([]), { title: '', body: '' });
+  assert.deepEqual(github.parseCreated('Creating pull request…\nhttps://github.com/acme/app/pull/42\n'), { url: 'https://github.com/acme/app/pull/42', number: 42 });
+  assert.throws(() => github.parseCreated('oops'), { code: 'gh-failed' });
+  for (const ok of ['main', 'feat/x', 'fork-owner:feat/x']) assert.equal(github.branchArg(ok, 'head'), ok);
+  for (const bad of ['--force', '-x', 'a..b', 'a b', 'x.lock', 'a/', '', 'bad owner:x', 'x@{1}']) assert.throws(() => github.branchArg(bad, 'head'), { code: 'gh-failed' }, bad);
+});
+
+test('create PR: gh pr create gets plain flags and the body on stdin', async () => {
+  const calls = [];
+  const exec = async (bin, args, input) => { calls.push({ args, input }); return 'https://github.com/acme/app/pull/9\n'; };
+  const t = { enabled: true, remotes: [ORIGIN], dirs: [fakeGh()], exec };
+  const res = await github.createPr({ ...t, base: 'main', head: 'feat/x', title: '  --title  trick ', body: '- one\n- two', draft: true });
+  assert.deepEqual(res, { url: 'https://github.com/acme/app/pull/9', number: 9 });
+  assert.deepEqual(calls[0].args, ['pr', 'create', '--repo', 'github.com/acme/app', '--base=main', '--head=feat/x', '--title=--title trick', '--body-file', '-', '--draft']);
+  assert.equal(calls[0].input, '- one\n- two');
+  await assert.rejects(github.createPr({ ...t, base: 'main', head: 'feat/x', title: ' ' }), { code: 'gh-failed' });
+  await assert.rejects(github.createPr({ ...t, base: '--admin', head: 'feat/x', title: 'x' }), { code: 'gh-failed' });
+  await assert.rejects(github.createPr({ ...t, enabled: false, base: 'main', head: 'feat/x', title: 'x' }), { code: 'gh-off' });
+  assert.equal(calls.length, 1);
+});

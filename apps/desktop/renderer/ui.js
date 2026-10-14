@@ -160,6 +160,11 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
           inputs[f.name] = h('input', { type: 'checkbox', checked: !!f.value });
           return h('label.check', null, inputs[f.name], h('span', null, f.label));
         }
+        // An extra action inside the sheet (e.g. "Draft with AI"); `run` gets the live inputs.
+        if (f.type === 'button') {
+          const btn = h('button.btn.ghost', { type: 'button', onclick: async () => { btn.disabled = true; try { await f.run(inputs); } finally { btn.disabled = false; } } }, f.icon ? icon(f.icon) : null, f.label);
+          return h('div.field', null, btn);
+        }
         if (f.type === 'select') {
           inputs[f.name] = h('select.input', null, f.options.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
           return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
@@ -171,7 +176,7 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
         return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
       })) : null,
       h('div.dialog-foot', null,
-        h('button.btn.ghost', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd('Esc')),
+        h('button.btn.ghost', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
         h('button.btn.' + (destructive ? 'danger' : 'primary'), { type: 'submit' }, submit, kbd('↵')),
       ),
     );

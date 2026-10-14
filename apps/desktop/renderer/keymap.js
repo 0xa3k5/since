@@ -79,6 +79,7 @@ export const COMMANDS = [
   c('menu', 'repository', 'repo.aiMessage', 'Write Commit Message with AI', 'Mod+Alt+G'),
   c('menu', 'repository', 'repo.prs', 'Pull Requests…', 'Mod+Alt+P'),
   c('menu', 'repository', 'repo.prRefresh', 'Refresh Pull Requests', 'Mod+Alt+Shift+P'),
+  c('menu', 'repository', 'repo.prCreate', 'New Pull Request…', 'Mod+Alt+Shift+N'),
   c('menu', 'repository', 'repo.prCheckout', 'Check Out Pull Request…', 'Mod+Alt+Shift+O'),
   c('menu', 'repository', 'repo.prWorktree', 'Check Out Pull Request in New Worktree…', 'Mod+Alt+Shift+L'),
   c('menu', 'repository', 'repo.prApprove', 'Approve Pull Request…', 'Mod+Alt+Shift+A'),
