@@ -4,6 +4,7 @@ import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
+import { fileHistoryView } from './file-history-view.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -464,6 +465,7 @@ function setView(v) {
   if (!state.repo) return;
   state.quick = null;
   state.split = null;
+  state.fileHistory = null;
   state.view = v;
   renderSidebar();
   renderTopbar();
@@ -553,13 +555,13 @@ function renderTopbar() {
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
     h('button.icon-btn.sb-toggle', { title: `Toggle sidebar (${MOD}\\)`, onclick: toggleSidebar }, icon('sidebar')),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
-  if (state.view === 'map' && !state.quick && !state.split) {
+  if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
       onkeydown: (e) => {
@@ -684,6 +686,7 @@ function renderView(soft = false) {
   contentEl.dataset.view = state.view;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
+  if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
     case 'commit': commitView = createCommitView(contentEl); break;
@@ -934,7 +937,7 @@ function commitDetail(c) {
     ),
     h('div.files-head', null, h('span', null, `${c.files.length} file${c.files.length === 1 ? '' : 's'} changed`), h('span.stat', null, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`)),
       h('button.btn.ghost.small', { onclick: () => openQuick(c.sha) }, 'Open', kbd('↵'))),
-    h('div.file-list', null, c.files.slice(0, 500).map((f) => fileRow(f, () => openQuick(c.sha, f.path)))),
+    h('div.file-list', null, c.files.slice(0, 500).map((f) => withHistoryMenu(fileRow(f, () => openQuick(c.sha, f.path)), f))),
   );
 }
 
@@ -960,14 +963,17 @@ function fileRow(f, onclick, extra) {
 // ---------------------------------------------------------------------------
 // Quick view (full-height commit inspector)
 
-function openQuick(sha, path) {
+// `back` is the file history the commit was opened from; Esc returns to it.
+function openQuick(sha, path, back = null) {
   if (!sha) return;
-  state.quick = { sha, path };
+  state.fileHistory = null;
+  state.quick = { sha, path, back };
   renderTopbar();
   renderView();
 }
 function closeQuick() {
   const sha = state.quick?.sha;
+  if (state.quick?.back) return openFileHistory(state.quick.back.path);
   state.quick = null;
   renderTopbar();
   renderView();
@@ -994,7 +1000,7 @@ function quickView({ sha, path }) {
         h('div.quick-meta', null, avatar(c.author, c.email, 16), c.author, ' · ', timeAgo(c.time), ' · ', h('span.mono', null, c.sha.slice(0, 7))),
       ),
       h('div.file-list', null, files.map((f) => {
-        const r = fileRow(f, () => { current = f.path; full = false; renderFile(); markActive(); });
+        const r = withHistoryMenu(fileRow(f, () => { current = f.path; full = false; renderFile(); markActive(); }), f);
         r.dataset.path = f.path;
         return r;
       })),
@@ -1040,6 +1046,7 @@ async function openSplit(c) {
   if (!c) return;
   try { await git('checkSplit', c.sha); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
   state.quick = null;
+  state.fileHistory = null;
   state.split = { sha: c.sha };
   renderTopbar();
   renderView();
@@ -1414,6 +1421,7 @@ function createCommitView(container) {
           list === 'conflicts'
             ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool([f.path]) }
             : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: [MOD, '⇧', 'D'], run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
+          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
@@ -1944,6 +1952,7 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
+    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⌥', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
@@ -2096,6 +2105,7 @@ async function loadRepo(repo) {
   setHistory(createHistory());
   state.quick = null;
   state.split = null;
+  state.fileHistory = null;
   state.search = '';
   state.configFilter = '';
   commitCache.clear();
@@ -2142,7 +2152,7 @@ const commands = {
   clone: cloneRepo,
   undo: () => { if (isEditable(document.activeElement)) document.execCommand('undo'); else if (state.repo) undo(); },
   redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); },
-  search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
+  search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
   view: (v) => setView(v),
   sidebar: toggleSidebar,
@@ -2162,6 +2172,7 @@ const commands = {
   difftool: () => openDifftool(),
   mergetool: () => openMergetool(),
   conflicts: () => openConflicts(),
+  fileHistory: () => openFileHistory(),
   licence: () => openLicence(),
   buy,
 };
@@ -2188,6 +2199,53 @@ async function openDifftool(target = difftoolTarget()) {
   if (target.conflict) return openMergetool([target.file.path]);
   if (target.file.status === '?') return toast('Untracked files have nothing to compare', { detail: target.file.path });
   try { await git('difftool', target.file, ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
+}
+
+// ---------------------------------------------------------------------------
+// File history & blame
+
+// The file on screen (commit viewer, Commit view or the open file history), if any.
+function fileHistoryTarget() {
+  if (state.fileHistory) return state.fileHistory.path;
+  if (state.quick) return state.quick.file?.path || null;
+  if (state.view === 'commit' && state.cv.list !== 'conflicts') return (state.status[state.cv.list] || []).find((f) => f.path === state.cv.path && f.status !== '?')?.path || null;
+  return null;
+}
+
+// Opens the history of `path`, of the file on screen, or of a file picked from the tracked files.
+async function openFileHistory(path = fileHistoryTarget()) {
+  if (!state.repo) return;
+  if (!path) {
+    const files = await git('trackedFiles').catch((e) => { toast('Couldn’t list files', { kind: 'error', detail: e.message }); return null; });
+    if (!files?.length) return files && toast('No tracked files yet');
+    while ($('.palette-overlay')) await new Promise((r) => setTimeout(r, 30)); // ⌘K is still closing
+    return palette(() => files.map((p) => ({ label: p, icon: 'file', run: () => openFileHistory(p) })), { placeholder: 'File history & blame: pick a file…' });
+  }
+  state.quick = null;
+  state.split = null;
+  state.fileHistory = { path };
+  renderTopbar();
+  renderView();
+}
+function closeFileHistory() {
+  state.fileHistory = null;
+  renderTopbar();
+  renderView();
+}
+// Shows a commit in the Map, or in the commit viewer when the graph doesn't have it (yet).
+function showCommit(sha) {
+  setView('map');
+  if (state.index.has(sha)) selectCommit(sha, 'center'); else openQuick(sha);
+}
+function withHistoryMenu(row, f) {
+  row.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    contextMenu(e.clientX, e.clientY, [
+      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
+      { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
+    ]);
+  });
+  return row;
 }
 
 // Opens the first conflicted file (or the selected one) in the built-in conflict editor.
