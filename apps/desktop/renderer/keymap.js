@@ -22,6 +22,7 @@ export const SCOPES = {
   stashes: 'Stashes',
   snapshots: 'Snapshots',
   worktrees: 'Worktrees',
+  lanes: 'Lanes',
   recent: 'Welcome screen',
   conflict: 'Conflict editor',
   fileHistory: 'File history',
@@ -57,6 +58,7 @@ export const COMMANDS = [
   c('menu', 'views', 'view.reflog', 'Reflog', ['Mod+5', 'g r']),
   c('menu', 'views', 'view.config', 'Configuration', 'Mod+6'),
   c('menu', 'views', 'view.worktrees', 'Worktrees', ['Mod+7', 'g w']),
+  c('menu', 'views', 'view.lanes', 'Lanes', ['Mod+8', 'g l']),
   c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', 'Mod+Backslash'),
   c('menu', 'view', 'view.tags', 'Show Tags', 'Mod+Alt+T'),
   c('menu', 'view', 'view.remotes', 'Show Remote Branches', 'Mod+Alt+R'),
@@ -173,6 +175,12 @@ export const COMMANDS = [
   c('worktrees', null, 'worktrees.lock', 'Lock or unlock', 'l'),
   c('worktrees', null, 'worktrees.remove', 'Remove the worktree', ['Backspace', 'Delete']),
   c('worktrees', null, 'worktrees.add', 'New worktree', 'n'),
+  c('lanes', null, 'lanes.next', 'Next lane', ['ArrowDown', 'j']),
+  c('lanes', null, 'lanes.prev', 'Previous lane', ['ArrowUp', 'k']),
+  c('lanes', null, 'lanes.open', 'Open the lane in the map', 'Enter'),
+  c('lanes', null, 'lanes.filter', 'Filter lanes', '/'),
+  c('lanes', null, 'lanes.clear', 'Clear the filter', 'Escape'),
+  c('lanes', null, 'lanes.agents', 'Agent lanes only', 'a'),
 
   // Welcome screen: recent repositories.
   c('recent', null, 'recent.next', 'Next repository', 'ArrowDown'),

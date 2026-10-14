@@ -18,14 +18,14 @@ test('every feature starts on unless it was turned off', async () => {
   const all = setupValues();
   for (const f of SETUP_FEATURES) assert.equal(all[f.id], true, f.id);
   const some = setupValues({ show: { tags: false, remotes: true }, autoUpdate: false });
-  assert.deepEqual(some, { autoUpdate: false, tags: false, remotes: true, swatches: true, prs: false });
+  assert.deepEqual(some, { autoUpdate: false, tags: false, remotes: true, swatches: true, agentLanes: true, prs: false });
   assert.equal(setupValues({ prs: true }).prs, true);
 });
 
 test('the summary counts what is on', async () => {
   const { setupSummary } = await load();
-  assert.match(setupSummary({ autoUpdate: true, tags: true, remotes: true, swatches: true, prs: true }), /^All on/);
-  assert.match(setupSummary({ autoUpdate: true, tags: false, remotes: true, swatches: false, prs: false }), /^2 of 5 on/);
+  assert.match(setupSummary({ autoUpdate: true, tags: true, remotes: true, swatches: true, agentLanes: true, prs: true }), /^All on/);
+  assert.match(setupSummary({ autoUpdate: true, tags: false, remotes: true, swatches: false, agentLanes: false, prs: false }), /^2 of 6 on/);
 });
 
 test('AI commit messages and pull requests sit with the user-wide defaults', async () => {

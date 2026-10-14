@@ -8,6 +8,8 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
+import { lanesView } from './lanes-view.js';
+import { laneTarget } from './lanes.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 import { authorProfile } from './profile.js';
@@ -43,7 +45,7 @@ const state = {
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
   lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
-  show: loadPref('show', { tags: true, remotes: true, swatches: true }),
+  show: loadPref('show', { tags: true, remotes: true, swatches: true, agentLanes: true }),
   search: '',
   stashes: [],
   history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
@@ -168,6 +170,7 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
+  if (state.view === 'lanes') lanesPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
 });
@@ -460,7 +463,7 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null;
+let mapView = null, commitView = null, lanesPage = null;
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 
@@ -490,6 +493,7 @@ const VIEWS = [
   { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '5' },
   { id: 'config', label: 'Config', icon: 'config', key: '6' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '7' },
+  { id: 'lanes', label: 'Lanes', icon: 'lanes', key: '8' },
 ];
 
 function setView(v) {
@@ -724,6 +728,7 @@ function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
   if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
+  if (key === 'agentLanes') { lanesPage?.rerender(); return; }
   refreshHistory();
   renderTopbar();
 }
@@ -863,6 +868,7 @@ function renderView(soft = false) {
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
+    case 'lanes': contentEl.append(openLanes().el); break;
   }
 }
 
@@ -2217,6 +2223,24 @@ function worktreesView() {
   return el;
 }
 
+// Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
+function openLanes() {
+  lanesPage = lanesView({
+    load: (opts) => api.app('lanes-list', opts),
+    prsOn: () => Boolean(state.prs?.active),
+    markAgents: () => state.show.agentLanes !== false,
+    onOpen: openLane,
+  });
+  return lanesPage;
+}
+function openLane(lane) {
+  const t = laneTarget(lane);
+  const w = t?.kind === 'worktree' && state.worktrees.find((x) => x.path === t.path);
+  if (w) return switchWorktree(w);
+  if (lane.head) return showCommit(lane.head);
+  toast(`${lane.name} has no commits yet`);
+}
+
 function worktreeMenu(x, y, w) {
   contextMenu(x, y, [
     { label: 'Switch to This Worktree', icon: 'worktree', kbd: keymap.keys('worktrees.switch'), disabled: w.current || w.missing, run: () => switchWorktree(w) },
@@ -2869,6 +2893,7 @@ function openPalette() {
     if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: keymap.keys('repo.origin'), detail: originRemote().label });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
+    add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
