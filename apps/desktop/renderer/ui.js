@@ -119,6 +119,10 @@ export function avatarStack(people, size = 18, max = 3) {
     rest.length ? h('span.avatar.more', { title: rest.map(label).join('\n'), style: { height: size + 'px', minWidth: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } }, `+${rest.length}`) : null);
 }
 
+// Quiet placeholder for slow loads (huge commits, big diffs). It fades in after a short delay,
+// so fast loads never flash it.
+export const loading = (label = 'Loading…') => h('div.loading-state', { role: 'status', 'aria-live': 'polite' }, h('span.spinner'), h('span', null, label));
+
 export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd', null, k)));
 
 // --- Toasts --------------------------------------------------------------------
