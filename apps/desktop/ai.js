@@ -41,6 +41,33 @@ function buildPrompt({ diff, stat, branch }) {
   ].filter((l) => l !== null).join('\n') + '\n';
 }
 
+// A pull request description from a branch's commits and diff, for the create-PR sheet. Sent
+// only to a provider the user already agreed to send commit diffs to.
+function buildPrPrompt({ branch, base, log, stat, diff }) {
+  const cut = diff.length > MAX_DIFF;
+  return [
+    `Write a GitHub pull request title and description for merging ${branch} into ${base}.`,
+    'First line: the title, at most 72 characters, imperative mood, no trailing period.',
+    'Then a blank line and a short description in Markdown: what changes and why, as a few bullets.',
+    'Reply with the title and description only: no quotes, no code fences, no commentary.',
+    '',
+    'Commits:',
+    log.trimEnd(),
+    '',
+    'Files changed:',
+    stat.trimEnd(),
+    '',
+    cut ? `Diff (first ${MAX_DIFF / 1024} KB of ${Math.ceil(diff.length / 1024)} KB):` : 'Diff:',
+    cut ? diff.slice(0, MAX_DIFF) : diff.trimEnd(),
+  ].join('\n') + '\n';
+}
+
+// Model output → { title, body }: the first line is the title, the rest the description.
+function splitPr(msg) {
+  const [first, ...rest] = String(msg || '').split('\n');
+  return { title: first.replace(/^#+\s*|^title:\s*/i, '').trim(), body: rest.join('\n').trim() };
+}
+
 // Models like to wrap answers in fences or quotes, or lead with "Commit message:".
 function cleanMessage(out) {
   let s = String(out || '').replace(/\r\n/g, '\n').trim();
@@ -144,4 +171,4 @@ function normalize(saved = {}) {
   };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, MAX_DIFF, buildPrompt, promptHash, cleanMessage, stagedChanges, searchDirs, findBinary, runCli, runOllama, generate, normalize };
+module.exports = { PROVIDERS, PROVIDER_IDS, MAX_DIFF, buildPrompt, buildPrPrompt, splitPr, promptHash, cleanMessage, stagedChanges, searchDirs, findBinary, runCli, runOllama, generate, normalize };

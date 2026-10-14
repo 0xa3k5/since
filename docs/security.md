@@ -26,6 +26,7 @@ or stores a GitHub token, and opens no connection for them itself.
 | PR set-up check | You turn on *Pull requests* for this repository (off by default, per repository) | `gh auth status --hostname <host>` | Your GitHub host (`github.com` or your GitHub Enterprise host) |
 | PR status | Pull requests are on for this repository and you fetch (⌘⇧F), refresh PRs (⌘⌥⇧P), turn them on, or approve or close one | `gh pr list --repo …` | `api.github.com`, or your GitHub Enterprise host |
 | PR actions: approve, merge, close | Pull requests are on and you pick *Approve…* (⌘⌥⇧A), *Merge…* (⌘⌥⇧M) or *Close…* (⌘⌥⇧W) | `gh pr view`, `gh repo view`, `gh pr review --approve`, `gh pr merge`, `gh pr close` (all with `--repo`) | `api.github.com`, or your GitHub Enterprise host |
+| New pull request | Pull requests are on and you pick *New Pull Request…* (⌘⌥⇧N) and confirm the sheet; a branch that isn’t on GitHub yet is pushed first only if you tick the push box | `gh repo view --json defaultBranchRef` when the sheet opens, `gh pr create --repo … --head … --body-file -` when you confirm. *Draft with AI* sends the branch’s commits and diff to the AI provider you already set up for commit messages (see above) | `api.github.com`, or your GitHub Enterprise host; the push goes to your remote like any push |
 
 There is no background or scheduled fetch, and no PR polling: while a repository's pull request
 toggle is off, `gh` is never even looked up (`test/github.test.js` checks this). Git may also reach the network through your own
