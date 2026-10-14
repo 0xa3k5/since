@@ -1,7 +1,7 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
-import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches } from './diff.js';
+import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 
 const api = window.gitlanes;
@@ -1006,7 +1006,7 @@ function quickView({ sha, path }) {
     main.replaceChildren(h('div.diff-loading'));
     const c = await loadCommit(sha);
     if (state.quick?.sha === sha) Object.assign(state.quick, { file: f, parent: c.parents[0] || null });
-    const d = await git('commitFileDiff', sha, f, c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
+    const d = await git('commitFileDiff', sha, fileRef(f), c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     main.replaceChildren(
       h('div.diff-head', null, statusBadge(f.status), h('span.mono', null, f.oldPath ? `${f.oldPath} → ${f.path}` : f.path), h('span.spacer'),
         h('span.stat.small', null, h('span.add', null, '+' + f.add), h('span.del', null, '−' + f.del))),
@@ -1444,7 +1444,7 @@ function createCommitView(container) {
   async function discard(files) {
     const what = files.length === 1 ? baseName(files[0].path) : `${files.length} files`;
     if (!(await confirm(`Discard changes to ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
-    act(`Discard changes to ${what}`, 'discardFiles', [files.map((f) => ({ path: f.path, status: f.status }))]);
+    act(`Discard changes to ${what}`, 'discardFiles', [files.map(fileRef)]);
   }
 
   function chooseSide(p, side) {
@@ -1462,7 +1462,7 @@ function createCommitView(container) {
       return;
     }
     const token = ++diffToken;
-    const d = await git('workingDiff', file, list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
+    const d = await git('workingDiff', fileRef(file), list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     if (token !== diffToken) return;
     state.cv.diff = d;
     // Drop selections that no longer exist.
@@ -1487,10 +1487,10 @@ function createCommitView(container) {
         const what = hunk ? 'hunk' : `${keys.length} line${keys.length > 1 ? 's' : ''}`;
         if (!(await confirm(`Discard selected ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
         sel.clear();
-        await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [file, keys]);
+        await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [fileRef(file), keys]);
         return;
       }
-      try { await git(method, file, keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
+      try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
       sel.clear();
       await refreshStatus();
     }
@@ -2096,7 +2096,7 @@ async function openDifftool(target = difftoolTarget()) {
   if (!target) return toast('Select a file first', { detail: 'Open in Difftool works on the file shown in Commit view or in a commit.' });
   if (target.conflict) return openMergetool([target.file.path]);
   if (target.file.status === '?') return toast('Untracked files have nothing to compare', { detail: target.file.path });
-  try { await git('difftool', target.file, ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
+  try { await git('difftool', fileRef(target.file), ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
 }
 
 // Waits for the tool to exit, then refreshes the conflict list.
