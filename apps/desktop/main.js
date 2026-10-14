@@ -895,6 +895,7 @@ function buildMenu() {
       ],
     },
     { role: 'windowMenu' },
+    { role: 'help', submenu: [item('Keyboard Shortcuts', acc('help.shortcuts'), 'shortcuts')] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
