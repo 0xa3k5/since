@@ -1571,7 +1571,7 @@ function createCommitView(container) {
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
-          list !== 'conflicts' ? { label: 'Stash File…', icon: 'stash', run: () => stashSave({ paths: [f.path] }) } : null,
+          list !== 'conflicts' ? { label: 'Stash File…', icon: 'stash', run: () => stashSave({ paths: f.oldPath ? [f.path, f.oldPath] : [f.path], untracked: f.status === '?' }) } : null,
           list === 'unstaged' ? '-' : null,
           list === 'unstaged' ? { label: 'Discard Changes…', icon: 'trash', danger: true, kbd: '⌫', run: () => discard([f]) } : null,
         ]);
@@ -1800,13 +1800,14 @@ async function dropStash(s) {
 }
 
 // Stash everything, only the staged changes, or only `paths`. Lines and hunks stash from the diff pane.
-async function stashSave({ staged = false, paths = null } = {}) {
+// `untracked` forces -u (an untracked path is unknown to git without it), so the checkbox is hidden.
+async function stashSave({ staged = false, paths = null, untracked = false } = {}) {
   const what = staged ? 'staged changes' : paths ? (paths.length === 1 ? baseName(paths[0]) : `${paths.length} files`) : 'changes';
   if (staged && !state.status?.staged?.length) return toast('Nothing staged to stash');
   const fields = [{ name: 'msg', label: 'Message', placeholder: 'WIP' }];
-  if (!staged) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
+  if (!staged && !untracked) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
   const v = await dialog({ title: `Stash ${what}`, submit: 'Stash', fields });
-  if (v) act(`Stash ${what}`, 'stashSave', [v.msg.trim(), !!v.u, { staged, paths }], { undoable: false });
+  if (v) act(`Stash ${what}`, 'stashSave', [v.msg.trim(), untracked || !!v.u, { staged, paths }], { undoable: false });
 }
 
 // ---------------------------------------------------------------------------

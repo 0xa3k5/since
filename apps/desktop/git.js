@@ -1148,8 +1148,23 @@ async function discardLines(cwd, file, selected) {
 async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
   if (staged && untracked) throw new GitError('Staged-only stashes can’t include untracked files.');
   const args = ['stash', 'push', ...(staged ? ['--staged'] : []), ...(untracked ? ['-u'] : []), ...(message ? ['-m', message] : [])];
-  if (paths?.length) args.push('--', ...paths);
-  await run(cwd, args, { env: W_ENV });
+  // A path whose deletion is staged (the old side of a rename) isn't a pathspec git stash accepts.
+  // Stash the rest (the stash's index already records the deletion), then put the old path back.
+  let gone = [];
+  if (paths?.length && !staged) {
+    const known = new Set((await run(cwd, ['ls-files', '-z', '--', ...paths])).split('\0').filter(Boolean));
+    gone = paths.filter((p) => !known.has(p) && !fs.existsSync(path.join(cwd, p)));
+    if (gone.length === paths.length) gone = [];
+  }
+  if (paths?.length) args.push('--', ...paths.filter((p) => !gone.includes(p)));
+  try {
+    await run(cwd, args, { env: W_ENV });
+    if (gone.length) await run(cwd, ['checkout', 'HEAD', '--', ...gone]);
+  } catch (e) {
+    // `stash push --staged` arrived in Git 2.35; older git rejects the option with a usage dump.
+    if (staged && /unknown option|usage: git stash/i.test(`${e.stderr || ''}\n${e.message}`)) throw new GitError('Stash staged changes needs Git 2.35 or newer.');
+    throw e;
+  }
 }
 
 // Stash only the selected unstaged lines of one file, then take them out of the working tree.
