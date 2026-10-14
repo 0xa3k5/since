@@ -1,5 +1,6 @@
 import { h, icon, kbd } from './ui.js';
 import { SETUP_AI, SETUP_FEATURES, SETUP_LATER, setupSummary } from './setup.js';
+import * as keymap from './keymap.js';
 
 // The "choose your defaults" step (data in setup.js). Switches apply at once, so what you see is
 // what you get; Continue (⌘↵) only marks the step done. Returns { el, refresh }.
@@ -51,7 +52,7 @@ export function setupView({ mod, values, theme, themes, ai = 'Off', onToggle, on
     h('div.tour-foot', null, summary, h('button.btn.primary.small', { type: 'button', onclick: onDone }, done, kbd(mod, '↵'))),
   );
   el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); onDone(); }
+    if (keymap.match('setup', e) === 'setup.done') { e.preventDefault(); e.stopPropagation(); onDone(); }
   });
   render();
   // Refreshing must not drop focus from the control the user is on.
