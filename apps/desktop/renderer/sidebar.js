@@ -23,7 +23,8 @@ export function toggleSidebarState(s, width) {
 }
 
 // Label for the toggle (tooltip, ⌘K) in the current state.
-export function sidebarToggleLabel({ width, expanded, pinned = false }) {
-  if (isNarrow(width)) return pinned ? 'Hide sidebar' : 'Show sidebar';
+// While hover has the overlay open, the toggle pins it rather than showing it.
+export function sidebarToggleLabel({ width, expanded, pinned = false, hover = false }) {
+  if (isNarrow(width)) return pinned ? 'Hide sidebar' : hover ? 'Pin sidebar' : 'Show sidebar';
   return expanded ? 'Minimize sidebar' : 'Expand sidebar';
 }
