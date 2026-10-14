@@ -3,6 +3,7 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
+import { isCheckoutKey, isRowControl } from './keys.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -734,7 +735,7 @@ function createMapView(container) {
     if (pending) wantDetails(c.sha);
     const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
       onmousedown: (e) => { if (e.button === 0) { if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha); } },
-      ondblclick: () => openQuick(c.sha),
+      ondblclick: (e) => { if (!isRowControl(e.target)) checkoutSelected(c); },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
     },
       results ? null : h('span.graph-space', { style: { width: gw + 'px' } }),
@@ -857,6 +858,7 @@ function createMapView(container) {
     if (!list.length) return;
     const cur = results ? results.findIndex((c) => c.sha === state.selected) : state.index.get(state.selected) ?? -1;
     const move = (d) => { e.preventDefault(); const n = Math.max(0, Math.min(list.length - 1, cur + d)); select(list[n].sha); };
+    if (isCheckoutKey(e) && !isEditable(e.target)) { e.preventDefault(); const s = list[cur]; if (s) checkoutSelected(s); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !window.getSelection().toString()) { e.preventDefault(); copy(state.selected, 'Copied SHA'); }
       return;
@@ -1212,7 +1214,7 @@ function commitMenu(x, y, c) {
     ...(locals.length
       ? locals.map((b) => (worktreeOf(b.short)
         ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => switchWorktree(worktreeOf(b.short)) }
-        : { label: `Checkout “${b.short}”`, icon: 'checkout', disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
+        : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
       : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: 'O', disabled: isHead && state.head.detached, run: () => checkoutCommit(c) }]),
     { label: 'Create Branch…', icon: 'branch', kbd: 'B', run: () => createBranch(c.sha) },
     { label: 'Create Tag…', icon: 'tag', kbd: 'T', run: () => createTag(c.sha) },
@@ -1286,6 +1288,10 @@ function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
   if (b) return checkout(b.short);
   return act(`Checkout ${c.sha.slice(0, 7)}`, 'checkout', [c.sha], { success: `HEAD detached at ${c.sha.slice(0, 7)}` });
+}
+// ⌘↵ / double-click on a map row. Already at HEAD: nothing to do.
+function checkoutSelected(c) {
+  if (c.sha !== state.head.oid) return checkoutCommit(c);
 }
 async function createBranch(sha) {
   const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch' }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
@@ -1894,6 +1900,7 @@ function openPalette() {
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
+    if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: [MOD, '↵'], detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
