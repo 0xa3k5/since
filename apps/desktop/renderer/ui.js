@@ -248,14 +248,14 @@ export function fuzzy(q, s) {
 }
 
 export function palette(getItems, { placeholder = 'Type a command or search…', onDismiss } = {}) {
-  if ($('.palette-overlay:not(.closing)')) return;
+  if ($('.palette-overlay:not(.closing)')) return null;
   const prev = document.activeElement;
   const input = h('input.palette-input', { placeholder, spellcheck: false, autocomplete: 'off' });
   const list = h('div.palette-list');
   const box = h('div.palette', null, h('div.palette-head', null, icon('search'), input), list);
   const overlay = h('div.overlay.palette-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
   let results = [], idx = 0;
-  const all = getItems();
+  let all = getItems();
   function render() {
     const q = input.value.trim();
     results = all
@@ -294,6 +294,8 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
   render();
   requestAnimationFrame(() => overlay.classList.add('in'));
   input.focus();
+  // refresh(): re-read the items (e.g. once async entries arrive) and keep the typed query.
+  return { refresh: () => { if (overlay.isConnected && !overlay.classList.contains('closing')) { all = getItems(); render(); } } };
 }
 
 // --- Virtual list -----------------------------------------------------------------

@@ -636,6 +636,7 @@ function buildMenu() {
         item('New Repository…', 'CmdOrCtrl+N', 'init'),
         item('Open Repository…', 'CmdOrCtrl+O', 'open'),
         item('Clone Repository…', 'CmdOrCtrl+Shift+O', 'clone'),
+        item('Switch Repository…', 'CmdOrCtrl+Alt+O', 'repoSwitch'),
         {
           label: 'Open Recent',
           submenu: readRecent().slice(0, 10).map((rr) => ({ label: rr.name, sublabel: rr.root, click: send('open', rr.root) })),
