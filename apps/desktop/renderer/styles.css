@@ -437,6 +437,8 @@ kbd.inline { flex: none; }
 .file-row { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--radius); min-width: 0; }
 .file-row:hover { background: var(--bg-hover); }
 .file-row.active { background: var(--bg-selected); }
+.file-row.selected { background: var(--bg-selected); }
+.multi .file-row.active { box-shadow: inset 2px 0 0 var(--accent); }
 .fname { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; max-width: 70%; }
 .fdir { color: var(--text-4); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; flex: 1; min-width: 0; }
 .fstatus { width: 16px; height: 16px; border-radius: 4px; flex: none; display: inline-flex; align-items: center; justify-content: center; font: 650 9.5px/1 var(--font); }
