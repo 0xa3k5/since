@@ -3,8 +3,10 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
+import { isCheckoutKey, isRowControl } from './keys.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
+import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 
 const api = window.gitlanes;
@@ -622,7 +624,7 @@ function renderTopbar() {
     );
   }
   if (state.view === 'commit') {
-    right.append(h('button.btn.subtle', { onclick: stashSave }, icon('stash', 14), 'Stash'));
+    right.append(h('button.btn.subtle', { onclick: () => stashSave() }, icon('stash', 14), 'Stash'));
   }
   const chip = licenceChip(state.licence, () => openLicence());
   if (chip) right.append(chip);
@@ -826,7 +828,7 @@ function createMapView(container) {
     if (pending) wantDetails(c.sha);
     const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
       onmousedown: (e) => { if (e.button === 0) { if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha); } },
-      ondblclick: () => openQuick(c.sha),
+      ondblclick: (e) => { if (!isRowControl(e.target)) checkoutSelected(c); },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
     },
       results ? null : h('span.graph-space', { style: { width: gw + 'px' } }),
@@ -949,6 +951,7 @@ function createMapView(container) {
     if (!list.length) return;
     const cur = results ? results.findIndex((c) => c.sha === state.selected) : state.index.get(state.selected) ?? -1;
     const move = (d) => { e.preventDefault(); const n = Math.max(0, Math.min(list.length - 1, cur + d)); select(list[n].sha); };
+    if (isCheckoutKey(e) && !isEditable(e.target)) { e.preventDefault(); const s = list[cur]; if (s) checkoutSelected(s); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !window.getSelection().toString()) { e.preventDefault(); copy(state.selected, 'Copied SHA'); }
       return;
@@ -1308,7 +1311,7 @@ function commitMenu(x, y, c) {
     ...(locals.length
       ? locals.map((b) => (worktreeOf(b.short)
         ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => switchWorktree(worktreeOf(b.short)) }
-        : { label: `Checkout “${b.short}”`, icon: 'checkout', disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
+        : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
       : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: 'O', disabled: isHead && state.head.detached, run: () => checkoutCommit(c) }]),
     { label: 'Create Branch…', icon: 'branch', kbd: 'B', run: () => createBranch(c.sha) },
     { label: 'Create Tag…', icon: 'tag', kbd: 'T', run: () => createTag(c.sha) },
@@ -1382,6 +1385,10 @@ function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
   if (b) return checkout(b.short);
   return act(`Checkout ${c.sha.slice(0, 7)}`, 'checkout', [c.sha], { success: `HEAD detached at ${c.sha.slice(0, 7)}` });
+}
+// ⌘↵ / double-click on a map row. Already at HEAD: nothing to do.
+function checkoutSelected(c) {
+  if (c.sha !== state.head.oid) return checkoutCommit(c);
 }
 async function createBranch(sha) {
   const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch' }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
@@ -1470,6 +1477,7 @@ function createCommitView(container) {
   async function doCommit() {
     updateCommitBtn();
     if (commitBtn.disabled) { if (!textarea.value.trim()) textarea.focus(); return; }
+    if (!(await identityOk())) return;
     const ok = await act(state.amend ? 'Amend commit' : 'Commit', 'createCommit', [textarea.value.trim() + '\n', state.amend], { success: state.amend ? 'Amended commit' : 'Committed' });
     if (ok) {
       textarea.value = '';
@@ -1509,6 +1517,7 @@ function createCommitView(container) {
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
+          list !== 'conflicts' ? { label: 'Stash File…', icon: 'stash', run: () => stashSave({ paths: [f.path] }) } : null,
           list === 'unstaged' ? '-' : null,
           list === 'unstaged' ? { label: 'Discard Changes…', icon: 'trash', danger: true, kbd: '⌫', run: () => discard([f]) } : null,
         ]);
@@ -1525,7 +1534,10 @@ function createCommitView(container) {
         h('button.btn.ghost.tiny', { onclick: () => discard(unstaged) }, 'Discard all'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
       ] : null),
-      section('Staged', staged, 'staged', staged.length ? h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all') : null),
+      section('Staged', staged, 'staged', staged.length ? [
+        h('button.btn.ghost.tiny', { title: `Stash only the staged changes (${MOD}⌥S)`, onclick: () => stashSave({ staged: true }) }, 'Stash'),
+        h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
+      ] : null),
     ].filter(Boolean));
     lists.querySelectorAll('.file-row').forEach((r) => r.classList.toggle('active', r.dataset.key === state.cv.list + ':' + state.cv.path));
     updateCommitBtn();
@@ -1597,6 +1609,7 @@ function createCommitView(container) {
       if (!sel.size || list === 'conflicts') return;
       bar.append(h('span.muted', null, `${sel.size} line${sel.size > 1 ? 's' : ''} selected`),
         list === 'unstaged' ? h('button.btn.ghost.small', { onclick: () => lineOp('discardLines') }, 'Discard') : null,
+        list === 'unstaged' ? h('button.btn.ghost.small', { onclick: () => lineOp('stashLines') }, 'Stash') : null,
         h('button.btn.primary.small', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines') }, list === 'unstaged' ? 'Stage lines' : 'Unstage lines'),
         h('button.icon-btn.tiny', { title: 'Clear selection', onclick: () => { sel.clear(); renderDiffPane(); } }, icon('x', 13)),
       );
@@ -1609,12 +1622,21 @@ function createCommitView(container) {
         await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [fileRef(file), keys]);
         return;
       }
+      if (method === 'stashLines') {
+        const what = hunk ? 'hunk' : `${keys.length} line${keys.length > 1 ? 's' : ''}`;
+        const v = await dialog({ title: `Stash selected ${what}`, submit: 'Stash', fields: [{ name: 'msg', label: 'Message', placeholder: 'WIP' }] });
+        if (!v) return;
+        sel.clear();
+        await act(`Stash ${what} in ${baseName(file.path)}`, 'stashLines', [fileRef(file), keys, v.msg.trim()], { undoable: false });
+        return;
+      }
       try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
       sel.clear();
       await refreshStatus();
     }
     const hunkActions = list === 'conflicts' ? null : (hi, hunk) => [
       list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('discardLines', hunkKeys(hunk, hi), true) }, 'Discard hunk') : null,
+      list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('stashLines', hunkKeys(hunk, hi), true) }, 'Stash hunk') : null,
       h('button.btn.ghost.tiny', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines', hunkKeys(hunk, hi)) }, list === 'unstaged' ? 'Stage hunk' : 'Unstage hunk'),
     ];
     diffPane.replaceChildren(...[
@@ -1669,7 +1691,7 @@ function stashesView() {
   let current = state.stashes[0]?.ref;
   function renderList() {
     list.replaceChildren(
-      h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: stashSave }, icon('plus', 13), 'Stash changes')),
+      h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: () => stashSave() }, icon('plus', 13), 'Stash changes')),
       state.stashes.length ? h('div', null, state.stashes.map((s) => h('div.list-row' + (s.ref === current ? '.active' : ''), {
         onclick: () => { current = s.ref; renderList(); renderDetail(); },
         oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
@@ -1707,9 +1729,14 @@ async function dropStash(s) {
   if (await confirm(`Drop ${s.ref}?`, `${s.message}\n\nYou can undo this with ${MOD}Z.`, { submit: 'Drop' })) act(`Drop ${s.ref} (${s.message})`, 'stashDrop', [s.ref]);
 }
 
-async function stashSave() {
-  const v = await dialog({ title: 'Stash changes', submit: 'Stash', fields: [{ name: 'msg', label: 'Message', placeholder: 'WIP' }, { name: 'u', type: 'checkbox', label: 'Include untracked files', value: true }] });
-  if (v) act('Stash changes', 'stashSave', [v.msg.trim(), v.u], { undoable: false });
+// Stash everything, only the staged changes, or only `paths`. Lines and hunks stash from the diff pane.
+async function stashSave({ staged = false, paths = null } = {}) {
+  const what = staged ? 'staged changes' : paths ? (paths.length === 1 ? baseName(paths[0]) : `${paths.length} files`) : 'changes';
+  if (staged && !state.status?.staged?.length) return toast('Nothing staged to stash');
+  const fields = [{ name: 'msg', label: 'Message', placeholder: 'WIP' }];
+  if (!staged) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
+  const v = await dialog({ title: `Stash ${what}`, submit: 'Stash', fields });
+  if (v) act(`Stash ${what}`, 'stashSave', [v.msg.trim(), !!v.u, { staged, paths }], { undoable: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -1850,6 +1877,81 @@ function configView() {
 async function editConfig(c) {
   const v = await dialog({ title: c ? 'Edit option' : 'Add option', submit: 'Save', fields: [{ name: 'k', label: 'Key', value: c?.key || '', placeholder: 'user.name' }, { name: 'v', label: 'Value', value: c?.value || '' }] });
   if (v && v.k.trim()) act(`Set ${v.k.trim()}`, 'setConfig', [v.k.trim(), v.v], { undoable: false });
+}
+
+// ---------------------------------------------------------------------------
+// Commit identity: warn before committing as someone this repo doesn't usually commit as, or
+// as anyone but the email a user rule assigns to its remotes. Rules and per-repo dismissals are
+// app preferences; the fix writes user.name / user.email to the repo's own .git/config.
+
+const identityPrefs = () => loadPref('identity', { rules: [], ignored: {} });
+
+async function setIdentity(name, email, current) {
+  try {
+    if (name && name !== current.name) await git('setConfig', 'user.name', name, { __label: 'Set user.name' });
+    if (email !== current.email) await git('setConfig', 'user.email', email, { __label: 'Set user.email' });
+    toast(`This repository now commits as ${email}`, { kind: 'success' });
+    return true;
+  } catch (e) {
+    if (!e.readOnly) toast('Couldn’t set the commit identity', { kind: 'error', detail: e.message });
+    return false;
+  } finally {
+    refreshAux();
+  }
+}
+
+// True when the commit may go ahead: the identity looks right, the user fixed it, or chose to
+// commit anyway.
+async function identityOk() {
+  let id;
+  try { id = await git('identity'); } catch { return true; }
+  const prefs = identityPrefs();
+  const w = checkIdentity(id, prefs.rules, prefs.ignored[state.repo.root] || []);
+  if (!w) return true;
+  const who = (x) => x.name ? `${x.name} <${x.email}>` : x.email;
+  const now = id.email || 'not set';
+  const v = await dialog({
+    title: 'Commit with this identity?',
+    description: w.reason === 'rule'
+      ? `Repositories on “${w.pattern}” commit as ${w.expected.email}, but user.email here is ${now}.`
+      : `This clone made ${w.count} commits as ${w.expected.email}, but user.email is now ${now}.`,
+    fields: [
+      { name: 'fix', type: 'checkbox', label: `Use ${who(w.expected)} for this repository`, value: true },
+      ...(id.email ? [{ name: 'ignore', type: 'checkbox', label: `Don’t warn about ${id.email} in this repository`, value: false }] : []),
+    ],
+    submit: 'Commit',
+  });
+  if (!v) return false;
+  if (v.fix) return setIdentity(w.expected.name, w.expected.email, id);
+  if (v.ignore) {
+    const ignored = { ...prefs.ignored, [state.repo.root]: [...(prefs.ignored[state.repo.root] || []), id.email] };
+    savePref('identity', { ...prefs, ignored });
+  }
+  return true;
+}
+
+// ⌘⌥I: set this repo's identity, optionally as a rule for every repo on matching remotes.
+async function openIdentity() {
+  if (!state.repo) return;
+  let id;
+  try { id = await git('identity'); } catch (e) { toast('Couldn’t read the commit identity', { kind: 'error', detail: e.message }); return; }
+  const prefs = identityPrefs();
+  const rule = matchRule(prefs.rules, id.remotes);
+  const v = await dialog({
+    title: 'Commit identity',
+    description: 'Saved to this repository’s .git/config. Add a remote pattern to be warned whenever a repository on it commits as anyone else.',
+    fields: [
+      { name: 'name', label: 'Name', value: id.name },
+      { name: 'email', label: 'Email', value: id.email, placeholder: 'you@example.com' },
+      { name: 'pattern', label: 'Rule for remotes containing (optional)', value: rule?.pattern || '', placeholder: suggestPattern(id.remotes[0]) || 'github.com/acme' },
+    ],
+    submit: 'Save',
+  });
+  if (!v) return;
+  const name = v.name.trim(), email = v.email.trim(), pattern = v.pattern.trim();
+  if (!email) { toast('Enter an email', { kind: 'error' }); return; }
+  if (!(await setIdentity(name, email, id))) return;
+  if (pattern) savePref('identity', { ...prefs, rules: upsertRule(prefs.rules, { pattern, email, name }) });
 }
 
 // ---------------------------------------------------------------------------
@@ -2027,8 +2129,10 @@ function openPalette() {
     add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: [MOD, '⇧', 'L'] });
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: [MOD, '⇧', 'P'] });
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
+    add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: [MOD, '⌥', 'I'], keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
-    add('Repository', 'Stash changes…', stashSave, { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
+    add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
+    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: [MOD, '⌥', 'S'], keywords: 'partial stash index' });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
     const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
@@ -2078,6 +2182,7 @@ function openPalette() {
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
+    if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: [MOD, '↵'], detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
@@ -2247,6 +2352,7 @@ const commands = {
   push: () => state.repo && push(false),
   pushTags: () => state.repo && act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }),
   stashSave: () => state.repo && stashSave(),
+  stashStaged: () => state.repo && stashSave({ staged: true }),
   resetHard: () => state.repo && resetHard(),
   reveal: () => state.repo && api.app('reveal'),
   terminal: () => state.repo && api.app('terminal'),
@@ -2259,6 +2365,7 @@ const commands = {
   mergetool: () => openMergetool(),
   conflicts: () => openConflicts(),
   fileHistory: () => openFileHistory(),
+  identity: () => openIdentity(),
   licence: () => openLicence(),
   buy,
 };

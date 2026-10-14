@@ -617,6 +617,27 @@ async function getConfig(cwd) {
   return list;
 }
 
+// Who commits here: the configured user, the identities in HEAD's reflog that made commits
+// in this clone (with counts), and the remote URLs, for the wrong-identity check.
+async function getIdentity(cwd) {
+  const get = async (k) => (await run(cwd, ['config', '--get', k], { allowCodes: [0, 1] })).trim();
+  const [name, email, log, remotes] = await Promise.all([
+    get('user.name'), get('user.email'),
+    run(cwd, ['log', '-g', '--max-count=2000', '--format=%gs%x00%ge%x00%gn', 'HEAD'], { allowCodes: [0, 128] }).catch(() => ''),
+    getRemotes(cwd).catch(() => []),
+  ]);
+  const used = new Map();
+  for (const l of log.split('\n')) {
+    const [action, e, n] = l.split(SEP);
+    if (!/^commit\b/.test(action || '') || !e) continue;
+    const k = e.toLowerCase();
+    const u = used.get(k) || { email: e, name: n, count: 0 };
+    u.count++;
+    used.set(k, u);
+  }
+  return { name, email, used: [...used.values()], remotes: remotes.map((r) => r.url) };
+}
+
 async function getRemotes(cwd) {
   const out = await run(cwd, ['remote', '-v']);
   const map = new Map();
@@ -1026,6 +1047,44 @@ async function discardLines(cwd, file, selected) {
   if (p) await applyPatch(cwd, p, { reverse: true });
 }
 
+// Stash some or all uncommitted changes: `paths` limits it to those files, `staged` to the index.
+async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
+  if (staged && untracked) throw new GitError('Staged-only stashes can’t include untracked files.');
+  const args = ['stash', 'push', ...(staged ? ['--staged'] : []), ...(untracked ? ['-u'] : []), ...(message ? ['-m', message] : [])];
+  if (paths?.length) args.push('--', ...paths);
+  await run(cwd, args, { env: W_ENV });
+}
+
+// Stash only the selected unstaged lines of one file, then take them out of the working tree.
+// The stash is HEAD plus those lines, so the file may not have staged changes of its own.
+async function stashLines(cwd, file, selected, message) {
+  const d = await workingDiff(cwd, file, { staged: false });
+  const patch = d && buildPartialPatch(d, selected, 'stage');
+  if (!patch) throw new GitError('Select changed lines to stash.');
+  const head = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD^{commit}'], { allowCodes: [0, 1] })).trim();
+  if (!head) throw new GitError('There’s no commit to stash on yet.');
+  const paths = [file.path, ...(file.oldPath ? [file.oldPath] : [])];
+  if ((await run(cwd, ['diff', '--cached', '--name-only', '--', ...paths], { env: W_ENV })).trim()) {
+    throw new GitError(`${file.path} has staged changes. Unstage them first, or stash the whole file.`);
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-stash-'));
+  try {
+    const env = { ...W_ENV, GIT_INDEX_FILE: path.join(tmp, 'index') };
+    await run(cwd, ['read-tree', head], { env });
+    await run(cwd, ['apply', '--cached', '--recount', '--whitespace=nowarn', '-'], { input: patch, env });
+    const tree = (await run(cwd, ['write-tree'], { env })).trim();
+    const branch = (await run(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowCodes: [0, 1] })).trim() || '(no branch)';
+    const subject = (await run(cwd, ['log', '-1', '--format=%h %s', head])).trim();
+    const msg = message ? `On ${branch}: ${message}` : `WIP on ${branch}: ${subject}`;
+    const index = (await run(cwd, ['commit-tree', `${head}^{tree}`, '-p', head, '-m', `index on ${branch}: ${subject}`])).trim();
+    const stash = (await run(cwd, ['commit-tree', tree, '-p', head, '-p', index, '-m', msg])).trim();
+    await run(cwd, ['stash', 'store', '-q', '-m', msg, stash], { env: W_ENV });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  await applyPatch(cwd, buildPartialPatch(d, selected, 'reverse'), { reverse: true });
+}
+
 const resetHard = (cwd, sha) => run(cwd, ['reset', '--hard', sha || 'HEAD'], { env: W_ENV });
 
 // Index stages of one conflicted path: { 1: base oid, 2: ours oid, 3: theirs oid }, absent sides missing.
@@ -1302,10 +1361,10 @@ function parseBlame(out) {
 module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseDiff, buildPartialPatch, applyPatch,
-  getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
+  getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
-  discardFiles, discardLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
+  discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
