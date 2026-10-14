@@ -1709,6 +1709,7 @@ function stashesView() {
     if (!s) return detail.replaceChildren();
     detail.replaceChildren(loading('Loading diff…'));
     const diffs = await git('compare', `${s.sha}^1`, s.sha).catch(() => []);
+    if (s.ref !== current) return;
     detail.replaceChildren(
       h('div.diff-head', null, h('span.title', null, s.message), h('span.spacer'),
         h('button.btn.ghost.small', { onclick: () => dropStash(s) }, 'Drop'),
@@ -1725,8 +1726,23 @@ function stashesView() {
       { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
     ]);
   }
+  // ↑/↓ move the selection through the list.
+  el.tabIndex = 0;
+  el.addEventListener('keydown', (e) => {
+    const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+    if (!step || e.metaKey || e.ctrlKey || e.altKey || isEditable(e.target) || !state.stashes.length) return;
+    e.preventDefault();
+    const i = state.stashes.findIndex((x) => x.ref === current);
+    const n = state.stashes[Math.max(0, Math.min(state.stashes.length - 1, i < 0 ? 0 : i + step))];
+    if (n.ref === current) return;
+    current = n.ref;
+    renderList();
+    renderDetail();
+    list.querySelector('.list-row.active')?.scrollIntoView({ block: 'nearest' });
+  });
   renderList();
   renderDetail();
+  setTimeout(() => el.focus({ preventScroll: true }));
   return el;
 }
 

@@ -78,3 +78,22 @@ test('drop asks first, and undo restores the stash', async ({ sandbox, launch })
   await app.redo();
   expect(stashes(sandbox, repo)).toHaveLength(0);
 });
+
+test('arrow keys move the selection through the stash list', async ({ sandbox, launch }) => {
+  const repo = sandbox.linear('stash-keys', ['one']);
+  for (const msg of ['first', 'second']) {
+    sandbox.write(repo, 'one.txt', `${msg}\n`);
+    sandbox.git(repo, 'stash', 'push', '-m', msg);
+  }
+  const app = await launch(repo);
+  await app.view('stashes');
+  const active = app.page.locator('.list-pane .list-row.active');
+  await expect(active).toContainText('second');
+  await app.page.keyboard.press('ArrowDown');
+  await expect(active).toContainText('first');
+  await expect(app.page.locator('.detail-pane .diff-head .title')).toHaveText(/first/);
+  await app.page.keyboard.press('ArrowDown');
+  await expect(active).toContainText('first');
+  await app.page.keyboard.press('ArrowUp');
+  await expect(active).toContainText('second');
+});
