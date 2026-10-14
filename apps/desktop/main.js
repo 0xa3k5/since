@@ -609,14 +609,8 @@ async function prBranch(s, branch) {
   const line = (await r(s, ['for-each-ref', '--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:track,nobracket)', `refs/heads/${branch}`])).trim();
   if (!line) throw new git.GitError(`${branch} isn’t a local branch.`);
   const [upRemote, upRef, track] = line.split('\0');
-  const up = upRemote && upRef.startsWith('refs/heads/') ? github.parseRemote(remotes.find((x) => x.name === upRemote)) : null;
-  // Pushes go where the branch already tracks (a fork, say); a branch with no upstream goes to the
-  // GitHub remote and starts tracking it.
-  const dest = up ? { remote: up, ref: upRef.slice('refs/heads/'.length) } : { remote: target, ref: branch };
-  const head = dest.remote.owner !== target.owner ? `${dest.remote.owner}:${dest.ref}` : dest.ref;
-  const ahead = Number(/ahead (\d+)/.exec(track || '')?.[1] || 0);
-  const push = !up ? { remote: dest.remote.name, isNew: true, ahead: 0 } : ahead || /gone/.test(track) ? { remote: dest.remote.name, isNew: /gone/.test(track), ahead } : null;
-  return { enabled, remotes, target, dest, head, push };
+  const { dest, head, push, pushArgs } = github.prPushPlan({ branch, upRemote, upRef, track, remotes, target });
+  return { enabled, remotes, target, dest, head, push, pushArgs };
 }
 handle('app:pr-create-info', aiCall(async (e, branch) => {
   const s = session(e);
@@ -662,9 +656,10 @@ handle('app:pr-create', aiCall(async (e, branch, opts) => {
     if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
     s.busy++;
     try {
-      // The current branch takes the usual push path; another branch pushes to the same place.
-      if (branch === (await git.getRefs(s.repo.root)).head.branch) await plainMutations.push(s);
-      else await r(s, ['push', ...(b.push.isNew ? ['-u'] : []), '--', b.dest.remote.name, `refs/heads/${branch}:refs/heads/${b.dest.ref}`]);
+      // A current branch already tracking GitHub takes the usual push path; anything else pushes
+      // explicitly to the PR's remote, since the usual path would pick origin.
+      if (!b.push.isNew && branch === (await git.getRefs(s.repo.root)).head.branch) await plainMutations.push(s);
+      else await r(s, b.pushArgs);
     } finally {
       s.busy--;
       s.pending.refs = true;

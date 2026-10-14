@@ -331,3 +331,21 @@ test('joinLanes: PRs attach by upstream branch, forks only to lanes tracking the
   assert.equal(out[0].name, 'feat', 'lane fields kept');
   assert.ok(github.joinLanes(lanes, null).every((l) => l.pr === null));
 });
+
+test('prPushPlan pushes new PR branches to the GitHub remote and keeps a mirror upstream', () => {
+  const mirror = remote('origin', '/srv/mirror/app.git');
+  const gh = remote('github', 'git@github.com:acme/app.git');
+  const remotes = [mirror, gh];
+  const target = github.pickRemote(remotes);
+  // No upstream: push to GitHub and start tracking it.
+  let p = github.prPushPlan({ branch: 'feat', upRemote: '', upRef: '', track: '', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '-u', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  assert.equal(p.head, 'feat');
+  // Tracks the non-GitHub mirror: push to GitHub without re-pointing the upstream.
+  p = github.prPushPlan({ branch: 'feat', upRemote: 'origin', upRef: 'refs/heads/feat', track: 'ahead 2', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  // Tracks GitHub and is up to date: nothing to push.
+  p = github.prPushPlan({ branch: 'feat', upRemote: 'github', upRef: 'refs/heads/feat', track: '', remotes, target });
+  assert.equal(p.push, null);
+  assert.equal(p.pushArgs, null);
+});

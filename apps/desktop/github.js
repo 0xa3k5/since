@@ -367,4 +367,19 @@ function joinLanes(lanes = [], listed = null) {
   });
 }
 
-module.exports = { joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+// Where a PR branch pushes and the head `gh pr create` names. A branch tracking a GitHub remote
+// pushes there (a fork, say); anything else pushes to the GitHub remote. Only a branch with no
+// upstream starts tracking it, so a non-GitHub upstream (a mirror) is never re-pointed silently.
+function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
+  const up = upRemote && upRef.startsWith('refs/heads/') ? parseRemote(remotes.find((x) => x.name === upRemote)) : null;
+  const dest = up ? { remote: up, ref: upRef.slice('refs/heads/'.length) } : { remote: target, ref: branch };
+  const head = dest.remote.owner !== target.owner ? `${dest.remote.owner}:${dest.ref}` : dest.ref;
+  const ahead = Number(/ahead (\d+)/.exec(track || '')?.[1] || 0);
+  const gone = /gone/.test(track || '');
+  const push = !up ? { remote: dest.remote.name, isNew: true, ahead: 0 } : ahead || gone ? { remote: dest.remote.name, isNew: gone, ahead } : null;
+  const setUpstream = !!push?.isNew && (!upRemote || !!up);
+  const pushArgs = push && ['push', ...(setUpstream ? ['-u'] : []), '--', dest.remote.name, `refs/heads/${branch}:refs/heads/${dest.ref}`];
+  return { dest, head, push, pushArgs };
+}
+
+module.exports = { joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
