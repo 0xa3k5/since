@@ -772,7 +772,7 @@ function sidebarHover(on) {
 // Keep it open while one of its context menus or dialogs is up, and check again once it closes.
 function sidebarHoverClose() {
   if (document.querySelector('.menu, .overlay')) { sbHideTimer = setTimeout(sidebarHoverClose, 200); return; }
-  if (!sidebarEl.matches(':hover')) setSidebar({ ...state.sidebar, hover: false });
+  if (sidebarEl && !sidebarEl.matches(':hover')) setSidebar({ ...state.sidebar, hover: false });
 }
 // A rail icon: open the full sidebar scrolled to that section.
 function openSidebarAt(id) {
@@ -3266,6 +3266,7 @@ async function cloneRepo() {
 }
 async function closeRepo() {
   cancelHistory();
+  clearTimeout(sbHideTimer); // the sidebar's hover-close poll would hit the removed sidebar
   await api.app('close-repo');
   state.repo = null;
   sidebarEl = topbarEl = bannerEl = contentEl = null;
