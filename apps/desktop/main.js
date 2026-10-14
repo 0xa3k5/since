@@ -244,7 +244,8 @@ const plainMutations = {
     const p = d && git.buildPartialPatch(d, selected, 'reverse');
     if (p) await git.applyPatch(s.repo.root, p, { cached: true, reverse: true });
   },
-  stashSave: (s, message, untracked) => r(s, ['stash', 'push', ...(untracked ? ['-u'] : []), ...(message ? ['-m', message] : [])]),
+  stashSave: (s, message, untracked, { staged, paths } = {}) => git.stashPush(s.repo.root, { message, untracked, staged, paths }),
+  stashLines: (s, file, selected, message) => git.stashLines(s.repo.root, file, selected, message),
   fetch: (s) => r(s, ['fetch', '--all', '--prune', '--tags']),
   push: async (s, { force, all } = {}) => {
     if (all) return r(s, ['push', '--all', ...(force ? ['--force-with-lease'] : [])]);
@@ -636,6 +637,7 @@ function buildMenu() {
         item('Push All Tags', undefined, 'pushTags'),
         { type: 'separator' },
         item('Stash Changes…', 'CmdOrCtrl+Shift+S', 'stashSave'),
+        item('Stash Staged Changes…', 'CmdOrCtrl+Alt+S', 'stashStaged'),
         item('Reset Hard to HEAD…', undefined, 'resetHard'),
         { type: 'separator' },
         item('New Worktree…', 'CmdOrCtrl+Alt+N', 'worktreeAdd'),

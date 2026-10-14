@@ -178,3 +178,54 @@ test('getConfig parses scopes, multi-line and valueless entries', async () => {
   assert.equal(local('gitlanes.flag').value, '');
   assert.ok(config.every((c) => ['system', 'global', 'local', 'worktree', 'command'].includes(c.scope)));
 });
+
+test('partial stash: selected files and staged-only changes', async () => {
+  const dir = await repo();
+  await commit(dir, 'a.txt', 'a\n', 'first');
+  fs.writeFileSync(path.join(dir, 'b.txt'), 'b\n');
+  await git.run(dir, ['add', 'b.txt']);
+  await git.run(dir, ['commit', '-q', '-m', 'second']);
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a2\n');
+  fs.writeFileSync(path.join(dir, 'b.txt'), 'b2\n');
+  await git.stashPush(dir, { message: 'only a', paths: ['a.txt'] });
+  assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'a\n');
+  assert.equal(fs.readFileSync(path.join(dir, 'b.txt'), 'utf8'), 'b2\n');
+  assert.deepEqual((await git.run(dir, ['stash', 'show', '--name-only', 'stash@{0}'])).trim(), 'a.txt');
+
+  await git.run(dir, ['add', 'b.txt']);
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a3\n');
+  await git.stashPush(dir, { message: 'staged', staged: true });
+  assert.equal(fs.readFileSync(path.join(dir, 'b.txt'), 'utf8'), 'b\n');
+  assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'a3\n');
+  const stashes = await git.getStashes(dir);
+  assert.deepEqual(stashes.map((s) => s.message.replace(/^On main: /, '')), ['staged', 'only a']);
+  await assert.rejects(git.stashPush(dir, { staged: true, untracked: true }), /untracked/);
+});
+
+test('partial stash: selected lines leave the working tree and apply back', async () => {
+  const dir = await repo();
+  await commit(dir, 'f.txt', '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n', 'first');
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'ONE\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n');
+  const file = { path: 'f.txt', status: 'M' };
+  const d = await git.workingDiff(dir, file, { staged: false });
+  // Pick only the lines of the first hunk (the change at the top of the file).
+  const keys = d.hunks[0].lines.map((l, i) => (l.t !== ' ' ? `0:${i}` : null)).filter(Boolean);
+  assert.ok(keys.length);
+  await git.stashLines(dir, file, keys, 'top only');
+  assert.equal(fs.readFileSync(path.join(dir, 'f.txt'), 'utf8'), '1\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n');
+  const [s] = await git.getStashes(dir);
+  assert.equal(s.message, 'On main: top only');
+  const stashed = await git.run(dir, ['diff', 'stash@{0}^1', 'stash@{0}']);
+  assert.match(stashed, /\+ONE/);
+  assert.doesNotMatch(stashed, /TEN/);
+  await git.run(dir, ['commit', '-q', '-am', 'ten']);
+  await git.stashApply(dir, 'stash@{0}', true);
+  assert.equal(fs.readFileSync(path.join(dir, 'f.txt'), 'utf8'), 'ONE\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n');
+  assert.equal((await git.run(dir, ['diff', '--cached', '--name-only'])).trim(), '');
+
+  // A file with staged changes can't have lines stashed (the stash is based on HEAD).
+  await git.run(dir, ['add', 'f.txt']);
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'ONE\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n11\n');
+  const d2 = await git.workingDiff(dir, file, { staged: false });
+  await assert.rejects(git.stashLines(dir, file, [`0:${d2.hunks[0].lines.findIndex((l) => l.t === '+')}`]), /staged changes/);
+});
