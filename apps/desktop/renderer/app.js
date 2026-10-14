@@ -3,6 +3,7 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
+import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -430,6 +431,8 @@ function refPill(r) {
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
 let mapView = null, commitView = null;
+// The built-in conflict editor on screen in Commit view, if any.
+let conflictEd = null;
 
 function renderShell() {
   root.replaceChildren();
@@ -675,6 +678,7 @@ function renderView(soft = false) {
   if (soft && state.view === 'map') return;
   mapView?.destroy(); mapView = null;
   commitView = null;
+  conflictEd = null;
   contentEl.replaceChildren();
   contentEl.dataset.view = state.view;
   if (state.split) return contentEl.append(splitView(state.split));
@@ -1451,17 +1455,39 @@ function createCommitView(container) {
     act(`Use ${side === 'ours' ? 'our' : 'their'} version of ${baseName(p)}`, 'chooseSide', [p, side]);
   }
 
+  async function renderConflict(file, token) {
+    const info = await git('conflict', file.path).catch((e) => { toast('Couldn’t read the conflict', { kind: 'error', detail: e.message }); return null; });
+    if (token !== diffToken) return;
+    if (!info) { conflictEd = null; diffPane.replaceChildren(); return; }
+    // A status refresh with the file unchanged keeps the editor (and its scroll) as it is.
+    const cur = conflictEd?.info;
+    if (cur && cur.path === info.path && cur.kind === info.kind && cur.text === info.text && diffPane.contains(conflictEd.el)) return;
+    conflictEd = conflictEditor(info, {
+      mod: MOD,
+      badge: h('span', null, statusBadge(file.status), file.lfs ? lfsBadge() : null),
+      onResolve: (text) => act(`Resolve conflicts in ${baseName(file.path)}`, 'resolveConflict', [file.path, text]),
+      onSide: (side) => chooseSide(file.path, side),
+      onMergetool: () => openMergetool([file.path]),
+    });
+    diffPane.replaceChildren(conflictEd.el);
+  }
+
   let diffToken = 0;
   async function renderDiffPane() {
     const { list, path } = state.cv;
     const file = (state.status[list] || []).find((f) => f.path === path);
     if (!file) {
+      conflictEd = null;
+      // After resolving a file, move on to the next conflicted one.
+      if (list === 'conflicts' && state.status.conflicts[0]) return selectFile('conflicts', state.status.conflicts[0].path);
       const any = state.status.unstaged[0] ? ['unstaged', state.status.unstaged[0]] : state.status.staged[0] ? ['staged', state.status.staged[0]] : state.status.conflicts[0] ? ['conflicts', state.status.conflicts[0]] : null;
       if (any) return selectFile(any[0], any[1].path);
       diffPane.replaceChildren(h('div.empty.big', null, icon('check', 28), h('div', null, 'Nothing to commit'), h('div.muted', null, 'Your working tree matches HEAD.')));
       return;
     }
     const token = ++diffToken;
+    if (list === 'conflicts') return renderConflict(file, token);
+    conflictEd = null;
     const d = await git('workingDiff', fileRef(file), list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     if (token !== diffToken) return;
     state.cv.diff = d;
@@ -1511,6 +1537,8 @@ function createCommitView(container) {
 
   el.addEventListener('keydown', (e) => {
     if (e.target === textarea) return;
+    if (state.cv.list === 'conflicts' && conflictEd?.key(e)) return;
+    if (e.target.tagName === 'TEXTAREA') return;
     const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
     const i = all.findIndex(([l, f]) => l === state.cv.list && f.path === state.cv.path);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
@@ -1872,6 +1900,23 @@ function openPalette() {
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
+    if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
+    if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
+      const a = conflictEd.actions, k = CONFLICT_KEYS;
+      const c = (label, run, kbd) => add('Conflicts', label, run, { icon: 'merge', kbd, keywords: 'conflict resolve' });
+      if (conflictEd.blocks()) {
+        c('Next conflict', a.next, k.next);
+        c('Previous conflict', a.prev, k.prev);
+        c('Take ours for this conflict', a.ours, k.ours);
+        c('Take theirs for this conflict', a.theirs, k.theirs);
+        c('Take both for this conflict', a.both, k.both);
+        c('Reset this conflict', a.reset, k.reset);
+        c('Take ours for every conflict', a.allOurs, k.allOurs);
+        c('Take theirs for every conflict', a.allTheirs, k.allTheirs);
+      }
+      c(conflictEd.editing() ? 'Stop editing the result' : 'Edit the result', a.edit, k.edit);
+      c('Mark file resolved', a.resolve, [MOD, 'S']);
+    }
     add('Repository', 'Open conflicts in mergetool', () => openMergetool(), { icon: 'merge', kbd: [MOD, '⇧', 'M'], detail: state.status.conflicts.length ? `${state.status.conflicts.length} conflicted` : 'no conflicts', keywords: 'mergetool external merge tool conflict resolve' });
     add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: [MOD, '⌥', 'N'] });
     add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: [MOD, '⌥', 'W'] });
@@ -2071,6 +2116,7 @@ const commands = {
   lfs: () => openLfs(),
   difftool: () => openDifftool(),
   mergetool: () => openMergetool(),
+  conflicts: () => openConflicts(),
   licence: () => openLicence(),
   buy,
 };
@@ -2097,6 +2143,16 @@ async function openDifftool(target = difftoolTarget()) {
   if (target.conflict) return openMergetool([target.file.path]);
   if (target.file.status === '?') return toast('Untracked files have nothing to compare', { detail: target.file.path });
   try { await git('difftool', fileRef(target.file), ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
+}
+
+// Opens the first conflicted file (or the selected one) in the built-in conflict editor.
+function openConflicts() {
+  if (!state.repo) return;
+  const files = state.status.conflicts;
+  if (!files.length) return toast('No conflicted files');
+  const path = state.cv.list === 'conflicts' && files.some((f) => f.path === state.cv.path) ? state.cv.path : files[0].path;
+  state.cv = { ...state.cv, list: 'conflicts', path, lines: new Set(), full: false };
+  if (state.view === 'commit') commitView?.refresh(); else setView('commit');
 }
 
 // Waits for the tool to exit, then refreshes the conflict list.
