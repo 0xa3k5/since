@@ -725,8 +725,12 @@ function sidebarHover(on) {
   clearTimeout(sbHideTimer);
   if (!isNarrow(window.innerWidth)) return;
   if (on) setSidebar({ ...state.sidebar, hover: true });
-  // Keep it open while one of its context menus or dialogs is up.
-  else sbHideTimer = setTimeout(() => { if (!document.querySelector('.menu, .overlay')) setSidebar({ ...state.sidebar, hover: false }); }, 200);
+  else sbHideTimer = setTimeout(sidebarHoverClose, 200);
+}
+// Keep it open while one of its context menus or dialogs is up, and check again once it closes.
+function sidebarHoverClose() {
+  if (document.querySelector('.menu, .overlay')) { sbHideTimer = setTimeout(sidebarHoverClose, 200); return; }
+  if (!sidebarEl.matches(':hover')) setSidebar({ ...state.sidebar, hover: false });
 }
 // A rail icon: open the full sidebar scrolled to that section.
 function openSidebarAt(id) {
