@@ -13,6 +13,9 @@ test('finds hex codes of every valid length', async () => {
   assert.deepEqual(values(findColors, "accent: '#ff6a00',"), ['#ff6a00']);
   assert.deepEqual(values(findColors, '--muted: #333;'), ['#333']);
   assert.deepEqual(values(findColors, 'border: 1px solid #333;'), ['#333']);
+  assert.deepEqual(values(findColors, 'background: linear-gradient(#fff, #000) }'), ['#fff', '#000']);
+  assert.deepEqual(values(findColors, "{ fill: '#bad', stroke: #face !important }"), ['#bad', '#face']);
+  assert.deepEqual(values(findColors, 'border: 1px solid #a1b'), ['#a1b']);
 });
 
 test('finds colour functions in comma and space syntax', async () => {
@@ -35,6 +38,7 @@ test('ignores hashes, issue refs, URL fragments and preprocessor lines', async (
     'commit 21a27fc1f0e9d0aa2b6c', 'Merge abc1234 into main', 'sha=deadbeefcafe', 'fixes #123 and #4567 in prose',
     'See (#123) for details', 'Closes #321: crash on start', 'https://example.com/docs#add', 'https://example.com/page#fade',
     'href="/#bad"', '#define FOO 1', '#ifdef DEBUG', '&#123; entity', '#deadbeef1', 'id #abcde', 'ref ##fff',
+    'See [Usage](#add) and [docs](#fade)', '[x](#ffffff)', 'Notes (#fade) here', '// #bad idea, see #cafe or #face',
     'color: red;', 'my-rgb(1, 2, 3)', 'rgb(var(--x))', 'color(srgb 1 0 0)', '',
   ];
   for (const s of none) assert.deepEqual(values(findColors, s), [], s);
