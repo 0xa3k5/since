@@ -63,6 +63,27 @@ test('merge conflict → manual edit → mark resolved → continue', async ({ s
   expect(sandbox.git(repo, 'status', '--porcelain')).toBe('');
 });
 
+test('merge conflict → built-in editor → both (keyboard) → mark resolved, then undo', async ({ sandbox, launch }) => {
+  const repo = sandbox.conflicted('merge-editor');
+  const app = await launch(repo);
+  await startConflict(app, 'merge');
+  await app.view('commit');
+  await app.page.locator('.cv-section', { hasText: 'Conflicts' }).locator('.file-row', { hasText: 'conflict.txt' }).click();
+  const block = app.page.locator('.cf-block');
+  await expect(block).toHaveCount(1);
+  await block.locator('.cf-title').click();
+  await app.page.keyboard.press('b');
+  await expect(app.page.locator('.cf-progress')).toHaveText('1/1 resolved');
+  await app.page.keyboard.press('Meta+s');
+  await app.toast('Resolve conflicts in conflict.txt');
+  await expect(app.page.locator('.banner')).toContainText('ready to continue');
+  expect(sandbox.git(repo, 'show', ':conflict.txt')).toBe('main\nfeature');
+
+  await app.undo('Resolve conflicts in conflict.txt');
+  await expect(app.page.locator('.banner')).toContainText('1 conflicted file');
+  expect(sandbox.read(repo, 'conflict.txt')).toContain('<<<<<<<');
+});
+
 test('merge conflict → abort restores the branch', async ({ sandbox, launch }) => {
   const repo = sandbox.conflicted('merge-abort');
   const before = sandbox.sha(repo);
