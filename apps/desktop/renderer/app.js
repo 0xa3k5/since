@@ -12,6 +12,8 @@ import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from '.
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
+import { setupView } from './setup-view.js';
+import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 
 const api = window.gitlanes;
@@ -2660,6 +2662,7 @@ function openPalette() {
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
+    add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: [MOD, '⇧', ','], keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
     for (const r of state.refs) {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
@@ -2710,7 +2713,35 @@ async function openHosting() {
 // The welcome tour; ⌘Z / ⇧⌘Z drive it while no repository is open.
 let tour = null;
 
-async function renderWelcome() {
+// "Choose your defaults" (setup.js): first launch shows it in the tour's place; ⌘⇧, or ⌘K reopens
+// it. Switches write the same saved choices as ⌘K and the View menu, and apply at once.
+const setupState = () => setupValues({ show: state.show, autoUpdate: update.auto });
+async function setupFeature(id, on) {
+  if (id === 'autoUpdate') { const s = await api.app('set-auto-update', on); update = { ...update, auto: s.auto }; return; }
+  if (state.show[id] === on) return;
+  if (state.repo) return toggleShow(id);
+  state.show[id] = on;
+  savePref('show', state.show);
+  if (id === 'swatches') setSwatches(on);
+}
+const setupPanel = (onDone, done) => setupView({
+  mod: MOD, values: setupState(), theme: state.theme, themes: THEMES, onToggle: setupFeature, onTheme: setTheme, done,
+  onDone: () => { savePref(SETUP_PREF, { done: true }); onDone(); },
+}).el;
+function openSetup() {
+  if (!state.repo) return renderWelcome({ setup: true });
+  if (document.querySelector('.overlay')) return;
+  const prev = document.activeElement;
+  const close = () => { overlay.classList.remove('in'); setTimeout(() => overlay.remove(), 120); prev?.focus?.(); };
+  const view = setupPanel(close, 'Done');
+  const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, view);
+  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+  document.body.append(overlay);
+  requestAnimationFrame(() => overlay.classList.add('in'));
+  view.querySelector('.switch')?.focus();
+}
+
+async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
   const recent = await api.app('recent');
   let idx = 0;
   const list = h('div.recent-list');
@@ -2722,6 +2753,7 @@ async function renderWelcome() {
   };
   renderList();
   tour = tourView({ mod: MOD });
+  const learn = h('div.welcome-learn', null, setup ? setupPanel(() => { learn.replaceChildren(tour.el); tour.el.querySelector('[aria-selected="true"]')?.focus(); }) : tour.el);
   const el = h('div.welcome', { tabIndex: 0 },
     h('div.welcome-drag'),
     h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card', null,
@@ -2736,10 +2768,10 @@ async function renderWelcome() {
       ),
       recent.length ? h('div.recent-head', null, 'Recent') : null,
       list,
-    )), h('div.welcome-learn', null, tour.el)),
+    )), learn),
   );
   el.addEventListener('keydown', (e) => {
-    if (tour.el.contains(e.target)) return;
+    if (learn.contains(e.target)) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(recent.length - 1, idx + 1); renderList(); }
     if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(0, idx - 1); renderList(); }
     if (e.key === 'Enter' && recent[idx]) openRepo(recent[idx].root);
@@ -2970,6 +3002,8 @@ window.addEventListener('keydown', (e) => {
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
   if (isRepoSwitchKey(e)) { e.preventDefault(); commands.repoSwitch(); return; }
+  // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
+  if ((e.key === ',' || e.key === '<') && (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
   if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation
