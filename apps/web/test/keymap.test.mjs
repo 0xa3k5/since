@@ -36,7 +36,7 @@ test('views have ⌘ numbers and G shortcuts', () => {
 
 test('menu groups have the menu bar shortcuts', () => {
   assert.ok(group('repository').length >= 20);
-  assert.deepEqual(find(group('repository'), 'Fetch All')?.keys, ['⌘', '⇧', 'F']);
+  assert.deepEqual(find(group('repository'), 'Fetch All')?.keys, ['⇧', '⌘', 'F']);
   assert.ok(find(group('file'), 'Switch Repository…'));
   assert.ok(!find(group('file'), 'Quit GitLanes'), 'system menu roles stay off the page');
 });

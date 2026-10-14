@@ -44,6 +44,7 @@ test('search by action, by key symbol or by key name', async () => {
   assert.ok(ids('cherry').includes('commit.cherryPick'));
   assert.ok(ids('previous commit').includes('map.prev'), 'the second label of a pair matches');
   assert.ok(ids('⌘⇧F').includes('repo.fetch'));
+  assert.ok(ids('⇧⌘F').includes('repo.fetch'), 'modifier order does not matter');
   assert.ok(ids('cmd shift f').includes('repo.fetch'));
   assert.ok(ids('cmd+/').includes('help.shortcuts'));
   assert.ok(ids('g c').includes('view.commit'));

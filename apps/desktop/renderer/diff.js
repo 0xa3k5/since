@@ -4,6 +4,14 @@ import { submoduleChange, describeSubmoduleChange } from './submodule.js';
 
 const LIMIT = 4000;
 
+// While drag-selecting lines, a pointer within EDGE px of the scroll pane's top or bottom scrolls it, faster
+// the closer it gets (or the further past the edge): pixels to scroll this frame, negative is up.
+const EDGE = 32;
+export function edgeScroll(y, top, bottom) {
+  const d = y < top + EDGE ? y - (top + EDGE) : y > bottom - EDGE ? y - (bottom - EDGE) : 0;
+  return Math.max(-EDGE, Math.min(EDGE, Math.round(d / 2)));
+}
+
 // Colour swatches before CSS colour codes (View → Show Colour Swatches in Diffs).
 let swatches = true;
 export function setSwatches(on) { swatches = on; }
@@ -47,7 +55,23 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
     for (let i = x; i <= y; i++) add ? selection.add(changeKeys[i]) : selection.delete(changeKeys[i]);
   };
   const paint = () => root.querySelectorAll('.dl.pick').forEach((el) => el.classList.toggle('sel', selection.has(el.dataset.key)));
-  const endDrag = () => { drag = null; };
+  let pointerY = 0, frame = 0;
+  const scrollTick = () => {
+    frame = 0;
+    const pane = drag && root.closest('.diff-scroll');
+    if (!pane) return;
+    const r = pane.getBoundingClientRect();
+    const dy = edgeScroll(pointerY, r.top, r.bottom);
+    if (!dy) return;
+    pane.scrollTop += dy; // the row now under the pointer gets mouseenter and extends the drag
+    frame = requestAnimationFrame(scrollTick);
+  };
+  const dragMove = (e) => { pointerY = e.clientY; if (!frame) frame = requestAnimationFrame(scrollTick); };
+  const endDrag = () => {
+    drag = null;
+    cancelAnimationFrame(frame); frame = 0;
+    document.removeEventListener('mousemove', dragMove);
+  };
 
   for (let hi = 0; hi < diff.hunks.length; hi++) {
     const hunk = diff.hunks[hi];
@@ -88,6 +112,7 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
             add ? selection.add(key) : selection.delete(key);
             anchor = key;
             document.addEventListener('mouseup', endDrag, { once: true });
+            document.addEventListener('mousemove', dragMove);
           }
           paint();
           onSelect?.(selection);

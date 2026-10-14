@@ -15,6 +15,9 @@ const allKeys = (id, mac) => bindings(id, mac).map((_, index) => keys(id, { inde
 const WORDS = [[/\b(cmd|command|meta)\b/g, '⌘'], [/\b(ctrl|control)\b/g, '⌃'], [/\b(alt|opt|option)\b/g, '⌥'], [/\bshift\b/g, '⇧'],
   [/\b(esc|escape)\b/g, 'esc'], [/\b(enter|return)\b/g, '↵'], [/\b(up)\b/g, '↑'], [/\b(down)\b/g, '↓'], [/\b(left)\b/g, '←'], [/\b(right)\b/g, '→']];
 const compact = (s) => s.toLowerCase().replace(/[\s+]/g, '');
+// Modifier runs in macOS order, so ⌘⇧F and ⇧⌘F both find ⇧⌘F.
+const MODS = '⌃⌥⇧⌘';
+const modOrder = (s) => s.replace(/[⌃⌥⇧⌘]+/g, (m) => [...m].sort((a, b) => MODS.indexOf(a) - MODS.indexOf(b)).join(''));
 
 /** Does a row match the search? Words match the label and section; key names and symbols match a binding. */
 export function matches(row, query, mac) {
@@ -25,8 +28,8 @@ export function matches(row, query, mac) {
   let k = q;
   for (const [re, sym] of WORDS) k = k.replace(re, sym);
   if (!mac) k = k.replace(/⌃/g, 'ctrl');
-  k = compact(k);
-  return row.keys.some((caps) => compact(caps.join('')).includes(k));
+  k = modOrder(compact(k));
+  return row.keys.some((caps) => modOrder(compact(caps.join(''))).includes(k));
 }
 
 export function shortcutSections({ first = null, query = '', custom = new Set(), mac } = {}) {
