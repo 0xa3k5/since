@@ -272,7 +272,10 @@ export function defaults(id, mac = IS_MAC) {
 // Only changed commands are stored; a command with no override uses its defaults.
 let overrides = {};
 
-/** Valid overrides only: known, non-reserved commands with parseable bindings. Drops everything else. */
+/**
+ * Valid overrides only: known, non-reserved commands with bindings the recorder would accept (or the command's
+ * own defaults). Drops everything else, so an imported file can't set a bare-key menu accelerator, say.
+ */
 export function sanitize(o) {
   const out = {};
   if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
@@ -281,7 +284,8 @@ export function sanitize(o) {
     if (!cmd || cmd.reserved || !Array.isArray(list) || list.length > 4) continue;
     const ok = list.filter((b) => {
       if (typeof b !== 'string' || !b || b.length > 40) return false;
-      try { return parse(b).length <= 2; } catch { return false; }
+      try { if (parse(b).length > 2) return false; } catch { return false; }
+      return defaults(id).includes(b) || !refusal(id, b);
     });
     if (ok.length === list.length) out[id] = [...new Set(ok)];
   }

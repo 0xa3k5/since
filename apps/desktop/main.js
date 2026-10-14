@@ -870,7 +870,17 @@ function setKeymap(o) {
 }
 handle('app:keymap', () => keymap.getOverrides());
 // While the Keyboard Shortcuts window records new keys, the menu must not run the keys being pressed.
-handle('app:keymap-recording', (e, on) => e.sender.setIgnoreMenuShortcuts(check.bool(on, 'recording')));
+// A reload or crash mid-record must not leave the menu shortcuts off for that window.
+const recordWatched = new WeakSet();
+handle('app:keymap-recording', (e, on) => {
+  const wc = e.sender;
+  wc.setIgnoreMenuShortcuts(check.bool(on, 'recording'));
+  if (!on || recordWatched.has(wc)) return;
+  recordWatched.add(wc);
+  const off = () => { if (!wc.isDestroyed()) wc.setIgnoreMenuShortcuts(false); };
+  wc.on('did-navigate', off);
+  wc.on('render-process-gone', off);
+});
 handle('app:set-keymap', (_e, o) => {
   if (!o || typeof o !== 'object' || Array.isArray(o)) throw new check.IpcArgError('key bindings: expected an object');
   return setKeymap(o); // sanitize() drops unknown commands, reserved keys and bad bindings

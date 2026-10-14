@@ -162,6 +162,9 @@ test('sanitize keeps only known, non-reserved commands with valid bindings', asy
   assert.deepEqual(sanitize({ 'commit.checkout': ['x', 'x'], 'app.quit': ['Mod+Y'], nope: ['a'], 'commit.tag': ['Hyper+T'], 'commit.branch': 'b' }), { 'commit.checkout': ['x'] });
   assert.deepEqual(sanitize(null), {});
   assert.deepEqual(sanitize(['x']), {});
+  // The recorder's refusals apply too (AK-234): a bare-key menu command, a chord on a non-view.
+  assert.deepEqual(sanitize({ 'repo.fetch': ['f'], 'commit.checkout': ['g c'] }), {});
+  assert.deepEqual(sanitize({ 'repo.fetch': ['Mod+Alt+F'] }), { 'repo.fetch': ['Mod+Alt+F'] });
 });
 
 test('withBinding stores overrides only, dropping a list equal to the defaults', async () => {
