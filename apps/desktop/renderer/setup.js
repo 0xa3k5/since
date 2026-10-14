@@ -8,6 +8,7 @@ export const SETUP_FEATURES = [
   { id: 'tags', icon: 'tag', label: 'Show tags on the graph', detail: 'Release tags sit next to the commits they mark.' },
   { id: 'remotes', icon: 'cloud', label: 'Show remote branches', detail: 'See where origin is next to your own branches.' },
   { id: 'swatches', icon: 'theme', label: 'Colour swatches in diffs', detail: 'A small chip next to hex, rgb and hsl values.' },
+  { id: 'agentLanes', icon: 'branch', label: 'Mark lanes that look agent-made', detail: 'A badge in Lanes, from branch names and commit trailers.' },
 ];
 
 // Off until you pick a provider; one choice for every repository, like the switches above.
@@ -27,6 +28,7 @@ export const setupValues = ({ show = {}, autoUpdate, prs } = {}) => ({
   tags: show.tags !== false,
   remotes: show.remotes !== false,
   swatches: show.swatches !== false,
+  agentLanes: show.agentLanes !== false,
   prs: prs === true,
 });
 

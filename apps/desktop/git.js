@@ -1349,6 +1349,333 @@ const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (awai
 const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 
 // ---------------------------------------------------------------------------
+// Lanes: one record per local branch and per worktree, measured against the repository's
+// default branch. A fixed handful of git calls however many branches there are (one
+// for-each-ref, one worktree list, one log, three patch-id passes), plus one status per worktree
+// for its uncommitted-file count. Read-only.
+
+// "Probably an agent", guessed from a lane's commits ahead of base and its branch name. Extend
+// the lists here; matching is case-insensitive.
+const AGENT_HINTS = {
+  // Branch name prefixes coding agents give the branches they create.
+  prefixes: ['claude/', 'codex/', 'copilot/', 'cursor/', 'devin/', 'agent/', 'agents/', 'ai/'],
+  // A word in a Co-Authored-By trailer (name or email) that means a coding agent.
+  coauthors: ['claude', 'anthropic', 'codex', 'openai', 'copilot', 'cursor', 'devin', 'aider', 'gemini', 'jules', 'openhands', 'sweep', 'cline', 'windsurf', 'codeium'],
+  // Trailer keys only agents write.
+  trailers: ['generated-by', 'generated-with', 'agent', 'ai-agent', 'assisted-by'],
+};
+// Lane commits read for trailers and squash checks, and base commits searched for squash merges.
+const LANE_COMMITS = 5000;
+const BASE_COMMITS = 2000;
+// Lanes further ahead than this skip the per-commit (cherry) check: too much diff for too little.
+const CHERRY_MAX = 100;
+
+function parseTrailers(text) {
+  return text.split('\n').flatMap((l) => {
+    const m = /^([A-Za-z0-9-]+):\s*(.*)$/.exec(l.trim());
+    return m ? [{ key: m[1], value: m[2] }] : [];
+  });
+}
+
+// { reason: 'trailer' | 'branch prefix', match } or null.
+function agentGuess(branch, trailers = []) {
+  for (const t of trailers) {
+    const key = t.key.toLowerCase();
+    if (AGENT_HINTS.trailers.includes(key)) return { reason: 'trailer', match: `${t.key}: ${t.value}` };
+    if (key === 'co-authored-by') {
+      const words = t.value.toLowerCase().split(/[^a-z0-9]+/);
+      if (AGENT_HINTS.coauthors.some((n) => words.includes(n))) return { reason: 'trailer', match: `${t.key}: ${t.value}` };
+    }
+  }
+  const b = String(branch || '').toLowerCase();
+  const prefix = AGENT_HINTS.prefixes.find((p) => b.startsWith(p));
+  return prefix ? { reason: 'branch prefix', match: prefix } : null;
+}
+
+const shortRef = (ref) => ref.replace(/^refs\/(heads|remotes)\//, '');
+
+// The base lanes are measured against: `base` if given, else origin/HEAD, else main or master.
+// { ref, sha, name, local } (local = the local branch name it stands for), or null when there is none.
+async function laneBase(cwd, base) {
+  if (base) {
+    if (String(base).startsWith('-')) throw new GitError(`Unknown base ${base}`);
+    const sha = (await run(cwd, ['rev-parse', '--verify', '-q', `${base}^{commit}`], { allowCodes: [0, 1] })).trim();
+    if (!sha) throw new GitError(`Unknown base ${base}`);
+    const ref = (await run(cwd, ['rev-parse', '--symbolic-full-name', base], { allowCodes: [0, 128] })).trim() || base;
+    return { ref, sha, name: shortRef(ref), local: ref.startsWith('refs/heads/') ? shortRef(ref) : ref.startsWith('refs/remotes/') ? shortRef(ref).replace(/^[^/]+\//, '') : null };
+  }
+  const order = ['refs/remotes/origin/HEAD', 'refs/heads/main', 'refs/heads/master', 'refs/remotes/origin/main', 'refs/remotes/origin/master'];
+  const out = await run(cwd, ['for-each-ref', '--format=%(refname)%00%(symref)', ...order]);
+  const found = new Map(out.split('\n').filter(Boolean).map((l) => l.split('\0')));
+  const ref = order.map((r) => (r.endsWith('/HEAD') ? found.get(r) : found.has(r) ? r : '')).find(Boolean);
+  if (!ref) return null;
+  const sha = (await run(cwd, ['rev-parse', '--verify', '-q', `${ref}^{commit}`], { allowCodes: [0, 1] })).trim();
+  if (!sha) return null;
+  return { ref, sha, name: shortRef(ref), local: shortRef(ref).replace(/^origin\//, '') };
+}
+
+// Branch review: the whole change of `branch` against `base` the way a pull request shows it,
+// from their merge-base (`base...branch`). Each file carries its blob at the tip (the zero id
+// for a deletion), which is what a "reviewed" tick is keyed by. `base` defaults to laneBase's.
+async function branchReview(cwd, branch, base) {
+  if (String(branch).startsWith('-')) throw new GitError(`Unknown branch ${branch}`);
+  const b = await laneBase(cwd, base);
+  if (!b) throw new GitError('There is no base branch (main or master) to review against.');
+  const tip = (await run(cwd, ['rev-parse', '--verify', '-q', `${branch}^{commit}`], { allowCodes: [0, 1] })).trim();
+  if (!tip) throw new GitError(`${branch} has no commits yet.`);
+  const mergeBase = (await run(cwd, ['merge-base', b.sha, tip], { allowCodes: [0, 1] })).trim();
+  if (!mergeBase) throw new GitError(`${branch} shares no history with ${b.name}.`);
+  const [raw, files] = await Promise.all([
+    run(cwd, ['diff-tree', '-r', '-z', '-M', '--raw', '--no-commit-id', '--abbrev=40', mergeBase, tip]),
+    diffTreeFiles(cwd, mergeBase, tip),
+  ]);
+  const blobs = parseRawBlobsZ(raw);
+  return { branch, base: b.name, baseSha: b.sha, mergeBase, tip, files: files.map((f) => ({ ...f, blob: blobs.get(f.path) || null })) };
+}
+
+// path → blob at the new side, from `diff-tree --raw -z` (":old new oldsha newsha S\0path\0[path\0]").
+function parseRawBlobsZ(out) {
+  const blobs = new Map();
+  const parts = out.split('\0');
+  for (let i = 0; i < parts.length; i++) {
+    if (!parts[i].startsWith(':')) continue;
+    const meta = parts[i].split(' ');
+    const twoPaths = /^[RC]/.test(meta[4]);
+    blobs.set(parts[i + (twoPaths ? 2 : 1)], meta[3]);
+    i += twoPaths ? 2 : 1;
+  }
+  return blobs;
+}
+
+let gitVersion = null;
+async function hasAheadBehind(cwd) {
+  gitVersion ||= run(cwd, ['version']).then((v) => (/(\d+)\.(\d+)/.exec(v) || [0, 0, 0]).slice(1).map(Number), () => [0, 0]);
+  const [major, minor] = await gitVersion;
+  return major > 2 || (major === 2 && minor >= 41);
+}
+
+async function mapLimit(items, n, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
+  return out;
+}
+
+// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
+async function patchIds(cwd, diff) {
+  if (!diff.trim()) return new Map();
+  const out = await run(cwd, ['patch-id', '--stable'], { input: diff });
+  return new Map(out.split('\n').filter(Boolean).map((l) => l.split(' ').reverse()));
+}
+
+// Newest mtime among a worktree's dirty files (capped), or 0.
+function dirtyMtime(dir, paths) {
+  let t = 0;
+  for (const p of paths.slice(0, 500)) {
+    try { t = Math.max(t, fs.lstatSync(path.join(dir, p)).mtimeMs); } catch { /* deleted */ }
+  }
+  return t;
+}
+
+// `aheadBehind: false` forces the rev-list fallback git before 2.41 uses (for tests).
+async function lanes(cwd, { base, aheadBehind } = {}) {
+  const [b, worktrees] = await Promise.all([laneBase(cwd, base), getWorktrees(cwd)]);
+  const fast = b && aheadBehind !== false && await hasAheadBehind(cwd);
+  const fields = ['%(refname)', '%(objectname)', '%(tree)', '%(committerdate:unix)', '%(upstream:short)', '%(upstream:track)', ...(fast ? [`%(ahead-behind:${b.sha})`] : [])];
+  const refs = await run(cwd, ['for-each-ref', `--format=${fields.join('%00')}`, 'refs/heads']);
+  const wtByBranch = new Map(worktrees.filter((w) => w.branch).map((w) => [w.branch, w]));
+  const list = [];
+  const lane = (o) => ({ name: o.name, branch: o.branch, head: o.head, tree: o.tree, date: o.date, detached: !o.branch, isBase: false, wt: o.wt || null, upstream: o.upstream || null, upstreamGone: o.track === '[gone]', ahead: null, behind: null, ab: o.ab });
+  for (const line of refs.split('\n')) {
+    if (!line) continue;
+    const [ref, head, tree, date, upstream, track, ab] = line.split('\0');
+    const name = ref.slice('refs/heads/'.length);
+    list.push(lane({ name, branch: name, head, tree, date: Number(date) * 1000, upstream, track, ab, wt: wtByBranch.get(name) }));
+    wtByBranch.delete(name);
+  }
+  // Worktrees on an unborn branch, and detached worktrees.
+  for (const w of wtByBranch.values()) list.push(lane({ name: w.branch, branch: w.branch, head: null, wt: w }));
+  const detached = worktrees.filter((w) => !w.branch && w.head);
+  if (detached.length) {
+    const out = await run(cwd, ['log', '--no-walk=unsorted', '--format=%H%x00%T%x00%ct', ...new Set(detached.map((w) => w.head)), '--'], { allowCodes: [0, 128] });
+    const info = new Map(out.split('\n').filter(Boolean).map((l) => { const [h, t, d] = l.split('\0'); return [h, { tree: t, date: Number(d) * 1000 }]; }));
+    for (const w of detached) list.push(lane({ name: w.name, branch: null, head: w.head, wt: w, ...info.get(w.head) }));
+  }
+
+  if (b) {
+    for (const l of list) {
+      // The base itself, or the local branch a remote base stands for (main for origin/main).
+      l.isBase = l.branch != null && (b.ref === `refs/heads/${l.branch}` || (b.ref.startsWith('refs/remotes/') && l.branch === b.local));
+      if (l.ab) [l.ahead, l.behind] = l.ab.split(' ').map(Number);
+    }
+    const slow = list.filter((l) => l.head && l.ahead == null);
+    await mapLimit(slow, 8, async (l) => {
+      const out = await run(cwd, ['rev-list', '--left-right', '--count', `${l.head}...${b.sha}`, '--']);
+      [l.ahead, l.behind] = out.trim().split(/\s+/).map(Number);
+    });
+  }
+
+  // Commits ahead of base: their trailers, and which lane each belongs to (walked from each tip).
+  const ahead = b ? list.filter((l) => l.ahead > 0) : [];
+  const tips = [...new Set(ahead.map((l) => l.head))];
+  const commits = new Map();
+  if (tips.length) {
+    const out = await run(cwd, ['log', '-z', `--max-count=${LANE_COMMITS}`, '--format=%H%x1f%P%x1f%(trailers:unfold,only)', ...tips, '--not', b.sha, '--']);
+    for (const rec of out.split('\0')) {
+      if (!rec) continue;
+      const [sha, parents, trailers] = rec.split('\x1f');
+      commits.set(sha, { parents: parents ? parents.split(' ') : [], trailers: parseTrailers(trailers || '') });
+    }
+  }
+  for (const l of ahead) {
+    const seen = new Set();
+    const boundary = new Set();
+    const stack = [l.head];
+    while (stack.length) {
+      const sha = stack.pop();
+      if (seen.has(sha)) continue;
+      const c = commits.get(sha);
+      if (!c) { boundary.add(sha); continue; }
+      seen.add(sha);
+      stack.push(...c.parents);
+    }
+    l.commits = [...seen];
+    l.complete = l.commits.length === l.ahead;
+    l.forkPoint = l.complete && boundary.size === 1 ? [...boundary][0] : null;
+  }
+
+  // Squash-merge checks: a lane whose tip tree matches a base commit's tree, whose whole diff
+  // matches a base commit's patch (squash), or whose every commit has a patch-equivalent commit
+  // on base (`git cherry`; rebase-merged).
+  const candidates = ahead.filter((l) => l.complete);
+  let baseTrees = new Set(); let baseIds = new Set(); let laneIds = new Map(); let squashIds = new Map();
+  if (candidates.length) {
+    // Base side is bounded by count only: excluding lane tips would hide all of base whenever a
+    // lane descends from the base tip (any freshly branched lane).
+    const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
+    const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
+    const [trees, baseDiff, laneDiff, squashDiff] = await Promise.all([
+      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%T', b.sha, '--']),
+      run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']),
+      cherryTips.length ? run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : '',
+      squashLines.length ? run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : '',
+    ]);
+    baseTrees = new Set(trees.split('\n').filter(Boolean));
+    [baseIds, laneIds, squashIds] = await Promise.all([patchIds(cwd, baseDiff).then((m) => new Set(m.values())), patchIds(cwd, laneDiff), patchIds(cwd, squashDiff)]);
+  }
+
+  const result = await Promise.all(list.map(async (l) => {
+    let merged = null;
+    if (l.ahead === 0 && l.behind > 0) merged = 'ancestor';
+    else if (l.ahead > 0 && l.complete && !l.isBase) {
+      const ids = l.ahead <= CHERRY_MAX ? l.commits.map((c) => laneIds.get(c)).filter(Boolean) : [];
+      if (baseTrees.has(l.tree) || baseIds.has(squashIds.get(l.head)) || (ids.length && ids.every((id) => baseIds.has(id)))) merged = 'squash';
+    }
+    const w = l.wt;
+    const prunable = w ? w.missing || !fs.existsSync(w.path) : false;
+    let changes = null;
+    let activity = l.date || 0;
+    if (w && !prunable) {
+      const dirty = [...new Set(await dirtyPaths(w.path).catch(() => []))];
+      changes = dirty.length;
+      activity = Math.max(activity, dirtyMtime(w.path, dirty));
+    }
+    const trailers = (l.commits || []).flatMap((c) => commits.get(c)?.trailers || []);
+    return {
+      name: l.name,
+      branch: l.branch,
+      head: l.head,
+      detached: l.detached,
+      isBase: l.isBase,
+      worktree: w ? { path: w.path, main: w.main, current: w.current, locked: w.locked, prunable } : null,
+      upstream: l.upstream,
+      upstreamGone: l.upstreamGone,
+      activity: activity || null,
+      ahead: l.ahead,
+      behind: l.behind,
+      changes,
+      merged,
+      nothingAhead: l.ahead === 0,
+      agent: agentGuess(l.branch, trailers),
+    };
+  }));
+  result.sort((x, y) => (y.activity || 0) - (x.activity || 0));
+  return { base: b ? b.name : null, baseRef: b ? b.ref : null, baseSha: b ? b.sha : null, lanes: result };
+}
+
+// ---------------------------------------------------------------------------
+// Conflict forecast: which lanes would conflict, and on which files, before anyone merges. One
+// `git merge-tree --write-tree` per pair (each active lane against base, then pairs of active
+// lanes, newest first). merge-tree writes only objects, never refs, the index or a worktree.
+// Results are cached by the two tips, so a refresh only re-runs pairs where a tip moved.
+
+// git 2.38 added `merge-tree --write-tree`; older git gets no forecast at all.
+const mergeTreeSupported = (version) => {
+  const [major, minor] = (/(\d+)\.(\d+)/.exec(version) || [0, 0, 0]).slice(1).map(Number);
+  return major > 2 || (major === 2 && minor >= 38);
+};
+let mergeTreeOk = null;
+function canForecast(cwd) {
+  mergeTreeOk ||= run(cwd, ['version']).then(mergeTreeSupported, () => false);
+  return mergeTreeOk;
+}
+
+// Lanes untouched for longer than this are left out: nobody is about to merge them.
+const FORECAST_STALE = 14 * 24 * 3600e3;
+// At most this many lane-vs-lane merges per forecast (10 active lanes = 45 pairs).
+const FORECAST_PAIRS = 45;
+const FORECAST_CACHE = 2000;
+const forecastCache = new Map(); // "tipA tipB" (sorted) -> conflicting files
+
+// Files `git merge-tree` reports as conflicted when merging a and b, [] when it merges clean.
+async function mergeConflicts(cwd, a, b) {
+  const key = a < b ? `${a} ${b}` : `${b} ${a}`;
+  if (forecastCache.has(key)) return forecastCache.get(key);
+  // Exit 1 = conflicts. Unrelated histories and other refusals mean no forecast: [], not cached.
+  let out;
+  try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', a, b], { allowCodes: [0, 1] }); } catch { return []; }
+  const files = [...new Set(out.split('\0').slice(1).filter(Boolean))].sort();
+  if (forecastCache.size >= FORECAST_CACHE) forecastCache.delete(forecastCache.keys().next().value);
+  forecastCache.set(key, files);
+  return files;
+}
+
+// Lanes worth forecasting: real commits ahead of base, not merged, not the base, worktree not
+// missing, and touched within FORECAST_STALE. Newest first, so the pair cap keeps live work.
+function forecastLanes(lanes, now = Date.now()) {
+  return lanes
+    .filter((l) => l.head && l.ahead > 0 && !l.isBase && !l.merged && !l.worktree?.prunable && l.activity && now - l.activity < FORECAST_STALE)
+    .sort((x, y) => (y.activity || 0) - (x.activity || 0));
+}
+
+// `lanes` is the git.lanes result's list, `baseSha` its baseSha. `signal` (an AbortSignal) stops
+// it between merges; whatever is running finishes, the rest never starts. Returns
+// { supported, pairs: [{ a, b, files }] } with only conflicting pairs; `b` is null for the base.
+// Lanes come back as { name, branch, worktree: { path } | null }, enough for the renderer's laneKey.
+async function forecastConflicts(cwd, lanes, { baseSha, signal, now = Date.now(), maxPairs = FORECAST_PAIRS } = {}) {
+  if (!(await canForecast(cwd))) return { supported: false, pairs: [] };
+  const live = forecastLanes(lanes, now);
+  const jobs = [];
+  if (baseSha) for (const l of live) if (l.behind > 0) jobs.push([l, null]);
+  let left = maxPairs;
+  for (let i = 0; i < live.length && left > 0; i++) {
+    for (let j = i + 1; j < live.length && left > 0; j++) {
+      if (live[i].head === live[j].head) continue;
+      jobs.push([live[i], live[j]]);
+      left--;
+    }
+  }
+  const who = (l) => ({ name: l.name, branch: l.branch, worktree: l.worktree ? { path: l.worktree.path } : null });
+  const res = await mapLimit(jobs, 4, async ([a, b]) => {
+    if (signal?.aborted) return null;
+    const files = await mergeConflicts(cwd, a.head, b ? b.head : baseSha);
+    return files.length ? { a: who(a), b: b ? who(b) : null, files } : null;
+  });
+  if (signal?.aborted) throw Object.assign(new Error('Forecast cancelled'), { name: 'AbortError' });
+  return { supported: true, pairs: res.filter(Boolean) };
+}
+
+// ---------------------------------------------------------------------------
 // External diff & merge tools (git difftool / mergetool), using the user's diff.tool and
 // merge.tool. GitLanes has no terminal, so terminal-only tools (vimdiff, emerge) are refused.
 
@@ -1472,7 +1799,7 @@ function parseBlame(out) {
 }
 
 module.exports = {
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
+  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
@@ -1480,6 +1807,8 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
+  AGENT_HINTS, parseTrailers, agentGuess, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
+  _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,
 };

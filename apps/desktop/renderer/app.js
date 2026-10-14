@@ -8,6 +8,10 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
+import { lanesView } from './lanes-view.js';
+import { laneTarget, laneKey } from './lanes.js';
+import { reviewView } from './review-view.js';
+import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 import { authorProfile } from './profile.js';
@@ -43,7 +47,7 @@ const state = {
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
   lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
-  show: loadPref('show', { tags: true, remotes: true, swatches: true }),
+  show: loadPref('show', { tags: true, remotes: true, swatches: true, agentLanes: true }),
   search: '',
   stashes: [],
   history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
@@ -168,6 +172,8 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
+  if (state.view === 'lanes') lanesPage?.refresh();
+  if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
 });
@@ -460,7 +466,7 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null;
+let mapView = null, commitView = null, lanesPage = null, reviewPage = null;
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 
@@ -490,6 +496,7 @@ const VIEWS = [
   { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '5' },
   { id: 'config', label: 'Config', icon: 'config', key: '6' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '7' },
+  { id: 'lanes', label: 'Lanes', icon: 'lanes', key: '8' },
 ];
 
 function setView(v) {
@@ -497,6 +504,7 @@ function setView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
+  state.review = null;
   state.view = v;
   renderSidebar();
   renderTopbar();
@@ -619,10 +627,10 @@ function renderSidebar() {
         h('span.repo-icon', null, state.repo.name.slice(0, 1).toUpperCase()),
         h('span.repo-name', null, state.repo.name),
         icon('chevronDown', 12)),
-      h('button.icon-btn', { title: `Command menu (${MOD}K)`, onclick: openPalette }, icon('search')),
+      h('button.icon-btn', { title: tip('Command menu', 'view.palette'), onclick: openPalette }, icon('search')),
     ),
     h('div.sb-origin', null, originLink()),
-    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: `${v.label} (${MOD}${v.key})`, 'aria-label': v.label },
+    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: tip(v.label, `view.${v.id}`), 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
     h('div.sb-scroll', null,
       state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
@@ -642,9 +650,9 @@ function renderSidebar() {
       state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
     ),
     h('div.sb-foot', null,
-      h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
-      h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)`, 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
-      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)`, 'aria-label': 'Push' }, icon('push'), h('span', null, 'Push')),
+      h('button.sb-action', { onclick: fetchAll, title: tip('Fetch all', 'repo.fetch'), 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
+      h('button.sb-action', { onclick: pull, title: tip('Pull', 'repo.pull'), 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
+      h('button.sb-action', { onclick: () => push(false), title: tip('Push', 'repo.push'), 'aria-label': 'Push' }, icon('push'), h('span', null, 'Push')),
     ),
   );
   renderNavCounts();
@@ -667,13 +675,13 @@ function renderTopbar() {
   if (!topbarEl) return;
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
-    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
+    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
-  const onMap = state.view === 'map' && !state.quick && !state.split && !state.fileHistory;
+  const onMap = state.view === 'map' && !state.quick && !state.split && !state.fileHistory && !state.review;
   if (onMap) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
@@ -696,12 +704,12 @@ function renderTopbar() {
   const chip = licenceChip(state.licence, () => openLicence());
   if (chip) right.append(chip);
   right.append(
-    h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
-    h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
+    h('button.icon-btn', { title: tip(undoTitle(), 'edit.undo'), disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
+    h('button.icon-btn', { title: tip(redoTitle(), 'edit.redo'), disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
   );
   // The panel toggle sits last, at the edge next to the panel it opens.
   if (onMap) {
-    right.append(h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: `${detailToggleLabel()} (Space, ${MOD}⌥\\)`, 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')));
+    right.append(h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: tip(detailToggleLabel(), 'map.detail', 'global.detail'), 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')));
   }
   // Background refreshes rebuild the bar; keep the caret in the search field.
   const typing = document.activeElement?.id === 'map-search' ? document.activeElement : null;
@@ -724,6 +732,7 @@ function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
   if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
+  if (key === 'agentLanes') { lanesPage?.rerender(); return; }
   refreshHistory();
   renderTopbar();
 }
@@ -737,7 +746,7 @@ function applySidebar() {
   root.classList.toggle('sb-overlay', mode === 'overlay');
   const label = sidebarToggleLabel(sbState());
   const btn = sidebarEl.querySelector('.sb-toggle');
-  if (btn) { btn.title = `${label} (${MOD}\\)`; btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
+  if (btn) { btn.title = tip(label, 'view.sidebar'); btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
   // Don't leave focus inside parts of the sidebar the rail hides.
   if (mode === 'rail' && sidebarEl.contains(document.activeElement) && !document.activeElement.checkVisibility()) btn?.focus();
 }
@@ -854,6 +863,8 @@ function renderView(soft = false) {
   contentEl.dataset.view = state.view;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
+  reviewPage = null;
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -863,6 +874,7 @@ function renderView(soft = false) {
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
+    case 'lanes': contentEl.append(openLanes().el); break;
   }
 }
 
@@ -1137,6 +1149,7 @@ function fileRow(f, onclick, extra) {
 function openQuick(sha, path, back = null) {
   if (!sha) return;
   state.fileHistory = null;
+  state.review = null;
   state.quick = { sha, path, back };
   renderTopbar();
   renderView();
@@ -1219,6 +1232,7 @@ async function openSplit(c) {
   try { await git('checkSplit', c.sha); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
   state.quick = null;
   state.fileHistory = null;
+  state.review = null;
   state.split = { sha: c.sha };
   renderTopbar();
   renderView();
@@ -1555,7 +1569,7 @@ function createCommitView(container) {
   } });
   const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(...keymap.keys('message.commit')));
   // Only shown once the user has turned AI commit messages on.
-  const aiBtn = h('button.icon-btn.ai-btn', { title: `Write message with AI (${MOD}⌥G)`, hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
+  const aiBtn = h('button.icon-btn.ai-btn', { title: tip('Write message with AI', 'repo.aiMessage'), hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
   const composer = h('div.composer', null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
   side.append(lists, composer);
   el.append(side, diffPane);
@@ -1638,13 +1652,13 @@ function createCommitView(container) {
   function renderLists() {
     const { staged, unstaged, conflicts } = state.status;
     lists.replaceChildren(...[
-      conflicts.length ? section('Conflicts', conflicts, 'conflicts', h('button.btn.ghost.tiny', { title: `Open in your mergetool (${MOD}⇧M)`, onclick: () => openMergetool([]) }, 'Mergetool')) : null,
+      conflicts.length ? section('Conflicts', conflicts, 'conflicts', h('button.btn.ghost.tiny', { title: tip('Open in your mergetool', 'repo.mergetool'), onclick: () => openMergetool([]) }, 'Mergetool')) : null,
       section('Unstaged', unstaged, 'unstaged', unstaged.length ? [
         h('button.btn.ghost.tiny', { onclick: () => discard(unstaged) }, 'Discard all'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
       ] : null),
       section('Staged', staged, 'staged', staged.length ? [
-        h('button.btn.ghost.tiny', { title: `Stash only the staged changes (${MOD}⌥S)`, onclick: () => stashSave({ staged: true }) }, 'Stash'),
+        h('button.btn.ghost.tiny', { title: tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
       ] : null),
     ].filter(Boolean));
@@ -1859,7 +1873,7 @@ function stashesView() {
         onclick: () => { current = s.ref; renderList(); renderDetail(); },
         oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
       }, icon('stash', 14), h('div.list-main', null, h('div.list-title', null, s.message), h('div.list-sub', null, s.ref)), h('span.when', null, timeAgo(s.time))))) :
-        h('div.empty.big', null, icon('stash', 28), h('div', null, 'No stashes'), h('div.muted', null, `Stash uncommitted changes with ${MOD}⇧S`)),
+        h('div.empty.big', null, icon('stash', 28), h('div', null, 'No stashes'), h('div.muted', null, `Stash uncommitted changes with ${keyText('repo.stash')}`)),
     );
   }
   async function renderDetail() {
@@ -2191,7 +2205,7 @@ function worktreesView() {
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
         h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
     list,
-    ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${MOD}⌥N, or press W on a commit in the Map.`)] : []),
+    ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${keyText('repo.worktreeAdd')}, or press ${keyText('commit.worktree')} on a commit in the Map.`)] : []),
     h('div.diff-hint.wt-hint', null, '↵ Switch · ', MOD, '↵ New window · L Lock · ⌫ Remove · N New'),
   );
   el.addEventListener('keydown', (e) => {
@@ -2215,6 +2229,49 @@ function worktreesView() {
   count();
   setTimeout(() => el.focus({ preventScroll: true }));
   return el;
+}
+
+// Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
+function openLanes() {
+  lanesPage = lanesView({
+    load: (opts) => api.app('lanes-list', opts),
+    forecast: () => api.app('lanes-forecast'),
+    prsOn: () => Boolean(state.prs?.active),
+    markAgents: () => state.show.agentLanes !== false,
+    onOpen: openLane,
+    onReview: (lane, base) => openReview(lane, base),
+    progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
+  });
+  return lanesPage;
+}
+// Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
+function openReview(lane, base = null) {
+  if (!state.repo) return;
+  if (!lane) {
+    if (!state.head.oid) return toast('Nothing to review yet', { detail: 'This branch has no commits.' });
+    lane = state.head.branch ? { name: state.head.branch, branch: state.head.branch, head: state.head.oid } : { name: state.head.oid.slice(0, 7), branch: null, head: state.head.oid, worktree: state.worktrees.find((w) => w.current) };
+  }
+  if (lane.isBase) return toast(`${lane.name} is the base branch`, { detail: 'Review a branch made from it instead.' });
+  const rev = lane.branch || lane.head;
+  if (!rev) return toast(`${lane.name} has no commits yet`);
+  state.quick = null;
+  state.split = null;
+  state.fileHistory = null;
+  state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base };
+  renderTopbar();
+  renderView();
+}
+function closeReview() {
+  state.review = null;
+  renderTopbar();
+  renderView();
+}
+function openLane(lane) {
+  const t = laneTarget(lane);
+  const w = t?.kind === 'worktree' && state.worktrees.find((x) => x.path === t.path);
+  if (w) return switchWorktree(w);
+  if (lane.head) return showCommit(lane.head);
+  toast(`${lane.name} has no commits yet`);
 }
 
 function worktreeMenu(x, y, w) {
@@ -2310,7 +2367,7 @@ function submoduleMenu(x, y, m) {
 }
 
 function openSubmodule(m) {
-  if (!m.head) return toast(`${m.path} isn’t checked out yet`, { kind: 'error', detail: `Update it first (${MOD}⌥U).` });
+  if (!m.head) return toast(`${m.path} isn’t checked out yet`, { kind: 'error', detail: `Update it first (${keyText('repo.submoduleUpdate')}).` });
   api.app('open-submodule', m.path).catch((e) => toast('Couldn’t open submodule', { kind: 'error', detail: e.message }));
 }
 
@@ -2494,7 +2551,7 @@ async function checkoutPr(pr, { worktree = false } = {}) {
 function pickPr(worktree) {
   if (!state.prs?.active) return setupPrs();
   const prs = state.prs.data?.prs || [];
-  if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${MOD}⌥⇧P.` });
+  if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${keyText('repo.prRefresh')}.` });
   palette(() => prs.map((pr) => ({ group: 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: worktree ? 'worktree' : 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => checkoutPr(pr, { worktree }) })),
     { placeholder: worktree ? 'Check out pull request in a new worktree…' : 'Check out pull request…' });
 }
@@ -2668,7 +2725,7 @@ function withPr(pr, verb, fn) {
   const mine = state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null;
   if (mine) return fn(mine);
   const prs = state.prs.data?.prs || [];
-  if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${MOD}⌥⇧P) to load them.` });
+  if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${keyText('repo.prRefresh')}) to load them.` });
   palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
 }
 
@@ -2823,6 +2880,7 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: keymap.keys('repo.lfs'), detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
+    add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base lane files progress' });
     add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: keymap.keys('repo.fileHistory'), detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: keymap.keys('repo.difftool'), keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
@@ -2869,6 +2927,8 @@ function openPalette() {
     if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: keymap.keys('repo.origin'), detail: originRemote().label });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
+    add('View', 'Show lanes with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'conflict forecast merge-tree overlap lanes branches worktrees' });
+    add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
@@ -2890,6 +2950,9 @@ function openPalette() {
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
+    add('App', 'Export shortcuts…', exportShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom save file json' });
+    add('App', 'Import shortcuts…', importShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom load file json' });
+    add('App', 'Reset all shortcuts to defaults', resetShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom restore default' });
     add('App', 'Keyboard shortcuts', openShortcuts, { icon: 'command', kbd: keymap.keys('help.shortcuts'), keywords: 'keys keymap bindings hotkeys cheat sheet help' });
     add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: keymap.keys('global.setup'), keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
@@ -2993,6 +3056,7 @@ let shortcuts = null;
 function shortcutsScope() {
   if (!state.repo) return tour ? 'tour' : 'recent';
   if (state.fileHistory) return 'fileHistory';
+  if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
   return ['commit', 'stashes', 'snapshots', 'worktrees'].includes(state.view) ? state.view : 'map';
@@ -3001,7 +3065,27 @@ function openShortcuts() {
   if (shortcuts) return shortcuts.close();
   // A palette that just ran this command is still fading out; only a live dialog blocks the window.
   if (document.querySelector('.overlay:not(.closing)')) return;
-  shortcuts = shortcutsWindow({ first: shortcutsScope(), onClose: () => { shortcuts = null; } });
+  shortcuts = shortcutsWindow({
+    first: shortcutsScope(),
+    save: (o) => api.app('set-keymap', o),
+    actions: { exportShortcuts, importShortcuts, resetShortcuts },
+    onClose: () => { shortcuts = null; },
+  });
+}
+// Export / import / reset the custom shortcuts (Keyboard Shortcuts window and ⌘K).
+async function exportShortcuts() {
+  try { const file = await api.app('keymap-export'); if (file) toast('Exported your shortcuts', { kind: 'success', detail: file }); }
+  catch (e) { toast('Couldn’t export shortcuts', { kind: 'error', detail: e.message }); }
+}
+async function importShortcuts() {
+  try { if (await api.app('keymap-import')) toast('Imported shortcuts', { kind: 'success' }); }
+  catch (e) { toast('Couldn’t import shortcuts', { kind: 'error', detail: e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }); }
+}
+async function resetShortcuts() {
+  if (!Object.keys(keymap.getOverrides()).length) return toast('Your shortcuts are already the defaults');
+  if (!await confirm('Reset every shortcut to its default?', 'Your custom shortcuts are removed.', { submit: 'Reset All' })) return;
+  await api.app('set-keymap', {});
+  toast('Shortcuts reset to the defaults', { kind: 'success' });
 }
 
 async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
@@ -3065,6 +3149,7 @@ async function loadRepo(repo) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
+  state.review = null;
   state.search = '';
   state.configFilter = '';
   commitCache.clear();
@@ -3139,6 +3224,7 @@ const commands = {
   mergetool: () => openMergetool(),
   conflicts: () => openConflicts(),
   fileHistory: () => openFileHistory(),
+  review: () => openReview(),
   identity: () => openIdentity(),
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
@@ -3204,12 +3290,14 @@ async function openFileHistory(path = fileHistoryTarget()) {
   }
   state.quick = null;
   state.split = null;
+  state.review = null;
   state.fileHistory = { path };
   renderTopbar();
   renderView();
 }
 function closeFileHistory() {
   state.fileHistory = null;
+  state.review = null;
   renderTopbar();
   renderView();
 }
@@ -3259,6 +3347,13 @@ async function openMergetool(paths) {
   }
 }
 
+// A tooltip with the command's current keys: "Pull (⌘⇧L)", or just the label when it has none.
+const keyText = (id) => keymap.keys(id).join('') || 'the Command Menu';
+function tip(label, ...ids) {
+  const k = ids.map((id) => keymap.keys(id).join('')).filter(Boolean);
+  return k.length ? `${label} (${k.join(', ')})` : label;
+}
+
 function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable); }
 
 window.addEventListener('keydown', (e) => {
@@ -3292,7 +3387,7 @@ window.addEventListener('keydown', (e) => {
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
     e.preventDefault();
-    if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();
+    if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory && !state.review) toggleDetail();
   }
 });
 let gPending = null;
@@ -3361,11 +3456,19 @@ function showUpdate(s) {
 }
 api.on('update', showUpdate);
 
+// Custom key bindings changed (here or in another window): redraw everything that shows keys.
+api.on('keymap', (o) => {
+  keymap.setOverrides(o);
+  if (state.repo) { renderSidebar(); renderTopbar(); renderView(true); }
+  shortcuts?.refresh();
+});
+
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
   state.licence = await api.app('licence');
+  keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));
   const params = new URLSearchParams(location.search);
