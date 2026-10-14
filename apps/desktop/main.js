@@ -169,6 +169,7 @@ const reads = {
   // Throws the reason a commit can't be split (merge, not on this branch, merges above it).
   checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
+  branchReview: (s, branch, base) => git.branchReview(s.repo.root, branch, base),
   status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
   lfs: (s) => git.getLfs(s.repo.root),
   submodules: (s) => git.getSubmodules(s.repo.root),
@@ -478,18 +479,44 @@ handle('app:lanes-list', async (e, opts) => {
   let listed = null;
   let prError = null;
   let inbox = null;
+  let inboxError = null;
   if (withPrs && (await prEnabled(root))) {
     const remotes = await git.getRemotes(root);
     if (github.pickRemote(remotes)) {
-      [listed, inbox] = await Promise.all([
+      // A failed inbox lookup (token scope, Enterprise) keeps the PR list and the lane badges.
+      const [l, i] = await Promise.allSettled([
         github.listPrs({ enabled: true, remotes }),
         withInbox ? github.inbox({ enabled: true, remotes }) : null,
-      ]).catch((err) => { prError = serializeError(err); return [null, null]; });
+      ]);
+      if (l.status === 'fulfilled') listed = l.value;
+      else prError = serializeError(l.reason);
+      if (i.status === 'fulfilled') inbox = i.value;
+      else if (!prError) inboxError = serializeError(i.reason);
     }
   }
+  const s = session(e);
+  s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
   if (!withInbox) return { ...rest, lanes: joined, prError };
-  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, inbox };
+  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, inbox, inboxError };
+});
+
+// Conflict forecast for the lanes app:lanes-list last returned in this window (git-only, no
+// network). A new request cancels the one still running; the cancelled one resolves to null.
+handle('app:lanes-forecast', async (e) => {
+  const s = session(e);
+  if (!s.lanes || s.lanes.root !== s.repo.root) return { supported: true, pairs: [] };
+  s.forecast?.abort();
+  const ctrl = new AbortController();
+  s.forecast = ctrl;
+  try {
+    return await git.forecastConflicts(s.lanes.root, s.lanes.lanes, { baseSha: s.lanes.baseSha, signal: ctrl.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') return null;
+    throw err;
+  } finally {
+    if (s.forecast === ctrl) s.forecast = null;
+  }
 });
 
 // Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
@@ -961,6 +988,7 @@ function buildMenu() {
         item('Resolve Conflicts', acc('repo.conflicts'), 'conflicts'),
         item('Open in Mergetool', acc('repo.mergetool'), 'mergetool'),
         item('File History & Blame…', acc('repo.fileHistory'), 'fileHistory'),
+        item('Review Branch…', acc('repo.review'), 'review'),
         item('Commit Identity…', acc('repo.identity'), 'identity'),
         item('Write Commit Message with AI', acc('repo.aiMessage'), 'aiMessage'),
         item('AI Commit Messages…', undefined, 'aiSetup'),

@@ -55,7 +55,7 @@ export function prTitle(pr, stale = false) {
 
 // PR inbox (the lanes overview's Inbox tab): the open repository's PRs you can act on, in
 // buckets. A PR shows in the first bucket it matches and not at all if it matches none:
-//   1. ready: not a draft, approved, checks green and GitHub says it merges cleanly
+//   1. ready: not a draft, approved, checks green (or none at all) and GitHub says it merges cleanly
 //      (`conflicts`, a Set of head branches a local forecast expects to conflict, can veto it)
 //   2. requested: your review is requested (`requested`: PR numbers, team requests included)
 //   3. failing: checks failed
@@ -71,7 +71,7 @@ export const INBOX_BUCKETS = [
 ];
 
 export function inboxBucket(pr, { me = null, requested = [], agents = [], conflicts = null } = {}) {
-  if (!pr.draft && pr.review === 'approved' && pr.checks === 'success' && pr.mergeable === true && !conflicts?.has(pr.branch)) return 'ready';
+  if (!pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null) && pr.mergeable === true && !conflicts?.has(pr.branch)) return 'ready';
   if (new Set(requested).has(pr.number)) return 'requested';
   if (pr.checks === 'failure') return 'failing';
   if ((me && pr.author && pr.author.toLowerCase() === me.toLowerCase()) || new Set(agents).has(pr.number)) return 'mine';

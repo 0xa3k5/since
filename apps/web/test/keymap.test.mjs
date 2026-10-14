@@ -30,6 +30,7 @@ test('views have ⌘ numbers and G shortcuts', () => {
   const v = group('views');
   assert.equal(v.length, 8);
   assert.deepEqual(find(v, 'Worktrees')?.keys, ['⌘', '7']);
+  assert.deepEqual(find(v, 'Lanes')?.keys, ['⌘', '8']);
   assert.deepEqual(find(v, 'Snapshots')?.alt, ['G', 'H']);
 });
 

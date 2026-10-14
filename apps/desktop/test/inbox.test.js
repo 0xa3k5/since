@@ -12,6 +12,8 @@ test('ready needs approval, green checks, a clean merge and no draft', async () 
   assert.equal(inboxBucket(pr(1, READY)), 'ready');
   assert.equal(inboxBucket(pr(1, { ...READY, draft: true })), null);
   assert.equal(inboxBucket(pr(1, { ...READY, checks: 'pending' })), null);
+  // A repo with no checks at all: nothing to wait for.
+  assert.equal(inboxBucket(pr(1, { ...READY, checks: null })), 'ready');
   assert.equal(inboxBucket(pr(1, { ...READY, review: 'required' })), null);
   // GitHub still working it out, or a conflict: not ready.
   assert.equal(inboxBucket(pr(1, { ...READY, mergeable: null })), null);

@@ -1,11 +1,13 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
-import { BUCKETS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs } from './lanes.js';
+import { BUCKETS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText } from './lanes.js';
 import { inboxBuckets } from './prs.js';
 import * as keymap from './keymap.js';
 
 // Lanes overview: every branch and worktree in the repository as one triage list, the lanes that
 // need you first (lanes.js has the order). Keyboard-first: ↑/↓ or J/K move, ↵ opens the lane,
-// typing filters, A shows agent lanes only. Refreshes in place, keeping the selection.
+// typing filters, A shows agent lanes only, C lanes with predicted conflicts only, R reviews the
+// lane's branch. Refreshes in place, keeping the selection. The conflict forecast runs after the
+// list shows (git merge-tree, main process) and re-sorts the list when it lands.
 // While pull requests are on, Tab switches to the Inbox: the open PRs you can act on, in buckets
 // (prs.js inboxBuckets). ↵ checks a PR out as a new lane, ⇧M merges the whole Ready bucket.
 
@@ -14,17 +16,21 @@ const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 // Live refreshes after commits are debounced; the watcher can fire several times per commit.
 const DEBOUNCE = 400;
 
-// load({ prs }) → app:lanes-list result; prsOn() and markAgents() read current settings;
-// onOpen(lane) opens it in the graph. actions(lane) → extra context-menu items, the hook for
+// load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
+// onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review and
+// progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items, the hook for
 // later row actions (review, merge, delete); none yet. onCheckout(pr) and onMergeReady(prs, remote)
 // are the Inbox's actions; `tab` picks the tab to start on.
-export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes' }) {
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onReview = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes' }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last inbox load
   let inboxFailed = false;
   let shown = [];
   let selKey = null;
   let agentsOnly = false;
+  let conflictsOnly = false;
+  let conflicts = new Map(); // laneKey → forecast entries (conflictsByLane)
+  let forecastOk = true; // false on git before 2.38: no forecast, no chip
   let loaded = false;
   let base = null;
   let timer = 0;
@@ -32,6 +38,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
 
   const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter lanes…', spellcheck: false, 'aria-label': 'Filter lanes' });
   const agentChip = h('button.chip', { title: 'Agent lanes only (A)', onclick: () => toggleAgents() }, 'Agent lanes');
+  const conflictChip = h('button.chip', { title: 'Lanes with predicted conflicts only (C)', onclick: () => toggleConflicts() }, 'Conflicts');
   const count = h('span.muted.lanes-count');
   const list = h('div.lanes-list', { role: 'listbox', 'aria-label': 'Lanes' });
   const empty = h('div.empty');
@@ -45,7 +52,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
       h('div', null, title, lede),
       h('div.page-actions', null, count)),
     tabs,
-    h('div.lanes-bar', null, icon('search', 14), filter, agentChip),
+    h('div.lanes-bar', null, icon('search', 14), filter, agentChip, conflictChip),
     list,
     empty,
     hint,
@@ -54,6 +61,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
   function badges(l) {
     return [
       l.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${l.agent.reason}: ${l.agent.match})` }, 'Agent') : null,
+      l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
       l.isBase ? h('span.badge', null, 'Base') : null,
       l.worktree?.current ? h('span.badge.local', null, 'This window') : null,
       l.merged ? h('span.badge', { title: l.merged === 'squash' ? 'Its changes are already on the base branch' : 'Already part of the base branch' }, 'Merged') : null,
@@ -71,6 +79,14 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
       pr.checks ? h('span.pr-ci.' + pr.checks, null, '●') : null);
   }
 
+  function reviewCell(l) {
+    const p = progress(l);
+    if (!p) return h('span.lanes-review');
+    return h('span.lanes-review' + (p.done && !p.moved ? '.done' : '') + (p.moved ? '.moved' : ''), {
+      title: p.moved ? 'The branch moved since your last review. Open it (R) to see what changed.' : 'Files you marked reviewed',
+    }, p.moved ? `${p.label} ·` : p.label, p.moved ? h('span.lanes-moved', null, ' moved') : null);
+  }
+
   function row(l) {
     const active = laneKey(l) === selKey;
     const ab = aheadBehind(l);
@@ -83,7 +99,10 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
       icon(l.worktree ? 'worktree' : 'branch', 14),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', null, l.name), ...badges(l)),
-        h('div.list-sub', null, l.worktree ? tildify(l.worktree.path) : l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch'))),
+        h('div.list-sub', null, l.worktree ? tildify(l.worktree.path) : l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
+        // The selected lane spells out who it conflicts with and where (CSS shows it on .active).
+        l.conflicts ? h('div.lanes-conflicts', null, ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c)))) : null),
+      reviewCell(l),
       h('span.lanes-changes' + (l.changes ? '.dirty' : ''), { title: l.changes == null ? '' : 'Uncommitted changes in its worktree' }, l.changes ? `${l.changes} changed` : ''),
       h('span.lanes-ab', { title: base && ab ? `Ahead/behind ${base}` : '' }, ab),
       prsOn() ? prCell(l.pr) : null,
@@ -96,13 +115,14 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
     tabs.hidden = !prsOn();
     tabs.querySelectorAll('.lanes-tab').forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
     agentChip.hidden = tab === 'inbox';
+    conflictChip.hidden = tab === 'inbox' || !forecastOk;
     filter.placeholder = tab === 'inbox' ? 'Filter pull requests…' : 'Filter lanes…';
     if (tab === 'inbox') return renderInbox();
     title.textContent = 'Lanes';
     lede.textContent = 'Every branch and worktree in this repository. Lanes that need you come first.';
-    hint.textContent = `↵ Open · J/K Move · / Filter · A Agent lanes only${prsOn() ? ' · Tab Inbox' : ''}`;
+    hint.textContent = `↵ Open · R Review · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
     if (agentsOnly && !markAgents()) agentsOnly = false;
-    shown = filterLanes(lanes, filter.value, { agentsOnly });
+    shown = filterLanes(lanes, filter.value, { agentsOnly, conflictsOnly });
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
     const rows = [];
     let bucket = null;
@@ -116,21 +136,24 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
     }
     list.replaceChildren(...rows);
     agentChip.classList.toggle('on', agentsOnly);
+    conflictChip.classList.toggle('on', conflictsOnly);
     const needs = lanes.filter((l) => BUCKET.get(l.bucket).needs).length;
     count.textContent = loaded ? `${lanes.length} lane${lanes.length === 1 ? '' : 's'}${needs ? ` · ${needs} need${needs === 1 ? 's' : ''} you` : ''}` : 'Loading…';
-    empty.textContent = !loaded || shown.length ? '' : lanes.length ? 'No lanes match.' : 'No branches yet.';
+    empty.textContent = !loaded || shown.length ? '' : conflictsOnly && !filter.value ? 'No predicted conflicts between active lanes.' : lanes.length ? 'No lanes match.' : 'No branches yet.';
     empty.hidden = !empty.textContent;
   }
 
   // The Inbox: PR rows keyed `p:<number>`, grouped by bucket, then by author.
   const prKey = (pr) => `p:${pr.number}`;
+  // Head branches the local forecast expects to conflict with another lane: never Ready.
+  const conflictBranches = () => new Set(lanes.filter((l) => l.conflicts && l.branch).map((l) => l.branch));
   const agentPrs = () => (markAgents() ? lanes.filter((l) => l.agent && l.pr).map((l) => l.pr.number) : []);
   const buckets = () => {
     const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
     const prs = (inbox?.prs || []).filter((p) => words.every((w) => `#${p.number} ${p.title} ${p.branch} ${p.author}`.toLowerCase().includes(w)));
-    return inboxBuckets(prs, { me: inbox?.me, requested: inbox?.requested, agents: agentPrs() });
+    return inboxBuckets(prs, { me: inbox?.me, requested: inbox?.requested, agents: agentPrs(), conflicts: conflictBranches() });
   };
-  const ready = () => (inbox ? inboxBuckets(inbox.prs, { me: inbox.me, requested: inbox.requested, agents: agentPrs() }).find((b) => b.id === 'ready')?.groups.flatMap((g) => g.prs) || [] : []);
+  const ready = () => (inbox ? inboxBuckets(inbox.prs, { me: inbox.me, requested: inbox.requested, agents: agentPrs(), conflicts: conflictBranches() }).find((b) => b.id === 'ready')?.groups.flatMap((g) => g.prs) || [] : []);
 
   function prRow(pr) {
     const active = prKey(pr) === selKey;
@@ -181,7 +204,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
 
   function mergeReady() {
     const prs = ready();
-    if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed and no conflicts.' });
+    if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed (or none), and no conflicts.' });
     onMergeReady(prs, inbox.remote);
   }
 
@@ -213,10 +236,17 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
     render();
   }
 
+  function toggleConflicts() {
+    if (!forecastOk) return toast('Conflict forecast needs git 2.38 or later', { detail: 'Update git to see which lanes would conflict before you merge.' });
+    conflictsOnly = !conflictsOnly;
+    render();
+  }
+
   function menu(x, y, l) {
     const extra = actions(l);
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(l) },
+      { label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => onReview(l, base) },
       ...(extra.length ? ['-', ...extra] : []),
     ]);
   }
@@ -230,7 +260,10 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
     else if (id === 'lanes.open') { const x = current(); if (x) (tab === 'inbox' ? onCheckout : onOpen)(x); }
     else if (id === 'lanes.tab') { if (!prsOn()) return false; setTab(tab === 'inbox' ? 'lanes' : 'inbox'); }
     else if (id === 'lanes.mergeReady') { if (tab !== 'inbox' || typing) return false; mergeReady(); }
-    else if (id === 'lanes.agents' && tab !== 'inbox') toggleAgents();
+    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.review' || id === 'lanes.conflicts')) return false; // lane-only keys
+    else if (id === 'lanes.agents') toggleAgents();
+    else if (id === 'lanes.review') { const l = current(); if (l) onReview(l, base); }
+    else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.clear') {
       if (!filter.value && !typing) return false; // let Escape through
@@ -264,13 +297,27 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
     if (n !== seq || (loaded && !el.isConnected)) return;
     base = res.base;
     if (withInbox) {
-      inboxFailed = !res.prs || !res.inbox;
-      if (!inboxFailed) inbox = { prs: res.prs, remote: res.remote, ...res.inbox };
+      // Without the login and review requests (res.inboxError) the other buckets still show.
+      inboxFailed = !res.prs;
+      if (!inboxFailed) inbox = { prs: res.prs, remote: res.remote, ...(res.inbox || {}) };
+      if (res.inboxError) toast('Could not load your review requests', { kind: 'error', detail: res.inboxError.message });
     }
     const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes)) : res.lanes;
-    lanes = sortLanes(next);
+    lanes = sortLanes(withConflicts(next, conflicts));
     loaded = true;
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
+    render();
+    runForecast(n);
+  }
+  // Off the hot path: after the list shows. Unchanged pairs come from the main process's cache;
+  // a newer list cancels this run (main resolves the cancelled one to null).
+  async function runForecast(n) {
+    const res = await forecast().catch(() => null);
+    if (!res || n !== seq || !el.isConnected) return;
+    forecastOk = res.supported;
+    conflicts = conflictsByLane(res.pairs, base);
+    if (!forecastOk) conflictsOnly = false;
+    lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
   const fail = (e) => { loaded = true; render(); toast('Could not load lanes', { kind: 'error', detail: e.message }); };
@@ -289,5 +336,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCheckout = () => 
   setTimeout(() => el.focus({ preventScroll: true }));
   // Show a tab from outside (⌘⇧I opens the overview on the Inbox).
   const show = (t) => setTab(t);
-  return { el, refresh, rerender: render, show, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  // ⌘K "Show lanes with predicted conflicts": the Lanes tab with the filter on (never off).
+  const showConflicts = () => { setTab('lanes'); if (!conflictsOnly) toggleConflicts(); };
+  return { el, refresh, rerender: render, show, showConflicts, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }
