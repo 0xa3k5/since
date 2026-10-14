@@ -133,6 +133,7 @@ export const INLINE = {
       { label: 'Search commits', keys: ['/'], src: ['/'] },
       { label: 'Go to a view: G, then M, C, S, H or R', keys: ['G'], src: ['g'] },
       { label: 'Close Quick View', keys: ['Esc'], src: ['Escape'] },
+      { label: 'Choose defaults', keys: ['⌘', ','], src: [','] },
     ],
   },
 };

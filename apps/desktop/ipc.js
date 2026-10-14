@@ -29,6 +29,14 @@ function str(v, what, { max = MAX_STR, empty = false } = {}) {
 
 const text = (v, what) => str(v, what, { max: MAX_TEXT, empty: true });
 const bool = (v, what) => { if (typeof v !== 'boolean') fail(what, 'expected a boolean'); return v; };
+const prNumber = (v, what = 'pull request number') => { if (!Number.isSafeInteger(v) || v <= 0) fail(what, 'expected a positive integer'); return v; };
+// A remote name the renderer sends must be one of this repository's remotes (git.getRemotes).
+function knownRemote(remotes, name, what = 'remote') {
+  str(name, what, { max: 256 });
+  const r = (remotes || []).find((x) => x.name === name);
+  if (!r) fail(what, 'not a remote of this repository');
+  return r;
+}
 const int = (v, what) => { if (!Number.isSafeInteger(v) || v < 0) fail(what, 'expected a non-negative integer'); return v; };
 
 function list(v, what, each) {
@@ -309,4 +317,4 @@ function insideRepo(root, rel) {
 
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf };
+module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote };
