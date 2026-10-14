@@ -1992,9 +1992,13 @@ const changeRow = (c) => {
 };
 
 // Preview what "Restore before" would change, then apply it as one undoable step.
+// One preview at a time: a second ↵ (or key repeat) during the preview's git call would stack a second dialog.
+let restorePending = false;
 async function restoreSnapshot(e) {
+  if (restorePending) return;
+  restorePending = true;
   let p;
-  try { p = await git('previewRestore', e.id); } catch (err) { return toast('Can’t preview this snapshot', { kind: 'error', detail: err.message }); }
+  try { p = await git('previewRestore', e.id); } catch (err) { return toast('Can’t preview this snapshot', { kind: 'error', detail: err.message }); } finally { restorePending = false; }
   if (!p.changes.length && !p.movesHead) return toast(`Already at the state before “${e.label}”`);
   const desc = h('div.restore-preview', null,
     h('div', null, `${p.changes.length} change${p.changes.length === 1 ? '' : 's'}. You can undo this with ${MOD}Z.`),
