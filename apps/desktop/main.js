@@ -268,7 +268,7 @@ const plainMutations = {
   pushTags: (s) => r(s, ['push', '--tags']),
   deleteRemoteBranch: (s, short) => {
     const i = short.indexOf('/');
-    return r(s, ['push', short.slice(0, i), '--delete', short.slice(i + 1)]);
+    return r(s, ['push', short.slice(0, i), '--delete', '--', short.slice(i + 1)]);
   },
   setConfig: (s, key, value) => r(s, ['config', '--local', key, value]),
   unsetConfig: (s, key) => r(s, ['config', '--local', '--unset-all', key]),

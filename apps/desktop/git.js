@@ -1403,7 +1403,7 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
 
   const deleted = [];
   if (branches.length) {
-    const tips = new Map((await run(cwd, ['for-each-ref', '--format=%(refname:short)%00%(objectname)', 'refs/heads'])).split('\n').filter(Boolean).map((l) => l.split(SEP)));
+    const tips = new Map((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads'])).split('\n').filter(Boolean).map((l) => l.split(SEP)));
     for (const batch of batches) {
       const go = [];
       for (const i of batch) {
@@ -1414,7 +1414,7 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
       }
       let error = null;
       if (go.length) await run(cwd, ['branch', '-D', '--', ...go], { env: W_ENV }).catch((err) => { error = err; });
-      const left = error ? new Set((await run(cwd, ['for-each-ref', '--format=%(refname:short)', ...go.map((b) => `refs/heads/${b}`)])).split('\n').filter(Boolean)) : new Set();
+      const left = error ? new Set((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)', ...go.map((b) => `refs/heads/${b}`)])).split('\n').filter(Boolean)) : new Set();
       for (const b of go) {
         if (!left.has(b)) deleted.push(b);
         else failed.push({ name: b, message: (error.stderr || error.message).split('\n').find((l) => l.includes(`'${b}'`))?.replace(/^error: /, '') || error.message });
@@ -1440,7 +1440,7 @@ async function deleteRemoteBranches(cwd, shorts) {
   const deleted = [];
   for (const [remote, names] of byRemote) {
     try {
-      await run(cwd, ['push', remote, '--delete', ...names]);
+      await run(cwd, ['push', remote, '--delete', '--', ...names]);
       deleted.push(...names.map((n) => `${remote}/${n}`));
     } catch (err) {
       // A partial push still deleted some: whatever is no longer listed as a remote-tracking ref is gone.

@@ -147,7 +147,7 @@ const cleanupItem = (v, what) => {
   if (!v.branch && !v.worktree) fail(what, 'expected a branch or a worktree');
   return v;
 };
-const remoteBranch = (v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); return v; };
+const remoteBranch = (v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); if (/\/-/.test(v)) fail(w, 'must not start with -'); return v; };
 
 // The worktree in `worktrees` (from git.getWorktrees) at `dir`, or throws. `same` compares paths
 // (git.samePath, which follows symlinks such as /tmp -> /private/tmp).

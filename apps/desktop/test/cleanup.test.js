@@ -192,6 +192,20 @@ test('ipc: cleanupLanes items need a branch or a worktree; remote names need rem
   assert.throws(() => checkGit('cleanupLanes', [[{ branch: 'x', rm: true }]]), /unexpected field/);
   assert.ok(checkGit('deleteRemoteBranches', [['origin/x']]));
   assert.throws(() => checkGit('deleteRemoteBranches', [['x']]), /remote\/branch/);
+  assert.throws(() => checkGit('deleteRemoteBranches', [['origin/--receive-pack=/tmp/x']]), /must not start/);
+  assert.throws(() => checkGit('deleteRemoteBranch', ['origin/--exec=x']), /must not start/);
+});
+
+test('cleanupLanes deletes a branch that shares its name with a tag', async () => {
+  const { dir } = await repo();
+  await g(dir, ['branch', 'dup']);
+  await g(dir, ['tag', 'dup']);
+  const head = await tip(dir, 'refs/heads/dup');
+  const res = await git.cleanupLanes(dir, [{ branch: 'dup', head }]);
+  assert.deepEqual(res.deleted, ['dup']);
+  assert.deepEqual(res.failed, []);
+  assert.equal(await tip(dir, 'refs/heads/dup'), null);
+  assert.ok(await tip(dir, 'refs/tags/dup'));
 });
 
 test('summarize counts worktrees, branches, dirty lanes and remote deletes', async () => {
