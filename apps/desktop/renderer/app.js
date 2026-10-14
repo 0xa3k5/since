@@ -2451,7 +2451,7 @@ async function openHosting() {
 // ---------------------------------------------------------------------------
 // Welcome screen / repository lifecycle
 
-// The welcome playground; ⌘Z / ⇧⌘Z drive it while no repository is open.
+// The welcome tour; ⌘Z / ⇧⌘Z drive it while no repository is open.
 let tour = null;
 
 async function renderWelcome() {
@@ -2468,7 +2468,7 @@ async function renderWelcome() {
   tour = tourView({ mod: MOD });
   const el = h('div.welcome', { tabIndex: 0 },
     h('div.welcome-drag'),
-    h('div.welcome-layout', null, h('div.welcome-card', null,
+    h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card', null,
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
       h('h1', null, 'GitLanes'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
@@ -2480,7 +2480,7 @@ async function renderWelcome() {
       ),
       recent.length ? h('div.recent-head', null, 'Recent') : null,
       list,
-    ), tour.el),
+    )), h('div.welcome-learn', null, tour.el)),
   );
   el.addEventListener('keydown', (e) => {
     if (tour.el.contains(e.target)) return;
