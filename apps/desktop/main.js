@@ -812,6 +812,38 @@ function createWindow(repoDir) {
 // Menu accelerators come from the keymap (renderer/keymap.js), the one list of every shortcut.
 const keymap = require('./renderer/keymap.js');
 const acc = (id) => keymap.accelerator(id, isMac);
+
+// Custom key bindings: overrides only, under `keymap` in settings.json. A change rebuilds the menu and reaches
+// every window, so menus, ⌘K and the rest show the new keys without a restart.
+function setKeymap(o) {
+  keymap.setOverrides(o);
+  const next = keymap.getOverrides();
+  writeSettings({ keymap: next });
+  buildMenu();
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('keymap', next);
+  return next;
+}
+handle('app:keymap', () => keymap.getOverrides());
+// While the Keyboard Shortcuts window records new keys, the menu must not run the keys being pressed.
+handle('app:keymap-recording', (e, on) => e.sender.setIgnoreMenuShortcuts(check.bool(on, 'recording')));
+handle('app:set-keymap', (_e, o) => {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) throw new check.IpcArgError('key bindings: expected an object');
+  return setKeymap(o); // sanitize() drops unknown commands, reserved keys and bad bindings
+});
+handle('app:keymap-export', async (e) => {
+  const res = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), { defaultPath: 'gitlanes-shortcuts.json', message: 'Export your custom shortcuts' });
+  if (res.canceled || !res.filePath) return null;
+  fs.writeFileSync(res.filePath, JSON.stringify({ gitlanes: 'keymap', version: 1, keymap: keymap.getOverrides() }, null, 2));
+  return res.filePath;
+});
+handle('app:keymap-import', async (e) => {
+  const res = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }], message: 'Import shortcuts' });
+  if (res.canceled || !res.filePaths[0]) return null;
+  let data;
+  try { data = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf8')); } catch { throw new Error('That file isn\u2019t a shortcuts file.'); }
+  const o = data?.gitlanes === 'keymap' ? data.keymap : data;
+  return setKeymap({ ...keymap.getOverrides(), ...keymap.sanitize(o) });
+});
 const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webContents.send('command', cmd, ...args);
 
 
@@ -987,6 +1019,7 @@ app.whenReady().then(() => {
   lockDownSession(electronSession.defaultSession);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
+  keymap.setOverrides(readSettings().keymap);
   initLicensing();
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
