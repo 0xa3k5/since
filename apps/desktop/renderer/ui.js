@@ -80,6 +80,7 @@ const P = {
   theme: '<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor" stroke="none"/>',
   sun: '<circle cx="8" cy="8" r="2.6"/><path d="M8 1.8v1.4M8 12.8v1.4M14.2 8h-1.4M3.2 8H1.8M12.4 3.6l-1 1M4.6 11.4l-1 1M12.4 12.4l-1-1M4.6 4.6l-1-1"/>',
   moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
+  lanes: '<path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.3"/><circle cx="10" cy="8" r="1.3"/><circle cx="7" cy="12" r="1.3"/>',
   worktree: '<rect x="2" y="2.5" width="5.5" height="4" rx="1"/><rect x="8.5" y="9.5" width="5.5" height="4" rx="1"/><path d="M4.75 6.5v3.5a1.5 1.5 0 0 0 1.5 1.5H8.5"/>',
   update: '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.6 2.4v2.9h-2.9M8 5.5v5M6 8.6l2 1.9 2-1.9"/>',
   sparkle: '<path d="M7 2.5 8.3 6.2 12 7.5 8.3 8.8 7 12.5 5.7 8.8 2 7.5 5.7 6.2z"/><path d="M12.5 10.5v3M11 12h3"/>',

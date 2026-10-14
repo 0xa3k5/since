@@ -664,6 +664,26 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .wt-row .pill { flex: none; }
 .wt-changes { flex: none; min-width: 72px; text-align: right; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .wt-changes.dirty { color: var(--warn); }
+.lanes-bar { display: flex; align-items: center; gap: 8px; margin: 0 16px 8px; padding: 0 10px; height: 32px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); }
+.lanes-bar .icon { color: var(--text-4); flex: none; }
+.lanes-bar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lanes-filter { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; }
+.lanes-filter::placeholder { color: var(--text-4); }
+.lanes-list { padding: 0 16px 8px; }
+.lanes-group { padding: 12px 16px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-4); }
+.lanes-group.needs { color: var(--accent-fg); }
+.lanes-row { gap: 12px; padding: 8px 16px; cursor: default; }
+.lanes-row .list-title { display: flex; align-items: center; gap: 6px; font-weight: 550; min-width: 0; }
+.lanes-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lanes-row .list-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge.agent { color: var(--accent-fg); background: var(--accent-soft); }
+.lanes-changes, .lanes-ab, .lanes-pr, .lanes-time { flex: none; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
+.lanes-changes { min-width: 72px; }
+.lanes-changes.dirty { color: var(--warn); }
+.lanes-ab { min-width: 64px; }
+.lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 84px; }
+.lanes-time { min-width: 36px; color: var(--text-4); }
+.lanes-count { font-size: 12px; }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }
 
