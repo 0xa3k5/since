@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
+import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName } from './diff.js';
@@ -740,7 +740,7 @@ function createMapView(container) {
       refs.length ? h('span.pills', null, refs.slice(0, 4).map(refPill), refs.length > 4 ? h('span.pill.more', null, `+${refs.length - 4}`) : null) : null,
       h('span.subject', null, pending ? '' : c.subject),
       pending ? h('span.meta', null, h('span.sha', null, c.sha.slice(0, 7))) : h('span.meta', null,
-        avatar(c.author, c.email),
+        c.coAuthors?.length ? avatarStack([{ name: c.author, email: c.email }, ...c.coAuthors]) : avatar(c.author, c.email),
         h('span.author', null, c.author),
         h('span.sha', null, c.sha.slice(0, 7)),
         h('span.when', { title: fullDate(c.time) }, timeAgo(c.time)),
@@ -918,6 +918,7 @@ function commitDetail(c) {
     ),
     h('div.props', null,
       prop('Author', h('span.prop-person', null, avatar(c.author, c.email, 18), c.author)),
+      c.coAuthors?.length ? prop('Co-authors', h('span.prop-people', null, c.coAuthors.map((p) => h('span.prop-person', { title: `${p.name} <${p.email}>` }, avatar(p.name, p.email, 18), p.name)))) : null,
       c.committer !== c.author ? prop('Committer', h('span.prop-person', null, avatar(c.committer, c.committerEmail, 18), c.committer)) : null,
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
       c.signature ? prop('Signature', signatureBadge(c.signature)) : null,

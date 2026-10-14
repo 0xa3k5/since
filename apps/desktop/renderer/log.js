@@ -4,8 +4,9 @@
 // millions of objects across IPC. Records are NUL-separated fields ending in \x1e, and git
 // puts a newline after each record.
 //   topo     sha, parents                         (from git's commit-graph, fast)
-//   details  sha, author, email, time, subject    (needs every commit object, slow)
-//   full     sha, parents, author, email, time, subject
+//   details  sha, author, email, time, subject, co-authors    (needs every commit object, slow)
+//   full     sha, parents, author, email, time, subject, co-authors
+// Co-authors are Co-authored-by trailer values separated by \x1f.
 // Commits from the topo stream start with `subject: null` until their details arrive.
 
 import { createGraph } from './graph.js';
@@ -25,22 +26,37 @@ function records(text, fn) {
 }
 
 const splitParents = (p) => (p ? p.split(' ') : []);
+const NONE = Object.freeze([]); // shared by the many commits without co-authors
+
+// `Name <email>` trailer values (\x1f-separated) to [{ name, email }], deduped by email
+// (case-insensitive) and without the author. Lines that aren't `Name <email>` are skipped.
+export function parseCoAuthors(raw, author) {
+  if (!raw) return NONE;
+  const seen = new Set([(author || '').toLowerCase()]), out = [];
+  for (const v of raw.split('\x1f')) {
+    const m = /^\s*(.*?)\s*<([^<>\s]+)>\s*$/.exec(v);
+    if (!m || seen.has(m[2].toLowerCase())) continue;
+    seen.add(m[2].toLowerCase());
+    out.push({ name: m[1] || m[2], email: m[2] });
+  }
+  return out.length ? out : NONE;
+}
 
 export function parseLog(text, kind) {
   const out = [];
   records(text, (r) => {
     const f = r.split(SEP);
     if (kind === 'topo') out.push({ sha: f[0], parents: splitParents(f[1]), author: '', email: '', time: 0, subject: null });
-    else out.push({ sha: f[0], parents: splitParents(f[1]), author: f[2], email: f[3], time: +f[4], subject: f[5] });
+    else out.push({ sha: f[0], parents: splitParents(f[1]), author: f[2], email: f[3], time: +f[4], subject: f[5], coAuthors: parseCoAuthors(f[6], f[3]) });
   });
   return out;
 }
 
-// Calls fn(sha, author, email, time, subject) for each DETAILS record.
+// Calls fn(sha, author, email, time, subject, coAuthors) for each DETAILS record.
 export function parseDetails(text, fn) {
   records(text, (r) => {
     const f = r.split(SEP);
-    fn(f[0], f[1], f[2], +f[3], f[4]);
+    fn(f[0], f[1], f[2], +f[3], f[4], parseCoAuthors(f[5], f[2]));
   });
 }
 
@@ -70,17 +86,17 @@ export function createHistory(head = null, commits = [], index = new Map(), grap
     },
     // Remember c's details for when the same commit arrives without them.
     seed(c) {
-      if (c.subject !== null) early.set(c.sha, { author: c.author, email: c.email, time: c.time, subject: c.subject });
+      if (c.subject !== null) early.set(c.sha, { author: c.author, email: c.email, time: c.time, subject: c.subject, coAuthors: c.coAuthors });
     },
     // Fill in subjects/authors from DETAILS text. Returns how many commits changed.
     fill(text) {
       let n = 0;
-      parseDetails(text, (sha, author, email, time, subject) => {
+      parseDetails(text, (sha, author, email, time, subject, coAuthors) => {
         const i = index.get(sha);
         const c = i === undefined ? null : commits[i];
-        if (!c) { if (early.size < 200000) early.set(sha, { author, email, time, subject }); return; }
+        if (!c) { if (early.size < 200000) early.set(sha, { author, email, time, subject, coAuthors }); return; }
         if (c.subject !== null) return;
-        c.author = author; c.email = email; c.time = time; c.subject = subject;
+        c.author = author; c.email = email; c.time = time; c.subject = subject; c.coAuthors = coAuthors;
         n++;
       });
       return n;
