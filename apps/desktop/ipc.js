@@ -168,6 +168,7 @@ const gitSchemas = {
   reflog: [],
   config: [],
   remotes: [],
+  identity: [],
   history: [optional(int)],
   previewRestore: [int],
   worktrees: [],
