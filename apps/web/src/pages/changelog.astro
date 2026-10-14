@@ -1,6 +1,6 @@
 ---
 // Built from src/content/changelog/*.md: one file per merged change, grouped by version, newest first.
-// Only merge dates appear; release dates are added when a version ships.
+// No dates are shown (no-dates rule); `merged` only orders entries within a group.
 import { getCollection, render } from 'astro:content';
 import { PRODUCT_NAME } from '../config';
 import Base from '../layouts/Base.astro';
@@ -30,7 +30,6 @@ const versions = await Promise.all(
     }))).then((k) => k.filter((x) => x.items.length)),
   })),
 );
-const fmt = (d: Date) => d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 const anchor = (v: string) => v.replaceAll('.', '-');
 ---
 <Base
@@ -54,10 +53,7 @@ const anchor = (v: string) => v.replaceAll('.', '-');
             <h3>{k.kind}</h3>
             {k.items.map((e) => (
               <article class="cl-entry" id={e.id}>
-                <div class="cl-entry-head">
-                  <h4>{e.title}</h4>
-                  <span class="cl-date">Merged <time datetime={e.merged.toISOString().slice(0, 10)}>{fmt(e.merged)}</time></span>
-                </div>
+                <h4>{e.title}</h4>
                 <div class="prose"><e.Content /></div>
               </article>
             ))}
@@ -77,9 +73,7 @@ const anchor = (v: string) => v.replaceAll('.', '-');
   .cl-badge.dev { color: var(--accent-fg); border-color: currentColor; }
   .cl-kind h3 { margin: 32px 0 0; font: 600 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
   .cl-entry { padding: 20px 0; border-bottom: 1px solid var(--border); scroll-margin-top: 80px; }
-  .cl-entry-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
   .cl-entry h4 { margin: 0; font-size: 18px; color: var(--text); letter-spacing: -0.01em; }
-  .cl-date { font-size: 13px; color: var(--text-3); }
   .cl-entry .prose > :first-child { margin-top: 10px; }
   .cl-entry .prose > :last-child { margin-bottom: 0; }
 </style>
