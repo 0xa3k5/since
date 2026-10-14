@@ -621,3 +621,14 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .licence-profile { position: absolute; top: 18px; right: 20px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-strong); font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
 .licence .dialog-foot { align-items: center; }
 .licence .dialog-foot > :first-child.btn.ghost { margin-right: auto; }
+
+/* Git LFS */
+.badge.lfs { height: 16px; padding: 0 4px; font-size: 9.5px; color: var(--accent-fg); background: var(--accent-soft); flex: none; }
+.lfs-list { margin-top: 10px; max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.lfs-row { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.lfs-row:last-child { border-bottom: 0; }
+.lfs-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.lfs-size { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.lfs-state { flex: none; width: 92px; color: var(--text-3); }
+.lfs-state.lfs-downloaded { color: var(--green); }
+.lfs-state.lfs-pointer { color: var(--warn); }
