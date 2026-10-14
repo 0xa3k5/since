@@ -25,6 +25,7 @@ export const SCOPES = {
   worktrees: 'Worktrees',
   lanes: 'Lanes',
   review: 'Review branch',
+  cleanup: 'Clean up',
   recent: 'Welcome screen',
   conflict: 'Conflict editor',
   fileHistory: 'File history',
@@ -102,6 +103,7 @@ export const COMMANDS = [
   c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
   c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
+  c('global', 'global', 'global.cleanup', 'Clean up stale branches and worktrees', 'Mod+Alt+Backspace'),
   c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
 
   // Map, with the commit list focused.
@@ -191,6 +193,12 @@ export const COMMANDS = [
   c('review', null, 'review.tick', 'Mark the file reviewed (or not)', 'v'),
   c('review', null, 'review.delta', 'Only what changed since you last looked', 'd'),
   c('review', null, 'review.close', 'Back', 'Escape'),
+  c('cleanup', null, 'cleanup.next', 'Next lane', ['ArrowDown', 'j']),
+  c('cleanup', null, 'cleanup.prev', 'Previous lane', ['ArrowUp', 'k']),
+  c('cleanup', null, 'cleanup.toggle', 'Tick or untick the lane', 'Space'),
+  c('cleanup', null, 'cleanup.remote', 'Also delete it on the remote', 'r'),
+  c('cleanup', null, 'cleanup.run', 'Clean up the ticked lanes', 'Mod+Enter'),
+  c('cleanup', null, 'cleanup.back', 'Back to Lanes', 'Escape'),
 
   // Welcome screen: recent repositories.
   c('recent', null, 'recent.next', 'Next repository', 'ArrowDown'),

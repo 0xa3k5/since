@@ -19,6 +19,7 @@ or stores a GitHub token, and opens no connection for them itself.
 | Fetch | You press *Fetch* (⌘⇧F) | `git fetch --all --prune --tags` | Your configured remotes |
 | Pull | You press *Pull* (⌘⇧L) | `git pull` | The current branch's upstream |
 | Push, push tags, delete remote branch | You press *Push* (⌘⇧P) or pick the menu item | `git push` | Your configured remotes |
+| Delete branches on the remote during *Clean up* | You tick *Delete on remote* for a lane in Lanes → Clean up (⌘⌥⌫) and confirm a second sheet that says it can’t be undone; off by default | `git push <remote> --delete <branch>…`, one per remote | Your configured remotes |
 | Open in hosting service, View on hosting service | You pick the menu item | Your default browser, not GitLanes | The remote's web page |
 | Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `gitlanes-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to |
 | Update download | When a newer signed version is found | macOS's updater (Squirrel) | The release zip named by the feed |
