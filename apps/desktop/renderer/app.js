@@ -1681,7 +1681,7 @@ function createCommitView(container) {
         const v = await dialog({ title: `Stash selected ${what}`, submit: 'Stash', fields: [{ name: 'msg', label: 'Message', placeholder: 'WIP' }] });
         if (!v) return;
         sel.clear();
-        await act(`Stash ${what} in ${baseName(file.path)}`, 'stashLines', [fileRef(file), keys, v.msg.trim()], { undoable: false });
+        await act(`Stash ${what} in ${baseName(file.path)}`, 'stashLines', [fileRef(file), keys, v.msg.trim()]);
         return;
       }
       try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
@@ -1806,7 +1806,7 @@ async function stashSave({ staged = false, paths = null } = {}) {
   const fields = [{ name: 'msg', label: 'Message', placeholder: 'WIP' }];
   if (!staged) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
   const v = await dialog({ title: `Stash ${what}`, submit: 'Stash', fields });
-  if (v) act(`Stash ${what}`, 'stashSave', [v.msg.trim(), !!v.u, { staged, paths }], { undoable: false });
+  if (v) act(`Stash ${what}`, 'stashSave', [v.msg.trim(), !!v.u, { staged, paths }]);
 }
 
 // ---------------------------------------------------------------------------

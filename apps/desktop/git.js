@@ -1059,6 +1059,9 @@ async function stashPaths(cwd, ref) {
   return paths;
 }
 
+// Paths a stash push can change: the files it's limited to, or everything dirty.
+const stashPushPaths = async (cwd, message, untracked, { paths } = {}) => (paths?.length ? paths : dirtyPaths(cwd));
+
 // ---------------------------------------------------------------------------
 // Pins: refs under refs/gitlanes/ that keep the undo journal's objects
 // reachable, so `git gc` never collects them. Blobs are gathered in one tree
@@ -1459,7 +1462,7 @@ module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
-  snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
+  snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,

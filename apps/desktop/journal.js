@@ -62,8 +62,9 @@ const worktreeOps = {
   removeWorktree: { op: 'remove', run: git.removeWorktree },
 };
 
-// Operations that destroy uncommitted work or stashes, with the paths each may
-// change; the journal snapshots those paths (and a dropped stash) around them.
+// Operations that destroy uncommitted work or stashes, or move work into a new
+// stash, with the paths each may change; the journal snapshots those paths (and
+// a dropped or added stash) around them.
 const workOps = {
   discardFiles: { run: git.discardFiles, paths: (cwd, files) => files.map((f) => f.path) },
   discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path] },
@@ -72,6 +73,8 @@ const workOps = {
   resolveConflict: { run: git.resolveConflict, paths: (cwd, p) => [p] },
   stashApply: { run: git.stashApply, paths: git.stashPaths, stash: true },
   stashDrop: { run: git.stashDrop, stash: true },
+  stashSave: { run: (cwd, message, untracked, opts = {}) => git.stashPush(cwd, { message, untracked, ...opts }), paths: git.stashPushPaths, stash: true },
+  stashLines: { run: git.stashLines, paths: (cwd, file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])], stash: true },
 };
 
 const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
@@ -260,7 +263,7 @@ class Journal {
   }
 
   // Run `fn` and record it as one undoable step. `paths` (returns the paths fn
-  // may change) turns on work snapshots; `stash` records a stash that fn drops.
+  // may change) turns on work snapshots; `stash` records a stash that fn drops or adds.
   // If the snapshot can't be saved, fn never runs.
   record(label, method, fn, opts) {
     return this.lock(() => this.recordNow(label, method, fn, opts));
@@ -349,8 +352,12 @@ class Journal {
     if (stashesBefore) {
       const now = await git.getStashes(cwd).catch(() => null);
       const index = now ? stashesBefore.findIndex((x) => !now.some((y) => y.sha === x.sha)) : -1;
+      const added = now ? now.findIndex((x) => !stashesBefore.some((y) => y.sha === x.sha)) : -1;
       if (index !== -1) {
         entry.stash = { sha: stashesBefore[index].sha, message: stashesBefore[index].message, index };
+        changed = true;
+      } else if (added !== -1) {
+        entry.stash = { sha: now[added].sha, message: now[added].message, index: added, added: true };
         changed = true;
       }
     }
@@ -435,12 +442,14 @@ class Journal {
         if (changed.length) throw fail(`${listPaths(changed)} changed since. Commit or stash ${changed.length > 1 ? 'those changes' : 'that change'} first.`);
       }
     }
-    if (entry.stash && dir === 'redo' && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw fail('that stash no longer exists.');
+    // A dropped stash comes back on undo; an added one goes away on undo.
+    const removing = entry.stash && (dir === 'undo') === !!entry.stash.added;
+    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw fail('that stash no longer exists.');
     if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
     if (entry.work) await git.restoreWork(cwd, entry.work[next]);
     if (entry.stash) {
-      if (dir === 'undo') await git.restoreStash(cwd, entry.stash);
-      else await git.dropStashCommit(cwd, entry.stash.sha);
+      if (removing) await git.dropStashCommit(cwd, entry.stash.sha);
+      else await git.restoreStash(cwd, entry.stash);
     }
   }
 

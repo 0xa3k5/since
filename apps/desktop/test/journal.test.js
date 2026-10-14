@@ -167,6 +167,51 @@ test('stash pop → undo restores the stash and the working tree', async () => {
   assert.equal((await git.getStashes(dir)).length, 0);
 });
 
+test('stash file → undo drops the stash and brings the change back → redo stashes it again', async () => {
+  const { dir, journal, read, write } = await repo();
+  await commit(dir, 'a.txt', '0\n', 'base');
+  await commit(dir, 'b.txt', '0\n', 'b');
+  write('a.txt', 'a\n');
+  write('b.txt', 'b\n');
+  await journal.runWork('stashSave', 'Stash a.txt', ['wip', false, { paths: ['a.txt'] }]);
+  assert.equal(read('a.txt'), '0\n');
+  const [stash] = await git.getStashes(dir);
+  await journal.step('undo');
+  assert.equal(read('a.txt'), 'a\n');
+  assert.equal(read('b.txt'), 'b\n');
+  assert.equal((await git.getStashes(dir)).length, 0);
+  await journal.step('redo');
+  assert.equal(read('a.txt'), '0\n');
+  assert.deepEqual((await git.getStashes(dir)).map((s) => [s.sha, s.message]), [[stash.sha, stash.message]]);
+});
+
+test('stash staged → undo restores the staged change, not just the file', async () => {
+  const { dir, journal, read, write } = await repo();
+  await commit(dir, 'a.txt', '0\n', 'base');
+  write('a.txt', 'staged\n');
+  await git.run(dir, ['add', 'a.txt']);
+  await journal.runWork('stashSave', 'Stash staged changes', ['', false, { staged: true }]);
+  assert.equal((await git.getStashes(dir)).length, 1);
+  await journal.step('undo');
+  assert.equal(read('a.txt'), 'staged\n');
+  assert.equal(await staged(dir, 'a.txt'), 'staged\n');
+  assert.equal((await git.getStashes(dir)).length, 0);
+});
+
+test('stash lines → undo puts the lines back and drops the stash', async () => {
+  const { dir, journal, read, write } = await repo();
+  await commit(dir, 'a.txt', '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n', 'base');
+  write('a.txt', 'ONE\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n');
+  const file = { path: 'a.txt', status: 'M' };
+  const d = await git.workingDiff(dir, file, { staged: false });
+  const keys = d.hunks[0].lines.map((l, i) => (l.t !== ' ' ? `0:${i}` : null)).filter(Boolean);
+  await journal.runWork('stashLines', 'Stash lines in a.txt', [file, keys, 'wip']);
+  assert.equal(read('a.txt'), '1\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n');
+  await journal.step('undo');
+  assert.equal(read('a.txt'), 'ONE\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n');
+  assert.equal((await git.getStashes(dir)).length, 0);
+});
+
 test('choose a conflict side → undo restores the conflict → redo', async () => {
   const { dir, journal, read } = await repo();
   await commit(dir, 'f.txt', 'base\n', 'base');
