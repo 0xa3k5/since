@@ -463,6 +463,25 @@ handle('app:pr-list', aiCall(async (e) => {
   return github.listPrs({ enabled: true, remotes });
 }));
 
+// Lanes overview: every local branch and worktree (git.lanes), with open PRs joined on by head
+// branch. Local only unless the caller asks for PRs ({ prs: true }) and pull requests are on
+// here; then it's the same single `gh pr list` as app:pr-list. A gh failure leaves `pr: null`
+// on every lane and comes back as `prError`, so the local data still shows.
+handle('app:lanes-list', async (e, opts) => {
+  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['base', 'prs'].includes(k)))) throw new check.IpcArgError('Invalid lanes options');
+  const base = opts?.base == null ? undefined : check.rev(opts.base, 'base');
+  const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
+  const root = session(e).repo.root;
+  const { lanes, ...rest } = await git.lanes(root, { base });
+  let listed = null;
+  let prError = null;
+  if (withPrs && (await prEnabled(root))) {
+    const remotes = await git.getRemotes(root);
+    if (github.pickRemote(remotes)) listed = await github.listPrs({ enabled: true, remotes }).catch((err) => { prError = serializeError(err); return null; });
+  }
+  return { ...rest, lanes: github.joinLanes(lanes, listed), prError };
+});
+
 // Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
 // renderer names the PR and the remote it came from; both are checked before `gh` runs.
 const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
