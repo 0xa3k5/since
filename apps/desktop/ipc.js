@@ -171,6 +171,7 @@ const gitSchemas = {
   history: [optional(int)],
   worktrees: [],
   worktreeChanges: [worktreeDir],
+  conflict: [repoPath],
   // ref mutations
   checkout: [rev],
   checkoutTracking: [rev],
@@ -214,6 +215,7 @@ const gitSchemas = {
   discardLines: [fileEntry, lineKeys],
   resetHard: [optional(rev)],
   chooseSide: [repoPath, oneOf('ours', 'theirs')],
+  resolveConflict: [repoPath, (v, w) => str(v, w, { max: 4 * MAX_TEXT, empty: true })],
   stashApply: [rev, optional(bool)],
   stashDrop: [rev],
   // history
