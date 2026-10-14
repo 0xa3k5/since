@@ -1517,12 +1517,13 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
   const candidates = ahead.filter((l) => l.complete);
   let baseTrees = new Set(); let baseIds = new Set(); let laneIds = new Map(); let squashIds = new Map();
   if (candidates.length) {
-    const not = ['--not', ...tips];
+    // Base side is bounded by count only: excluding lane tips would hide all of base whenever a
+    // lane descends from the base tip (any freshly branched lane).
     const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
     const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
     const [trees, baseDiff, laneDiff, squashDiff] = await Promise.all([
-      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%T', b.sha, ...not, '--']),
-      run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, ...not, '--']),
+      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%T', b.sha, '--']),
+      run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']),
       cherryTips.length ? run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : '',
       squashLines.length ? run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : '',
     ]);

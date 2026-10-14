@@ -77,6 +77,9 @@ test('lanes: ahead/behind, merged (ancestor, squash, cherry, tree-equal), nothin
   await commit(dir, 't.txt', 'draft\n'); await commit(dir, 't.txt', 'final\n');
   await g(dir, ['merge', '-q', '--squash', 'squashed']); clock += 60; await g(dir, ['commit', '-q', '-m', 'squashed (#1)']);
   await g(dir, ['cherry-pick', 'picked']);
+  // A new lane branched off base after the merges must not hide them.
+  await g(dir, ['switch', '-q', '-c', 'later']); await commit(dir, 'n.txt', 'n\n');
+  await g(dir, ['switch', '-q', 'main']);
   for (const aheadBehind of [undefined, false]) {
     const l = byName(await git.lanes(dir, { aheadBehind }));
     assert.equal(l.main.isBase, true);
@@ -85,6 +88,7 @@ test('lanes: ahead/behind, merged (ancestor, squash, cherry, tree-equal), nothin
     assert.deepEqual([l.squashed.ahead, l.squashed.merged], [2, 'squash']);
     assert.deepEqual([l.picked.ahead, l.picked.merged], [1, 'squash']);
     assert.equal(l.tree.merged, 'squash');
+    assert.deepEqual([l.later.ahead, l.later.behind, l.later.merged], [1, 0, null]);
     assert.deepEqual([l.open.ahead, l.open.behind, l.open.merged, l.open.nothingAhead], [1, 5, null, false]);
   }
   // At base tip exactly: nothing ahead, but not "merged".
