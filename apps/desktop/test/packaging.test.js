@@ -72,6 +72,17 @@ test('every module the main process requires is packaged', () => {
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
 });
 
+test('the main process opens no connections of its own, apart from updates and licences', () => {
+  // git and gh make their own requests; GitLanes only spawns them. Only updater.js and the licence
+  // store may request anything, and they're listed in docs/security.md.
+  const files = [...config.files.filter((f) => f.endsWith('.js')), ...fs.readdirSync(path.join(root, 'licence')).filter((f) => f.endsWith('.js')).map((f) => `licence/${f}`)];
+  const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
+  for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);
+  for (const file of ['git.js', 'ai.js', 'github.js', 'ipc.js', 'journal.js']) {
+    assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), /\bfetch\(|XMLHttpRequest|WebSocket/, file);
+  }
+});
+
 test('Electron fuses close the run-as-node and asar tampering paths', () => {
   assert.deepStrictEqual(config.electronFuses, {
     runAsNode: false,
