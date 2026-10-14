@@ -3,7 +3,8 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
-import { isCheckoutKey, isRowControl, isRepoSwitchKey } from './keys.js';
+import { isRowControl } from './keys.js';
+import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
@@ -614,7 +615,7 @@ function renderSidebar() {
     ),
     h('div.sb-origin', null, originLink()),
     h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: `${v.label} (${MOD}${v.key})`, 'aria-label': v.label },
-      icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, MOD + v.key)))),
+      icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
     h('div.sb-scroll', null,
       state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
       section('branches', 'Branches', branches, (r) => refItem(r)),
@@ -1024,24 +1025,22 @@ function createMapView(container) {
     if (!list.length) return;
     const cur = results ? results.findIndex((c) => c.sha === state.selected) : state.index.get(state.selected) ?? -1;
     const move = (d) => { e.preventDefault(); const n = Math.max(0, Math.min(list.length - 1, cur + d)); select(list[n].sha); };
-    if (isCheckoutKey(e) && !isEditable(e.target)) { e.preventDefault(); const s = list[cur]; if (s) checkoutSelected(s); return; }
-    if (e.metaKey || e.ctrlKey || e.altKey) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !window.getSelection().toString()) { e.preventDefault(); copy(state.selected, 'Copied SHA'); }
-      return;
-    }
     const c = list[cur];
-    switch (e.key) {
-      case 'ArrowDown': move(1); break;
-      case 'ArrowUp': move(-1); break;
-      case 'PageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
-      case 'PageUp': move(-Math.floor(scroller.clientHeight / ROW_H)); break;
-      case 'Home': move(-list.length); break;
-      case 'End': move(list.length); break;
-      case 'Enter': if (results) { clearSearch(); select(c.sha, 'center'); } else openQuick(state.selected); e.preventDefault(); break;
-      case ' ': e.preventDefault(); toggleDetail(); break;
-      case 'Escape': if (results) clearSearch(); break;
-      case 'h': if (state.head.oid) select(state.head.oid, 'center'); break;
-      default: if (c) commitShortcut(e, c);
+    const id = keymap.match('map', e);
+    switch (id) {
+      case 'commit.checkoutBranch': if (!isEditable(e.target)) { e.preventDefault(); if (c) checkoutSelected(c); } break;
+      case 'map.copySha': if (!window.getSelection().toString()) { e.preventDefault(); copy(state.selected, 'Copied SHA'); } break;
+      case 'map.next': move(1); break;
+      case 'map.prev': move(-1); break;
+      case 'map.pageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
+      case 'map.pageUp': move(-Math.floor(scroller.clientHeight / ROW_H)); break;
+      case 'map.first': move(-list.length); break;
+      case 'map.last': move(list.length); break;
+      case 'map.quick': if (results) { clearSearch(); select(c.sha, 'center'); } else openQuick(state.selected); e.preventDefault(); break;
+      case 'map.detail': e.preventDefault(); toggleDetail(); break;
+      case 'map.clearSearch': if (results) clearSearch(); break;
+      case 'map.head': if (state.head.oid) select(state.head.oid, 'center'); break;
+      default: if (c && id) commitShortcut(e, id, c);
     }
   });
 
@@ -1094,7 +1093,7 @@ function commitDetail(c) {
       c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => selectCommit(p, 'center') }, p.slice(0, 7))))) : null,
     ),
     h('div.files-head', null, h('span', null, `${c.files.length} file${c.files.length === 1 ? '' : 's'} changed`), h('span.stat', null, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`)),
-      h('button.btn.ghost.small', { onclick: () => openQuick(c.sha) }, 'Open', kbd('↵'))),
+      h('button.btn.ghost.small', { onclick: () => openQuick(c.sha) }, 'Open', kbd(...keymap.keys('map.quick')))),
     h('div.file-list', null, c.files.slice(0, 500).map((f) => withHistoryMenu(fileRow(f, () => openQuick(c.sha, f.path)), f))),
   );
 }
@@ -1154,7 +1153,7 @@ function quickView({ sha, path }) {
     if (!current && files[0]) current = files[0].path;
     side.replaceChildren(
       h('div.quick-head', null,
-        h('button.btn.ghost.small', { onclick: closeQuick }, icon('chevron', 12), 'Back', kbd('Esc')),
+        h('button.btn.ghost.small', { onclick: closeQuick }, icon('chevron', 12), 'Back', kbd(...keymap.keys('quick.close'))),
         h('div.quick-title', null, c.message.split('\n')[0]),
         h('div.quick-meta', null, avatar(c.author, c.email, 16), c.author, ' · ', timeAgo(c.time), ' · ', h('span.mono', null, c.sha.slice(0, 7))),
       ),
@@ -1186,11 +1185,12 @@ function quickView({ sha, path }) {
 
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closeQuick(); }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const id = keymap.match('quick', e);
+    if (id === 'quick.close') { e.preventDefault(); closeQuick(); }
+    if (id === 'quick.next' || id === 'quick.prev') {
       e.preventDefault();
       const i = files.findIndex((f) => f.path === current);
-      const n = Math.max(0, Math.min(files.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+      const n = Math.max(0, Math.min(files.length - 1, i + (id === 'quick.next' ? 1 : -1)));
       if (files[n]) { current = files[n].path; full = false; markActive(); renderFile(); side.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     }
   });
@@ -1239,12 +1239,13 @@ function splitView({ sha }) {
   const first = h('textarea.composer-input.split-msg', { placeholder: 'Message for the selected changes', spellcheck: true, rows: 3 });
   const second = h('textarea.composer-input.split-msg', { placeholder: 'Message for the remaining changes', spellcheck: true, rows: 3 });
   const summary = h('div.split-summary');
-  const splitBtn = h('button.btn.primary.wide', { onclick: () => submit() }, 'Split commit', kbd(MOD, '↵'));
+  const splitBtn = h('button.btn.primary.wide', { onclick: () => submit() }, 'Split commit', kbd(...keymap.keys('split.submit')));
   for (const t of [first, second]) {
     t.addEventListener('input', update);
     t.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
-      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); el.focus(); }
+      const id = keymap.match('split', e);
+      if (id === 'split.submit') { e.preventDefault(); submit(); }
+      else if (id === 'split.leave') { e.preventDefault(); e.stopPropagation(); el.focus(); }
     });
   }
 
@@ -1288,7 +1289,7 @@ function splitView({ sha }) {
     };
     main.replaceChildren(
       h('div.diff-head', null, statusBadge(statusOf(d)), h('span.mono', null, d.path), h('span.spacer'),
-        h('button.btn.subtle.small', { onclick: () => toggleFile(d) }, fileState(d) === 'all' ? 'Deselect file' : 'Select file', kbd('A'))),
+        h('button.btn.subtle.small', { onclick: () => toggleFile(d) }, fileState(d) === 'all' ? 'Deselect file' : 'Select file', kbd(...keymap.keys('split.toggleFile')))),
       h('div.diff-scroll', null, renderDiff(d, { selectable: true, selection: sel, onSelect, hunkActions, full, onShowAll: () => { full = true; renderFile(); } })),
       h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges'),
     );
@@ -1327,7 +1328,7 @@ function splitView({ sha }) {
     first.value = c.message;
     side.replaceChildren(
       h('div.quick-head', null,
-        h('button.btn.ghost.small', { onclick: () => closeSplit() }, icon('chevron', 12), 'Back', kbd('Esc')),
+        h('button.btn.ghost.small', { onclick: () => closeSplit() }, icon('chevron', 12), 'Back', kbd(...keymap.keys('global.close'))),
         h('div.quick-title', null, `Split “${c.message.split('\n')[0]}”`),
         h('div.quick-meta', null, avatar(c.author, c.email, 16), c.author, ' · ', timeAgo(c.time), ' · ', h('span.mono', null, c.sha.slice(0, 7))),
       ),
@@ -1344,14 +1345,15 @@ function splitView({ sha }) {
   })();
 
   el.addEventListener('keydown', (e) => {
-    if (isEditable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (isEditable(e.target)) return;
+    const id = keymap.match('split', e);
     const i = diffs.findIndex((d) => d.path === current);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (id === 'split.next' || id === 'split.prev') {
       e.preventDefault();
-      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (id === 'split.next' ? 1 : -1)))];
       if (n) { current = n.path; full = false; renderFiles(); renderFile(); files.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
-    } else if (e.key === 'a' && diffs[i]) { e.preventDefault(); toggleFile(diffs[i]); }
-    else if (e.key === 'c') { e.preventDefault(); (first.value.trim() ? second : first).focus(); }
+    } else if (id === 'split.toggleFile' && diffs[i]) { e.preventDefault(); toggleFile(diffs[i]); }
+    else if (id === 'split.message') { e.preventDefault(); (first.value.trim() ? second : first).focus(); }
   });
   return el;
 }
@@ -1361,15 +1363,15 @@ function splitView({ sha }) {
 
 const branchesAt = (sha) => state.refs.filter((r) => r.kind === 'branch' && r.target === sha);
 
-function commitShortcut(e, c) {
-  const k = e.key;
-  const map = {
-    b: () => createBranch(c.sha), t: () => createTag(c.sha), m: () => mergeCommit(c), r: () => rebaseOnto(c),
-    p: () => cherryPick(c), v: () => revertCommit(c), e: () => editMessage(c), s: () => rewriteOp('squash', c),
-    f: () => rewriteOp('fixup', c), Backspace: () => rewriteOp('drop', c), Delete: () => rewriteOp('drop', c),
-    o: () => checkoutCommit(c), d: () => diffWithHead(c), w: () => addWorktree({ base: c.sha }), S: () => openSplit(c), A: () => openAuthor(c),
-  };
-  if (map[k]) { e.preventDefault(); map[k](); }
+function commitShortcut(e, id, c) {
+  const run = {
+    'commit.branch': () => createBranch(c.sha), 'commit.tag': () => createTag(c.sha), 'commit.merge': () => mergeCommit(c),
+    'commit.rebase': () => rebaseOnto(c), 'commit.cherryPick': () => cherryPick(c), 'commit.revert': () => revertCommit(c),
+    'commit.edit': () => editMessage(c), 'commit.squash': () => rewriteOp('squash', c), 'commit.fixup': () => rewriteOp('fixup', c),
+    'commit.drop': () => rewriteOp('drop', c), 'commit.checkout': () => checkoutCommit(c), 'commit.diffHead': () => diffWithHead(c),
+    'commit.worktree': () => addWorktree({ base: c.sha }), 'commit.split': () => openSplit(c), 'commit.author': () => openAuthor(c),
+  }[id];
+  if (run) { e.preventDefault(); run(); }
 }
 
 function commitMenu(x, y, c) {
@@ -1377,36 +1379,36 @@ function commitMenu(x, y, c) {
   const isHead = c.sha === state.head.oid;
   const remote = originRemote();
   contextMenu(x, y, [
-    { label: 'Quick View', icon: 'eye', kbd: '↵', run: () => openQuick(c.sha) },
-    { label: 'Diff with HEAD', icon: 'diff', kbd: 'D', disabled: isHead, run: () => diffWithHead(c) },
+    { label: 'Quick View', icon: 'eye', kbd: keymap.keys('map.quick'), run: () => openQuick(c.sha) },
+    { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), disabled: isHead, run: () => diffWithHead(c) },
     '-',
     ...(locals.length
       ? locals.map((b) => (worktreeOf(b.short)
         ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => switchWorktree(worktreeOf(b.short)) }
         : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
-      : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: 'O', disabled: isHead && state.head.detached, run: () => checkoutCommit(c) }]),
-    { label: 'Create Branch…', icon: 'branch', kbd: 'B', run: () => createBranch(c.sha) },
-    { label: 'Create Tag…', icon: 'tag', kbd: 'T', run: () => createTag(c.sha) },
-    { label: 'New Worktree Here…', icon: 'worktree', kbd: 'W', run: () => addWorktree({ base: c.sha }) },
+      : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: keymap.keys('commit.checkout'), disabled: isHead && state.head.detached, run: () => checkoutCommit(c) }]),
+    { label: 'Create Branch…', icon: 'branch', kbd: keymap.keys('commit.branch'), run: () => createBranch(c.sha) },
+    { label: 'Create Tag…', icon: 'tag', kbd: keymap.keys('commit.tag'), run: () => createTag(c.sha) },
+    { label: 'New Worktree Here…', icon: 'worktree', kbd: keymap.keys('commit.worktree'), run: () => addWorktree({ base: c.sha }) },
     state.head.branch && !isHead ? { label: `Move “${state.head.branch}” here`, icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
     '-',
     { section: state.head.branch ? `Into ${state.head.branch}` : 'Into HEAD' },
-    { label: 'Merge into Current', icon: 'merge', kbd: 'M', disabled: isHead, run: () => mergeCommit(c) },
-    { label: 'Rebase Current onto This', icon: 'rebase', kbd: 'R', disabled: isHead, run: () => rebaseOnto(c) },
-    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: 'P', disabled: isHead, run: () => cherryPick(c) },
-    { label: 'Revert', icon: 'revert', kbd: 'V', run: () => revertCommit(c) },
+    { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), disabled: isHead, run: () => mergeCommit(c) },
+    { label: 'Rebase Current onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), disabled: isHead, run: () => rebaseOnto(c) },
+    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), disabled: isHead, run: () => cherryPick(c) },
+    { label: 'Revert', icon: 'revert', kbd: keymap.keys('commit.revert'), run: () => revertCommit(c) },
     '-',
     { section: 'Rewrite' },
-    { label: 'Edit Message…', icon: 'edit', kbd: 'E', run: () => editMessage(c) },
-    { label: 'Squash with Parent', icon: 'squash', kbd: 'S', disabled: c.parents.length !== 1, run: () => rewriteOp('squash', c) },
-    { label: 'Fixup with Parent', icon: 'squash', kbd: 'F', disabled: c.parents.length !== 1, run: () => rewriteOp('fixup', c) },
+    { label: 'Edit Message…', icon: 'edit', kbd: keymap.keys('commit.edit'), run: () => editMessage(c) },
+    { label: 'Squash with Parent', icon: 'squash', kbd: keymap.keys('commit.squash'), disabled: c.parents.length !== 1, run: () => rewriteOp('squash', c) },
+    { label: 'Fixup with Parent', icon: 'squash', kbd: keymap.keys('commit.fixup'), disabled: c.parents.length !== 1, run: () => rewriteOp('fixup', c) },
     { label: 'Swap with Parent', icon: 'swap', disabled: c.parents.length !== 1, run: () => rewriteOp('swapParent', c) },
-    { label: 'Split Commit…', icon: 'split', kbd: ['⇧', 'S'], disabled: c.parents.length > 1, run: () => openSplit(c) },
-    { label: 'Delete Commit', icon: 'trash', kbd: '⌫', danger: true, disabled: c.parents.length > 1, run: () => rewriteOp('drop', c) },
+    { label: 'Split Commit…', icon: 'split', kbd: keymap.keys('commit.split'), disabled: c.parents.length > 1, run: () => openSplit(c) },
+    { label: 'Delete Commit', icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: c.parents.length > 1, run: () => rewriteOp('drop', c) },
     '-',
-    { label: 'Copy SHA', icon: 'copy', kbd: [MOD, 'C'], run: () => copy(c.sha, 'Copied SHA') },
+    { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
     { label: 'Copy Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
-    authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: ['⇧', 'A'], run: () => openAuthor(c) } : null,
+    authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => openAuthor(c) } : null,
     remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
   ]);
 }
@@ -1511,9 +1513,9 @@ async function diffWithHead(c) {
   if (!diffs) return;
   state.quick = null;
   contentEl.replaceChildren(h('div.compare', null,
-    h('div.diff-head', null, h('button.btn.ghost.small', { onclick: () => renderView() }, icon('chevron', 12), 'Back', kbd('Esc')),
+    h('div.diff-head', null, h('button.btn.ghost.small', { onclick: () => renderView() }, icon('chevron', 12), 'Back', kbd(...keymap.keys('diff.close'))),
       h('span.mono', null, `${c.sha.slice(0, 7)} → HEAD`), h('span.spacer'), h('span.muted', null, `${diffs.length} files`)),
-    h('div.diff-scroll', { tabIndex: 0, onkeydown: (e) => { if (e.key === 'Escape') renderView(); } }, diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d)))),
+    h('div.diff-scroll', { tabIndex: 0, onkeydown: (e) => { if (keymap.match('diff', e) === 'diff.close') renderView(); } }, diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d)))),
   ));
   contentEl.querySelector('.diff-scroll').focus();
 }
@@ -1531,13 +1533,13 @@ function createCommitView(container) {
   const textarea = h('textarea.composer-input', { placeholder: 'Commit message', spellcheck: true, rows: 4 });
   textarea.value = localStorage.getItem(draftKey()) || '';
   textarea.addEventListener('input', () => { try { localStorage.setItem(draftKey(), textarea.value); } catch { /* ignore */ } updateCommitBtn(); });
-  textarea.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doCommit(); } });
+  textarea.addEventListener('keydown', (e) => { if (keymap.match('message', e) === 'message.commit') { e.preventDefault(); doCommit(); } });
   const amend = h('input', { type: 'checkbox', checked: state.amend, onchange: async (e) => {
     state.amend = e.target.checked;
     if (state.amend && !textarea.value.trim() && state.head.oid) { textarea.value = (await loadCommit(state.head.oid)).message; }
     updateCommitBtn();
   } });
-  const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(MOD, '↵'));
+  const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(...keymap.keys('message.commit')));
   // Only shown once the user has turned AI commit messages on.
   const aiBtn = h('button.icon-btn.ai-btn', { title: `Write message with AI (${MOD}⌥G)`, hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
   const composer = h('div.composer', null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
@@ -1591,28 +1593,28 @@ function createCommitView(container) {
         if (t.length > 1) {
           const n = `${t.length} Files`;
           return contextMenu(e.clientX, e.clientY, [
-            list === 'unstaged' ? { label: `Stage ${n}`, icon: 'plus', kbd: '↵', run: () => quiet('stageFiles', paths(t)) } : null,
-            list === 'staged' ? { label: `Unstage ${n}`, icon: 'minus', kbd: '↵', run: () => quiet('unstageFiles', paths(t)) } : null,
-            list === 'conflicts' ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool(paths(t)) } : null,
+            list === 'unstaged' ? { label: `Stage ${n}`, icon: 'plus', kbd: keymap.keys('cv.stage'), run: () => quiet('stageFiles', paths(t)) } : null,
+            list === 'staged' ? { label: `Unstage ${n}`, icon: 'minus', kbd: keymap.keys('cv.stage'), run: () => quiet('unstageFiles', paths(t)) } : null,
+            list === 'conflicts' ? { label: 'Open in Mergetool', icon: 'merge', kbd: keymap.keys('repo.mergetool'), run: () => openMergetool(paths(t)) } : null,
             { label: 'Copy Paths', icon: 'copy', run: () => copy(paths(t).join('\n'), 'Copied paths') },
             list !== 'conflicts' ? { label: `Stash ${n}…`, icon: 'stash', run: () => stashSave({ paths: t.flatMap((x) => (x.oldPath ? [x.path, x.oldPath] : [x.path])), untracked: t.some((x) => x.status === '?') }) } : null,
             list === 'unstaged' ? '-' : null,
-            list === 'unstaged' ? { label: `Discard Changes to ${n}…`, icon: 'trash', danger: true, kbd: '⌫', run: () => discard(t) } : null,
+            list === 'unstaged' ? { label: `Discard Changes to ${n}…`, icon: 'trash', danger: true, kbd: keymap.keys('cv.discard'), run: () => discard(t) } : null,
           ]);
         }
         contextMenu(e.clientX, e.clientY, [
-          list === 'unstaged' ? { label: 'Stage', icon: 'plus', kbd: '↵', run: () => quiet('stageFiles', [f.path]) } : null,
-          list === 'staged' ? { label: 'Unstage', icon: 'minus', kbd: '↵', run: () => quiet('unstageFiles', [f.path]) } : null,
+          list === 'unstaged' ? { label: 'Stage', icon: 'plus', kbd: keymap.keys('cv.stage'), run: () => quiet('stageFiles', [f.path]) } : null,
+          list === 'staged' ? { label: 'Unstage', icon: 'minus', kbd: keymap.keys('cv.stage'), run: () => quiet('unstageFiles', [f.path]) } : null,
           list === 'conflicts'
-            ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool([f.path]) }
-            : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: [MOD, '⇧', 'D'], run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
-          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⇧', 'H'], run: () => openFileHistory(f.path) } : null,
+            ? { label: 'Open in Mergetool', icon: 'merge', kbd: keymap.keys('repo.mergetool'), run: () => openMergetool([f.path]) }
+            : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: keymap.keys('repo.difftool'), run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
+          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: keymap.keys('repo.fileHistory'), run: () => openFileHistory(f.path) } : null,
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
           list !== 'conflicts' ? { label: 'Stash File…', icon: 'stash', run: () => stashSave({ paths: f.oldPath ? [f.path, f.oldPath] : [f.path], untracked: f.status === '?' }) } : null,
           list === 'unstaged' ? '-' : null,
-          list === 'unstaged' ? { label: 'Discard Changes…', icon: 'trash', danger: true, kbd: '⌫', run: () => discard([f]) } : null,
+          list === 'unstaged' ? { label: 'Discard Changes…', icon: 'trash', danger: true, kbd: keymap.keys('cv.discard'), run: () => discard([f]) } : null,
         ]);
       });
       return row;
@@ -1793,24 +1795,26 @@ function createCommitView(container) {
     if (e.target.tagName === 'TEXTAREA') return;
     const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
     const i = all.findIndex(([l, f]) => l === state.cv.list && f.path === state.cv.path);
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'a') {
+    const id = keymap.match('commit', e);
+    const step = { 'cv.next': 1, 'cv.prev': -1, 'cv.extendNext': 1, 'cv.extendPrev': -1 }[id];
+    if (id === 'cv.selectAll') {
       if (isEditable(e.target)) return;
       e.preventDefault(); selectAll();
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    } else if (step) {
       e.preventDefault();
-      const n = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+      const n = all[Math.max(0, Math.min(all.length - 1, i + step))];
       // Shift+arrows extend the selection, but never across into another list.
-      if (n && e.shiftKey) { if (n[0] === state.cv.list) selectRange(n[0], n[1].path); } else if (n) selectFile(n[0], n[1].path);
+      if (n && (id === 'cv.extendNext' || id === 'cv.extendPrev')) { if (n[0] === state.cv.list) selectRange(n[0], n[1].path); } else if (n) selectFile(n[0], n[1].path);
       lists.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' });
-    } else if (e.key === 'Escape' && state.cv.sel.size > 1) {
+    } else if (id === 'cv.single' && state.cv.sel.size > 1) {
       e.preventDefault(); selectFile(state.cv.list, state.cv.path);
-    } else if (e.key === 'Enter' && i !== -1) {
+    } else if (id === 'cv.stage' && i !== -1) {
       e.preventDefault();
       const [l, f] = all[i];
       if (l === 'unstaged') quiet('stageFiles', paths(targets(l, f))); else if (l === 'staged') quiet('unstageFiles', paths(targets(l, f)));
-    } else if ((e.key === 'Backspace' || e.key === 'Delete') && i !== -1 && all[i][0] === 'unstaged') {
+    } else if (id === 'cv.discard' && i !== -1 && all[i][0] === 'unstaged') {
       e.preventDefault(); discard(targets('unstaged', all[i][1]));
-    } else if (e.key === 'c' && !e.metaKey && !e.ctrlKey) {
+    } else if (id === 'cv.message') {
       e.preventDefault(); textarea.focus();
     }
   });
@@ -1869,8 +1873,8 @@ function stashesView() {
   // ↑/↓ move the selection through the list.
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
-    const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
-    if (!step || e.metaKey || e.ctrlKey || e.altKey || isEditable(e.target) || !state.stashes.length) return;
+    const step = { 'stashes.next': 1, 'stashes.prev': -1 }[keymap.match('stashes', e)];
+    if (!step || isEditable(e.target) || !state.stashes.length) return;
     e.preventDefault();
     const i = state.stashes.findIndex((x) => x.ref === current);
     const n = state.stashes[Math.max(0, Math.min(state.stashes.length - 1, i < 0 ? 0 : i + step))];
@@ -1913,8 +1917,8 @@ function snapshotsView() {
     h('div.page-head', null,
       h('div', null, h('h1', null, 'Snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
       h('div.page-actions', null,
-        h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(MOD, 'Z')),
-        h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(MOD, '⇧', 'Z'))),
+        h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(...keymap.keys('edit.undo'))),
+        h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(...keymap.keys('edit.redo')))),
     ),
     entries.length ? h('div.timeline', null, entries.map((e, i) => h('div.tl-row' + (e.redo ? '.undone' : '') + (!e.redo && i === r.length ? '.current' : '') + (e.id === state.snapSel ? '.selected' : ''), { 'data-id': e.id, onclick: (ev) => { if (!ev.target.closest('button')) selectSnapshot(e.id); } },
       h('span.tl-dot'),
@@ -1938,9 +1942,10 @@ function snapshotKey(e) {
   const list = snapshotEntries();
   if (!list.length) return false;
   const at = list.findIndex((x) => x.id === state.snapSel);
-  const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+  const id = keymap.match('snapshots', e);
+  const step = { 'snapshots.next': 1, 'snapshots.prev': -1 }[id];
   if (step) { selectSnapshot(list[Math.max(0, Math.min(list.length - 1, at < 0 ? 0 : at + step))].id); return true; }
-  if (e.key === 'Enter' && at >= 0 && document.activeElement?.tagName !== 'BUTTON') { if (list[at].movesRefs) restoreSnapshot(list[at]); return true; }
+  if (id === 'snapshots.restore' && at >= 0 && document.activeElement?.tagName !== 'BUTTON') { if (list[at].movesRefs) restoreSnapshot(list[at]); return true; }
   return false;
 }
 
@@ -2170,20 +2175,21 @@ function worktreesView() {
       h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own lane.')),
       h('div.page-actions', null,
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
-        h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(MOD, '⌥', 'N')))),
+        h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
     list,
     ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${MOD}⌥N, or press W on a commit in the Map.`)] : []),
     h('div.diff-hint.wt-hint', null, '↵ Switch · ', MOD, '↵ New window · L Lock · ⌫ Remove · N New'),
   );
   el.addEventListener('keydown', (e) => {
     const w = state.worktrees[idx];
-    if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
-    else if (e.key === 'Enter' && w) { e.preventDefault(); if (e.metaKey || e.ctrlKey) openWorktreeWindow(w); else switchWorktree(w); }
-    else if (e.metaKey || e.ctrlKey || e.altKey) return;
-    else if (e.key === 'l' && w) { e.preventDefault(); toggleLock(w); }
-    else if ((e.key === 'Backspace' || e.key === 'Delete') && w) { e.preventDefault(); removeWorktree(w); }
-    else if (e.key === 'n') { e.preventDefault(); addWorktree(); }
+    const id = keymap.match('worktrees', e);
+    if (id === 'worktrees.next') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
+    else if (id === 'worktrees.prev') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
+    else if (id === 'worktrees.switch' && w) { e.preventDefault(); switchWorktree(w); }
+    else if (id === 'worktrees.window' && w) { e.preventDefault(); openWorktreeWindow(w); }
+    else if (id === 'worktrees.lock' && w) { e.preventDefault(); toggleLock(w); }
+    else if (id === 'worktrees.remove' && w) { e.preventDefault(); removeWorktree(w); }
+    else if (id === 'worktrees.add') { e.preventDefault(); addWorktree(); }
   });
   // Change counts cost a `git status` per worktree, so they load after the list. Other
   // worktrees' folders aren't watched: recount when the window comes back into focus.
@@ -2199,17 +2205,17 @@ function worktreesView() {
 
 function worktreeMenu(x, y, w) {
   contextMenu(x, y, [
-    { label: 'Switch to This Worktree', icon: 'worktree', kbd: '↵', disabled: w.current || w.missing, run: () => switchWorktree(w) },
-    { label: 'Open in New Window', icon: 'plus', kbd: [MOD, '↵'], disabled: w.current || w.missing, run: () => openWorktreeWindow(w) },
+    { label: 'Switch to This Worktree', icon: 'worktree', kbd: keymap.keys('worktrees.switch'), disabled: w.current || w.missing, run: () => switchWorktree(w) },
+    { label: 'Open in New Window', icon: 'plus', kbd: keymap.keys('worktrees.window'), disabled: w.current || w.missing, run: () => openWorktreeWindow(w) },
     '-',
     { label: 'Reveal in Finder', icon: 'folder', disabled: w.missing, run: () => api.app('reveal', w.path) },
     { label: 'Open in Terminal', icon: 'terminal', disabled: w.missing, run: () => api.app('terminal', w.path) },
     { label: 'Copy Path', icon: 'copy', run: () => copy(w.path, 'Copied path') },
     '-',
-    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: 'L', disabled: w.main, run: () => toggleLock(w) },
+    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: keymap.keys('worktrees.lock'), disabled: w.main, run: () => toggleLock(w) },
     w.missing
       ? { label: 'Prune Missing Worktrees', icon: 'trash', danger: true, run: pruneWorktrees }
-      : { label: 'Remove Worktree…', icon: 'trash', kbd: '⌫', danger: true, disabled: w.main || w.current, run: () => removeWorktree(w) },
+      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main || w.current, run: () => removeWorktree(w) },
   ]);
 }
 
@@ -2274,7 +2280,7 @@ function worktreeSwitcher() {
   if (!state.repo) return;
   palette(() => [
     ...state.worktrees.filter((w) => !w.missing).map((w) => ({ group: 'Worktrees', label: w.name, icon: 'worktree', detail: (w.current ? 'this window · ' : '') + (w.branch || (w.head ? 'detached ' + w.head.slice(0, 7) : '')), keywords: w.path, run: () => switchWorktree(w) })),
-    { group: 'Worktrees', label: 'New worktree…', icon: 'plus', kbd: [MOD, '⌥', 'N'], run: () => addWorktree() },
+    { group: 'Worktrees', label: 'New worktree…', icon: 'plus', kbd: keymap.keys('repo.worktreeAdd'), run: () => addWorktree() },
   ], { placeholder: 'Switch to worktree…' });
 }
 
@@ -2605,13 +2611,13 @@ function prList() {
   const prs = state.prs.data?.prs || [];
   palette(() => [
     ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
-    { group: 'Pull requests', label: 'Refresh pull requests', icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], run: () => refreshPrs({ manual: true }) },
-    { group: 'Pull requests', label: 'New pull request…', icon: 'plus', kbd: [MOD, '⌥', '⇧', 'N'], run: () => createPr() },
-    { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], run: () => pickPr(false) },
-    { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], run: () => pickPr(true) },
-    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], run: () => approvePr() },
-    { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: [MOD, '⌥', '⇧', 'M'], run: () => mergePr() },
-    { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: [MOD, '⌥', '⇧', 'W'], run: () => closePr() },
+    { group: 'Pull requests', label: 'Refresh pull requests', icon: 'fetch', kbd: keymap.keys('repo.prRefresh'), run: () => refreshPrs({ manual: true }) },
+    { group: 'Pull requests', label: 'New pull request…', icon: 'plus', kbd: keymap.keys('repo.prCreate'), run: () => createPr() },
+    { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => pickPr(false) },
+    { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => pickPr(true) },
+    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: keymap.keys('repo.prApprove'), run: () => approvePr() },
+    { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: keymap.keys('repo.prMerge'), run: () => mergePr() },
+    { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: keymap.keys('repo.prClose'), run: () => closePr() },
     { group: 'Pull requests', label: 'Show in sidebar', icon: 'sidebar', run: () => openSidebarAt('prs') },
   ], { placeholder: 'Go to pull request…' });
 }
@@ -2709,9 +2715,9 @@ const closePr = (given) => withPr(given, 'Close', async (pr) => {
 function prMenu(e, pr) {
   e.preventDefault();
   contextMenu(e.clientX, e.clientY, [
-    { label: 'Go to Branch', icon: 'branch', kbd: '↵', run: () => goToPr(pr) },
-    { label: 'Check Out', icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], run: () => checkoutPr(pr) },
-    { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], run: () => checkoutPr(pr, { worktree: true }) },
+    { label: 'Go to Branch', icon: 'branch', kbd: keymap.keys('menu.choose'), run: () => goToPr(pr) },
+    { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => checkoutPr(pr) },
+    { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => checkoutPr(pr, { worktree: true }) },
     '-',
     { label: 'Approve…', icon: 'check', run: () => approvePr(pr) },
     { label: 'Merge…', icon: 'merge', run: () => mergePr(pr) },
@@ -2726,7 +2732,7 @@ function submoduleSwitcher() {
   if (!state.submodules.length) return toast('This repository has no submodules');
   palette(() => [
     ...state.submodules.map((m) => ({ group: 'Submodules', label: m.path, icon: 'submodule', detail: SUBMODULE_STATES[m.state][0], keywords: `${m.name} ${m.url}`, run: () => (m.head ? openSubmodule(m) : updateSubmodules([m])) })),
-    { group: 'Submodules', label: 'Update all submodules', icon: 'pull', kbd: [MOD, '⌥', 'U'], run: () => updateSubmodules() },
+    { group: 'Submodules', label: 'Update all submodules', icon: 'pull', kbd: keymap.keys('repo.submoduleUpdate'), run: () => updateSubmodules() },
   ], { placeholder: 'Open submodule…' });
 }
 
@@ -2752,40 +2758,40 @@ function openPalette() {
   const pal = palette(() => {
     const items = [];
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
-    VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: [MOD, v.key] }));
-    add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: [MOD, '⇧', 'F'] });
-    add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: [MOD, '⇧', 'L'] });
-    add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: [MOD, '⇧', 'P'] });
+    VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: keymap.keys(`view.${v.id}`) }));
+    add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: keymap.keys('repo.fetch') });
+    add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: keymap.keys('repo.pull') });
+    add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });
     add('Repository', 'Force push current branch (with lease)', async () => { if (await confirm('Force push?', 'Overwrites the remote branch if nobody else pushed meanwhile.', { submit: 'Force push' })) push(true); }, { icon: 'push' });
-    add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: [MOD, '⌥', 'G'], detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
-    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: [MOD, '⌥', 'P'], detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
-    add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], keywords: 'pr github gh' });
-    add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: [MOD, '⌥', '⇧', 'N'], keywords: 'pr github gh create open push' });
+    add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: keymap.keys('repo.aiMessage'), detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
+    add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: keymap.keys('repo.prs'), detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
+    add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: keymap.keys('repo.prRefresh'), keywords: 'pr github gh' });
+    add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: keymap.keys('repo.prCreate'), keywords: 'pr github gh create open push' });
     add('Repository', 'New pull request from branch…', pickPrBranch, { icon: 'plus', keywords: 'pr github gh create open branch' });
-    add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: [MOD, '⌥', '⇧', 'O'], keywords: 'pr github gh branch review' });
-    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: [MOD, '⌥', '⇧', 'L'], keywords: 'pr github gh lane review' });
+    add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
+    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh lane review' });
     if (state.prs?.enabled) {
-      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], keywords: 'pr github gh review approve' });
-      add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: [MOD, '⌥', '⇧', 'M'], keywords: 'pr github gh squash rebase merge' });
-      add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: [MOD, '⌥', '⇧', 'W'], keywords: 'pr github gh close' });
+      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
+      add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
+      add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
     if (state.prs?.enabled) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
-    add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: [MOD, '⌥', 'I'], keywords: 'user email name author wrong identity' });
+    add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
-    add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
-    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: [MOD, '⌥', 'S'], keywords: 'partial stash index' });
-    add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
-    add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
+    add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: keymap.keys('repo.stash') });
+    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
+    add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
+    add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
     const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
-    if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: ['↵'], keywords: 'snapshot undo history timeline jump back restore' });
+    if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: keymap.keys('snapshots.restore'), keywords: 'snapshot undo history timeline jump back restore' });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
-    add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
-    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⇧', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
-    add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
-    if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: [MOD, 'A'], keywords: 'select all multi stage unstage discard files changes' });
-    if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
+    add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: keymap.keys('repo.lfs'), detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
+    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: keymap.keys('repo.fileHistory'), detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
+    add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: keymap.keys('repo.difftool'), keywords: 'difftool external diff tool compare kaleidoscope beyond' });
+    if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
+    if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: keymap.keys('repo.conflicts'), detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
       const a = conflictEd.actions, k = CONFLICT_KEYS;
       const c = (label, run, kbd) => add('Conflicts', label, run, { icon: 'merge', kbd, keywords: 'conflict resolve' });
@@ -2802,9 +2808,9 @@ function openPalette() {
       c(conflictEd.editing() ? 'Stop editing the result' : 'Edit the result', a.edit, k.edit);
       c('Mark file resolved', a.resolve, [MOD, 'S']);
     }
-    add('Repository', 'Open conflicts in mergetool', () => openMergetool(), { icon: 'merge', kbd: [MOD, '⇧', 'M'], detail: state.status.conflicts.length ? `${state.status.conflicts.length} conflicted` : 'no conflicts', keywords: 'mergetool external merge tool conflict resolve' });
-    add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: [MOD, '⌥', 'N'] });
-    add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: [MOD, '⌥', 'W'] });
+    add('Repository', 'Open conflicts in mergetool', () => openMergetool(), { icon: 'merge', kbd: keymap.keys('repo.mergetool'), detail: state.status.conflicts.length ? `${state.status.conflicts.length} conflicted` : 'no conflicts', keywords: 'mergetool external merge tool conflict resolve' });
+    add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: keymap.keys('repo.worktreeAdd') });
+    add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: keymap.keys('repo.worktreeSwitch') });
     if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
     for (const w of state.worktrees) {
       if (w.current || w.missing) continue;
@@ -2815,8 +2821,8 @@ function openPalette() {
       if (!w.main) add('Worktrees', `Remove worktree ${w.name}…`, () => removeWorktree(w), { icon: 'trash', detail });
     }
     if (state.submodules.length) {
-      add('Submodules', 'Open submodule…', submoduleSwitcher, { icon: 'submodule', kbd: [MOD, '⌥', 'B'], keywords: 'submodule nested repository' });
-      add('Submodules', 'Update all submodules', () => updateSubmodules(), { icon: 'pull', kbd: [MOD, '⌥', 'U'], keywords: 'submodule init update checkout recorded' });
+      add('Submodules', 'Open submodule…', submoduleSwitcher, { icon: 'submodule', kbd: keymap.keys('repo.submodules'), keywords: 'submodule nested repository' });
+      add('Submodules', 'Update all submodules', () => updateSubmodules(), { icon: 'pull', kbd: keymap.keys('repo.submoduleUpdate'), keywords: 'submodule init update checkout recorded' });
       for (const m of state.submodules) {
         if (m.head) add('Submodules', `Open submodule ${m.path} in new window`, () => openSubmodule(m), { icon: 'submodule', detail: SUBMODULE_STATES[m.state][0] });
         if (['outdated', 'uninitialized'].includes(m.state)) add('Submodules', `Update submodule ${m.path}`, () => updateSubmodules([m]), { icon: 'pull', detail: SUBMODULE_STATES[m.state][0] });
@@ -2825,21 +2831,21 @@ function openPalette() {
     add('Repository', 'Open in Finder', () => api.app('reveal'), { icon: 'folder' });
     add('Repository', 'Open in Terminal', () => api.app('terminal'), { icon: 'terminal' });
     add('Repository', 'Open in hosting service', openHosting, { icon: 'external' });
-    if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: [MOD, '⇧', 'G'], detail: originRemote().label });
+    if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: keymap.keys('repo.origin'), detail: originRemote().label });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
-    add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: [MOD, '⌥', 'C'], keywords: 'color colour swatch preview css hex rgb settings' });
-    add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: [MOD, '⌥', '\\'], keywords: 'toggle commit details inspector right panel sidebar show hide' });
-    add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'], keywords: 'toggle sidebar collapse minimize expand rail' });
+    add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
+    add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
+    add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
-    if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: [MOD, '↵'], detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
-    if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: ['⇧', 'A'], detail: sel.author, keywords: 'author profile github user person' });
-    if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
+    if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: keymap.keys('commit.checkoutBranch'), detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
+    if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: keymap.keys('commit.author'), detail: sel.author, keywords: 'author profile github user person' });
+    if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: keymap.keys('commit.split'), detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
-    add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
-    add('App', 'Switch repository…', repoSwitcher, { icon: 'folder', kbd: [MOD, '⌥', 'O'], keywords: 'recent open project switch' });
+    add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: keymap.keys('file.open') });
+    add('App', 'Switch repository…', repoSwitcher, { icon: 'folder', kbd: keymap.keys('file.repoSwitch'), keywords: 'recent open project switch' });
     for (const x of recent) add('Recent repositories', `Switch to ${x.name}`, () => openRepo(x.root), { icon: 'folder', detail: tildePath(x.root), keywords: `recent repository open ${x.root}` });
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
@@ -2848,7 +2854,7 @@ function openPalette() {
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
-    add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: [MOD, '⇧', ','], keywords: 'settings preferences setup onboarding defaults features welcome' });
+    add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: keymap.keys('global.setup'), keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
     for (const r of state.refs) {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
@@ -2871,9 +2877,9 @@ async function repoMenu(anchor) {
     recent.length ? { section: 'Recent repositories' } : null,
     ...recent.map((x) => ({ label: x.name, icon: 'folder', run: () => openRepo(x.root) })),
     recent.length ? '-' : null,
-    { label: 'Open Repository…', icon: 'folder', kbd: [MOD, 'O'], run: () => openRepo() },
+    { label: 'Open Repository…', icon: 'folder', kbd: keymap.keys('file.open'), run: () => openRepo() },
     { label: 'Clone Repository…', icon: 'fetch', run: cloneRepo },
-    { label: 'New Window', icon: 'plus', kbd: [MOD, '⇧', 'N'], run: () => api.app('new-window') },
+    { label: 'New Window', icon: 'plus', kbd: keymap.keys('file.newWindow'), run: () => api.app('new-window') },
     '-',
     { label: 'Open in Finder', icon: 'folder', run: () => api.app('reveal') },
     { label: 'Open in Terminal', icon: 'terminal', run: () => api.app('terminal') },
@@ -2928,7 +2934,7 @@ function openSetup() {
   const close = () => { overlay.classList.remove('in'); setTimeout(() => overlay.remove(), 120); prev?.focus?.(); };
   const view = setupPanel(close, 'Done');
   const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, view);
-  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+  overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); close(); } });
   document.body.append(overlay);
   requestAnimationFrame(() => overlay.classList.add('in'));
   view.querySelector('.switch')?.focus();
@@ -2955,9 +2961,9 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
       trialLine(state.licence) ? h('button.licence-line', { onclick: () => openLicence() }, icon('key', 12), trialLine(state.licence), kbd(...LICENCE_KBD)) : null,
       h('div.welcome-actions', null,
-        h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(MOD, 'O')),
-        h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(MOD, '⇧', 'O')),
-        h('button.btn.subtle', { onclick: initRepo }, icon('plus', 14), 'New', kbd(MOD, 'N')),
+        h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(...keymap.keys('file.open'))),
+        h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(...keymap.keys('file.clone'))),
+        h('button.btn.subtle', { onclick: initRepo }, icon('plus', 14), 'New', kbd(...keymap.keys('file.init'))),
       ),
       recent.length ? h('div.recent-head', null, 'Recent') : null,
       list,
@@ -2965,9 +2971,10 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
   );
   el.addEventListener('keydown', (e) => {
     if (learn.contains(e.target)) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(recent.length - 1, idx + 1); renderList(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(0, idx - 1); renderList(); }
-    if (e.key === 'Enter' && recent[idx]) openRepo(recent[idx].root);
+    const id = keymap.match('recent', e);
+    if (id === 'recent.next') { e.preventDefault(); idx = Math.min(recent.length - 1, idx + 1); renderList(); }
+    if (id === 'recent.prev') { e.preventDefault(); idx = Math.max(0, idx - 1); renderList(); }
+    if (id === 'recent.open' && recent[idx]) openRepo(recent[idx].root);
   });
   el.addEventListener('dragover', (e) => e.preventDefault());
   root.replaceChildren(el);
@@ -3147,7 +3154,7 @@ function withHistoryMenu(row, f) {
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     contextMenu(e.clientX, e.clientY, [
-      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⇧', 'H'], run: () => openFileHistory(f.path) } : null,
+      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: keymap.keys('repo.fileHistory'), run: () => openFileHistory(f.path) } : null,
       { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
     ]);
   });
@@ -3188,7 +3195,8 @@ function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName ===
 
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('.overlay')) return;
-  if (e.key === 'Escape' && sidebarMode(sbState()) === 'overlay') {
+  const id = keymap.match('global', e);
+  if (id === 'global.close' && sidebarMode(sbState()) === 'overlay') {
     e.preventDefault();
     clearTimeout(sbHideTimer);
     const inside = sidebarEl.contains(document.activeElement);
@@ -3197,27 +3205,27 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
-  if (isRepoSwitchKey(e)) { e.preventDefault(); commands.repoSwitch(); return; }
+  if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
-  if ((e.key === ',' || e.key === '<') && (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
-  if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
-  if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
-  // "G then X" navigation
+  if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
+  if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }
+  if (id === 'global.close' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
+  // "G then X" navigation: the view chords in the keymap ("g c" → view.commit)
   if (!isEditable(document.activeElement) && !e.metaKey && !e.ctrlKey && state.repo) {
     if (gPending) {
-      gPending = false;
-      const v = { m: 'map', c: 'commit', s: 'stashes', h: 'snapshots', r: 'reflog', w: 'worktrees' }[e.key];
+      const v = keymap.match('menu', e, gPending)?.replace('view.', '');
+      gPending = null;
       if (v) { e.preventDefault(); setView(v); return; }
-    } else if (e.key === 'g' && state.view !== 'commit') { gPending = true; setTimeout(() => { gPending = false; }, 800); return; }
-    if (e.key === '/' ) { e.preventDefault(); commands.search(); }
+    } else if (state.view !== 'commit' && (gPending = keymap.chordStart('menu', e))) { setTimeout(() => { gPending = null; }, 800); return; }
+    if (id === 'global.search') { e.preventDefault(); commands.search(); }
     if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
-  if (state.repo && e.code === 'Backslash' && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey) {
+  if (state.repo && id === 'global.detail') {
     e.preventDefault();
     if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) toggleDetail();
   }
 });
-let gPending = false;
+let gPending = null;
 
 // ---------------------------------------------------------------------------
 // Theme (System / Light / Dark). The main process owns the setting and applies it via
@@ -3228,7 +3236,7 @@ const THEMES = [
   { id: 'light', label: 'Light', icon: 'sun' },
   { id: 'dark', label: 'Dark', icon: 'moon' },
 ];
-const THEME_KBD = isMac ? ['⌃', '⌘', 'T'] : ['Ctrl', 'Alt', '⇧', 'T'];
+const THEME_KBD = keymap.keys('view.cycleTheme');
 const themeLabel = (id) => THEMES.find((t) => t.id === id)?.label || id;
 const setTheme = (mode) => api.app('set-theme', mode);
 const cycleTheme = () => api.app('cycle-theme');

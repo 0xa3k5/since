@@ -1,5 +1,5 @@
 'use strict';
-// Recent repositories in ⌘K and the ⌘⌥O switcher (renderer/recent.js, renderer/keys.js).
+// Recent repositories in ⌘K and the ⌘⌥O switcher (renderer/recent.js, renderer/keymap.js).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -22,7 +22,8 @@ test('the switcher shows every other recent repository and keeps all when none i
 });
 
 test('⌘⌥O (Ctrl+Alt+O) opens the repository switcher; other O chords do not', async () => {
-  const { isRepoSwitchKey } = await import('../renderer/keys.js');
+  const { match } = await import('../renderer/keymap.js');
+  const isRepoSwitchKey = (e) => match('menu', e) === 'file.repoSwitch';
   const k = (o) => ({ code: 'KeyO', key: 'ø', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
   assert.equal(isRepoSwitchKey(k({ metaKey: true, altKey: true })), true);
   assert.equal(isRepoSwitchKey(k({ ctrlKey: true, altKey: true })), true);
@@ -33,7 +34,9 @@ test('⌘⌥O (Ctrl+Alt+O) opens the repository switcher; other O chords do not'
   assert.equal(isRepoSwitchKey(k({ code: 'KeyP', metaKey: true, altKey: true })), false);
 });
 
-test('the File menu has Switch Repository… on ⌘⌥O', () => {
+test('the File menu has Switch Repository… on ⌘⌥O', async () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../main.js'), 'utf8');
-  assert.match(src, /item\('Switch Repository…', 'CmdOrCtrl\+Alt\+O', 'repoSwitch'\)/);
+  assert.match(src, /item\('Switch Repository…', acc\('file.repoSwitch'\), 'repoSwitch'\)/);
+  const { accelerator } = await import('../renderer/keymap.js');
+  assert.equal(accelerator('file.repoSwitch'), 'CmdOrCtrl+Alt+O');
 });

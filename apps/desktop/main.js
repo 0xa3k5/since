@@ -767,17 +767,16 @@ function createWindow(repoDir) {
   return win;
 }
 
-// ⌃⌘T on macOS ("T" for Theme); ⌘⇧T and ⌥⌘T are already taken.
-const THEME_ACCELERATOR = isMac ? 'Cmd+Ctrl+T' : 'Ctrl+Alt+Shift+T';
+// Menu accelerators come from the keymap (renderer/keymap.js), the one list of every shortcut.
+const keymap = require('./renderer/keymap.js');
+const acc = (id) => keymap.accelerator(id, isMac);
 const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webContents.send('command', cmd, ...args);
 
-// ⌥⌘L ("L" for Licence) opens the licence window from anywhere, including the welcome screen.
-const LICENCE_ACCELERATOR = 'CmdOrCtrl+Alt+L';
 
 function licenceItems() {
   const licensed = licensing?.status().mode === 'licensed';
   return [
-    { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: LICENCE_ACCELERATOR, click: send('licence') },
+    { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: acc('app.licence'), click: send('licence') },
     ...(licensed ? [] : [{ label: 'Buy GitLanes…', click: send('buy') }]),
   ];
 }
@@ -794,16 +793,16 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', 'CmdOrCtrl+,', 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', acc('app.settings'), 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
       submenu: [
-        { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
-        item('New Repository…', 'CmdOrCtrl+N', 'init'),
-        item('Open Repository…', 'CmdOrCtrl+O', 'open'),
-        item('Clone Repository…', 'CmdOrCtrl+Shift+O', 'clone'),
-        item('Switch Repository…', 'CmdOrCtrl+Alt+O', 'repoSwitch'),
+        { label: 'New Window', accelerator: acc('file.newWindow'), click: () => createWindow() },
+        item('New Repository…', acc('file.init'), 'init'),
+        item('Open Repository…', acc('file.open'), 'open'),
+        item('Clone Repository…', acc('file.clone'), 'clone'),
+        item('Switch Repository…', acc('file.repoSwitch'), 'repoSwitch'),
         {
           label: 'Open Recent',
           submenu: readRecent().slice(0, 10).map((rr) => ({ label: rr.name, sublabel: rr.root, click: send('open', rr.root) })),
@@ -815,38 +814,38 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        item(nextUndo ? `Undo ${nextUndo.label}` : 'Undo', 'CmdOrCtrl+Z', 'undo'),
-        item(nextRedo ? `Redo ${nextRedo.label}` : 'Redo', 'CmdOrCtrl+Shift+Z', 'redo'),
+        item(nextUndo ? `Undo ${nextUndo.label}` : 'Undo', acc('edit.undo'), 'undo'),
+        item(nextRedo ? `Redo ${nextRedo.label}` : 'Redo', acc('edit.redo'), 'redo'),
         { type: 'separator' },
         { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
         { type: 'separator' },
-        item('Find…', 'CmdOrCtrl+F', 'search'),
+        item('Find…', acc('edit.find'), 'search'),
       ],
     },
     {
       label: 'View',
       submenu: [
-        item('Command Menu', 'CmdOrCtrl+K', 'palette'),
+        item('Command Menu', acc('view.palette'), 'palette'),
         { type: 'separator' },
-        item('Map', 'CmdOrCtrl+1', 'view', 'map'),
-        item('Commit', 'CmdOrCtrl+2', 'view', 'commit'),
-        item('Stashes', 'CmdOrCtrl+3', 'view', 'stashes'),
-        item('Snapshots', 'CmdOrCtrl+4', 'view', 'snapshots'),
-        item('Reflog', 'CmdOrCtrl+5', 'view', 'reflog'),
-        item('Configuration', 'CmdOrCtrl+6', 'view', 'config'),
-        item('Worktrees', 'CmdOrCtrl+7', 'view', 'worktrees'),
+        item('Map', acc('view.map'), 'view', 'map'),
+        item('Commit', acc('view.commit'), 'view', 'commit'),
+        item('Stashes', acc('view.stashes'), 'view', 'stashes'),
+        item('Snapshots', acc('view.snapshots'), 'view', 'snapshots'),
+        item('Reflog', acc('view.reflog'), 'view', 'reflog'),
+        item('Configuration', acc('view.config'), 'view', 'config'),
+        item('Worktrees', acc('view.worktrees'), 'view', 'worktrees'),
         { type: 'separator' },
-        item('Toggle Sidebar', 'CmdOrCtrl+\\', 'sidebar'),
-        item('Show Tags', 'CmdOrCtrl+Alt+T', 'toggle', 'tags'),
-        item('Show Remote Branches', 'CmdOrCtrl+Alt+R', 'toggle', 'remotes'),
-        item('Show Colour Swatches in Diffs', 'CmdOrCtrl+Alt+C', 'toggle', 'swatches'),
+        item('Toggle Sidebar', acc('view.sidebar'), 'sidebar'),
+        item('Show Tags', acc('view.tags'), 'toggle', 'tags'),
+        item('Show Remote Branches', acc('view.remotes'), 'toggle', 'remotes'),
+        item('Show Colour Swatches in Diffs', acc('view.swatches'), 'toggle', 'swatches'),
         { type: 'separator' },
         {
           label: 'Theme',
           submenu: [
             ...THEMES.map((mode) => ({ label: THEME_LABELS[mode], type: 'radio', checked: currentTheme() === mode, click: () => setTheme(mode) })),
             { type: 'separator' },
-            { label: 'Cycle Theme', accelerator: THEME_ACCELERATOR, click: cycleTheme },
+            { label: 'Cycle Theme', accelerator: acc('view.cycleTheme'), click: cycleTheme },
           ],
         },
         { type: 'separator' },
@@ -856,43 +855,43 @@ function buildMenu() {
     {
       label: 'Repository',
       submenu: [
-        item('Fetch All', 'CmdOrCtrl+Shift+F', 'fetch'),
-        item('Pull Current Branch', 'CmdOrCtrl+Shift+L', 'pull'),
-        item('Push Current Branch', 'CmdOrCtrl+Shift+P', 'push'),
+        item('Fetch All', acc('repo.fetch'), 'fetch'),
+        item('Pull Current Branch', acc('repo.pull'), 'pull'),
+        item('Push Current Branch', acc('repo.push'), 'push'),
         item('Push All Tags', undefined, 'pushTags'),
         { type: 'separator' },
-        item('Stash Changes…', 'CmdOrCtrl+Shift+S', 'stashSave'),
-        item('Stash Staged Changes…', 'CmdOrCtrl+Alt+S', 'stashStaged'),
+        item('Stash Changes…', acc('repo.stash'), 'stashSave'),
+        item('Stash Staged Changes…', acc('repo.stashStaged'), 'stashStaged'),
         item('Reset Hard to HEAD…', undefined, 'resetHard'),
         { type: 'separator' },
-        item('New Worktree…', 'CmdOrCtrl+Alt+N', 'worktreeAdd'),
-        item('Switch Worktree…', 'CmdOrCtrl+Alt+W', 'worktreeSwitch'),
+        item('New Worktree…', acc('repo.worktreeAdd'), 'worktreeAdd'),
+        item('Switch Worktree…', acc('repo.worktreeSwitch'), 'worktreeSwitch'),
         { type: 'separator' },
-        item('Open Submodule…', 'CmdOrCtrl+Alt+B', 'submodules'),
-        item('Update Submodules', 'CmdOrCtrl+Alt+U', 'submoduleUpdate'),
+        item('Open Submodule…', acc('repo.submodules'), 'submodules'),
+        item('Update Submodules', acc('repo.submoduleUpdate'), 'submoduleUpdate'),
         { type: 'separator' },
-        item('Git LFS Files…', 'CmdOrCtrl+Alt+F', 'lfs'),
-        item('Open in Difftool', 'CmdOrCtrl+Shift+D', 'difftool'),
-        item('Resolve Conflicts', 'CmdOrCtrl+Alt+M', 'conflicts'),
-        item('Open in Mergetool', 'CmdOrCtrl+Shift+M', 'mergetool'),
-        item('File History & Blame…', 'CmdOrCtrl+Shift+H', 'fileHistory'),
-        item('Commit Identity…', 'CmdOrCtrl+Alt+I', 'identity'),
-        item('Write Commit Message with AI', 'CmdOrCtrl+Alt+G', 'aiMessage'),
+        item('Git LFS Files…', acc('repo.lfs'), 'lfs'),
+        item('Open in Difftool', acc('repo.difftool'), 'difftool'),
+        item('Resolve Conflicts', acc('repo.conflicts'), 'conflicts'),
+        item('Open in Mergetool', acc('repo.mergetool'), 'mergetool'),
+        item('File History & Blame…', acc('repo.fileHistory'), 'fileHistory'),
+        item('Commit Identity…', acc('repo.identity'), 'identity'),
+        item('Write Commit Message with AI', acc('repo.aiMessage'), 'aiMessage'),
         item('AI Commit Messages…', undefined, 'aiSetup'),
         { type: 'separator' },
-        item('Pull Requests…', 'CmdOrCtrl+Alt+P', 'prs'),
-        item('Refresh Pull Requests', 'CmdOrCtrl+Alt+Shift+P', 'prRefresh'),
-        item('New Pull Request…', 'CmdOrCtrl+Alt+Shift+N', 'prCreate'),
-        item('Check Out Pull Request…', 'CmdOrCtrl+Alt+Shift+O', 'prCheckout'),
-        item('Check Out Pull Request in New Worktree…', 'CmdOrCtrl+Alt+Shift+L', 'prWorktree'),
-        item('Approve Pull Request…', 'CmdOrCtrl+Alt+Shift+A', 'prApprove'),
-        item('Merge Pull Request…', 'CmdOrCtrl+Alt+Shift+M', 'prMerge'),
-        item('Close Pull Request…', 'CmdOrCtrl+Alt+Shift+W', 'prClose'),
+        item('Pull Requests…', acc('repo.prs'), 'prs'),
+        item('Refresh Pull Requests', acc('repo.prRefresh'), 'prRefresh'),
+        item('New Pull Request…', acc('repo.prCreate'), 'prCreate'),
+        item('Check Out Pull Request…', acc('repo.prCheckout'), 'prCheckout'),
+        item('Check Out Pull Request in New Worktree…', acc('repo.prWorktree'), 'prWorktree'),
+        item('Approve Pull Request…', acc('repo.prApprove'), 'prApprove'),
+        item('Merge Pull Request…', acc('repo.prMerge'), 'prMerge'),
+        item('Close Pull Request…', acc('repo.prClose'), 'prClose'),
         { type: 'separator' },
-        item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
-        item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),
+        item('Open in Finder', acc('repo.reveal'), 'reveal'),
+        item('Open in Terminal', acc('repo.terminal'), 'terminal'),
         item('Open in Hosting Service', undefined, 'hosting'),
-        item('Open Origin in Browser', 'CmdOrCtrl+Shift+G', 'origin'),
+        item('Open Origin in Browser', acc('repo.origin'), 'origin'),
       ],
     },
     { role: 'windowMenu' },

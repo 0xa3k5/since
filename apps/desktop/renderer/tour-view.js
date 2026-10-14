@@ -1,4 +1,5 @@
 import { h, icon, kbd } from './ui.js';
+import * as keymap from './keymap.js';
 import {
   LESSONS, TOUR_BRANCH, TOUR_FEATURE, createTour, setLesson, select, moveTip, squash, rebase, cherryPick,
   undoTip, redoTip, filterCommands, tourHint,
@@ -65,15 +66,15 @@ export function tourView({ mod }) {
       c.sha === featureTip ? pill(TOUR_FEATURE, '.feature') : null,
       c.sha === s.tip ? pill(TOUR_BRANCH, '.main') : null)));
     rows.addEventListener('keydown', (e) => {
-      const k = e.key.toLowerCase();
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const id = keymap.match('tour', e);
+      const op = { 'tour.squash': squash, 'tour.rebase': rebase, 'tour.cherryPick': cherryPick }[id];
+      if (id === 'tour.next' || id === 'tour.prev') {
         e.preventDefault();
-        (e.key === 'ArrowDown' ? e.target.nextElementSibling : e.target.previousElementSibling)?.focus();
-      } else if (s.lesson === 'rewrite' && (k === 's' || k === 'r' || k === 'p')) {
+        (id === 'tour.next' ? e.target.nextElementSibling : e.target.previousElementSibling)?.focus();
+      } else if (s.lesson === 'rewrite' && op) {
         e.preventDefault();
         const here = e.target.dataset?.sha ? select(s, e.target.dataset.sha) : s;
-        set({ s: squash, r: rebase, p: cherryPick }[k](here));
+        set(op(here));
       }
     });
     return h('div.tour-graph', null, lanes(s.commits), rows);
@@ -131,7 +132,8 @@ export function tourView({ mod }) {
   }
 
   tabs.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); go(e.key === 'ArrowRight' ? 1 : -1); }
+    const id = keymap.match('tour', e);
+    if (id === 'tour.nextTab' || id === 'tour.prevTab') { e.preventDefault(); go(id === 'tour.nextTab' ? 1 : -1); }
   });
 
   const el = h('section.tour', { 'aria-labelledby': 'tour-title' },
