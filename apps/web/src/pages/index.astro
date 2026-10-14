@@ -22,9 +22,9 @@ const HERO_CLIP: Clip | null = null;
 
 const features = [
   { title: 'Line-by-line staging', body: 'Stage a file, a hunk or a single line from the Commit view.' },
-  { title: 'Rewrite from the graph', body: 'Squash, fixup, reword, reorder and drop commits in place.' },
-  { title: 'Conflicts, step by step', body: 'A banner shows what is in progress, with Continue and Abort.' },
-  { title: 'Stashes and reflog', body: 'Browse, apply and drop stashes; see the reflog for every ref.' },
+  { title: 'Rewrite from the graph', body: 'Squash, fixup, reword, split, reorder and drop commits in place.' },
+  { title: 'Conflicts, step by step', body: 'A 3-way merge editor, plus Continue and Abort for what is in progress.' },
+  { title: 'Stashes and reflog', body: 'Stash files, staged changes or single lines; see the reflog for every ref.' },
   { title: '⌘K command palette', body: 'Find any command by name, with its shortcut beside it.' },
   { title: 'Fetch, pull and push', body: 'Over your own remotes, with your own credentials.' },
   { title: 'Search commits', body: 'Press / or ⌘F to find a commit by message, author, branch or SHA.' },
@@ -129,7 +129,7 @@ const faqJsonLd = {
       <div class="copy">
         <p class="eyebrow">Keyboard</p>
         <h2 id="graph">Work on the graph, not around it.</h2>
-        <p>Move with <kbd>j</kbd> and <kbd>k</kbd>. Press <kbd>s</kbd> to squash, <kbd>f</kbd> to fixup, <kbd>e</kbd> to reword, <kbd>r</kbd> to rebase, <kbd>m</kbd> to merge, <kbd>p</kbd> to cherry-pick.</p>
+        <p>Move with <kbd>↑</kbd> and <kbd>↓</kbd>. Press <kbd>s</kbd> to squash, <kbd>f</kbd> to fixup, <kbd>e</kbd> to reword, <kbd>r</kbd> to rebase, <kbd>m</kbd> to merge, <kbd>p</kbd> to cherry-pick.</p>
         <p>Every commit action is a single key. Commands are also in the <kbd>⌘K</kbd> palette, and the mouse works too.</p>
       </div>
       <Shot class="media" light={keysLight} dark={keysDark} widths={[480, 770, 1100]} sizes="(max-width: 900px) 100vw, 520px"
