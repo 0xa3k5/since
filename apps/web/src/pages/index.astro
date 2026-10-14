@@ -69,14 +69,12 @@ const faqJsonLd = {
 <Base title={title} description={description} ogImage="/og/home.png">
   <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
 
-  <section class="hero">
-    <svg class="hero-lanes" viewBox="0 0 1200 520" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M-20 420 C 260 420, 300 300, 560 300 S 900 160, 1220 160" style="stroke: var(--lane-0)" />
-      <path d="M-20 470 C 320 470, 420 380, 700 380 S 1000 300, 1220 300" style="stroke: var(--lane-1)" />
-      <path d="M-20 360 C 200 360, 260 220, 480 220 S 820 90, 1220 90" style="stroke: var(--lane-3)" />
-    </svg>
+  <!-- Stage: the app window is the star, lit from behind. -->
+  <section class="stage hero">
+    <div class="stage-glow" aria-hidden="true"></div>
+    <div class="stage-dots" aria-hidden="true"></div>
     <div class="wrap hero-inner">
-      <h1>Rebase without fear. <span class="nowrap"><kbd>⌘Z</kbd> undoes it.</span></h1>
+      <h1 class="display">Rebase without fear. <span class="nowrap"><kbd>⌘Z</kbd> undoes it.</span></h1>
       <p class="hero-sub">{PRODUCT_NAME} is a keyboard-first client for Git on the Mac. Work directly on your commit graph, and undo any rebase, reset, merge or discard with ⌘Z, even after you quit. Pay once. No account.</p>
       <div class="cta-row">
         <div class="cta">
@@ -90,6 +88,10 @@ const faqJsonLd = {
       </div>
     </div>
     <div class="wrap hero-media">
+      <div class="float-keys" aria-hidden="true">
+        <span class="fk fk-z"><kbd class="keycap">⌘</kbd><kbd class="keycap">Z</kbd></span>
+        <span class="fk fk-k"><kbd class="keycap">⌘</kbd><kbd class="keycap">K</kbd></span>
+      </div>
       {HERO_CLIP ? (
         <div class="clip">
           {(['light', 'dark'] as const).map((t) => (
@@ -101,99 +103,147 @@ const faqJsonLd = {
           ))}
         </div>
       ) : (
-        <Shot light={mapLight} dark={mapDark} eager widths={[720, 1080, 1440, 2160]} sizes="(max-width: 1120px) 100vw, 1072px"
+        <Shot class="hero-shot" light={mapLight} dark={mapDark} eager widths={[720, 1080, 1440, 2160]} sizes="(max-width: 1120px) 100vw, 1072px"
           alt={`The ${PRODUCT_NAME} commit graph: branches and tags drawn as coloured lanes beside the commit list, with the selected commit's details on the right.`} />
       )}
     </div>
   </section>
 
-  <section class="section idea" aria-labelledby="undo">
-    <div class="wrap stack">
-      <div class="copy">
-        <div>
+  <div class="frame body">
+    <section class="section rule-top tick idea" aria-labelledby="undo">
+      <div class="split">
+        <div class="copy" data-reveal>
           <p class="eyebrow">Undo</p>
-          <h2 id="undo">Every branch, tag and HEAD change can be undone.</h2>
-        </div>
-        <div>
+          <h2 id="undo" class="h2">Every branch, tag and HEAD change can be undone.</h2>
           <p>Rebase, merge, reset, cherry-pick, delete a branch, discard a file, then press <kbd>⌘Z</kbd>. Step back through your recent operations and redo with <kbd>⌘⇧Z</kbd>.</p>
           <p>The history is saved with your repository, so it's still there after you quit. Undo a commit and its changes come back staged.</p>
         </div>
+        <figure class="framed" data-reveal>
+          <figcaption class="annot"><span>01</span> Undo</figcaption>
+          <Shot light={snapshotsLight} dark={snapshotsDark} widths={[720, 1080, 1600, 2160]} sizes="(max-width: 900px) 100vw, 620px"
+            alt="The Snapshots view listing recent operations, newest first: delete branch, rebase, create branch. Undo and Redo buttons sit at the top right." />
+          <div class="toast" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 3.5L2.5 7 6 10.5M3 7h6.5a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            <span class="bar" style="width: 88px"></span>
+            <span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Z</kbd></span>
+          </div>
+        </figure>
       </div>
-      <Shot class="media" light={snapshotsLight} dark={snapshotsDark} widths={[720, 1080, 1600, 2160]} sizes="(max-width: 1120px) 100vw, 1072px"
-        alt="The Snapshots view listing recent operations, newest first: delete branch, rebase, create branch. Undo and Redo buttons sit at the top right." />
-    </div>
-  </section>
+    </section>
 
-  <section class="section idea" aria-labelledby="graph">
-    <div class="wrap split reverse">
-      <div class="copy">
-        <p class="eyebrow">Keyboard</p>
-        <h2 id="graph">Work on the graph, not around it.</h2>
-        <p>Move with <kbd>↑</kbd> and <kbd>↓</kbd>. Press <kbd>s</kbd> to squash, <kbd>f</kbd> to fixup, <kbd>e</kbd> to reword, <kbd>r</kbd> to rebase, <kbd>m</kbd> to merge, <kbd>p</kbd> to cherry-pick.</p>
-        <p>Every commit action is a single key. Commands are also in the <kbd>⌘K</kbd> palette, and the mouse works too.</p>
+    <section class="section rule-top tick idea" aria-labelledby="graph">
+      <div class="split reverse">
+        <div class="copy" data-reveal>
+          <p class="eyebrow">Keyboard</p>
+          <h2 id="graph" class="h2">Work on the graph, not around it.</h2>
+          <p>Move with <kbd>↑</kbd> and <kbd>↓</kbd>. Press <kbd>s</kbd> to squash, <kbd>f</kbd> to fixup, <kbd>e</kbd> to reword, <kbd>r</kbd> to rebase, <kbd>m</kbd> to merge, <kbd>p</kbd> to cherry-pick.</p>
+          <p>Every commit action is a single key. Commands are also in the <kbd>⌘K</kbd> palette, and the mouse works too.</p>
+        </div>
+        <figure class="framed narrow-shot" data-reveal>
+          <figcaption class="annot"><span>02</span> Keyboard</figcaption>
+          <Shot light={keysLight} dark={keysDark} widths={[480, 770, 1100]} sizes="(max-width: 900px) 100vw, 520px"
+            alt="A commit's menu open on the graph, with a single-key shortcut beside each action: M merge, R rebase, P cherry-pick, V revert, E edit message, S squash, F fixup." />
+        </figure>
       </div>
-      <Shot class="media" light={keysLight} dark={keysDark} widths={[480, 770, 1100]} sizes="(max-width: 900px) 100vw, 520px"
-        alt="A commit's menu open on the graph, with a single-key shortcut beside each action: M merge, R rebase, P cherry-pick, V revert, E edit message, S squash, F fixup." />
-    </div>
-  </section>
+    </section>
 
-  <section class="section idea" aria-labelledby="live">
-    <div class="wrap split">
-      <div class="copy">
-        <p class="eyebrow">Live</p>
-        <h2 id="live">It sees what your other tools do.</h2>
-        <p>Commit from the terminal, switch branches in your editor, let a script rebase. {PRODUCT_NAME} picks up the change on disk and redraws the graph on its own, with nothing to refresh.</p>
-      </div>
-      <div class="media terminal" role="img" aria-label="A terminal running git commit and git switch; the graph updates without a refresh.">
-        <div class="term-bar" aria-hidden="true"><span></span><span></span><span></span></div>
-        <pre aria-hidden="true"><span class="p">$</span> git commit -am "Debounce search input"
+    <section class="section rule-top tick idea" aria-labelledby="live">
+      <div class="split">
+        <div class="copy" data-reveal>
+          <p class="eyebrow">Live</p>
+          <h2 id="live" class="h2">It sees what your other tools do.</h2>
+          <p>Commit from the terminal, switch branches in your editor, let a script rebase. {PRODUCT_NAME} picks up the change on disk and redraws the graph on its own, with nothing to refresh.</p>
+        </div>
+        <figure class="framed" data-reveal>
+          <figcaption class="annot"><span>03</span> Live</figcaption>
+          <div class="terminal" role="img" aria-label="A terminal running git commit and git switch; the graph updates without a refresh.">
+            <div class="term-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+            <pre aria-hidden="true"><span class="p">$</span> git commit -am "Debounce search input"
 [feature/search 928af37] Debounce search input
 <span class="p">$</span> git switch main
 Switched to branch 'main'
 <span class="ok">● {PRODUCT_NAME} redrew the graph · 0 clicks</span></pre>
+          </div>
+        </figure>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section" aria-labelledby="features">
-    <div class="wrap">
-      <h2 id="features" class="center">Everything you reach for, one key away.</h2>
-      <ul class="grid">
-        {features.map((f) => (
-          <li><h3>{f.title}</h3><p>{f.body}</p></li>
+    <section class="section rule-top tick" aria-labelledby="features">
+      <div class="section-head" data-reveal>
+        <h2 id="features" class="h2">Everything you reach for, one key away.</h2>
+      </div>
+      <ul class="bento" data-reveal>
+        {features.map((f, i) => (
+          <li class={`tile tile-${i}`}>
+            {i === 1 && (
+              <div class="vig vig-graph" aria-hidden="true">
+                <svg class="lanes" viewBox="0 0 64 160" preserveAspectRatio="none">
+                  <path d="M16 0V160" style="stroke: var(--lane-0)" />
+                  <path d="M16 112C16 92 40 92 40 72V24C40 8 16 8 16 0" style="stroke: var(--lane-1)" />
+                  <circle cx="16" cy="16" r="5" style="fill: var(--lane-0)" /><circle cx="40" cy="48" r="5" style="fill: var(--lane-1)" />
+                  <circle cx="40" cy="80" r="5" style="fill: var(--lane-1)" /><circle cx="16" cy="112" r="5" style="fill: var(--lane-0)" />
+                  <circle cx="16" cy="144" r="5" style="fill: var(--lane-0)" />
+                </svg>
+                <div class="rows">
+                  <div class="row"><span class="sha">928af37</span><span class="bar" style="width: 52%"></span></div>
+                  <div class="row is-sel"><span class="sha">4c1e0b2</span><span class="bar" style="width: 38%"></span><span class="keys"><kbd>S</kbd></span></div>
+                  <div class="row"><span class="sha">b07d9a4</span><span class="bar" style="width: 60%"></span></div>
+                  <div class="row"><span class="sha">e5f31c8</span><span class="bar" style="width: 44%"></span></div>
+                  <div class="row"><span class="sha">1a9c6d0</span><span class="bar" style="width: 56%"></span></div>
+                </div>
+              </div>
+            )}
+            {i === 4 && (
+              <div class="vig vig-palette" aria-hidden="true">
+                <div class="pal-input"><kbd>⌘</kbd><kbd>K</kbd><span class="caret"></span></div>
+                <div class="row is-sel"><span class="bar" style="width: 46%"></span><span class="keys"><kbd>S</kbd></span></div>
+                <div class="row"><span class="bar" style="width: 34%"></span><span class="keys"><kbd>F</kbd></span></div>
+                <div class="row"><span class="bar" style="width: 52%"></span><span class="keys"><kbd>E</kbd></span></div>
+              </div>
+            )}
+            {i === 0 && (
+              <div class="vig vig-diff" aria-hidden="true">
+                <div class="dl del"><span>−</span><span class="bar" style="width: 62%"></span></div>
+                <div class="dl add is-staged"><span>+</span><span class="bar" style="width: 70%"></span></div>
+                <div class="dl add"><span>+</span><span class="bar" style="width: 48%"></span></div>
+                <div class="dl"><span></span><span class="bar" style="width: 40%"></span></div>
+              </div>
+            )}
+            <h3 class="h3">{f.title}</h3>
+            <p>{f.body}</p>
+          </li>
         ))}
       </ul>
-      <p class="center more"><a href="/features">See all features →</a></p>
-    </div>
-  </section>
+      <p class="more"><a href="/features">See all features →</a></p>
+    </section>
 
-  <section class="section" aria-labelledby="yourgit">
-    <div class="wrap duo">
-      <div>
-        <h2 id="yourgit">Your git, your config.</h2>
+    <section class="rule-top tick duo" aria-labelledby="yourgit">
+      <div class="section" data-reveal>
+        <h2 id="yourgit" class="h2">Your git, your config.</h2>
         <p>{PRODUCT_NAME} runs the git already on your Mac, so behaviour matches the command line exactly: your hooks, aliases, credential helpers and config all just work.</p>
       </div>
-      <div>
-        <h2>No account to create.</h2>
+      <div class="section" data-reveal>
+        <h2 class="h2">No account to create.</h2>
         <p>Download it, open a repository, start working. There's nothing to sign up for, and your code goes only where your own remotes point. <a href="/privacy">How we handle data →</a></p>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section" id="pricing" aria-labelledby="price">
-    <div class="wrap price-wrap">
-      <div class="copy">
-        <h2 id="price">One price. Yours to keep.</h2>
-        <p>Buy once and every future version for macOS is included. No renewals, no paid upgrades, no subscription.</p>
-        <p class="muted">Try every feature free for 14 days first.</p>
+    <section class="section rule-top tick" id="pricing" aria-labelledby="price">
+      <div class="price-wrap">
+        <div class="copy" data-reveal>
+          <h2 id="price" class="h1">One price. Yours to keep.</h2>
+          <p>Buy once and every future version for macOS is included. No renewals, no paid upgrades, no subscription.</p>
+          <p class="muted">Try every feature free for 14 days first.</p>
+        </div>
+        <div data-reveal><PriceCard /></div>
       </div>
-      <PriceCard />
-    </div>
-  </section>
+    </section>
 
-  <section class="section" aria-labelledby="faq">
-    <div class="wrap narrow">
-      <h2 id="faq">Questions</h2>
+    <section class="section rule-top tick faq-wrap" aria-labelledby="faq">
+      <div class="faq-head">
+        <h2 id="faq" class="h2">Questions</h2>
+        <p class="more">More questions? <a href="/pricing#faq">Pricing FAQ</a> · <a href="/docs">Docs</a></p>
+      </div>
       <div class="faq">
         {faq.map(({ q, a }) => (
           <details>
@@ -202,15 +252,15 @@ Switched to branch 'main'
           </details>
         ))}
       </div>
-      <p class="more">More questions? <a href="/pricing#faq">Pricing FAQ</a> · <a href="/docs">Docs</a></p>
-    </div>
-  </section>
+    </section>
+  </div>
 
-  <section class="section final" aria-labelledby="try">
-    <div class="wrap narrow center">
-      <h2 id="try">Try it on your own repository.</h2>
+  <section class="stage final" aria-labelledby="try">
+    <div class="stage-glow" aria-hidden="true"></div>
+    <div class="wrap center" data-reveal>
+      <h2 id="try" class="h1">Try it on your own repository.</h2>
       <p>14 days, every feature, nothing to sign up for. If you have a rebase coming up, it's a good time to try.</p>
-      <div class="cta-row centered">
+      <div class="cta-row">
         <a class="btn btn-primary btn-lg" href={DOWNLOAD_URL}>Download free trial</a>
         <a class="btn btn-secondary btn-lg" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
       </div>
@@ -232,87 +282,167 @@ Switched to branch 'main'
 )}
 
 <style>
-  /* ------------------------------------------------------------ Hero */
-  .hero { position: relative; padding-top: 88px; overflow: hidden; }
-  .hero-lanes { position: absolute; inset: 0 0 auto; width: 100%; height: 520px; opacity: 0.08; pointer-events: none; }
-  .hero-lanes path { fill: none; stroke-width: 3; }
-  .hero-inner { position: relative; text-align: center; }
-  .hero h1 { margin: 0 auto; max-width: 15ch; font-size: clamp(38px, 6.4vw, 64px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.05; }
-  .hero h1 kbd { font: inherit; letter-spacing: inherit; color: var(--accent-fg); border: 0; background: none; padding: 0; min-width: 0; }
-  .nowrap { white-space: nowrap; }
-  .hero-sub { margin: 24px auto 0; max-width: 620px; font-size: 18px; color: var(--text-2); }
-  .cta-row { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; margin-top: 36px; }
-  .cta { display: grid; justify-items: center; gap: 10px; }
-  .btn-lg { height: 44px; padding: 0 20px; font-size: 15px; }
-  .micro { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-3); }
-  .hero-media { position: relative; margin-top: 56px; }
-  .clip video { display: block; width: 100%; height: auto; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: var(--shadow); }
-
-  /* ------------------------------------------------------------ Sections */
-  .section { padding-top: 120px; }
-  .section h2 { margin: 0 0 16px; font-size: clamp(26px, 3.4vw, 36px); font-weight: 680; }
-  .section p { color: var(--text-2); max-width: 640px; }
-  .center { text-align: center; }
-  .center p, p.center { margin-left: auto; margin-right: auto; }
-  .narrow { max-width: 760px; }
-  .eyebrow { margin: 0 0 12px; font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-fg); }
-  kbd {
-    display: inline-block; min-width: 1.6em; padding: 0 5px; text-align: center;
-    border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px;
-    background: var(--bg-content); color: var(--text); font-size: 0.85em; line-height: 1.5;
+  /* ------------------------------------------------------------ Stage (hero + closing CTA) */
+  .stage { position: relative; isolation: isolate; overflow: hidden; background: var(--stage); border-bottom: 1px solid var(--hairline); }
+  .stage-glow {
+    position: absolute; z-index: -1; left: 50%; top: 42%; width: min(1400px, 140vw); aspect-ratio: 2 / 1;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(closest-side, var(--stage-glow), var(--stage-glow-2) 55%, transparent);
+    filter: blur(20px); pointer-events: none;
+    animation: glow-drift 18s var(--ease) infinite alternate;
+  }
+  @keyframes glow-drift {
+    from { transform: translate(-52%, -50%) scale(1); }
+    to { transform: translate(-48%, -46%) scale(1.08); }
+  }
+  .stage-dots {
+    position: absolute; z-index: -1; inset: 0; pointer-events: none;
+    background: radial-gradient(var(--grid-dot) 1px, transparent 1.5px) 0 0 / 24px 24px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000, transparent);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000, transparent);
   }
 
-  .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; }
-  .split.reverse .copy { order: 2; }
-  .stack { display: grid; gap: 40px; }
-  .stack .copy { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px 56px; align-items: end; }
-  .stack .copy p:last-child { margin-bottom: 0; }
-  .stack h2 { margin-bottom: 0; }
+  .hero { padding-top: clamp(64px, 10vw, 120px); }
+  .hero-inner { text-align: center; }
+  .hero h1 { margin: 0 auto; max-width: 14ch; }
+  .hero h1 kbd {
+    font-family: var(--font); font-size: 0.72em; font-weight: 600; letter-spacing: -0.02em;
+    height: 1.18em; padding: 0 0.22em; border-radius: 0.2em; vertical-align: 0.08em;
+    color: var(--accent-fg);
+  }
+  .hero-sub { margin: 24px auto 0; max-width: 600px; font-size: var(--fs-md); line-height: 1.55; color: var(--text-3); }
+  .cta-row { display: flex; justify-content: center; gap: 12px 16px; flex-wrap: wrap; margin-top: 36px; }
+  .cta { display: grid; justify-items: center; gap: 12px; }
+  .micro { margin: 0; font: 400 var(--fs-xs)/1.6 var(--mono); color: var(--text-3); }
+  .hero-media { position: relative; margin-top: 64px; margin-bottom: -1px; }
+  .hero-media :global(.hero-shot), .clip video {
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0; border-bottom: 0;
+    box-shadow: var(--shot-shadow);
+  }
+  .clip video { display: block; width: 100%; height: auto; border: 1px solid var(--hairline); }
 
-  .terminal { border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--bg-content); box-shadow: var(--shadow); overflow: hidden; }
-  .term-bar { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .float-keys { position: absolute; inset: 0 var(--gutter); pointer-events: none; z-index: 1; }
+  .fk { position: absolute; display: flex; gap: 6px; }
+  .fk kbd { font-size: 20px; }
+  .fk-z { left: -12px; top: 18%; transform: rotate(-6deg); }
+  .fk-k { right: -12px; top: 46%; transform: rotate(5deg); }
+
+  /* ------------------------------------------------------------ Editorial body */
+  .body { margin-top: 0; }
+  .body .section:first-child { border-top: 0; }
+  .section p { color: var(--text-3); max-width: 60ch; }
+  .copy { display: grid; gap: 0; align-content: center; }
+  .copy .eyebrow { margin-bottom: 18px; }
+  .copy h2 { margin-bottom: 18px; }
+  .copy p { margin: 0 0 12px; }
+  .center { text-align: center; }
+  .center p { margin-left: auto; margin-right: auto; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 64px; align-items: center; }
+  .split.reverse { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+  .split.reverse .copy { order: 2; }
+
+  /* Framed product shots: a quiet card with a mono figure number. */
+  .framed { position: relative; margin: 0; padding: 12px; background: var(--bg-content); border: 1px solid var(--hairline); border-radius: var(--radius-xl); }
+  .framed figcaption { display: flex; gap: 10px; padding: 0 4px 10px; }
+  .framed figcaption span { color: var(--accent-fg); }
+  .framed :global(.shot) { border-radius: var(--radius); box-shadow: none; border-color: var(--hairline); }
+  .narrow-shot { max-width: 560px; justify-self: end; }
+
+  .toast {
+    position: absolute; right: -16px; bottom: -18px; display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: var(--radius-lg); background: var(--bg-elevated); color: var(--text-2);
+    box-shadow: var(--shadow);
+  }
+  .bar { display: block; height: 7px; border-radius: 4px; background: var(--border-strong); }
+  .keys { display: inline-flex; gap: 3px; margin-left: auto; }
+  .keys kbd { font-size: 11px; }
+
+  .terminal { border-radius: var(--radius); border: 1px solid var(--hairline); background: var(--stage); overflow: hidden; }
+  .term-bar { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
   .term-bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
-  .terminal pre { margin: 0; padding: 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; color: var(--text-2); }
-  .terminal .p { color: var(--text-4); }
+  .terminal pre { margin: 0; padding: 20px; overflow-x: auto; font-size: 13px; line-height: 1.75; color: var(--text-2); }
+  .terminal .p { color: var(--text-3); }
   .terminal .ok { color: var(--accent-fg); }
 
-  .grid { list-style: none; margin: 40px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
-  .grid li { padding: 24px; background: var(--bg); }
-  .grid h3 { margin: 0 0 6px; font-size: 15px; font-weight: 620; letter-spacing: -0.01em; }
-  .grid p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-3); }
-  .more { margin-top: 24px; font-size: 15px; }
+  /* ------------------------------------------------------------ Bento */
+  .bento {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px;
+    background: var(--hairline); border: 1px solid var(--hairline); border-radius: var(--radius-xl); overflow: hidden;
+  }
+  .tile { grid-column: span 2; display: flex; flex-direction: column; gap: 6px; padding: 24px; background: var(--bg); }
+  .tile-1 { grid-column: span 4; }
+  .tile p { margin: 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--text-3); }
+  .vig { margin-bottom: 18px; padding: 14px; border: 1px solid var(--hairline); border-radius: var(--radius-lg); background: var(--bg-content); }
+  .row { display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 10px; border-radius: var(--radius); }
+  .row.is-sel { background: var(--bg-selected); box-shadow: inset 2px 0 0 var(--accent); }
+  .row .bar { flex: none; }
 
-  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
-  .duo h2 { font-size: clamp(22px, 2.6vw, 28px); }
+  .vig-graph { display: grid; grid-template-columns: 64px 1fr; gap: 4px; }
+  .vig-graph .lanes { width: 64px; height: 160px; }
+  .vig-graph path { fill: none; stroke-width: 2.5; }
+  .vig-graph circle { stroke: var(--bg-content); stroke-width: 2.5; }
+  .vig-graph .sha { font: 400 var(--fs-xs)/1 var(--mono); color: var(--text-3); }
 
-  .price-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 56px; align-items: center; }
+  .vig-palette { padding: 8px; }
+  .pal-input { display: flex; align-items: center; gap: 3px; height: 36px; padding: 0 10px; margin-bottom: 6px; border-bottom: 1px solid var(--hairline); }
+  .pal-input kbd { font-size: 11px; }
+  .caret { width: 1.5px; height: 16px; margin-left: 8px; background: var(--accent); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
 
-  .faq { border-top: 1px solid var(--border); }
-  .faq details { border-bottom: 1px solid var(--border); }
-  .faq summary { cursor: pointer; padding: 18px 32px 18px 0; position: relative; list-style: none; font-weight: 580; color: var(--text); }
+  .vig-diff { padding: 8px 0; font: 400 var(--fs-xs)/1 var(--mono); }
+  .dl { display: flex; align-items: center; gap: 10px; height: 24px; padding: 0 12px; color: var(--text-3); }
+  .dl > span:first-child { width: 10px; }
+  .dl.add { background: var(--add-bg); color: var(--green); }
+  .dl.del { background: var(--del-bg); color: var(--red); }
+  .dl.add .bar { background: var(--add-strong); }
+  .dl.del .bar { background: var(--del-strong); }
+  .dl.is-staged { box-shadow: inset 2px 0 0 var(--green); }
+
+  .more { margin: 24px 0 0; font-size: var(--fs-sm); }
+
+  /* ------------------------------------------------------------ Duo, pricing, FAQ */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; }
+  .duo > * + * { border-left: 1px solid var(--hairline); }
+  .duo h2 { margin-bottom: 14px; }
+  .duo p { margin: 0; }
+
+  .price-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 64px; align-items: center; }
+  .price-wrap h2 { margin-bottom: 20px; max-width: 12ch; }
+
+  .faq-wrap { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 64px; align-items: start; }
+  .faq-head { position: sticky; top: 88px; }
+  .faq-head .more { margin-top: 14px; }
+  .faq { border-top: 1px solid var(--hairline); }
+  .faq details { border-bottom: 1px solid var(--hairline); }
+  .faq summary { cursor: pointer; padding: 20px 40px 20px 0; position: relative; list-style: none; font-weight: 560; color: var(--text); }
   .faq summary::-webkit-details-marker { display: none; }
-  .faq summary::after { content: '+'; position: absolute; right: 4px; top: 14px; font-size: 22px; font-weight: 400; color: var(--text-3); }
+  .faq summary::after { content: '+'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font: 400 18px/1 var(--mono); color: var(--text-3); }
   .faq details[open] summary::after { content: '−'; }
-  .faq details p { margin: 0 0 20px; }
+  .faq summary:hover::after { color: var(--accent-fg); }
+  .faq details p { margin: 0 0 22px; }
 
-  .final .cta-row { margin-top: 28px; }
+  .final { padding: var(--section-y) 0; border-top: 1px solid var(--hairline); }
+  .final .stage-glow { top: 60%; }
+  .final p { color: var(--text-3); max-width: 52ch; }
 
   @media (max-width: 900px) {
-    .split, .duo, .price-wrap { grid-template-columns: 1fr; gap: 32px; }
-    .stack .copy { grid-template-columns: 1fr; gap: 16px; }
+    .split, .split.reverse, .duo, .price-wrap, .faq-wrap { grid-template-columns: minmax(0, 1fr); gap: 40px; }
     .split.reverse .copy { order: 0; }
-    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-  @media (max-width: 760px) {
-    .hero { padding-top: 56px; }
-    .section { padding-top: 72px; }
-    .hero-media { margin-top: 40px; }
+    .narrow-shot { justify-self: stretch; max-width: none; }
+    .duo > * + * { border-left: 0; border-top: 1px solid var(--hairline); }
+    .faq-head { position: static; }
+    .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tile, .tile-1 { grid-column: span 1; }
+    .tile-1 { grid-column: 1 / -1; }
+    .float-keys { display: none; }
+    .toast { right: 8px; }
   }
   @media (max-width: 520px) {
-    .grid { grid-template-columns: 1fr; }
+    .bento { grid-template-columns: 1fr; }
     .cta-row { flex-direction: column; align-items: stretch; }
     .cta-row .btn { width: 100%; }
     .cta { justify-items: stretch; text-align: center; }
-    .hero-sub { font-size: 17px; }
   }
 </style>
