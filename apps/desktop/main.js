@@ -440,6 +440,69 @@ handle('app:pr-list', aiCall(async (e) => {
   return github.listPrs({ enabled: true, remotes: await git.getRemotes(root) });
 }));
 
+// Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
+// renderer names the PR and the remote it came from; both are checked before `gh` runs.
+const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
+  const root = session(e).repo.root;
+  check.prNumber(number);
+  const remote = check.knownRemote(await git.getRemotes(root), remoteName);
+  return fn({ enabled: prEnabled(root), remotes: [remote], number }, opts);
+});
+handle('app:pr-merge-info', prAction((t) => github.mergeInfo(t)));
+handle('app:pr-approve', prAction((t, o) => github.approvePr({ ...t, body: check.str(o?.body ?? '', 'review comment', { empty: true }) })));
+handle('app:pr-merge', prAction((t, o) => github.mergePr({
+  ...t,
+  method: check.oneOf(...github.MERGE_METHODS)(o?.method, 'merge method'),
+  deleteBranch: check.bool(o?.deleteBranch, 'delete branch'),
+  admin: check.bool(o?.admin, 'merge as admin'),
+})));
+handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+
+// Check out a PR as a branch here, or as a branch in a new worktree (a new lane). `gh` says where
+// the PR's head is; git fetches it and makes the ref changes, each one journaled so ⌘Z undoes it.
+// A local branch that already points elsewhere only moves once the user has confirmed (`update`).
+const prCheckoutOpts = (v) => {
+  const o = v ?? {};
+  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
+  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update') };
+};
+handle('app:pr-checkout', aiCall(async (e, number, opts) => {
+  check.prNumber(number);
+  const { worktree, dir, update } = prCheckoutOpts(opts);
+  const s = session(e);
+  const root = s.repo.root;
+  if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
+  const { remote, head } = await github.viewPr({ enabled: prEnabled(root), remotes: await git.getRemotes(root), number });
+  const local = head.local;
+  s.busy++;
+  try {
+    // No destination: only FETCH_HEAD changes, so there's nothing to journal yet.
+    await r(s, ['fetch', '--no-tags', '--', remote.name, `refs/pull/${number}/head`]);
+    const sha = (await r(s, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
+    const tip = (await r(s, ['rev-parse', '-q', '--verify', `refs/heads/${local}`], { allowCodes: [0, 1] })).trim();
+    if (tip && tip !== sha && !update) return { confirm: { branch: local, from: tip, to: sha } };
+    const track = async () => {
+      await r(s, ['config', `branch.${local}.remote`, remote.name]);
+      await r(s, ['config', `branch.${local}.merge`, github.prUpstream(head)]);
+    };
+    if (!worktree) {
+      const args = !tip ? ['checkout', '-b', local, sha] : tip !== sha ? ['checkout', '-B', local, sha] : ['checkout', local];
+      await s.journal.record(`Check out #${number}`, 'checkout', () => r(s, args));
+      await track();
+      return { branch: local, sha };
+    }
+    if (tip && tip !== sha) await s.journal.record(`Update ${local} to #${number}`, 'setBranchTip', () => r(s, ['branch', '-f', local, sha]));
+    const wt = await s.journal.runWorktree('addWorktree', `New worktree for #${number}`, [{ dir, branch: local, base: tip ? null : sha }]);
+    await track();
+    return { branch: local, sha, worktree: wt };
+  } finally {
+    s.busy--;
+    s.pending.refs = s.pending.workdir = true;
+    s.schedule();
+    buildMenu();
+  }
+}));
+
 // ---------------------------------------------------------------------------
 // Trial & licence
 
@@ -740,6 +803,11 @@ function buildMenu() {
         { type: 'separator' },
         item('Pull Requests…', 'CmdOrCtrl+Alt+P', 'prs'),
         item('Refresh Pull Requests', 'CmdOrCtrl+Alt+Shift+P', 'prRefresh'),
+        item('Check Out Pull Request…', 'CmdOrCtrl+Alt+Shift+O', 'prCheckout'),
+        item('Check Out Pull Request in New Worktree…', 'CmdOrCtrl+Alt+Shift+L', 'prWorktree'),
+        item('Approve Pull Request…', 'CmdOrCtrl+Alt+Shift+A', 'prApprove'),
+        item('Merge Pull Request…', 'CmdOrCtrl+Alt+Shift+M', 'prMerge'),
+        item('Close Pull Request…', 'CmdOrCtrl+Alt+Shift+W', 'prClose'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
         item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),
