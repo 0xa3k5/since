@@ -10,6 +10,7 @@ import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
+import { tourView } from './tour-view.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -2442,6 +2443,9 @@ async function openHosting() {
 // ---------------------------------------------------------------------------
 // Welcome screen / repository lifecycle
 
+// The welcome playground; ⌘Z / ⇧⌘Z drive it while no repository is open.
+let tour = null;
+
 async function renderWelcome() {
   const recent = await api.app('recent');
   let idx = 0;
@@ -2453,9 +2457,10 @@ async function renderWelcome() {
       h('span.when', null, timeAgo(r.opened / 1000)))) : [h('div.muted.center', null, 'No recent repositories')]));
   };
   renderList();
+  tour = tourView({ mod: MOD });
   const el = h('div.welcome', { tabIndex: 0 },
     h('div.welcome-drag'),
-    h('div.welcome-card', null,
+    h('div.welcome-layout', null, h('div.welcome-card', null,
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
       h('h1', null, 'GitLanes'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
@@ -2467,9 +2472,10 @@ async function renderWelcome() {
       ),
       recent.length ? h('div.recent-head', null, 'Recent') : null,
       list,
-    ),
+    ), tour.el),
   );
   el.addEventListener('keydown', (e) => {
+    if (tour.el.contains(e.target)) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(recent.length - 1, idx + 1); renderList(); }
     if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(0, idx - 1); renderList(); }
     if (e.key === 'Enter' && recent[idx]) openRepo(recent[idx].root);
@@ -2543,8 +2549,8 @@ const commands = {
   open: (dir) => openRepo(dir),
   init: initRepo,
   clone: cloneRepo,
-  undo: () => { if (isEditable(document.activeElement)) document.execCommand('undo'); else if (state.repo) undo(); },
-  redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); },
+  undo: () => { if (isEditable(document.activeElement)) document.execCommand('undo'); else if (state.repo) undo(); else tour?.undo(); },
+  redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); else tour?.redo(); },
   search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
   view: (v) => setView(v),

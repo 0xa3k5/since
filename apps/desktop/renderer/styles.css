@@ -775,3 +775,38 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lfs-state { flex: none; width: 92px; color: var(--text-3); }
 .lfs-state.lfs-downloaded { color: var(--green); }
 .lfs-state.lfs-pointer { color: var(--warn); }
+
+/* Welcome playground: a pretend repository to move a branch in and undo it. Beside the card on
+   wide windows, under it on narrow ones. */
+.welcome { overflow-y: auto; }
+.welcome-layout { display: flex; align-items: center; justify-content: center; gap: 56px; padding: 56px 24px 32px; margin: auto; }
+@media (max-width: 1000px) { .welcome-layout { flex-direction: column; gap: 32px; } }
+.tour { width: 380px; max-width: calc(100vw - 32px); padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-content); box-shadow: var(--shadow-sm); }
+.tour-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.tour-eyebrow { font-size: 11.5px; font-weight: 550; color: var(--accent-fg); }
+.tour-head h2 { margin: 2px 0 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.tour-tools { display: flex; gap: 2px; }
+.tour-tools .icon-btn:disabled { opacity: 0.4; background: none; color: var(--text-3); }
+.tour-graph { position: relative; padding-left: 40px; }
+.tour-lanes { position: absolute; left: 0; top: 0; pointer-events: none; }
+.tour-lanes path { fill: none; stroke-width: 2; stroke-linecap: round; }
+.tour-lanes circle { stroke: var(--bg-content); stroke-width: 2; }
+.tour-lanes .lane-0 { stroke: var(--lane-0); }
+.tour-lanes .lane-1 { stroke: var(--lane-1); }
+.tour-lanes circle.lane-0 { fill: var(--lane-0); stroke: var(--bg-content); }
+.tour-lanes circle.lane-1 { fill: var(--lane-1); stroke: var(--bg-content); }
+.tour-rows { display: grid; }
+.tour-row { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: var(--radius); text-align: left; color: var(--text-2); font-size: 12.5px; }
+.tour-row:hover { background: var(--bg-hover); color: var(--text); }
+.tour-row.tip { background: var(--bg-selected); color: var(--text); }
+.tour-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tour-pill { height: 18px; color: var(--accent-fg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); animation: tour-pill 160ms ease-out; }
+@keyframes tour-pill { from { opacity: 0; transform: translateY(-3px); } }
+.tour-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-height: 36px; margin-top: 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--bg-hover); font-size: 12px; color: var(--text-2); }
+.tour-hint > span:first-child { margin-right: 2px; }
+.tour-facts { list-style: none; display: grid; gap: 8px; margin: 14px 0 0; padding: 14px 0 0; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
+.tour-facts li { display: flex; align-items: flex-start; gap: 8px; }
+.tour-facts li > svg { flex: none; margin-top: 1px; color: var(--accent-fg); }
+.tour-facts b { font-weight: 550; color: var(--text); }
+.tour-facts .kbd-group { margin-left: 4px; vertical-align: 1px; }
+@media (prefers-reduced-motion: reduce) { .tour-pill { animation: none; } }
