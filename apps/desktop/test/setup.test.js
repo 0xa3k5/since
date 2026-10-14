@@ -26,3 +26,9 @@ test('the summary counts what is on', async () => {
   assert.match(setupSummary({ autoUpdate: true, tags: true, remotes: true, swatches: true }), /^All on/);
   assert.match(setupSummary({ autoUpdate: true, tags: false, remotes: true, swatches: false }), /^2 of 4 on/);
 });
+
+test('AI commit messages sit with the user-wide defaults, not the per-repository ones', async () => {
+  const { SETUP_AI, SETUP_LATER } = await load();
+  assert.equal(SETUP_AI.id, 'ai');
+  assert.deepEqual(SETUP_LATER.map((f) => f.id), ['prs']);
+});

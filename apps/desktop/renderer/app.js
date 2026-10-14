@@ -2770,7 +2770,7 @@ function openPalette() {
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: [MOD, '⌥', '⇧', 'W'], keywords: 'pr github gh close' });
     }
     if (state.prs?.enabled) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
-    add('Repository', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
+    add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: [MOD, '⌥', 'I'], keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
@@ -2910,10 +2910,17 @@ async function setupFeature(id, on) {
   savePref('show', state.show);
   if (id === 'swatches') setSwatches(on);
 }
-const setupPanel = (onDone, done) => setupView({
-  mod: MOD, values: setupState(), theme: state.theme, themes: THEMES, onToggle: setupFeature, onTheme: setTheme, done,
-  onDone: () => { savePref(SETUP_PREF, { done: true }); onDone(); },
-}).el;
+const aiLabel = () => (aiOn() && state.ai.providers.find((p) => p.id === state.ai.provider)?.label) || 'Off';
+function setupPanel(onDone, done) {
+  const view = setupView({
+    mod: MOD, values: setupState(), theme: state.theme, themes: THEMES, ai: aiLabel(), onToggle: setupFeature, onTheme: setTheme, done,
+    onAi: async () => { await setupAi(); return aiLabel(); },
+    onDone: () => { savePref(SETUP_PREF, { done: true }); onDone(); },
+  });
+  // The AI choice is saved by the main process; show it once it's read.
+  api.app('ai-settings').then((a) => { state.ai = a; view.refresh(setupState(), state.theme, aiLabel()); }).catch(() => {});
+  return view.el;
+}
 function openSetup() {
   if (!state.repo) return renderWelcome({ setup: true });
   if (document.querySelector('.overlay')) return;

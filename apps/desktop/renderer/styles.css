@@ -864,6 +864,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .setup-seg button { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: calc(var(--radius) - 2px); font-size: 11.5px; color: var(--text-3); }
 .setup-seg button:hover { color: var(--text); background: var(--bg-hover); }
 .setup-seg button[aria-pressed="true"] { color: var(--text); background: var(--bg-selected); }
+.setup-pick { flex: none; gap: 4px; }
+.setup-pick > svg { color: var(--text-3); }
 .setup-later { margin-top: 12px; }
 .setup-later-head { margin: 0 0 4px 8px; font-size: 11.5px; font-weight: 550; color: var(--text-3); }
 .setup-later-row { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; }
