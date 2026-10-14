@@ -169,9 +169,13 @@ const gitSchemas = {
   config: [],
   remotes: [],
   history: [optional(int)],
+  previewRestore: [int],
   worktrees: [],
   worktreeChanges: [worktreeDir],
   conflict: [repoPath],
+  fileHistory: [repoPath, optional((v, w) => obj(v, w, { from: rev, skip: int, limit: int, path: repoPath }))],
+  blame: [repoPath, optional(rev)],
+  trackedFiles: [],
   // ref mutations
   checkout: [rev],
   checkoutTracking: [rev],

@@ -150,6 +150,21 @@ test('remoteWebUrl', () => {
   assert.equal(git.remoteWebUrl('git@github.com:octo/hello.git'), 'https://github.com/octo/hello');
   assert.equal(git.remoteWebUrl('https://github.com/octo/hello.git'), 'https://github.com/octo/hello');
   assert.equal(git.remoteWebUrl('ssh://git@gitlab.com:22/a/b.git'), 'https://gitlab.com/a/b');
+  assert.equal(git.remoteWebUrl('https://user:secret@github.com/octo/hello.git'), 'https://github.com/octo/hello');
+  assert.equal(git.remoteWebUrl('http://token@example.com:8443/team/repo/'), 'https://example.com:8443/team/repo');
+  assert.equal(git.remoteWebUrl('git://example.org/a/b.git'), 'https://example.org/a/b');
+  assert.equal(git.remoteWebUrl('deploy@host.example:group/sub/repo.git'), 'https://host.example/group/sub/repo');
+  assert.equal(git.remoteWebUrl('/Users/me/repos/hello.git'), null);
+  assert.equal(git.remoteWebUrl('file:///Users/me/repos/hello.git'), null);
+  assert.equal(git.remoteWebUrl('../hello'), null);
+});
+
+test('remoteLabel', () => {
+  assert.equal(git.remoteLabel('git@github.com:0xa3k5/web3icons.git'), 'github.com/0xa3k5/web3icons');
+  assert.equal(git.remoteLabel('https://github.com/0xa3k5/web3icons.git'), 'github.com/0xa3k5/web3icons');
+  assert.equal(git.remoteLabel('https://user:pass@github.com/0xa3k5/web3icons'), 'github.com/0xa3k5/web3icons');
+  assert.equal(git.remoteLabel('file:///srv/git/hello.git'), '/srv/git/hello.git');
+  assert.equal(git.remoteLabel('/srv/git/hello.git'), '/srv/git/hello.git');
 });
 
 test('getConfig parses scopes, multi-line and valueless entries', async () => {
