@@ -1,6 +1,26 @@
 import { h, icon } from './ui.js';
+import { findColors } from './colors.js';
 
 const LIMIT = 4000;
+
+// Colour swatches before CSS colour codes (View → Show Colour Swatches in Diffs).
+let swatches = true;
+export function setSwatches(on) { swatches = on; }
+
+// Code text with a swatch before each colour code. Swatches have no text, so copy/paste is unchanged.
+function codeSpan(s) {
+  const found = swatches ? findColors(s) : [];
+  if (!found.length) return h('span.code', null, s || '\u200b');
+  const parts = [];
+  let at = 0;
+  for (const c of found) {
+    if (c.start > at) parts.push(s.slice(at, c.start));
+    parts.push(h('span.swatch', { title: c.value, 'aria-hidden': 'true' }, h('i', { style: { background: c.value } })), s.slice(c.start, c.end));
+    at = c.end;
+  }
+  if (at < s.length) parts.push(s.slice(at));
+  return h('span.code', null, ...parts);
+}
 
 // Render a parsed file diff. When `selectable`, clicking +/- lines toggles them
 // in `selection` (keys "hunk:line"), shift-click selects a range.
@@ -39,7 +59,7 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
         h('span.ln', null, l.o ?? ''),
         h('span.ln', null, l.n ?? ''),
         h('span.sign', null, l.t === ' ' ? '' : l.t),
-        h('span.code', null, l.s || '​'),
+        codeSpan(l.s),
         l.noEol ? h('span.noeol', { title: 'No newline at end of file' }, '⏎̸') : null,
       );
       if (selectable && l.t !== ' ') {

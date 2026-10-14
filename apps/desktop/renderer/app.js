@@ -1,7 +1,7 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
-import { renderDiff, hunkKeys, statusBadge, fileName } from './diff.js';
+import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 
 const api = window.gitlanes;
@@ -28,7 +28,7 @@ const state = {
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
   lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
-  show: loadPref('show', { tags: true, remotes: true }),
+  show: loadPref('show', { tags: true, remotes: true, swatches: true }),
   search: '',
   stashes: [],
   history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
@@ -46,6 +46,7 @@ const state = {
 };
 
 state.graph = state.hist.graph;
+setSwatches(state.show.swatches);
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
 function savePref(k, v) { try { localStorage.setItem('pref:' + k, JSON.stringify(v)); } catch { /* ignore */ } }
@@ -592,6 +593,7 @@ function toggleChip(label, key) {
 function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
+  if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
   refreshHistory();
   renderTopbar();
 }
@@ -1887,6 +1889,7 @@ function openPalette() {
     add('Repository', 'Open in hosting service', openHosting, { icon: 'external' });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
+    add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: [MOD, '⌥', 'C'], keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', 'Toggle sidebar', toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'] });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
