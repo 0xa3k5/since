@@ -2999,7 +2999,8 @@ function shortcutsScope() {
 }
 function openShortcuts() {
   if (shortcuts) return shortcuts.close();
-  if (document.querySelector('.overlay')) return;
+  // A palette that just ran this command is still fading out; only a live dialog blocks the window.
+  if (document.querySelector('.overlay:not(.closing)')) return;
   shortcuts = shortcutsWindow({ first: shortcutsScope(), onClose: () => { shortcuts = null; } });
 }
 
