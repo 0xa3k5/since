@@ -2183,8 +2183,21 @@ function submoduleSwitcher() {
 // ---------------------------------------------------------------------------
 // Command palette
 
-function openPalette() {
+// Recent repositories other than the open one, newest first.
+async function recentRepos() {
+  return (await api.app('recent')).filter((x) => x.root !== state.repo?.root);
+}
+function tildePath(p) { return p.replace(/^\/Users\/[^/]+/, '~'); }
+
+async function repoSwitcher() {
+  const recent = await recentRepos();
+  if (!recent.length) return toast('No other recent repositories');
+  palette(() => recent.map((x) => ({ group: 'Recent repositories', label: x.name, icon: 'folder', detail: tildePath(x.root), keywords: x.root, run: () => openRepo(x.root) })), { placeholder: 'Switch repository…' });
+}
+
+async function openPalette() {
   if (!state.repo) return;
+  const recent = (await recentRepos()).slice(0, 8);
   palette(() => {
     const items = [];
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
@@ -2258,6 +2271,8 @@ function openPalette() {
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: ['⇧', 'S'], detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: [MOD, 'O'] });
+    add('App', 'Switch repository…', repoSwitcher, { icon: 'folder', kbd: [MOD, '⌥', 'O'], keywords: 'recent open project switch' });
+    for (const x of recent) add('Recent repositories', `Switch to ${x.name}`, () => openRepo(x.root), { icon: 'folder', detail: tildePath(x.root), keywords: `recent repository open ${x.root}` });
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
     add('App', 'Close repository', closeRepo, { icon: 'x' });
@@ -2318,7 +2333,7 @@ async function renderWelcome() {
   const renderList = () => {
     list.replaceChildren(...(recent.length ? recent.map((r, i) => h('button.recent' + (i === idx ? '.active' : ''), { onclick: () => openRepo(r.root), onmousemove: () => { if (idx !== i) { idx = i; renderList(); } } },
       h('span.repo-icon', null, r.name.slice(0, 1).toUpperCase()),
-      h('span.recent-main', null, h('span.recent-name', null, r.name), h('span.recent-path', null, r.root.replace(/^\/Users\/[^/]+/, '~'))),
+      h('span.recent-main', null, h('span.recent-name', null, r.name), h('span.recent-path', null, tildePath(r.root))),
       h('span.when', null, timeAgo(r.opened / 1000)))) : [h('div.muted.center', null, 'No recent repositories')]));
   };
   renderList();
@@ -2432,6 +2447,7 @@ const commands = {
   hosting: () => state.repo && openHosting(),
   worktreeAdd: () => state.repo && addWorktree(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
+  repoSwitch: () => repoSwitcher(),
   lfs: () => openLfs(),
   submodules: () => submoduleSwitcher(),
   submoduleUpdate: () => updateSubmodules(),
@@ -2557,6 +2573,8 @@ window.addEventListener('keydown', (e) => {
     if (inside) sidebarEl.querySelector('.sb-toggle')?.focus();
     return;
   }
+  // ⌘⌥O: switch to a recent repository (e.code, since ⌥ turns the key into "ø")
+  if (e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey) { e.preventDefault(); commands.repoSwitch(); return; }
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
   if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation
