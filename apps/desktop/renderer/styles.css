@@ -670,6 +670,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-filter { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; }
 .lanes-filter::placeholder { color: var(--text-4); }
 .lanes-list { padding: 0 16px 8px; }
+.lanes-tabs { display: flex; gap: 4px; margin: 0 16px 8px; }
+.lanes-tabs[hidden] { display: none; }
+.lanes-tab { height: 26px; padding: 0 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text-3); font-weight: 550; }
+.lanes-tab:hover { color: var(--text-2); background: var(--bg-hover); }
+.lanes-tab.on { color: var(--text); background: var(--bg-active); }
+.lanes-author { display: flex; align-items: center; gap: 6px; padding: 6px 16px 2px; font-size: 12px; font-weight: 550; color: var(--text-2); }
 .lanes-group { padding: 12px 16px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-4); }
 .lanes-group.needs { color: var(--accent-fg); }
 .lanes-row { gap: 12px; padding: 8px 16px; cursor: default; }

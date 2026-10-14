@@ -2230,8 +2230,21 @@ function openLanes() {
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
+    onCheckout: (pr) => checkoutPr(pr, { worktree: true }),
+    onMergeReady: mergeReadyPrs,
+    tab: lanesTab,
   });
+  lanesTab = 'lanes';
   return lanesPage;
+}
+// ⌘⇧I: the lanes overview on its Inbox tab. Only while pull requests are on.
+let lanesTab = 'lanes';
+function openInbox() {
+  if (!state.repo) return;
+  if (!state.prs?.active) return toast('Pull requests are off', { detail: `Turn them on (${keyText('global.prs')}) to see the inbox.` });
+  if (state.view === 'lanes' && lanesPage) return lanesPage.show('inbox');
+  lanesTab = 'inbox';
+  setView('lanes');
 }
 function openLane(lane) {
   const t = laneTarget(lane);
@@ -2770,6 +2783,32 @@ const closePr = (given) => withPr(given, 'Close', async (pr) => {
   refreshPrs();
 });
 
+// The inbox's Ready bucket, squash-merged on GitHub one at a time after one confirmation. Stops
+// at the first failure and says what merged. The branches stay; deleting them is up to you.
+async function mergeReadyPrs(prs, remote) {
+  const ok = await dialog({
+    title: `Squash-merge ${prs.length} pull request${prs.length === 1 ? '' : 's'}?`,
+    description: h('div.pr-merge', null,
+      ...prs.map((p) => h('div', null, `#${p.number} ${p.title} · ${p.author}`)),
+      h('div.pr-remote-note', null, `${REMOTE_NOTE} They merge one at a time and stop at the first one that fails.`)),
+    submit: `Merge ${prs.length}`,
+  });
+  if (!ok) return;
+  const merged = [];
+  for (const pr of prs) {
+    const t = toast(`Merging #${pr.number} (${merged.length + 1} of ${prs.length})…`, { kind: 'busy', timeout: 0 });
+    const res = await api.app('pr-merge', remote, pr.number, { method: 'squash', deleteBranch: false, admin: false }).catch((e) => ({ error: { message: e.message } }));
+    t.close();
+    if (res.error) {
+      prError(`Couldn’t merge #${pr.number}${merged.length ? ` · merged ${merged.map((n) => `#${n}`).join(', ')}` : ''}`, res.error);
+      break;
+    }
+    merged.push(pr.number);
+  }
+  if (merged.length === prs.length) toast(`Merged ${merged.length} pull request${merged.length === 1 ? '' : 's'}`, { kind: 'success' });
+  if (merged.length) { await fetchAll(); lanesPage?.reload(); }
+}
+
 function prMenu(e, pr) {
   e.preventDefault();
   contextMenu(e.clientX, e.clientY, [
@@ -2832,6 +2871,7 @@ function openPalette() {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
+      add('Navigation', 'Go to Pull Request Inbox', openInbox, { icon: 'merge', kbd: keymap.keys('view.inbox'), keywords: 'pr github gh inbox review ready merge failing lanes agents' });
     }
     add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
     if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
@@ -3191,6 +3231,7 @@ const commands = {
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
+  inbox: openInbox,
   prRefresh: () => state.repo && refreshPrs({ manual: true }),
   prCreate: () => state.repo && createPr(),
   prCheckout: () => state.repo && pickPr(false),
