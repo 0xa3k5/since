@@ -764,7 +764,7 @@ function remoteWebUrl(url) {
 function remoteLabel(url) {
   const web = remoteWebUrl(url);
   if (web) return web.slice('https://'.length);
-  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, '$1');
+  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
 }
 
 // ---------------------------------------------------------------------------
