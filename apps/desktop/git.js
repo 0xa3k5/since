@@ -617,6 +617,27 @@ async function getConfig(cwd) {
   return list;
 }
 
+// Who commits here: the configured user, the identities in HEAD's reflog that made commits
+// in this clone (with counts), and the remote URLs, for the wrong-identity check.
+async function getIdentity(cwd) {
+  const get = async (k) => (await run(cwd, ['config', '--get', k], { allowCodes: [0, 1] })).trim();
+  const [name, email, log, remotes] = await Promise.all([
+    get('user.name'), get('user.email'),
+    run(cwd, ['log', '-g', '--max-count=2000', '--format=%gs%x00%ge%x00%gn', 'HEAD'], { allowCodes: [0, 128] }).catch(() => ''),
+    getRemotes(cwd).catch(() => []),
+  ]);
+  const used = new Map();
+  for (const l of log.split('\n')) {
+    const [action, e, n] = l.split(SEP);
+    if (!/^commit\b/.test(action || '') || !e) continue;
+    const k = e.toLowerCase();
+    const u = used.get(k) || { email: e, name: n, count: 0 };
+    u.count++;
+    used.set(k, u);
+  }
+  return { name, email, used: [...used.values()], remotes: remotes.map((r) => r.url) };
+}
+
 async function getRemotes(cwd) {
   const out = await run(cwd, ['remote', '-v']);
   const map = new Map();
@@ -1302,7 +1323,7 @@ function parseBlame(out) {
 module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseDiff, buildPartialPatch, applyPatch,
-  getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
+  getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
