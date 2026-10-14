@@ -1,0 +1,201 @@
+<Base title={title} description={description} ogImage="/og/home.png">
+  <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
+
+  <!-- Stage: the app window is the star, lit from behind. -->
+  <section class="stage hero">
+    <div class="stage-glow" aria-hidden="true"></div>
+    <div class="stage-dots" aria-hidden="true"></div>
+    <div class="wrap hero-inner">
+      <h1 class="display">Rebase without fear. <span class="nowrap"><kbd>⌘Z</kbd> undoes it.</span></h1>
+      <p class="hero-sub">{PRODUCT_NAME} is a keyboard-first client for Git on the Mac. Work directly on your commit graph, and undo any rebase, reset, merge or discard with ⌘Z, even after you quit. Pay once. No account.</p>
+      <div class="cta-row">
+        <div class="cta">
+          <a class="btn btn-primary btn-lg" href={DOWNLOAD_URL}>Download free trial</a>
+          <p class="micro">14 days · every feature · no account<br>macOS 12 or later · Apple silicon &amp; Intel</p>
+        </div>
+        <div class="cta">
+          <a class="btn btn-secondary btn-lg" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
+          <p class="micro">One-time launch price<br>Goes up to ${PRICE_LATER} later</p>
+        </div>
+      </div>
+    </div>
+    <div class="wrap hero-media">
+      <div class="float-keys" aria-hidden="true">
+        <span class="fk fk-z"><kbd class="keycap">⌘</kbd><kbd class="keycap">Z</kbd></span>
+        <span class="fk fk-k"><kbd class="keycap">⌘</kbd><kbd class="keycap">K</kbd></span>
+      </div>
+      {HERO_CLIP ? (
+        <div class="clip">
+          {(['light', 'dark'] as const).map((t) => (
+            <video class={`only-${t}`} muted loop playsinline preload="none" data-hero-clip
+              poster={(t === 'light' ? mapLight : mapDark).src} aria-label="A rebase onto the wrong branch, undone with ⌘Z">
+              <source src={HERO_CLIP[t].webm} type="video/webm" />
+              <source src={HERO_CLIP[t].mp4} type="video/mp4" />
+            </video>
+          ))}
+        </div>
+      ) : (
+        <Shot class="hero-shot" light={mapLight} dark={mapDark} eager widths={[720, 1080, 1440, 2160]} sizes="(max-width: 1120px) 100vw, 1072px"
+          alt={`The ${PRODUCT_NAME} commit graph: branches and tags drawn as coloured lanes beside the commit list, with the selected commit's details on the right.`} />
+      )}
+    </div>
+  </section>
+
+  <div class="frame body">
+    <section class="section rule-top tick idea" aria-labelledby="undo">
+      <div class="split">
+        <div class="copy" data-reveal>
+          <p class="eyebrow">Undo</p>
+          <h2 id="undo" class="h2">Every branch, tag and HEAD change can be undone.</h2>
+          <p>Rebase, merge, reset, cherry-pick, delete a branch, discard a file, then press <kbd>⌘Z</kbd>. Step back through your recent operations and redo with <kbd>⌘⇧Z</kbd>.</p>
+          <p>The history is saved with your repository, so it's still there after you quit. Undo a commit and its changes come back staged.</p>
+        </div>
+        <figure class="framed" data-reveal>
+          <figcaption class="annot"><span>01</span> Undo</figcaption>
+          <Shot light={snapshotsLight} dark={snapshotsDark} widths={[720, 1080, 1600, 2160]} sizes="(max-width: 900px) 100vw, 620px"
+            alt="The Snapshots view listing recent operations, newest first: delete branch, rebase, create branch. Undo and Redo buttons sit at the top right." />
+          <div class="toast" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 3.5L2.5 7 6 10.5M3 7h6.5a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            <span class="bar" style="width: 88px"></span>
+            <span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Z</kbd></span>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section rule-top tick idea" aria-labelledby="graph">
+      <div class="split reverse">
+        <div class="copy" data-reveal>
+          <p class="eyebrow">Keyboard</p>
+          <h2 id="graph" class="h2">Work on the graph, not around it.</h2>
+          <p>Move with <kbd>↑</kbd> and <kbd>↓</kbd>. Press <kbd>s</kbd> to squash, <kbd>f</kbd> to fixup, <kbd>e</kbd> to reword, <kbd>r</kbd> to rebase, <kbd>m</kbd> to merge, <kbd>p</kbd> to cherry-pick.</p>
+          <p>Every commit action is a single key. Commands are also in the <kbd>⌘K</kbd> palette, and the mouse works too.</p>
+        </div>
+        <figure class="framed narrow-shot" data-reveal>
+          <figcaption class="annot"><span>02</span> Keyboard</figcaption>
+          <Shot light={keysLight} dark={keysDark} widths={[480, 770, 1100]} sizes="(max-width: 900px) 100vw, 520px"
+            alt="A commit's menu open on the graph, with a single-key shortcut beside each action: M merge, R rebase, P cherry-pick, V revert, E edit message, S squash, F fixup." />
+        </figure>
+      </div>
+    </section>
+
+    <section class="section rule-top tick idea" aria-labelledby="live">
+      <div class="split">
+        <div class="copy" data-reveal>
+          <p class="eyebrow">Live</p>
+          <h2 id="live" class="h2">It sees what your other tools do.</h2>
+          <p>Commit from the terminal, switch branches in your editor, let a script rebase. {PRODUCT_NAME} picks up the change on disk and redraws the graph on its own, with nothing to refresh.</p>
+        </div>
+        <figure class="framed" data-reveal>
+          <figcaption class="annot"><span>03</span> Live</figcaption>
+          <div class="terminal" role="img" aria-label="A terminal running git commit and git switch; the graph updates without a refresh.">
+            <div class="term-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+            <pre aria-hidden="true"><span class="p">$</span> git commit -am "Debounce search input"
+[feature/search 928af37] Debounce search input
+<span class="p">$</span> git switch main
+Switched to branch 'main'
+<span class="ok">● {PRODUCT_NAME} redrew the graph · 0 clicks</span></pre>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section rule-top tick" aria-labelledby="features">
+      <div class="section-head" data-reveal>
+        <h2 id="features" class="h2">Everything you reach for, one key away.</h2>
+      </div>
+      <ul class="bento" data-reveal>
+        {features.map((f, i) => (
+          <li class={`tile tile-${i}`}>
+            {i === 1 && (
+              <div class="vig vig-graph" aria-hidden="true">
+                <svg class="lanes" viewBox="0 0 64 160" preserveAspectRatio="none">
+                  <path d="M16 0V160" style="stroke: var(--lane-0)" />
+                  <path d="M16 112C16 92 40 92 40 72V24C40 8 16 8 16 0" style="stroke: var(--lane-1)" />
+                  <circle cx="16" cy="16" r="5" style="fill: var(--lane-0)" /><circle cx="40" cy="48" r="5" style="fill: var(--lane-1)" />
+                  <circle cx="40" cy="80" r="5" style="fill: var(--lane-1)" /><circle cx="16" cy="112" r="5" style="fill: var(--lane-0)" />
+                  <circle cx="16" cy="144" r="5" style="fill: var(--lane-0)" />
+                </svg>
+                <div class="rows">
+                  <div class="row"><span class="sha">928af37</span><span class="bar" style="width: 52%"></span></div>
+                  <div class="row is-sel"><span class="sha">4c1e0b2</span><span class="bar" style="width: 38%"></span><span class="keys"><kbd>S</kbd></span></div>
+                  <div class="row"><span class="sha">b07d9a4</span><span class="bar" style="width: 60%"></span></div>
+                  <div class="row"><span class="sha">e5f31c8</span><span class="bar" style="width: 44%"></span></div>
+                  <div class="row"><span class="sha">1a9c6d0</span><span class="bar" style="width: 56%"></span></div>
+                </div>
+              </div>
+            )}
+            {i === 4 && (
+              <div class="vig vig-palette" aria-hidden="true">
+                <div class="pal-input"><kbd>⌘</kbd><kbd>K</kbd><span class="caret"></span></div>
+                <div class="row is-sel"><span class="bar" style="width: 46%"></span><span class="keys"><kbd>S</kbd></span></div>
+                <div class="row"><span class="bar" style="width: 34%"></span><span class="keys"><kbd>F</kbd></span></div>
+                <div class="row"><span class="bar" style="width: 52%"></span><span class="keys"><kbd>E</kbd></span></div>
+              </div>
+            )}
+            {i === 0 && (
+              <div class="vig vig-diff" aria-hidden="true">
+                <div class="dl del"><span>−</span><span class="bar" style="width: 62%"></span></div>
+                <div class="dl add is-staged"><span>+</span><span class="bar" style="width: 70%"></span></div>
+                <div class="dl add"><span>+</span><span class="bar" style="width: 48%"></span></div>
+                <div class="dl"><span></span><span class="bar" style="width: 40%"></span></div>
+              </div>
+            )}
+            <h3 class="h3">{f.title}</h3>
+            <p>{f.body}</p>
+          </li>
+        ))}
+      </ul>
+      <p class="more"><a href="/features">See all features →</a></p>
+    </section>
+
+    <section class="rule-top tick duo" aria-labelledby="yourgit">
+      <div class="section" data-reveal>
+        <h2 id="yourgit" class="h2">Your git, your config.</h2>
+        <p>{PRODUCT_NAME} runs the git already on your Mac, so behaviour matches the command line exactly: your hooks, aliases, credential helpers and config all just work.</p>
+      </div>
+      <div class="section" data-reveal>
+        <h2 class="h2">No account to create.</h2>
+        <p>Download it, open a repository, start working. There's nothing to sign up for, and your code goes only where your own remotes point. <a href="/privacy">How we handle data →</a></p>
+      </div>
+    </section>
+
+    <section class="section rule-top tick" id="pricing" aria-labelledby="price">
+      <div class="price-wrap">
+        <div class="copy" data-reveal>
+          <h2 id="price" class="h1">One price. Yours to keep.</h2>
+          <p>Buy once and every future version for macOS is included. No renewals, no paid upgrades, no subscription.</p>
+          <p class="muted">Try every feature free for 14 days first.</p>
+        </div>
+        <div data-reveal><PriceCard /></div>
+      </div>
+    </section>
+
+    <section class="section rule-top tick faq-wrap" aria-labelledby="faq">
+      <div class="faq-head">
+        <h2 id="faq" class="h2">Questions</h2>
+        <p class="more">More questions? <a href="/pricing#faq">Pricing FAQ</a> · <a href="/docs">Docs</a></p>
+      </div>
+      <div class="faq">
+        {faq.map(({ q, a }) => (
+          <details>
+            <summary>{q}</summary>
+            <p>{a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  </div>
+
+  <section class="stage final" aria-labelledby="try">
+    <div class="stage-glow" aria-hidden="true"></div>
+    <div class="wrap center" data-reveal>
+      <h2 id="try" class="h1">Try it on your own repository.</h2>
+      <p>14 days, every feature, nothing to sign up for. If you have a rebase coming up, it's a good time to try.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-lg" href={DOWNLOAD_URL}>Download free trial</a>
+        <a class="btn btn-secondary btn-lg" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
+      </div>
+    </div>
+  </section>
+</Base>
