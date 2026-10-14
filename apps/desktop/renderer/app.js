@@ -2230,27 +2230,34 @@ async function writeMessageWithAi() {
   state.ai = await api.app('ai-settings');
   if (!aiOn() && !(await setupAi())) return;
   if (!state.status.staged.length) return toast('Stage some changes first');
-  let consent = false;
-  if (!state.ai.consented) {
-    const preview = await api.app('ai-preview');
-    if (preview.error) return toast('Couldn’t prepare the message', { kind: 'error', detail: preview.error.message });
-    const label = state.ai.providers.find((p) => p.id === state.ai.provider).label;
-    const ok = await dialog({
-      title: `Send your staged changes to ${label}?`,
-      description: state.ai.provider === 'ollama'
-        ? 'GitLanes sends exactly this text to Ollama on this Mac. It doesn’t leave your Mac unless your Ollama does.'
-        : `GitLanes passes exactly this text to your ${label} command, which sends it to that tool’s AI service under your own account. GitLanes has no server of its own. You’re asked once per provider.`,
-      fields: [{ name: 'text', multiline: true, rows: 14, value: preview.ok.prompt, readonly: true }],
-      submit: 'Send', wide: true,
-    });
-    if (!ok) return;
-    consent = true;
+  let res;
+  for (;;) {
+    let consent = false, hash = null;
+    if (!state.ai.consented) {
+      const preview = await api.app('ai-preview');
+      if (preview.error) return toast('Couldn’t prepare the message', { kind: 'error', detail: preview.error.message });
+      const label = state.ai.providers.find((p) => p.id === state.ai.provider).label;
+      const ok = await dialog({
+        title: `Send your staged changes to ${label}?`,
+        description: state.ai.provider === 'ollama'
+          ? 'GitLanes sends exactly this text to Ollama on this Mac. It doesn’t leave your Mac unless your Ollama does.'
+          : `GitLanes passes exactly this text to your ${label} command, which sends it to that tool’s AI service under your own account. GitLanes has no server of its own. You’re asked once per provider.`,
+        fields: [{ name: 'text', multiline: true, rows: 14, value: preview.ok.prompt, readonly: true }],
+        submit: 'Send', wide: true,
+      });
+      if (!ok) return;
+      consent = true;
+      hash = preview.ok.hash;
+    }
+    if (state.view !== 'commit') setView('commit');
+    const busy = toast('Writing commit message…', { kind: 'busy', timeout: 0 });
+    res = await api.app('ai-generate', consent, hash);
+    busy.close();
+    state.ai = await api.app('ai-settings');
+    // Staging changed while the preview was open: nothing was sent, show the new text.
+    if (res.error?.code === 'ai-prompt-changed') { toast(res.error.message); continue; }
+    break;
   }
-  if (state.view !== 'commit') setView('commit');
-  const busy = toast('Writing commit message…', { kind: 'busy', timeout: 0 });
-  const res = await api.app('ai-generate', consent);
-  busy.close();
-  state.ai = await api.app('ai-settings');
   if (res.error) return toast('Couldn’t write a commit message', { kind: 'error', detail: res.error.message });
   const ta = $('.composer-input');
   if (!ta) return;

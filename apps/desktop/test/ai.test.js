@@ -103,3 +103,24 @@ test('normalize keeps AI off unless a known provider is saved', () => {
   assert.deepEqual(ai.normalize({ provider: 'gpt', consent: ['claude', 'evil'] }), { provider: 'off', model: '', consent: ['claude'] });
   assert.equal(ai.normalize({ provider: 'ollama', model: 'qwen' }).model, 'qwen');
 });
+
+test('Claude Code runs with no tools and no MCP servers, like Codex runs read-only', () => {
+  const { args } = ai.PROVIDERS.claude;
+  assert.ok(args.includes('--tools='), 'built-in tools are off');
+  assert.ok(args.includes('--strict-mcp-config'), 'user MCP servers are skipped');
+  assert.ok(!args.includes('--tools'), 'variadic form would swallow the next argument');
+  assert.deepEqual(ai.PROVIDERS.codex.args.slice(2, 4), ['--sandbox', 'read-only']);
+});
+
+test('promptHash ties consent to the exact previewed text', () => {
+  assert.equal(ai.promptHash('a\n'), ai.promptHash('a\n'));
+  assert.notEqual(ai.promptHash('a\n'), ai.promptHash('a \n'));
+  assert.match(ai.promptHash('x'), /^[0-9a-f]{64}$/);
+});
+
+test('runCli keeps a UTF-8 character that is split across output chunks', async () => {
+  const dir = tmp();
+  // "é" is 0xC3 0xA9; write the two bytes separately.
+  const p = fakeCli(dir, 'claude', 'cat >/dev/null; printf "caf\\303"; sleep 0.2; printf "\\251\\n"');
+  assert.equal(await ai.runCli(p, [], 'x', { dirs: [dir, '/usr/bin', '/bin'] }), 'café\n');
+});

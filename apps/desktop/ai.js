@@ -7,10 +7,14 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 
 const PROVIDERS = {
-  claude: { label: 'Claude Code', bin: 'claude', args: ['-p', '--output-format', 'text'] },
+  // No tools and no MCP servers: the diff is untrusted text, and the user's own Claude Code
+  // settings may allow Bash or skip permission prompts. `--tools=` keeps the variadic flag from
+  // swallowing the next argument.
+  claude: { label: 'Claude Code', bin: 'claude', args: ['-p', '--tools=', '--strict-mcp-config', '--output-format', 'text'] },
   // Read-only sandbox and no repo check: the CLI runs in an empty folder and only gets stdin.
   codex: { label: 'Codex CLI', bin: 'codex', args: ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-'] },
   ollama: { label: 'Ollama (on this Mac)', url: 'http://127.0.0.1:11434/api/generate', defaultModel: 'llama3.2' },
@@ -79,6 +83,9 @@ function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT } = {
     // Own process group, so a timeout stops the CLI and anything it started.
     const child = spawn(bin, args, { cwd, env: { ...process.env, PATH: dirs.join(path.delimiter) }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     let out = '', err = '';
+    // Decode as a stream, so a character split across two chunks stays whole.
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
     const timer = setTimeout(() => { try { process.kill(-child.pid); } catch { child.kill(); } done(reject, new Error(`${path.basename(bin)} didn’t answer within ${timeout / 1000} s`)); }, timeout);
@@ -109,6 +116,9 @@ async function runOllama(model, prompt, { fetchImpl = fetch, timeout = TIMEOUT }
   return body.response || '';
 }
 
+// Ties a consent to the exact text the user previewed.
+const promptHash = (prompt) => crypto.createHash('sha256').update(prompt).digest('hex');
+
 async function generate({ provider, model }, prompt, { dirs, fetchImpl, timeout } = {}) {
   const p = PROVIDERS[provider];
   if (!p) throw new Error('AI commit messages are off. Pick a provider first.');
@@ -134,4 +144,4 @@ function normalize(saved = {}) {
   };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, MAX_DIFF, buildPrompt, cleanMessage, stagedChanges, searchDirs, findBinary, runCli, runOllama, generate, normalize };
+module.exports = { PROVIDERS, PROVIDER_IDS, MAX_DIFF, buildPrompt, promptHash, cleanMessage, stagedChanges, searchDirs, findBinary, runCli, runOllama, generate, normalize };

@@ -395,15 +395,24 @@ handle('app:ai-configure', (_e, provider, model) => {
   writeSettings({ ai: { ...aiSettings(), provider, model: check.str(model ?? '', 'model', { max: 200, empty: true }).trim() } });
   return aiState();
 });
-handle('app:ai-preview', aiCall(async (e) => ({ ...aiState(), prompt: await aiPrompt(e) })));
-handle('app:ai-generate', aiCall(async (e, consent) => {
+handle('app:ai-preview', aiCall(async (e) => {
+  const prompt = await aiPrompt(e);
+  return { ...aiState(), prompt, hash: ai.promptHash(prompt) };
+}));
+// The first send to a provider carries the hash of the previewed text; if staging changed while
+// the preview was open, nothing is sent and the renderer shows the new text instead.
+handle('app:ai-generate', aiCall(async (e, consent, hash) => {
   const a = aiSettings();
   if (a.provider === 'off') throw new Error('AI commit messages are off.');
+  const prompt = await aiPrompt(e);
   if (!a.consent.includes(a.provider)) {
     if (check.bool(consent, 'consent') !== true) throw new Error('Review what will be sent first.');
+    if (check.str(hash, 'hash', { max: 64 }) !== ai.promptHash(prompt)) {
+      throw Object.assign(new Error('Your staged changes changed while you were reviewing them.'), { code: 'ai-prompt-changed' });
+    }
     writeSettings({ ai: { ...a, consent: [...a.consent, a.provider] } });
   }
-  return ai.generate(a, await aiPrompt(e));
+  return ai.generate(a, prompt);
 }));
 
 // ---------------------------------------------------------------------------
