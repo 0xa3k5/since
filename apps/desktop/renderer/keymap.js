@@ -26,6 +26,7 @@ export const SCOPES = {
   conflict: 'Conflict editor',
   fileHistory: 'File history',
   setup: 'Choose defaults',
+  shortcuts: 'Keyboard Shortcuts window',
   dialog: 'Dialogs and menus',
   tour: 'Tour',
 };
@@ -48,6 +49,7 @@ export const COMMANDS = [
   c('menu', 'edit', 'edit.redo', 'Redo', 'Mod+Shift+Z'),
   c('menu', 'edit', 'edit.find', 'Find…', 'Mod+F'),
   c('menu', 'view', 'view.palette', 'Command Menu', 'Mod+K'),
+  c('menu', 'help', 'help.shortcuts', 'Keyboard Shortcuts', 'Mod+Slash'),
   c('menu', 'views', 'view.map', 'Map', ['Mod+1', 'g m']),
   c('menu', 'views', 'view.commit', 'Commit', ['Mod+2', 'g c']),
   c('menu', 'views', 'view.stashes', 'Stashes', ['Mod+3', 'g s']),
@@ -197,6 +199,12 @@ export const COMMANDS = [
   // Choose defaults.
   c('setup', null, 'setup.done', 'Done', 'Mod+Enter'),
 
+  // The Keyboard Shortcuts window.
+  c('shortcuts', null, 'shortcuts.next', 'Next shortcut', 'ArrowDown'),
+  c('shortcuts', null, 'shortcuts.prev', 'Previous shortcut', 'ArrowUp'),
+  c('shortcuts', null, 'shortcuts.find', 'Search shortcuts', 'Mod+f'),
+  c('shortcuts', null, 'shortcuts.close', 'Clear the search, then close', 'Escape'),
+
   // Dialogs, context menus and the ⌘K menu.
   c('dialog', null, 'dialog.cancel', 'Close', 'Escape'),
   c('dialog', null, 'dialog.submit', 'Submit a multi-line field', 'Mod+Enter'),
@@ -311,7 +319,7 @@ export function accelerator(id, mac = IS_MAC) {
   const b = bindings(id, mac).find((x) => !x.includes(' '));
   if (!b) return undefined;
   const [{ mods, key }] = parse(b);
-  const k = ACCEL_KEYS[key] ?? (/^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : key.length === 1 ? key.toUpperCase() : key);
+  const k = ACCEL_KEYS[key] ?? CODES[key] ?? (/^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : key.length === 1 ? key.toUpperCase() : key);
   const mod = [...mods].map((m) => (m === 'Mod' && mods.has('Ctrl') && mac ? 'Cmd' : ACCEL[m]));
   return [...mod, k].join('+');
 }

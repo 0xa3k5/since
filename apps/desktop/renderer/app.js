@@ -14,6 +14,7 @@ import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
 import { setupView } from './setup-view.js';
+import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 
@@ -2858,6 +2859,7 @@ function openPalette() {
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
+    add('App', 'Keyboard shortcuts', openShortcuts, { icon: 'command', kbd: keymap.keys('help.shortcuts'), keywords: 'keys keymap bindings hotkeys cheat sheet help' });
     add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: keymap.keys('global.setup'), keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
     for (const r of state.refs) {
@@ -2942,6 +2944,21 @@ function openSetup() {
   document.body.append(overlay);
   requestAnimationFrame(() => overlay.classList.add('in'));
   view.querySelector('.switch')?.focus();
+}
+
+// The Keyboard Shortcuts window, with the keys of the view on screen listed first.
+let shortcuts = null;
+function shortcutsScope() {
+  if (!state.repo) return tour ? 'tour' : 'recent';
+  if (state.fileHistory) return 'fileHistory';
+  if (state.split) return 'split';
+  if (state.quick) return 'quick';
+  return ['commit', 'stashes', 'snapshots', 'worktrees'].includes(state.view) ? state.view : 'map';
+}
+function openShortcuts() {
+  if (shortcuts) return shortcuts.close();
+  if (document.querySelector('.overlay')) return;
+  shortcuts = shortcutsWindow({ first: shortcutsScope(), onClose: () => { shortcuts = null; } });
 }
 
 async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
@@ -3092,8 +3109,12 @@ const commands = {
   prClose: () => state.repo && closePr(),
   licence: () => openLicence(),
   buy,
+  shortcuts: () => openShortcuts(),
 };
 api.on('command', (cmd, ...args) => {
+  // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
+  if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
+  if (shortcuts && cmd === 'search') return shortcuts.find();
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
   commands[cmd]?.(...args);
 });
