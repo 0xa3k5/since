@@ -184,6 +184,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.filter', 'Filter lanes', '/'),
   c('lanes', null, 'lanes.clear', 'Clear the filter', 'Escape'),
   c('lanes', null, 'lanes.agents', 'Agent lanes only', 'a'),
+  c('lanes', null, 'lanes.conflicts', 'Lanes with predicted conflicts only', 'c'),
   c('cleanup', null, 'cleanup.next', 'Next lane', ['ArrowDown', 'j']),
   c('cleanup', null, 'cleanup.prev', 'Previous lane', ['ArrowUp', 'k']),
   c('cleanup', null, 'cleanup.toggle', 'Tick or untick the lane', 'Space'),

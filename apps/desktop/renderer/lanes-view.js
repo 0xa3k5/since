@@ -1,24 +1,29 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
-import { BUCKETS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs } from './lanes.js';
+import { BUCKETS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText } from './lanes.js';
 import * as keymap from './keymap.js';
 
 // Lanes overview: every branch and worktree in the repository as one triage list, the lanes that
 // need you first (lanes.js has the order). Keyboard-first: ↑/↓ or J/K move, ↵ opens the lane,
-// typing filters, A shows agent lanes only. Refreshes in place, keeping the selection.
+// typing filters, A shows agent lanes only, C lanes with predicted conflicts only. Refreshes in
+// place, keeping the selection. The conflict forecast runs after the list shows (git merge-tree,
+// main process) and re-sorts the list when it lands.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 // Live refreshes after commits are debounced; the watcher can fire several times per commit.
 const DEBOUNCE = 400;
 
-// load({ prs }) → app:lanes-list result; prsOn() and markAgents() read current settings;
+// load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
 // onOpen(lane) opens it in the graph. actions(lane) → extra context-menu items, the hook for
 // later row actions (review, merge, delete); none yet. onCleanup() opens Clean up.
-export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions = () => [] }) {
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, actions = () => [] }) {
   let lanes = [];
   let shown = [];
   let selKey = null;
   let agentsOnly = false;
+  let conflictsOnly = false;
+  let conflicts = new Map(); // laneKey → forecast entries (conflictsByLane)
+  let forecastOk = true; // false on git before 2.38: no forecast, no chip
   let loaded = false;
   let base = null;
   let timer = 0;
@@ -26,6 +31,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
 
   const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter lanes…', spellcheck: false, 'aria-label': 'Filter lanes' });
   const agentChip = h('button.chip', { title: 'Agent lanes only (A)', onclick: () => toggleAgents() }, 'Agent lanes');
+  const conflictChip = h('button.chip', { title: 'Lanes with predicted conflicts only (C)', onclick: () => toggleConflicts() }, 'Conflicts');
   const count = h('span.muted.lanes-count');
   const list = h('div.lanes-list', { role: 'listbox', 'aria-label': 'Lanes' });
   const empty = h('div.empty');
@@ -33,15 +39,16 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
     h('div.page-head', null,
       h('div', null, h('h1', null, 'Lanes'), h('p.muted', null, 'Every branch and worktree in this repository. Lanes that need you come first.')),
       h('div.page-actions', null, count, onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null)),
-    h('div.lanes-bar', null, icon('search', 14), filter, agentChip),
+    h('div.lanes-bar', null, icon('search', 14), filter, agentChip, conflictChip),
     list,
     empty,
-    h('div.diff-hint.wt-hint', null, '↵ Open · J/K Move · / Filter · A Agent lanes only'),
+    h('div.diff-hint.wt-hint', null, '↵ Open · J/K Move · / Filter · A Agent lanes only · C Conflicts only'),
   );
 
   function badges(l) {
     return [
       l.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${l.agent.reason}: ${l.agent.match})` }, 'Agent') : null,
+      l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
       l.isBase ? h('span.badge', null, 'Base') : null,
       l.worktree?.current ? h('span.badge.local', null, 'This window') : null,
       l.merged ? h('span.badge', { title: l.merged === 'squash' ? 'Its changes are already on the base branch' : 'Already part of the base branch' }, 'Merged') : null,
@@ -71,7 +78,9 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
       icon(l.worktree ? 'worktree' : 'branch', 14),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', null, l.name), ...badges(l)),
-        h('div.list-sub', null, l.worktree ? tildify(l.worktree.path) : l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch'))),
+        h('div.list-sub', null, l.worktree ? tildify(l.worktree.path) : l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
+        // The selected lane spells out who it conflicts with and where (CSS shows it on .active).
+        l.conflicts ? h('div.lanes-conflicts', null, ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c)))) : null),
       h('span.lanes-changes' + (l.changes ? '.dirty' : ''), { title: l.changes == null ? '' : 'Uncommitted changes in its worktree' }, l.changes ? `${l.changes} changed` : ''),
       h('span.lanes-ab', { title: base && ab ? `Ahead/behind ${base}` : '' }, ab),
       prsOn() ? prCell(l.pr) : null,
@@ -81,7 +90,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
 
   function render() {
     if (agentsOnly && !markAgents()) agentsOnly = false;
-    shown = filterLanes(lanes, filter.value, { agentsOnly });
+    shown = filterLanes(lanes, filter.value, { agentsOnly, conflictsOnly });
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
     const rows = [];
     let bucket = null;
@@ -95,9 +104,11 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
     }
     list.replaceChildren(...rows);
     agentChip.classList.toggle('on', agentsOnly);
+    conflictChip.classList.toggle('on', conflictsOnly);
+    conflictChip.hidden = !forecastOk;
     const needs = lanes.filter((l) => BUCKET.get(l.bucket).needs).length;
     count.textContent = loaded ? `${lanes.length} lane${lanes.length === 1 ? '' : 's'}${needs ? ` · ${needs} need${needs === 1 ? 's' : ''} you` : ''}` : 'Loading…';
-    empty.textContent = !loaded || shown.length ? '' : lanes.length ? 'No lanes match.' : 'No branches yet.';
+    empty.textContent = !loaded || shown.length ? '' : conflictsOnly && !filter.value ? 'No predicted conflicts between active lanes.' : lanes.length ? 'No lanes match.' : 'No branches yet.';
     empty.hidden = !empty.textContent;
   }
 
@@ -119,6 +130,12 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
     render();
   }
 
+  function toggleConflicts() {
+    if (!forecastOk) return toast('Conflict forecast needs git 2.38 or later', { detail: 'Update git to see which lanes would conflict before you merge.' });
+    conflictsOnly = !conflictsOnly;
+    render();
+  }
+
   function menu(x, y, l) {
     const extra = actions(l);
     contextMenu(x, y, [
@@ -135,6 +152,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
     else if (id === 'lanes.prev') move(-1);
     else if (id === 'lanes.open') { const l = current(); if (l) onOpen(l); }
     else if (id === 'lanes.agents') toggleAgents();
+    else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.clear') {
       if (!filter.value && !typing) return false; // let Escape through
@@ -167,9 +185,21 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
     if (n !== seq || (loaded && !el.isConnected)) return;
     base = res.base;
     const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes)) : res.lanes;
-    lanes = sortLanes(next);
+    lanes = sortLanes(withConflicts(next, conflicts));
     loaded = true;
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
+    render();
+    runForecast(n);
+  }
+  // Off the hot path: after the list shows. Unchanged pairs come from the main process's cache;
+  // a newer list cancels this run (main resolves the cancelled one to null).
+  async function runForecast(n) {
+    const res = await forecast().catch(() => null);
+    if (!res || n !== seq || !el.isConnected) return;
+    forecastOk = res.supported;
+    conflicts = conflictsByLane(res.pairs, base);
+    if (!forecastOk) conflictsOnly = false;
+    lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
   const fail = (e) => { loaded = true; render(); toast('Could not load lanes', { kind: 'error', detail: e.message }); };
@@ -186,5 +216,7 @@ export function lanesView({ load, prsOn, markAgents, onOpen, onCleanup, actions 
   render();
   fetchLanes({ prs: false }).then(() => (prsOn() ? fetchLanes({ prs: true }) : null)).catch(fail);
   setTimeout(() => el.focus({ preventScroll: true }));
-  return { el, refresh, rerender: render };
+  // ⌘K "Show lanes with predicted conflicts": turn the filter on (never off).
+  const showConflicts = () => { if (!conflictsOnly) toggleConflicts(); };
+  return { el, refresh, rerender: render, showConflicts };
 }
