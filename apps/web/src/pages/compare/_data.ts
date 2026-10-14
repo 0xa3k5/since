@@ -35,7 +35,7 @@ export const US = {
   platforms: 'macOS only.',
   account: 'None.',
   undo: '⌘Z / ⌘⇧Z steps back and forward through every operation, with no step limit: branch, tag and HEAD changes, plus discarded files and hard resets. The history is saved in the repo, so it survives a restart.',
-  keyboard: 'Single-key commit actions on the graph (E edit message, S squash, F fixup, R rebase, M merge…), j/k to move, ⌘K command menu.',
+  keyboard: 'Single-key commit actions on the graph (E edit message, S squash, F fixup, R rebase, M merge…), arrow keys to move, ⌘K command menu.',
   history: 'Edit message, squash or fixup with parent, delete a commit, move a branch tip, all by key on the graph. No drag and drop.',
   splitter: 'Not yet.',
   worktrees: 'Not yet.',
