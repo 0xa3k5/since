@@ -3471,7 +3471,8 @@ window.addEventListener('keydown', (e) => {
       if (v) { e.preventDefault(); setView(v); return; }
     } else if (state.view !== 'commit' && (gPending = keymap.chordStart('menu', e))) { setTimeout(() => { gPending = null; }, 800); return; }
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
-    if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
+    // Not while File History, Quick View or Split covers the Snapshots view: their keys would reach the hidden list.
+    if (state.view === 'snapshots' && !state.fileHistory && !state.quick && !state.split && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
   if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
