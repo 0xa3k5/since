@@ -2837,7 +2837,7 @@ const MERGE_LABELS = { squash: 'Squash and merge', merge: 'Create a merge commit
 const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
   const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
   if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
-  const { gate, methods } = info.ok;
+  const { gate, methods, headOid, checking } = info.ok;
   if (gate.hard) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard });
   if (gate.soft.length && !gate.canOverride) return toast(`GitHub blocks merging #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Only a repository admin can bypass it.` });
   // The local branch to delete afterwards, found now: the refresh after merging drops the PR.
@@ -2848,6 +2848,7 @@ const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
       h('div', null, pr.title),
       h('div', null, `${pr.branch} → ${pr.base}`),
       gate.soft.length ? h('div.pr-blocked', null, `Merge is blocked: ${gate.soft.join(' ')}`) : null,
+      checking ? h('div.pr-remote-note', null, 'GitHub is still checking this pull request. If the merge fails, try again in a moment.') : null,
       h('div.pr-remote-note', null, `${REMOTE_NOTE} Fetching and deleting the local branch afterwards can be undone.`),
     ),
     submit: gate.soft.length ? 'Merge anyway' : 'Merge',
@@ -2867,7 +2868,11 @@ const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
   await fetchAll();
   if (!v.del || local?.kind !== 'branch') return;
   if (local.short === state.head.branch) return toast(`${local.short} is still checked out`, { detail: 'Switch to another branch to delete it.' });
-  if (state.refs.some((r) => r.kind === 'branch' && r.short === local.short)) deleteBranch(local);
+  const now = state.refs.find((r) => r.kind === 'branch' && r.short === local.short);
+  if (!now) return;
+  // Only delete what was merged: local commits that never reached the PR stay.
+  if (!headOid || now.target !== headOid) return toast(`Kept ${local.short}`, { detail: 'It has commits that weren’t in the pull request.' });
+  deleteBranch(now);
 });
 
 const closePr = (given) => withPr(given, 'Close', async (pr) => {

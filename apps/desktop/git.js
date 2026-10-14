@@ -546,7 +546,7 @@ async function updateSubmodules(cwd, paths = []) {
   if (busy.length) throw new GitError(`${busy.map((s) => s.path).join(', ')} ${busy.length > 1 ? 'have' : 'has'} local changes or a conflict. Commit or stash them in the submodule first.`);
   const before = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
   let error = null;
-  await run(cwd, ['submodule', 'update', '--init', '--', ...chosen.map((s) => s.path)]).catch((err) => { error = err; });
+  await run(cwd, ['submodule', 'update', '--init', '--checkout', '--', ...chosen.map((s) => s.path)]).catch((err) => { error = err; });
   const after = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
   const changes = chosen.map((s, i) => ({ path: s.path, before: before[i], after: after[i] })).filter((c) => !sameHead(c.before, c.after));
   return { changes, error };
@@ -566,7 +566,7 @@ async function restoreSubmodules(cwd, changes, dir) {
   for (const c of changes) {
     const want = c[next];
     if (!want) { await run(cwd, ['submodule', 'deinit', '-q', '--', c.path]); continue; }
-    if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '-q', '--', c.path]);
+    if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '--checkout', '-q', '--', c.path]);
     const abs = path.join(cwd, c.path);
     const onBranch = want.branch && (await run(abs, ['rev-parse', '-q', '--verify', `refs/heads/${want.branch}`], { allowCodes: [0, 1] })).trim() === want.sha;
     await run(abs, onBranch ? ['checkout', '-q', want.branch] : ['checkout', '-q', '--detach', want.sha]);
@@ -764,7 +764,7 @@ function remoteWebUrl(url) {
 function remoteLabel(url) {
   const web = remoteWebUrl(url);
   if (web) return web.slice('https://'.length);
-  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, '$1');
+  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
 }
 
 // ---------------------------------------------------------------------------
