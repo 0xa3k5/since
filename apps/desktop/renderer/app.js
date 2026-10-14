@@ -539,6 +539,13 @@ function openAuthor(c) {
   else toast(`No GitHub profile found for ${c.author}`, { kind: 'error' });
 }
 
+// ⌘⇧C: the selected commit's page on the origin's web host.
+function copyCommitLink(sha) {
+  const r = originRemote();
+  if (r?.web) copy(`${r.web}/commit/${sha}`, 'Copied link to commit');
+  else toast(r ? `${r.name} is not on a web host` : 'This repository has no remotes', { kind: 'error' });
+}
+
 function openOrigin() {
   const r = originRemote();
   if (r?.web) api.app('external', r.web);
@@ -1035,6 +1042,7 @@ function createMapView(container) {
     switch (id) {
       case 'commit.checkoutBranch': if (!isEditable(e.target)) { e.preventDefault(); if (c) checkoutSelected(c); } break;
       case 'map.copySha': if (!window.getSelection().toString()) { e.preventDefault(); copy(state.selected, 'Copied SHA'); } break;
+      case 'map.copyLink': e.preventDefault(); copyCommitLink(state.selected); break;
       case 'map.next': move(1); break;
       case 'map.prev': move(-1); break;
       case 'map.pageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
@@ -1412,6 +1420,7 @@ function commitMenu(x, y, c) {
     { label: 'Delete Commit', icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: c.parents.length > 1, run: () => rewriteOp('drop', c) },
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
+    remote?.web ? { label: 'Copy Link to Commit', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
     { label: 'Copy Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
     authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => openAuthor(c) } : null,
     remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
@@ -2868,6 +2877,7 @@ function openPalette() {
     const sel = state.commits[state.index.get(state.selected)];
     if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: keymap.keys('commit.checkoutBranch'), detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
     if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: keymap.keys('commit.author'), detail: sel.author, keywords: 'author profile github user person' });
+    if (sel && originRemote()?.web) add('Commit', 'Copy link to selected commit', () => copyCommitLink(sel.sha), { icon: 'copy', kbd: keymap.keys('map.copyLink'), detail: sel.sha.slice(0, 7), keywords: 'copy link url share permalink github web' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: keymap.keys('commit.split'), detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: keymap.keys('file.open') });
