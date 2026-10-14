@@ -5,6 +5,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function render(tokens) {
+  // Website-only tokens ride along in the same blocks; the desktop renderer ignores them.
+  const web = tokens.web || {};
+  tokens = {
+    shared: { ...tokens.shared, ...web.shared },
+    light: { ...tokens.light, ...web.light },
+    dark: { ...tokens.dark, ...web.dark },
+  };
   const decls = (obj, indent) => Object.entries(obj).map(([k, v]) => `${indent}--${k}: ${v};`).join('\n');
   return `/* Generated from tokens.json by build.js. Do not edit; run \`pnpm --filter @gitlanes/tokens build\`. */
 

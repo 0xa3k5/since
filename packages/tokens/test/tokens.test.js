@@ -17,6 +17,12 @@ test('tokens.css is generated from tokens.json', () => {
 
 test('light and dark define the same tokens', () => {
   assert.deepEqual(Object.keys(tokens.dark).sort(), Object.keys(tokens.light).sort());
+  assert.deepEqual(Object.keys(tokens.web.dark).sort(), Object.keys(tokens.web.light).sort());
+});
+
+test('website-only tokens do not shadow app tokens', () => {
+  const app = new Set([...Object.keys(tokens.shared), ...Object.keys(tokens.light)]);
+  for (const k of [...Object.keys(tokens.web.shared), ...Object.keys(tokens.web.light)]) assert.ok(!app.has(k), `--${k}`);
 });
 
 test('desktop styles.css uses the same values', () => {
