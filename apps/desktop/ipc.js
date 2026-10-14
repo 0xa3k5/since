@@ -161,6 +161,7 @@ const gitSchemas = {
   status: [],
   opState: [],
   lfs: [],
+  submodules: [],
   externalTools: [],
   difftool: [fileEntry, optional(bool), optional(rev), optional(rev)],
   workingDiff: [fileEntry, optional(bool)],
@@ -224,6 +225,8 @@ const gitSchemas = {
   resolveConflict: [repoPath, (v, w) => str(v, w, { max: 4 * MAX_TEXT, empty: true })],
   stashApply: [rev, optional(bool)],
   stashDrop: [rev],
+  // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
+  updateSubmodules: [optional(repoPaths)],
   // history
   undo: [],
   redo: [],
