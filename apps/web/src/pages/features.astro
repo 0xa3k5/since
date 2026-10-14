@@ -53,10 +53,11 @@ const sections = [
     id: 'edit-history',
     eyebrow: 'Edit history in place',
     title: 'Every commit action is a single key',
-    body: 'Select a commit and press one key. Reword, squash or fixup into its parent, swap it with its parent, delete it, rebase onto it, merge it, cherry-pick or revert it. No editor opens and no todo list to edit.',
+    body: 'Select a commit and press one key. Reword, squash or fixup into its parent, split it by lines, swap it with its parent, delete it, rebase onto it, merge it, cherry-pick or revert it. No editor opens and no todo list to edit.',
     points: [
       ['Edit message', ['E']],
       ['Squash or fixup with parent', ['S'], ['F']],
+      ['Split by lines into several commits', ['⇧', 'S']],
       ['Delete commit', ['⌫']],
       ['Rebase onto, merge, cherry-pick, revert', ['R'], ['M'], ['P'], ['V']],
       ['Create a branch or tag here', ['B'], ['T']],
@@ -71,7 +72,7 @@ const sections = [
     points: [
       ['Undo', ['⌘', 'Z']],
       ['Redo', ['⇧', '⌘', 'Z']],
-      ['See every step in Snapshots', ['⌘', '4']],
+      ['See every step and preview a restore', ['⌘', '4']],
     ],
     foot: 'There is no limit on how far back you can go. Pushes change a remote, so they can’t be undone locally; GitLanes asks before a force push.',
     shot: [undoLight, undoDark, 'After a fixup, a toast offers Undo and the toolbar undo button is active'],
@@ -102,15 +103,20 @@ const sections = [
 ];
 
 const tiles = [
-  { title: 'Conflicts', body: 'A banner shows the merge, rebase or cherry-pick in progress with Continue and Abort. Take ours or theirs per file, or mark it resolved. Choosing a side is undoable.' },
+  { title: 'Conflicts', body: 'A banner shows the merge, rebase or cherry-pick in progress with Continue and Abort. Resolve each file in the built-in 3-way merge editor, or take ours or theirs. Choosing a side is undoable.', keys: [['⌥', '⌘', 'M']] },
+  { title: 'Worktrees', body: 'Add a worktree, switch the window to it or open it in a new one, lock and remove it. Other worktrees’ branches are marked on the graph.', keys: [['⌘', '7'], ['⌥', '⌘', 'N'], ['⌥', '⌘', 'W']] },
+  { title: 'File history and blame', body: 'Every commit that touched a file, following renames, next to a blame of the selected version. Click a line to find its commit on the map.', keys: [['⇧', '⌘', 'H']] },
+  { title: 'Submodules and LFS', body: 'See each submodule’s status, update them and open one in its own window. LFS files are detected and badged, and GitLanes warns when git-lfs is missing.', keys: [['⌥', '⌘', 'B'], ['⌥', '⌘', 'U'], ['⌥', '⌘', 'F']] },
+  { title: 'Your diff and merge tools', body: 'Open the selected file in the difftool or mergetool set in your git config.', keys: [['⇧', '⌘', 'D'], ['⇧', '⌘', 'M']] },
+  { title: 'Right identity', body: 'Before you commit, GitLanes checks your email against the identity this clone usually commits with and your own rules per remote, and offers a one-click fix.', keys: [['⌥', '⌘', 'I']] },
+  { title: 'AI commit messages, opt-in', body: 'Off until you pick a provider: Claude Code or Codex CLI that you already use, or Ollama on your Mac. Before the first send you see exactly what goes out.', keys: [['⌥', '⌘', 'G']] },
   { title: 'Remotes', body: 'Fetch, pull and push from the keyboard, force-push with lease after a confirmation, push tags, and open the repository on its hosting site.', keys: [['⇧', '⌘', 'F'], ['⇧', '⌘', 'L'], ['⇧', '⌘', 'P']] },
-  { title: 'Stashes, reflog, config', body: 'Save, apply, pop and drop stashes (dropping, applying and popping are undoable), browse the reflog and edit git config, each one view away.', keys: [['⌘', '3'], ['⌘', '5'], ['⌘', '6']] },
+  { title: 'Stashes, reflog, config', body: 'Stash everything, only staged changes, selected files or selected lines. Apply, pop and drop are undoable. Browse the reflog and edit git config, each one view away.', keys: [['⌘', '3'], ['⌘', '5'], ['⌘', '6']] },
   { title: 'Uses your git', body: `${PRODUCT_NAME} runs the git already on your Mac, with your config, hooks and credential helper. Your repository stays a normal git repository.` },
   { title: 'Light and dark', body: 'Both themes are designed with the same care. Follow the system, or pick one.', keys: [['⌃', '⌘', 'T']] },
   { title: 'Made for the Mac', body: 'Native menus, several windows at once, Open in Finder or Terminal for the current repository, and a daily check for updates.', keys: [['⇧', '⌘', 'N']] },
 ];
 
-const planned = ['Split a commit into several', 'External diff and merge tools', 'Submodules'];
 ---
 <Base
   title={`Features: edit Git history from the keyboard · ${PRODUCT_NAME}`}
@@ -156,12 +162,7 @@ const planned = ['Split a commit into several', 'External diff and merge tools',
       </div>
     </section>
 
-    <section class="planned" aria-labelledby="planned-h">
-      <h2 id="planned-h">Planned</h2>
-      <p class="muted">Not in {PRODUCT_NAME} yet. Every update is free for licence holders.</p>
-      <ul>{planned.map((p) => <li>{p}</li>)}</ul>
-      <p><a href="/changelog">See what has shipped</a> · <a href="/shortcuts">All keyboard shortcuts</a></p>
-    </section>
+    <p class="more-links"><a href="/changelog">See what has shipped</a> · <a href="/shortcuts">All keyboard shortcuts</a></p>
 
     <section class="cta-band" aria-label="Get GitLanes">
       <div>
@@ -189,7 +190,7 @@ const planned = ['Split a commit into several', 'External diff and merge tools',
   .feature-foot { margin-top: 16px !important; font-size: 14px; color: var(--text-3) !important; }
 
   .more { margin-top: 128px; }
-  .more h2, .planned h2 { font-size: clamp(24px, 3vw, 30px); margin: 0 0 24px; }
+  .more h2 { font-size: clamp(24px, 3vw, 30px); margin: 0 0 24px; }
   .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .tile { padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-content); }
   .tile h3 { margin: 0 0 8px; font-size: 16px; }
@@ -197,10 +198,7 @@ const planned = ['Split a commit into several', 'External diff and merge tools',
   .tile .tile-keys { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
   .more-shot { margin-top: 32px; }
 
-  .planned { margin-top: 96px; max-width: 760px; }
-  .planned h2 { margin-bottom: 8px; }
-  .planned ul { margin: 16px 0; padding-left: 20px; color: var(--text-2); }
-  .planned li { margin: 6px 0; }
+  .more-links { margin-top: 48px; }
 
   @media (max-width: 900px) {
     .feature, .feature.flip { grid-template-columns: 1fr; gap: 24px; margin-top: 72px; }

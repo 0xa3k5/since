@@ -90,6 +90,17 @@ const toc = [
     Links you open from the app (for example "Open on GitHub") open in your web browser.
   </p>
 
+  <h3 id="ai">AI commit messages (off by default)</h3>
+  <p>
+    {PRODUCT_NAME} has no AI model or server of its own, and this feature does nothing until you turn it on and pick a provider. When you ask it
+    to write a commit message, it sends the staged diff, the list of changed files and the branch name to the provider you picked. The first time
+    you use a provider, nothing is sent until you have seen the exact text that will go out and agreed. Turning the feature off stops it:
+  </p>
+  <ul>
+    <li><strong>Claude Code or Codex CLI:</strong> {PRODUCT_NAME} runs the tool you already have installed, signed in to your own account. The tool sends the text to its provider under that provider's terms. It never passes through us.</li>
+    <li><strong>Ollama:</strong> the text goes to the Ollama server on your own Mac and stays there.</li>
+  </ul>
+
   <h2 id="website">This website</h2>
   <ul>
     <li><strong>No cookies.</strong> The site sets none. Your theme choice (light, dark or system) is kept in your browser's local storage and never leaves it.</li>
