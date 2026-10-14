@@ -624,17 +624,28 @@ async function getRemotes(cwd) {
     const m = /^(\S+)\s+(\S+)\s+\((fetch|push)\)/.exec(l);
     if (m && !map.has(m[1])) map.set(m[1], m[2]);
   }
-  return [...map].map(([name, url]) => ({ name, url, web: remoteWebUrl(url) }));
+  return [...map].map(([name, url]) => ({ name, url, web: remoteWebUrl(url), label: remoteLabel(url) }));
 }
 
+// A remote URL as https://host/owner/repo, or null when it is not on a web host
+// (local paths, file://). Drops credentials, ssh ports and the trailing ".git".
 function remoteWebUrl(url) {
-  let m = /^git@([^:]+):(.+?)(\.git)?$/.exec(url);
+  const s = String(url || '').trim().replace(/\/+$/, '');
+  let m = /^(?:ssh|git|git\+ssh|ssh\+git):\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+?)(?:\.git)?$/i.exec(s);
   if (m) return `https://${m[1]}/${m[2]}`;
-  m = /^ssh:\/\/(?:[^@]+@)?([^/:]+)(?::\d+)?\/(.+?)(\.git)?$/.exec(url);
+  m = /^https?:\/\/(?:[^@/]+@)?([^/]+)\/(.+?)(?:\.git)?$/i.exec(s);
   if (m) return `https://${m[1]}/${m[2]}`;
-  m = /^https?:\/\/(?:[^@]+@)?(.+?)(\.git)?$/.exec(url);
-  if (m) return `https://${m[1]}`;
+  // scp-style "[user@]host:owner/repo" (no slash before the colon, as git reads it).
+  m = /^(?:[^@/:]+@)?([^/:]+):\/?(?!\/)(.+?)(?:\.git)?$/.exec(s);
+  if (m) return `https://${m[1]}/${m[2]}`;
   return null;
+}
+
+// Short label for a remote: "host/owner/repo", or the path of a local remote.
+function remoteLabel(url) {
+  const web = remoteWebUrl(url);
+  if (web) return web.slice('https://'.length);
+  return String(url || '').trim().replace(/^file:\/\//i, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -1213,7 +1224,7 @@ async function mergetool(cwd, paths = []) {
 module.exports = {
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseDiff, buildPartialPatch, applyPatch,
-  getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, rewriteRange, rewrite, captureRefState, restoreRefState,
+  getStashes, getReflog, getConfig, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
