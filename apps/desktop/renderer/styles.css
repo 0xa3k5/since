@@ -168,6 +168,7 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 /* Rail: icons only. */
 #app.sb-rail .sidebar { align-items: center; }
 #app.sb-rail .repo-switch,
+#app.sb-rail .sb-origin,
 #app.sb-rail .nav-item > span:not(.icon),
 #app.sb-rail .sb-scroll,
 #app.sb-rail .sb-action > span:not(.icon) { display: none; }
