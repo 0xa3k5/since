@@ -222,3 +222,10 @@ test('refusal: reserved commands and keys, macOS keys, and menu keys without a m
   assert.equal(refusal('map.head', 'x', true), null);
   assert.equal(refusal('repo.fetch', 'Mod+Alt+Shift+F', true), null);
 });
+
+test('Ctrl+Mod needs ⌘ on macOS, so plain ⌃T doesn’t match ⌃⌘T (AK-207)', async () => {
+  const { match } = await load();
+  const ev = (key, o = {}) => ({ key, code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
+  assert.equal(match('menu', ev('t', { ctrlKey: true }), null, true), null);
+  assert.equal(match('menu', ev('t', { ctrlKey: true, metaKey: true }), null, true), 'view.cycleTheme');
+});

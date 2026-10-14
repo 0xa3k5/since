@@ -327,9 +327,10 @@ export function parse(binding) {
 const isLetter = (k) => /^[a-z]$/i.test(k);
 
 /** Does a keydown event press this step? `loose` lets ⇧ through for keys that aren't letters. */
-function pressed(step, e, loose) {
+function pressed(step, e, loose, mac = IS_MAC) {
   const { mods, key } = step;
-  if (mods.has('Mod') ? !(e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
+  // Mod is ⌘ or ⌃; with Ctrl also named (⌃⌘T), Mod must be ⌘ on macOS, or plain ⌃T would match.
+  if (mods.has('Mod') ? !(mac && mods.has('Ctrl') ? e.metaKey : e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
   if (mods.has('Ctrl') && !e.ctrlKey) return false;
   if (mods.has('Alt') !== !!e.altKey) return false;
   const shift = mods.has('Shift');
@@ -351,8 +352,8 @@ export function match(scope, e, pending = null, mac = IS_MAC) {
     for (const cmd of cmds) {
       for (const b of bindings(cmd.id, mac)) {
         const steps = parse(b);
-        if (pending ? steps.length === 2 && steps[0].key === pending && pressed(steps[1], e, loose)
-          : steps.length === 1 && pressed(steps[0], e, loose)) return cmd.id;
+        if (pending ? steps.length === 2 && steps[0].key === pending && pressed(steps[1], e, loose, mac)
+          : steps.length === 1 && pressed(steps[0], e, loose, mac)) return cmd.id;
       }
     }
   }
@@ -364,7 +365,7 @@ export function chordStart(scope, e, mac = IS_MAC) {
   for (const cmd of inScope(scope)) {
     for (const b of bindings(cmd.id, mac)) {
       const steps = parse(b);
-      if (steps.length === 2 && pressed(steps[0], e, false)) return steps[0].key;
+      if (steps.length === 2 && pressed(steps[0], e, false, mac)) return steps[0].key;
     }
   }
   return null;
