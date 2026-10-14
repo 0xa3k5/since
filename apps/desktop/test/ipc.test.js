@@ -12,8 +12,8 @@ test('every git method the main process serves has a schema, and nothing else do
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
-  const { workOps, worktreeOps } = require('../journal');
-  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), 'cleanupLanes', 'updateSubmodules', 'undo', 'redo', 'restoreHistory'];
+  const { workOps, worktreeOps, laneOps } = require('../journal');
+  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });
 

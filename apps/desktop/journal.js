@@ -75,6 +75,9 @@ const workOps = {
   stashDrop: { run: git.stashDrop, stash: true },
 };
 
+// Lane steps (runLane) that can also remove a worktree.
+const laneOps = new Set(['mergeLane', 'tidyLane']);
+
 const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
 
 // One side of the journal. `hot` holds the newest entries (top of the stack
@@ -151,7 +154,7 @@ class Journal {
 
   // Newest `limit` entries of each stack, plus the full sizes.
   list(limit = 100) {
-    const strip = (e) => ({ id: e.id, label: e.label, time: e.time, movesRefs: !e.worktree && !same(e.before, e.after) });
+    const strip = (e) => ({ id: e.id, label: e.label, time: e.time, movesRefs: (!e.worktree || laneOps.has(e.method)) && !same(e.before, e.after) });
     const newest = (s) => {
       let out = s.hot.slice(-limit);
       for (let i = s.pages.length - 1; i >= 0 && out.length < limit; i--) out = [...this.readPage(s.pages[i]).slice(out.length - limit), ...out];
@@ -321,6 +324,23 @@ class Journal {
     return worktree;
   }
 
+  // Merge and tidy a lane (git.mergeLane) as one undoable step: the base moved, the worktree
+  // removed and the branch deleted all come back with one undo. `fn(done)` fills `done`.
+  runLane(label, method, fn) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      const done = {};
+      try {
+        return await fn(done);
+      } finally {
+        const wt = done.worktree;
+        const worktree = wt && { op: 'remove', path: wt.path, branch: wt.branch, head: wt.head };
+        await this.finish({ id, label, method, before, worktree }).catch((err) => console.warn('journal failed', err.message));
+      }
+    });
+  }
+
   // Lanes → Clean up (git.cleanupLanes): every worktree removed and branch deleted is one
   // undoable step. Returns git.cleanupLanes' result; `onProgress` is passed through.
   runCleanup(label, items, opts) {
@@ -467,7 +487,8 @@ class Journal {
 
   // Undo or redo adding or removing a worktree. Removing again needs the worktree
   // clean and unlocked (git.removeWorktree checks); a branch created with it is
-  // deleted only if nothing has moved since.
+  // deleted only if nothing has moved since. A lane step can also have moved the
+  // branch checked out here (its base), so the working copy follows HEAD.
   async restoreWorktree(entry, dir) {
     const cwd = this.root;
     const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
@@ -478,11 +499,11 @@ class Journal {
     const adding = (wt.op === 'add') === (dir === 'redo');
     try {
       if (adding) {
-        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
+        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
         await git.restoreWorktree(cwd, wt);
       } else {
         await git.removeWorktree(cwd, wt.path);
-        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
+        if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
       }
     } catch (err) {
       throw fail(err.message);
@@ -551,4 +572,4 @@ class Journal {
   }
 }
 
-module.exports = { Journal, workOps, worktreeOps, PAGE, refChanges };
+module.exports = { Journal, workOps, worktreeOps, laneOps, PAGE, refChanges };

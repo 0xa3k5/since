@@ -175,6 +175,7 @@ const gitSchemas = {
   checkSplit: [rev],
   compare: [rev, rev],
   branchReview: [rev, optional(rev)],
+  mergeLanePlan: [rev, optional(rev)],
   status: [],
   opState: [],
   lfs: [],
@@ -245,6 +246,9 @@ const gitSchemas = {
   resolveConflict: [repoPath, (v, w) => str(v, w, { max: 4 * MAX_TEXT, empty: true })],
   stashApply: [rev, optional(bool)],
   stashDrop: [rev],
+  // undoable merge and tidy of a lane (journal.runLane): branch, base, commit message; branch
+  mergeLane: [rev, rev, text],
+  tidyLane: [rev],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
   updateSubmodules: [optional(repoPaths)],
   // history

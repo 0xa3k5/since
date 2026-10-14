@@ -867,7 +867,7 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
-  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview }); return contentEl.append(reviewPage.el); }
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -2243,6 +2243,7 @@ function openLanes() {
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
     onReview: (lane, base) => openReview(lane, base),
+    onMerge: mergeLane,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
   });
     onCleanup: startCleanup,
@@ -2286,9 +2287,61 @@ function openReview(lane, base = null) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
-  state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base };
+  state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base, source: lane };
   renderTopbar();
   renderView();
+}
+// Merge and tidy (lanes overview, branch review, ⌘K): land a lane on its base as one squashed
+// commit, then remove its worktree and delete its branch, as one undo step. A lane with an open
+// PR (pull requests on) can be merged on GitHub instead (`gh pr merge --squash`, not undoable);
+// the local tidy after it is. Deleting the remote branch is opt-in and never undoable.
+async function mergeLane(lane, base = null) {
+  if (!state.repo || !lane) return;
+  if (!lane.branch) return toast(`${lane.name} is not on a branch`, { detail: 'Merge and tidy works on branches.' });
+  let plan;
+  try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+  if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
+  const pr = state.prs?.active && prRemote() ? lane.pr : null;
+  if (plan.mergeBlocker && !pr && plan.commits.length) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
+  const n = plan.commits.length;
+  const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
+  const tidy = plan.worktree ? `remove the worktree ${plan.worktree.name} and delete ${lane.branch}` : `delete ${lane.branch}`;
+  const here = n ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}, then ${tidy}.` : `Nothing left to merge into ${plan.base || 'the base'}: this will ${tidy}.`;
+  const v = await dialog({
+    title: `Merge and tidy ${lane.name}?`,
+    description: h('div.pr-merge', null,
+      h('div', null, here),
+      pr ? h('div.pr-remote-note', null, `On GitHub: #${pr.number} is squash-merged there, which ⌘Z can’t undo. The local tidy after it can be undone.`) : null,
+      plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null,
+      h('div.muted', null, '⌘Z undoes the local merge and tidy in one step.')),
+    submit: 'Merge and tidy',
+    wide: n > 0,
+    fields: [
+      pr ? { name: 'via', type: 'select', label: 'Merge', value: plan.mergeBlocker && n ? 'github' : 'here', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }] } : null,
+      n ? { name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message } : null,
+      remote || pr ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
+    ].filter(Boolean),
+  });
+  if (!v) return;
+  const label = `Merge and tidy ${lane.branch}`;
+  if (v.via === 'github') {
+    const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
+    const { gate } = info.ok;
+    if (gate.hard || gate.soft.length) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard || `${gate.soft.join(' ')} Use Merge pull request… to merge anyway.` });
+    if (!info.ok.methods.includes('squash')) return toast(`#${pr.number} can’t be squash-merged`, { kind: 'error', detail: 'Use Merge pull request… to pick another method.' });
+    const res = await prCall('pr-merge', pr, { method: 'squash', deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
+    if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
+    toast(`Merged #${pr.number} on GitHub`, { kind: 'success', detail: 'The merge on GitHub can’t be undone.' });
+    await fetchAll();
+    return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
+  }
+  if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
+  const ok = n
+    ? await act(label, 'mergeLane', [lane.branch, plan.base, v.message], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}` })
+    : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
+  if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
+  if (ok && state.review) closeReview();
 }
 function closeReview() {
   state.review = null;
@@ -2956,6 +3009,8 @@ function openPalette() {
     if (originRemote()?.web) add('Repository', 'Open origin in browser', openOrigin, { icon: 'external', kbd: keymap.keys('repo.origin'), detail: originRemote().label });
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
+    const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
+    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'lane squash merge tidy cleanup remove worktree delete branch land' });
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     add('View', 'Show lanes with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'conflict forecast merge-tree overlap lanes branches worktrees' });
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });

@@ -14,10 +14,10 @@ const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 const DEBOUNCE = 400;
 
 // load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
-// onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review and
+// onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
 // progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items, the hook for
 // later row actions (review, merge, delete); none yet. onCleanup() opens Clean up.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, progress = () => null, actions = () => [] }) {
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, progress = () => null, actions = () => [] }) {
   let lanes = [];
   let shown = [];
   let selKey = null;
@@ -43,7 +43,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     h('div.lanes-bar', null, icon('search', 14), filter, agentChip, conflictChip),
     list,
     empty,
-    h('div.diff-hint.wt-hint', null, '↵ Open · R Review · J/K Move · / Filter · A Agent lanes only · C Conflicts only'),
+    h('div.diff-hint.wt-hint', null, '↵ Open · R Review · M Merge and tidy · J/K Move · / Filter · A Agent lanes only · C Conflicts only'),
   );
 
   function badges(l) {
@@ -151,6 +151,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(l) },
       { label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => onReview(l, base) },
+      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !l.branch || l.isBase, run: () => onMerge(l, base) },
       ...(extra.length ? ['-', ...extra] : []),
     ]);
   }
@@ -164,6 +165,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     else if (id === 'lanes.open') { const l = current(); if (l) onOpen(l); }
     else if (id === 'lanes.agents') toggleAgents();
     else if (id === 'lanes.review') { const l = current(); if (l) onReview(l, base); }
+    else if (id === 'lanes.merge') { const l = current(); if (l) onMerge(l, base); }
     else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.clear') {
@@ -230,5 +232,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   setTimeout(() => el.focus({ preventScroll: true }));
   // ⌘K "Show lanes with predicted conflicts": turn the filter on (never off).
   const showConflicts = () => { if (!conflictsOnly) toggleConflicts(); };
-  return { el, refresh, rerender: render, showConflicts };
+  // ⌘K "Merge and tidy…" acts on the selected lane.
+  const selected = () => (current() ? { lane: current(), base } : null);
+  return { el, refresh, rerender: render, showConflicts, selected };
 }
