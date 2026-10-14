@@ -1002,6 +1002,7 @@ function quickView({ sha, path }) {
     if (!f) { main.replaceChildren(h('div.empty', null, 'No changes in this commit')); return; }
     main.replaceChildren(h('div.diff-loading'));
     const c = await loadCommit(sha);
+    if (state.quick?.sha === sha) Object.assign(state.quick, { file: f, parent: c.parents[0] || null });
     const d = await git('commitFileDiff', sha, f, c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     main.replaceChildren(
       h('div.diff-head', null, statusBadge(f.status), h('span.mono', null, f.oldPath ? `${f.oldPath} → ${f.path}` : f.path), h('span.spacer'),
@@ -1402,6 +1403,9 @@ function createCommitView(container) {
         contextMenu(e.clientX, e.clientY, [
           list === 'unstaged' ? { label: 'Stage', icon: 'plus', kbd: '↵', run: () => quiet('stageFiles', [f.path]) } : null,
           list === 'staged' ? { label: 'Unstage', icon: 'minus', kbd: '↵', run: () => quiet('unstageFiles', [f.path]) } : null,
+          list === 'conflicts'
+            ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool([f.path]) }
+            : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: [MOD, '⇧', 'D'], run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
@@ -1416,7 +1420,7 @@ function createCommitView(container) {
   function renderLists() {
     const { staged, unstaged, conflicts } = state.status;
     lists.replaceChildren(...[
-      conflicts.length ? section('Conflicts', conflicts, 'conflicts', null) : null,
+      conflicts.length ? section('Conflicts', conflicts, 'conflicts', h('button.btn.ghost.tiny', { title: `Open in your mergetool (${MOD}⇧M)`, onclick: () => openMergetool([]) }, 'Mergetool')) : null,
       section('Unstaged', unstaged, 'unstaged', unstaged.length ? [
         h('button.btn.ghost.tiny', { onclick: () => discard(unstaged) }, 'Discard all'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
@@ -1864,6 +1868,8 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
+    add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
+    add('Repository', 'Open conflicts in mergetool', () => openMergetool(), { icon: 'merge', kbd: [MOD, '⇧', 'M'], detail: state.status.conflicts.length ? `${state.status.conflicts.length} conflicted` : 'no conflicts', keywords: 'mergetool external merge tool conflict resolve' });
     add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: [MOD, '⌥', 'N'] });
     add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: [MOD, '⌥', 'W'] });
     if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
@@ -2059,6 +2065,8 @@ const commands = {
   worktreeAdd: () => state.repo && addWorktree(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
   lfs: () => openLfs(),
+  difftool: () => openDifftool(),
+  mergetool: () => openMergetool(),
   licence: () => openLicence(),
   buy,
 };
@@ -2066,6 +2074,46 @@ api.on('command', (cmd, ...args) => {
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
   commands[cmd]?.(...args);
 });
+
+// ---------------------------------------------------------------------------
+// External diff & merge tools: git difftool / mergetool with the user's diff.tool / merge.tool.
+
+// The file on screen: the open file of the commit viewer, else the file selected in Commit view.
+function difftoolTarget() {
+  if (state.quick) return state.quick.file ? { file: state.quick.file, args: [false, state.quick.sha, state.quick.parent] } : null;
+  if (state.view !== 'commit') return null;
+  const { list, path } = state.cv;
+  const file = (state.status[list] || []).find((f) => f.path === path);
+  return file && { file, args: [list === 'staged'], conflict: list === 'conflicts' };
+}
+
+async function openDifftool(target = difftoolTarget()) {
+  if (!state.repo) return;
+  if (!target) return toast('Select a file first', { detail: 'Open in Difftool works on the file shown in Commit view or in a commit.' });
+  if (target.conflict) return openMergetool([target.file.path]);
+  if (target.file.status === '?') return toast('Untracked files have nothing to compare', { detail: target.file.path });
+  try { await git('difftool', target.file, ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
+}
+
+// Waits for the tool to exit, then refreshes the conflict list.
+let mergetoolOpen = false;
+async function openMergetool(paths) {
+  if (!state.repo) return;
+  if (!state.status.conflicts.length) return toast('No conflicted files');
+  if (mergetoolOpen) return toast('Your mergetool is already open');
+  // No paths given: the selected conflict, or every conflict.
+  paths ??= state.view === 'commit' && state.cv.list === 'conflicts' && state.cv.path ? [state.cv.path] : [];
+  mergetoolOpen = true;
+  try {
+    const { remaining } = await git('mergetool', paths);
+    toast(remaining.length ? `${remaining.length} conflicted file${remaining.length === 1 ? '' : 's'} left` : 'Conflicts resolved', { detail: remaining.slice(0, 3).join('\n') || null });
+  } catch (e) {
+    if (!e.readOnly) toast('Mergetool failed', { kind: 'error', detail: e.message });
+  } finally {
+    mergetoolOpen = false;
+    await refreshStatus();
+  }
+}
 
 function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable); }
 
