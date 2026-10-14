@@ -9,6 +9,7 @@
 // keys a binding with no modifiers also matches with ⇧ held, unless a Shift binding in the same scope wins.
 // `group` is the /shortcuts page section (null: not listed there yet); `pair` shows a second command's keys beside
 // this one (↓ ↑). `reserved` marks keys macOS or the app menu owns (⌘, ⌘Q…), which must never be rebound.
+// The user can rebind the rest (Keyboard Shortcuts window): `setOverrides` layers their changes over `keys`.
 
 export const SCOPES = {
   global: 'Anywhere in a repository',
@@ -206,6 +207,7 @@ export const COMMANDS = [
   c('shortcuts', null, 'shortcuts.next', 'Next shortcut', 'ArrowDown'),
   c('shortcuts', null, 'shortcuts.prev', 'Previous shortcut', 'ArrowUp'),
   c('shortcuts', null, 'shortcuts.find', 'Search shortcuts', 'Mod+f'),
+  c('shortcuts', null, 'shortcuts.edit', 'Change the shortcut', 'Enter'),
   c('shortcuts', null, 'shortcuts.close', 'Clear the search, then close', 'Escape'),
 
   // Dialogs, context menus and the ⌘K menu.
@@ -232,11 +234,48 @@ const IS_MAC = typeof process !== 'undefined' && process.platform
   ? process.platform === 'darwin'
   : /^Mac/.test(globalThis.navigator?.platform ?? '');
 
-/** The bindings of a command on this platform. */
-export function bindings(id, mac = IS_MAC) {
+/** The default bindings of a command on this platform. */
+export function defaults(id, mac = IS_MAC) {
   const cmd = BY_ID.get(id);
   if (!cmd) throw new Error(`keymap: unknown command ${id}`);
   return !mac && cmd.other ? [].concat(cmd.other) : cmd.keys;
+}
+
+// Custom bindings: the user's overrides from settings.json `keymap`, { id: [binding…] } ([] means no keys).
+// Only changed commands are stored; a command with no override uses its defaults.
+let overrides = {};
+
+/** Valid overrides only: known, non-reserved commands with parseable bindings. Drops everything else. */
+export function sanitize(o) {
+  const out = {};
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
+  for (const [id, list] of Object.entries(o)) {
+    const cmd = BY_ID.get(id);
+    if (!cmd || cmd.reserved || !Array.isArray(list) || list.length > 4) continue;
+    const ok = list.filter((b) => {
+      if (typeof b !== 'string' || !b || b.length > 40) return false;
+      try { return parse(b).length <= 2; } catch { return false; }
+    });
+    if (ok.length === list.length) out[id] = [...new Set(ok)];
+  }
+  return out;
+}
+
+export function setOverrides(o) { overrides = sanitize(o); }
+export const getOverrides = () => structuredClone(overrides);
+export const isCustom = (id) => Object.hasOwn(overrides, id);
+
+/** The bindings of a command on this platform: the user's if they changed it, else the defaults. */
+export function bindings(id, mac = IS_MAC) {
+  return isCustom(id) ? overrides[id] : defaults(id, mac);
+}
+
+/** The overrides with `id` set to `list`; a list equal to the defaults removes the override. */
+export function withBinding(o, id, list, mac = IS_MAC) {
+  const next = { ...o };
+  const same = list.length === defaults(id, mac).length && list.every((b, i) => normalize(b) === normalize(defaults(id, mac)[i]));
+  if (same) delete next[id]; else next[id] = [...new Set(list)];
+  return next;
 }
 
 const MOD_TOKENS = ['Mod', 'Ctrl', 'Alt', 'Shift'];
@@ -305,13 +344,19 @@ const keyLabel = (k) => KEY_LABELS[k] ?? CODES[k] ?? (/^Key[A-Z]$/.test(k) ? k.s
 
 /**
  * A binding as the keycaps the app shows: ['⌘', '⇧', 'F'] (['Ctrl', '⇧', 'F'] off macOS), in binding order.
- * Defaults to the command's first binding; `index` picks another one. A chord shows its steps in a row.
+ * Defaults to the command's first binding; `index` picks another one (null if there's none). A chord shows its
+ * steps in a row.
  */
 export function keys(id, { index = 0, mac = IS_MAC } = {}) {
   const b = bindings(id, mac)[index];
-  if (b == null) return null;
+  if (b == null) return index ? null : []; // [] when the user removed every key, so callers can spread it
+  return caps(b, mac);
+}
+
+/** Any binding as keycaps, like `keys`. */
+export function caps(binding, mac = IS_MAC) {
   const MOD = { Mod: mac ? '⌘' : 'Ctrl', Ctrl: mac ? '⌃' : 'Ctrl', Alt: '⌥', Shift: '⇧' };
-  return parse(b).flatMap((s) => [...[...s.mods].map((m) => MOD[m]), keyLabel(s.key)]);
+  return parse(binding).flatMap((s) => [...[...s.mods].map((m) => MOD[m]), keyLabel(s.key)]);
 }
 
 const ACCEL = { Mod: 'CmdOrCtrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' };
@@ -325,4 +370,96 @@ export function accelerator(id, mac = IS_MAC) {
   const k = ACCEL_KEYS[key] ?? CODES[key] ?? (/^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : key.length === 1 ? key.toUpperCase() : key);
   const mod = [...mods].map((m) => (m === 'Mod' && mods.has('Ctrl') && mac ? 'Cmd' : ACCEL[m]));
   return [...mod, k].join('+');
+}
+
+// ---------------------------------------------------------------------------
+// Rebinding: recording keys, conflicts and refused keys.
+
+const MAC_ORDER = ['Mod', 'Ctrl', 'Alt', 'Shift'];
+
+/** A binding in one spelling, for comparing: "Mod+Alt+KeyO" and "Mod+Alt+o" are the same keys. */
+export function normalize(binding) {
+  return parse(binding).map(({ mods, key }) => {
+    let k = /^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : CODES[key] ?? key;
+    if (k.length === 1) k = k.toLowerCase();
+    return [...MAC_ORDER.filter((m) => mods.has(m)), k].join('+');
+  }).join(' ');
+}
+
+/**
+ * A keydown event as one binding step ("Mod+Shift+F"), or null while only modifiers are down. Letters use the
+ * typed letter, except with ⌥ (which changes the character) where the key code is used, like the defaults.
+ */
+export function fromEvent(e, mac = IS_MAC) {
+  if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'Fn', 'Dead', 'Unidentified'].includes(e.key)) return null;
+  const mods = [];
+  if (mac ? e.metaKey : e.ctrlKey) mods.push('Mod');
+  if (mac && e.ctrlKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  const code = e.code || '';
+  let key;
+  if (e.key === ' ') key = 'Space';
+  else if (/^[a-z]$/i.test(e.key) && !e.altKey) key = e.key.toLowerCase();
+  else if (/^Key[A-Z]$/.test(code)) key = e.altKey ? code : code.slice(3).toLowerCase();
+  else if (/^Digit\d$/.test(code)) key = e.altKey || e.shiftKey ? code : code.slice(5);
+  else if (code in CODES && (e.altKey || e.shiftKey)) key = code;
+  else key = e.key;
+  return [...mods, key].join('+');
+}
+
+// Scopes that are live at the same time: the menu bar and the "anywhere" keys run in every view.
+const overlaps = (a, b) => a === b || [a, b].some((s) => s === 'menu' || s === 'global');
+
+/**
+ * The commands that `binding` would collide with if given to `id`: the same keys in the same or an overlapping
+ * scope, or a single key that starts one of their chords (or the reverse).
+ */
+export function conflicts(id, binding, mac = IS_MAC) {
+  const me = BY_ID.get(id);
+  return COMMANDS.filter((cmd) => cmd.id !== id && overlaps(cmd.scope, me.scope)
+    && bindings(cmd.id, mac).some((b) => collides(b, binding))).map((cmd) => cmd.id);
+}
+
+/** Do two bindings clash: the same keys, or one is a single key that starts the other's chord? */
+export function collides(a, b) {
+  const [m, n] = [normalize(a), normalize(b)];
+  if (m === n) return true;
+  if (m.includes(' ') === n.includes(' ')) return false;
+  return m.includes(' ') ? m.split(' ')[0] === n : n.split(' ')[0] === m;
+}
+
+// Keys macOS keeps for itself. The app's own reserved commands (⌘Q, ⌘W, ⌘H, ⌘,) are added from the keymap.
+const SYSTEM = {
+  'Mod+Tab': 'switches apps', 'Mod+Shift+Tab': 'switches apps', 'Mod+`': 'switches windows',
+  'Mod+Space': 'opens Spotlight', 'Ctrl+Space': 'switches input sources', 'Mod+Alt+Space': 'opens a Finder search',
+  'Mod+Alt+Escape': 'opens Force Quit', 'Mod+M': 'minimises the window', 'Mod+Alt+H': 'hides other apps', 'Mod+Alt+D': 'shows or hides the Dock',
+  'Mod+Shift+3': 'takes a screenshot', 'Mod+Shift+4': 'takes a screenshot', 'Mod+Shift+5': 'takes a screenshot',
+  'Mod+Ctrl+Q': 'locks the screen', 'Mod+Shift+Q': 'logs out',
+  'Ctrl+ArrowUp': 'opens Mission Control', 'Ctrl+ArrowDown': 'shows app windows', 'Ctrl+ArrowLeft': 'switches Spaces', 'Ctrl+ArrowRight': 'switches Spaces',
+  'Mod+Ctrl+F': 'toggles full screen',
+};
+const SYSTEM_KEYS = new Map(Object.entries(SYSTEM).map(([k, v]) => [normalize(k), v]));
+
+/** Why `binding` can't be given to `id` (a sentence), or null when it can. */
+export function refusal(id, binding, mac = IS_MAC) {
+  const cmd = BY_ID.get(id);
+  if (!cmd) return 'Unknown command.';
+  if (cmd.reserved) return 'macOS and the app menu own this shortcut, so it can’t be changed.';
+  let steps;
+  try { steps = parse(binding); } catch { return 'Those keys can’t be used.'; }
+  const n = normalize(binding);
+  const reserved = COMMANDS.find((x) => x.reserved && defaults(x.id, mac).some((b) => normalize(b) === n));
+  if (reserved) return `${keys(reserved.id, { mac }).join('')} is kept for “${reserved.label}”.`;
+  // Off macOS, Mod is Ctrl, so a few system keys read differently; only macOS's list is enforced there too.
+  const why = SYSTEM_KEYS.get(n) ?? (n.startsWith('Ctrl+') ? SYSTEM_KEYS.get(n.replace('Ctrl+', 'Mod+')) : null);
+  if (mac && why) return `macOS uses these keys: it ${why}.`;
+  if (steps.length === 2 && steps.some((s) => s.mods.size)) return 'A two-key shortcut uses plain keys, like G then C.';
+  // Chords are dispatched for the views only (G then C).
+  if (steps.length === 2 && !id.startsWith('view.')) return 'Only the views (G then C) take a two-key shortcut.';
+  if (cmd.scope === 'menu') {
+    // Menu items run anywhere, even while typing, so they need ⌘, ⌃ or ⌥.
+    if (steps.length === 1 && !['Mod', 'Ctrl', 'Alt'].some((m) => steps[0].mods.has(m)) && !/^F\d+$/.test(steps[0].key)) return 'Menu commands need ⌘, ⌃ or ⌥, so they don’t fire while you type.';
+  }
+  return null;
 }

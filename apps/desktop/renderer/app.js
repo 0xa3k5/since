@@ -619,10 +619,10 @@ function renderSidebar() {
         h('span.repo-icon', null, state.repo.name.slice(0, 1).toUpperCase()),
         h('span.repo-name', null, state.repo.name),
         icon('chevronDown', 12)),
-      h('button.icon-btn', { title: `Command menu (${MOD}K)`, onclick: openPalette }, icon('search')),
+      h('button.icon-btn', { title: tip('Command menu', 'view.palette'), onclick: openPalette }, icon('search')),
     ),
     h('div.sb-origin', null, originLink()),
-    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: `${v.label} (${MOD}${v.key})`, 'aria-label': v.label },
+    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: tip(v.label, `view.${v.id}`), 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
     h('div.sb-scroll', null,
       state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
@@ -642,9 +642,9 @@ function renderSidebar() {
       state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
     ),
     h('div.sb-foot', null,
-      h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
-      h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)`, 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
-      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)`, 'aria-label': 'Push' }, icon('push'), h('span', null, 'Push')),
+      h('button.sb-action', { onclick: fetchAll, title: tip('Fetch all', 'repo.fetch'), 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
+      h('button.sb-action', { onclick: pull, title: tip('Pull', 'repo.pull'), 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
+      h('button.sb-action', { onclick: () => push(false), title: tip('Push', 'repo.push'), 'aria-label': 'Push' }, icon('push'), h('span', null, 'Push')),
     ),
   );
   renderNavCounts();
@@ -669,7 +669,7 @@ function renderTopbar() {
   const crumbs = h('div.crumbs', null,
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
-    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
+    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
@@ -696,12 +696,12 @@ function renderTopbar() {
   const chip = licenceChip(state.licence, () => openLicence());
   if (chip) right.append(chip);
   right.append(
-    h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
-    h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
+    h('button.icon-btn', { title: tip(undoTitle(), 'edit.undo'), disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
+    h('button.icon-btn', { title: tip(redoTitle(), 'edit.redo'), disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
   );
   // The panel toggle sits last, at the edge next to the panel it opens.
   if (onMap) {
-    right.append(h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: `${detailToggleLabel()} (Space, ${MOD}⌥\\)`, 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')));
+    right.append(h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: tip(detailToggleLabel(), 'map.detail', 'global.detail'), 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')));
   }
   // Background refreshes rebuild the bar; keep the caret in the search field.
   const typing = document.activeElement?.id === 'map-search' ? document.activeElement : null;
@@ -737,7 +737,7 @@ function applySidebar() {
   root.classList.toggle('sb-overlay', mode === 'overlay');
   const label = sidebarToggleLabel(sbState());
   const btn = sidebarEl.querySelector('.sb-toggle');
-  if (btn) { btn.title = `${label} (${MOD}\\)`; btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
+  if (btn) { btn.title = tip(label, 'view.sidebar'); btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
   // Don't leave focus inside parts of the sidebar the rail hides.
   if (mode === 'rail' && sidebarEl.contains(document.activeElement) && !document.activeElement.checkVisibility()) btn?.focus();
 }
@@ -1555,7 +1555,7 @@ function createCommitView(container) {
   } });
   const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(...keymap.keys('message.commit')));
   // Only shown once the user has turned AI commit messages on.
-  const aiBtn = h('button.icon-btn.ai-btn', { title: `Write message with AI (${MOD}⌥G)`, hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
+  const aiBtn = h('button.icon-btn.ai-btn', { title: tip('Write message with AI', 'repo.aiMessage'), hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
   const composer = h('div.composer', null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
   side.append(lists, composer);
   el.append(side, diffPane);
@@ -1638,13 +1638,13 @@ function createCommitView(container) {
   function renderLists() {
     const { staged, unstaged, conflicts } = state.status;
     lists.replaceChildren(...[
-      conflicts.length ? section('Conflicts', conflicts, 'conflicts', h('button.btn.ghost.tiny', { title: `Open in your mergetool (${MOD}⇧M)`, onclick: () => openMergetool([]) }, 'Mergetool')) : null,
+      conflicts.length ? section('Conflicts', conflicts, 'conflicts', h('button.btn.ghost.tiny', { title: tip('Open in your mergetool', 'repo.mergetool'), onclick: () => openMergetool([]) }, 'Mergetool')) : null,
       section('Unstaged', unstaged, 'unstaged', unstaged.length ? [
         h('button.btn.ghost.tiny', { onclick: () => discard(unstaged) }, 'Discard all'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
       ] : null),
       section('Staged', staged, 'staged', staged.length ? [
-        h('button.btn.ghost.tiny', { title: `Stash only the staged changes (${MOD}⌥S)`, onclick: () => stashSave({ staged: true }) }, 'Stash'),
+        h('button.btn.ghost.tiny', { title: tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
       ] : null),
     ].filter(Boolean));
@@ -1859,7 +1859,7 @@ function stashesView() {
         onclick: () => { current = s.ref; renderList(); renderDetail(); },
         oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
       }, icon('stash', 14), h('div.list-main', null, h('div.list-title', null, s.message), h('div.list-sub', null, s.ref)), h('span.when', null, timeAgo(s.time))))) :
-        h('div.empty.big', null, icon('stash', 28), h('div', null, 'No stashes'), h('div.muted', null, `Stash uncommitted changes with ${MOD}⇧S`)),
+        h('div.empty.big', null, icon('stash', 28), h('div', null, 'No stashes'), h('div.muted', null, `Stash uncommitted changes with ${keyText('repo.stash')}`)),
     );
   }
   async function renderDetail() {
@@ -2191,7 +2191,7 @@ function worktreesView() {
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
         h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
     list,
-    ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${MOD}⌥N, or press W on a commit in the Map.`)] : []),
+    ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${keyText('repo.worktreeAdd')}, or press ${keyText('commit.worktree')} on a commit in the Map.`)] : []),
     h('div.diff-hint.wt-hint', null, '↵ Switch · ', MOD, '↵ New window · L Lock · ⌫ Remove · N New'),
   );
   el.addEventListener('keydown', (e) => {
@@ -2310,7 +2310,7 @@ function submoduleMenu(x, y, m) {
 }
 
 function openSubmodule(m) {
-  if (!m.head) return toast(`${m.path} isn’t checked out yet`, { kind: 'error', detail: `Update it first (${MOD}⌥U).` });
+  if (!m.head) return toast(`${m.path} isn’t checked out yet`, { kind: 'error', detail: `Update it first (${keyText('repo.submoduleUpdate')}).` });
   api.app('open-submodule', m.path).catch((e) => toast('Couldn’t open submodule', { kind: 'error', detail: e.message }));
 }
 
@@ -2494,7 +2494,7 @@ async function checkoutPr(pr, { worktree = false } = {}) {
 function pickPr(worktree) {
   if (!state.prs?.active) return setupPrs();
   const prs = state.prs.data?.prs || [];
-  if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${MOD}⌥⇧P.` });
+  if (!prs.length) return toast('No pull requests yet', { detail: `Refresh pull requests with ${keyText('repo.prRefresh')}.` });
   palette(() => prs.map((pr) => ({ group: 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: worktree ? 'worktree' : 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => checkoutPr(pr, { worktree }) })),
     { placeholder: worktree ? 'Check out pull request in a new worktree…' : 'Check out pull request…' });
 }
@@ -2668,7 +2668,7 @@ function withPr(pr, verb, fn) {
   const mine = state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null;
   if (mine) return fn(mine);
   const prs = state.prs.data?.prs || [];
-  if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${MOD}⌥⇧P) to load them.` });
+  if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${keyText('repo.prRefresh')}) to load them.` });
   palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
 }
 
@@ -2890,6 +2890,9 @@ function openPalette() {
     if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
+    add('App', 'Export shortcuts…', exportShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom save file json' });
+    add('App', 'Import shortcuts…', importShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom load file json' });
+    add('App', 'Reset all shortcuts to defaults', resetShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom restore default' });
     add('App', 'Keyboard shortcuts', openShortcuts, { icon: 'command', kbd: keymap.keys('help.shortcuts'), keywords: 'keys keymap bindings hotkeys cheat sheet help' });
     add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: keymap.keys('global.setup'), keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
@@ -3001,7 +3004,27 @@ function openShortcuts() {
   if (shortcuts) return shortcuts.close();
   // A palette that just ran this command is still fading out; only a live dialog blocks the window.
   if (document.querySelector('.overlay:not(.closing)')) return;
-  shortcuts = shortcutsWindow({ first: shortcutsScope(), onClose: () => { shortcuts = null; } });
+  shortcuts = shortcutsWindow({
+    first: shortcutsScope(),
+    save: (o) => api.app('set-keymap', o),
+    actions: { exportShortcuts, importShortcuts, resetShortcuts },
+    onClose: () => { shortcuts = null; },
+  });
+}
+// Export / import / reset the custom shortcuts (Keyboard Shortcuts window and ⌘K).
+async function exportShortcuts() {
+  try { const file = await api.app('keymap-export'); if (file) toast('Exported your shortcuts', { kind: 'success', detail: file }); }
+  catch (e) { toast('Couldn’t export shortcuts', { kind: 'error', detail: e.message }); }
+}
+async function importShortcuts() {
+  try { if (await api.app('keymap-import')) toast('Imported shortcuts', { kind: 'success' }); }
+  catch (e) { toast('Couldn’t import shortcuts', { kind: 'error', detail: e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }); }
+}
+async function resetShortcuts() {
+  if (!Object.keys(keymap.getOverrides()).length) return toast('Your shortcuts are already the defaults');
+  if (!await confirm('Reset every shortcut to its default?', 'Your custom shortcuts are removed.', { submit: 'Reset All' })) return;
+  await api.app('set-keymap', {});
+  toast('Shortcuts reset to the defaults', { kind: 'success' });
 }
 
 async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
@@ -3259,6 +3282,13 @@ async function openMergetool(paths) {
   }
 }
 
+// A tooltip with the command's current keys: "Pull (⌘⇧L)", or just the label when it has none.
+const keyText = (id) => keymap.keys(id).join('') || 'the Command Menu';
+function tip(label, ...ids) {
+  const k = ids.map((id) => keymap.keys(id).join('')).filter(Boolean);
+  return k.length ? `${label} (${k.join(', ')})` : label;
+}
+
 function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable); }
 
 window.addEventListener('keydown', (e) => {
@@ -3361,11 +3391,19 @@ function showUpdate(s) {
 }
 api.on('update', showUpdate);
 
+// Custom key bindings changed (here or in another window): redraw everything that shows keys.
+api.on('keymap', (o) => {
+  keymap.setOverrides(o);
+  if (state.repo) { renderSidebar(); renderTopbar(); renderView(true); }
+  shortcuts?.refresh();
+});
+
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
   state.licence = await api.app('licence');
+  keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));
   const params = new URLSearchParams(location.search);
