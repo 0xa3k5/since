@@ -388,6 +388,10 @@ kbd.inline { flex: none; }
 .pr-item:hover .pr-open, .pr-item .pr-open:focus-visible { opacity: 1; }
 .pr-quick { display: grid; gap: 4px; margin-top: 8px; }
 .pr-stale-note { color: var(--text-3); font-size: 12px; }
+.pr-merge { display: grid; gap: 4px; }
+.pr-blocked { color: var(--red); margin-top: 4px; }
+.pr-remote-note { margin-top: 4px; }
+.dialog .btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Detail side panel */
 .detail { border-left: 1px solid var(--border); overflow-y: auto; min-width: 0; background: var(--bg-content); }

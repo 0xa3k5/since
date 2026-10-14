@@ -584,7 +584,7 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'missing') : null,
   );
 
-  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => goToPr(pr) },
+  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => goToPr(pr), oncontextmenu: (e) => prMenu(e, pr) },
     icon('merge', 14),
     h('span.sb-label', null, h('span.pr-num', null, `#${pr.number}`), ' ', pr.title),
     prMarks(pr),
@@ -2431,8 +2431,111 @@ function prList() {
   palette(() => [
     ...prs.map((pr) => ({ group: state.prs.stale ? 'Open pull requests (not refreshed)' : 'Open pull requests', label: `#${pr.number} ${pr.title}`, icon: 'merge', detail: pr.branch, keywords: `${pr.author} ${pr.branch} ${pr.base}`, run: () => goToPr(pr) })),
     { group: 'Pull requests', label: 'Refresh pull requests', icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], run: () => refreshPrs({ manual: true }) },
+    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], run: () => approvePr() },
+    { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: [MOD, '⌥', '⇧', 'M'], run: () => mergePr() },
+    { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: [MOD, '⌥', '⇧', 'W'], run: () => closePr() },
     { group: 'Pull requests', label: 'Show in sidebar', icon: 'sidebar', run: () => openSidebarAt('prs') },
   ], { placeholder: 'Go to pull request…' });
+}
+
+// Approve, merge and close. These happen on GitHub, so ⌘Z can't undo them, and each sheet says
+// so. What follows locally (fetch, deleting the merged branch) goes through the journal as usual.
+const REMOTE_NOTE = 'This happens on GitHub. ⌘Z can’t undo it.';
+const prRemote = () => state.prs?.data?.remote?.name;
+
+// The PR to act on: the one given, else the checked-out branch's, else pick one.
+function withPr(pr, verb, fn) {
+  if (!state.prs?.enabled) return setupPrs();
+  if (pr) return fn(pr);
+  const mine = state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null;
+  if (mine) return fn(mine);
+  const prs = state.prs.data?.prs || [];
+  if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${MOD}⌥⇧P) to load them.` });
+  palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
+}
+
+async function prCall(channel, pr, opts, busy) {
+  const t = toast(busy, { kind: 'busy', timeout: 0 });
+  const res = await api.app(channel, prRemote(), pr.number, opts).catch((e) => ({ error: { message: e.message } }));
+  t.close();
+  return res;
+}
+const prError = (title, err) => toast(title, { kind: 'error', detail: err.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : err.message });
+
+const approvePr = (given) => withPr(given, 'Approve', async (pr) => {
+  const v = await dialog({
+    title: `Approve #${pr.number}?`,
+    description: `${pr.title}\n${REMOTE_NOTE}`,
+    submit: 'Approve',
+    fields: [{ name: 'body', label: 'Comment (optional)', multiline: true, rows: 3 }],
+  });
+  if (!v) return;
+  const res = await prCall('pr-approve', pr, { body: v.body }, `Approving #${pr.number}…`);
+  if (res.error) return prError(`Couldn’t approve #${pr.number}`, res.error);
+  toast(`Approved #${pr.number}`, { kind: 'success' });
+  refreshPrs();
+});
+
+const MERGE_LABELS = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
+const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
+  const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+  if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
+  const { gate, methods } = info.ok;
+  if (gate.hard) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard });
+  if (gate.soft.length && !gate.canOverride) return toast(`GitHub blocks merging #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Only a repository admin can bypass it.` });
+  // The local branch to delete afterwards, found now: the refresh after merging drops the PR.
+  const local = prRef(pr, state.refs, state.prs.byRef);
+  const v = await dialog({
+    title: `Merge #${pr.number}?`,
+    description: h('div.pr-merge', null,
+      h('div', null, pr.title),
+      h('div', null, `${pr.branch} → ${pr.base}`),
+      gate.soft.length ? h('div.pr-blocked', null, `Merge is blocked: ${gate.soft.join(' ')}`) : null,
+      h('div.pr-remote-note', null, `${REMOTE_NOTE} Fetching and deleting the local branch afterwards can be undone.`),
+    ),
+    submit: gate.soft.length ? 'Merge anyway' : 'Merge',
+    destructive: gate.soft.length > 0,
+    gate: gate.soft.length ? 'anyway' : undefined,
+    fields: [
+      methods.length > 1 ? { name: 'method', type: 'select', label: 'Merge method', value: methods[0], options: methods.map((m) => ({ value: m, label: MERGE_LABELS[m] })) } : null,
+      { name: 'del', type: 'checkbox', label: `Delete ${pr.branch} on GitHub${local?.kind === 'branch' ? ' and here' : ''}`, value: true },
+      gate.soft.length ? { name: 'anyway', type: 'checkbox', label: gate.needsAdmin ? 'Merge anyway, using my admin rights to bypass branch protection' : 'Merge anyway', value: false } : null,
+    ].filter(Boolean),
+  });
+  if (!v) return;
+  const method = v.method || methods[0];
+  const res = await prCall('pr-merge', pr, { method, deleteBranch: v.del, admin: Boolean(v.anyway && gate.needsAdmin) }, `Merging #${pr.number}…`);
+  if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
+  toast(`Merged #${pr.number}`, { kind: 'success' });
+  await fetchAll();
+  if (!v.del || local?.kind !== 'branch') return;
+  if (local.short === state.head.branch) return toast(`${local.short} is still checked out`, { detail: 'Switch to another branch to delete it.' });
+  if (state.refs.some((r) => r.kind === 'branch' && r.short === local.short)) deleteBranch(local);
+});
+
+const closePr = (given) => withPr(given, 'Close', async (pr) => {
+  const v = await dialog({
+    title: `Close #${pr.number} without merging?`,
+    description: `${pr.title}\n${REMOTE_NOTE} You can reopen it on GitHub.`,
+    submit: 'Close pull request',
+    destructive: true,
+    fields: [{ name: 'body', label: 'Comment (optional)', multiline: true, rows: 3 }],
+  });
+  if (!v) return;
+  const res = await prCall('pr-close', pr, { body: v.body }, `Closing #${pr.number}…`);
+  if (res.error) return prError(`Couldn’t close #${pr.number}`, res.error);
+  toast(`Closed #${pr.number}`, { kind: 'success' });
+  refreshPrs();
+});
+
+function prMenu(e, pr) {
+  e.preventDefault();
+  contextMenu(e.clientX, e.clientY, [
+    { label: 'Approve…', icon: 'check', run: () => approvePr(pr) },
+    { label: 'Merge…', icon: 'merge', run: () => mergePr(pr) },
+    { label: 'Close…', icon: 'x', danger: true, run: () => closePr(pr) },
+    { label: 'Open on GitHub', icon: 'external', run: () => openPrOnGitHub(pr) },
+  ]);
 }
 
 function submoduleSwitcher() {
@@ -2474,6 +2577,11 @@ function openPalette() {
     add('Repository', 'Write commit message with AI', writeMessageWithAi, { icon: 'sparkle', kbd: [MOD, '⌥', 'G'], detail: aiOn() ? null : 'off', keywords: 'ai llm generate claude codex ollama' });
     add('Repository', 'Pull requests…', prList, { icon: 'merge', kbd: [MOD, '⌥', 'P'], detail: state.prs?.enabled ? null : 'off', keywords: 'pr github gh review checks ci' });
     add('Repository', 'Refresh pull requests', () => refreshPrs({ manual: true }), { icon: 'fetch', kbd: [MOD, '⌥', '⇧', 'P'], keywords: 'pr github gh' });
+    if (state.prs?.enabled) {
+      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: [MOD, '⌥', '⇧', 'A'], keywords: 'pr github gh review approve' });
+      add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: [MOD, '⌥', '⇧', 'M'], keywords: 'pr github gh squash rebase merge' });
+      add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: [MOD, '⌥', '⇧', 'W'], keywords: 'pr github gh close' });
+    }
     if (state.prs?.enabled) add('Repository', 'Turn off pull requests for this repository', turnOffPrs, { icon: 'x', keywords: 'pr github gh disable' });
     add('Repository', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: [MOD, '⌥', 'I'], keywords: 'user email name author wrong identity' });
@@ -2740,6 +2848,9 @@ const commands = {
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
   prRefresh: () => state.repo && refreshPrs({ manual: true }),
+  prApprove: () => state.repo && approvePr(),
+  prMerge: () => state.repo && mergePr(),
+  prClose: () => state.repo && closePr(),
   licence: () => openLicence(),
   buy,
 };

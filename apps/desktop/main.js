@@ -440,6 +440,24 @@ handle('app:pr-list', aiCall(async (e) => {
   return github.listPrs({ enabled: true, remotes: await git.getRemotes(root) });
 }));
 
+// Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
+// renderer names the PR and the remote it came from; both are checked before `gh` runs.
+const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
+  const root = session(e).repo.root;
+  check.prNumber(number);
+  const remote = check.knownRemote(await git.getRemotes(root), remoteName);
+  return fn({ enabled: prEnabled(root), remotes: [remote], number }, opts);
+});
+handle('app:pr-merge-info', prAction((t) => github.mergeInfo(t)));
+handle('app:pr-approve', prAction((t, o) => github.approvePr({ ...t, body: check.str(o?.body ?? '', 'review comment', { empty: true }) })));
+handle('app:pr-merge', prAction((t, o) => github.mergePr({
+  ...t,
+  method: check.oneOf(...github.MERGE_METHODS)(o?.method, 'merge method'),
+  deleteBranch: check.bool(o?.deleteBranch, 'delete branch'),
+  admin: check.bool(o?.admin, 'merge as admin'),
+})));
+handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+
 // ---------------------------------------------------------------------------
 // Trial & licence
 
@@ -740,6 +758,9 @@ function buildMenu() {
         { type: 'separator' },
         item('Pull Requests…', 'CmdOrCtrl+Alt+P', 'prs'),
         item('Refresh Pull Requests', 'CmdOrCtrl+Alt+Shift+P', 'prRefresh'),
+        item('Approve Pull Request…', 'CmdOrCtrl+Alt+Shift+A', 'prApprove'),
+        item('Merge Pull Request…', 'CmdOrCtrl+Alt+Shift+M', 'prMerge'),
+        item('Close Pull Request…', 'CmdOrCtrl+Alt+Shift+W', 'prClose'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
         item('Open in Terminal', 'CmdOrCtrl+Shift+T', 'terminal'),
