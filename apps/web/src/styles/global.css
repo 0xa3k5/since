@@ -100,7 +100,7 @@ kbd {
 .btn kbd { font-size: 11px; height: 18px; min-width: 18px; padding: 0 4px; border-radius: 4px; box-shadow: none; background: var(--bg-active); color: inherit; vertical-align: 0; }
 .btn-primary { background: var(--accent); color: var(--accent-text); box-shadow: var(--btn-highlight), 0 0 0 1px var(--accent), 0 6px 20px -6px var(--stage-glow); }
 .btn-primary:hover { background: var(--accent-hover); }
-.btn-primary kbd { background: rgba(0, 0, 0, 0.12); }
+.btn-primary kbd { background: color-mix(in srgb, var(--accent-text) 14%, transparent); }
 .btn-secondary { color: var(--text); border-color: var(--border-strong); background: var(--bg-content); }
 .btn-secondary:hover { background: var(--bg-hover); border-color: var(--text-4); }
 .btn-ghost { color: var(--text-2); }
@@ -170,6 +170,15 @@ main:has(> .stage:last-child) + .site-footer { margin-top: 0; border-top: 0; }
   .footer-brand { grid-column: 1 / -1; border-top: 0 !important; }
 }
 @media (max-width: 1140px) { .site-footer .wrap { padding: 0 var(--gutter); } }
+
+/* ---------------------------------------------------------------- Inner pages */
+/* Pages that don't open on a stage get a faint wash of it at the top, so every page shares the hero's light. */
+main:not(:has(> .stage:first-child)) {
+  background:
+    radial-gradient(ellipse 60% 360px at 50% 0, var(--stage-glow-2), transparent),
+    linear-gradient(var(--stage), var(--bg) 440px) no-repeat;
+}
+.page-head h1, .cm-head h1, .legal h1, .stub h1 { font-weight: 660; }
 
 /* ---------------------------------------------------------------- Stub pages */
 .stub { padding-top: 96px; }

@@ -101,29 +101,29 @@ const boilerplate = `${PRODUCT_NAME} is a keyboard-first client for Git on macOS
 
 <style>
   .pk-section { margin-top: 72px; }
-  .pk-section h2 { font-size: clamp(22px, 3vw, 28px); margin: 0 0 16px; }
+  .pk-section h2 { font-size: var(--fs-lg); margin: 0 0 16px; }
   .pk-copy { max-width: 70ch; color: var(--text-2); }
   .pk-copy h3 { margin: 24px 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
   .pk-copy p { margin: 0 0 12px; }
 
-  .pk-facts { margin: 0; max-width: 760px; border-top: 1px solid var(--border); }
-  .pk-facts div { display: grid; grid-template-columns: 160px 1fr; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .pk-facts { margin: 0; max-width: 760px; border-top: 1px solid var(--hairline); }
+  .pk-facts div { display: grid; grid-template-columns: 160px 1fr; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--hairline); }
   .pk-facts dt { color: var(--text-3); font-size: 14px; }
   .pk-facts dd { margin: 0; color: var(--text); }
 
   .pk-assets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
-  .pk-asset { margin: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-content); }
+  .pk-asset { margin: 0; border: 1px solid var(--hairline); border-radius: 10px; overflow: hidden; background: var(--bg-content); }
   /* The logo swatches show their intended background whatever the site theme is. */
   .pk-swatch { display: flex; align-items: center; justify-content: center; height: 168px; padding: 24px; }
   .pk-swatch.light { background: #faf7f4; }
   .pk-swatch.dark { background: #0e0b09; }
   .pk-swatch img { display: block; max-width: 100%; height: auto; }
-  .pk-asset figcaption { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text-2); }
+  .pk-asset figcaption { padding: 12px 16px; border-top: 1px solid var(--hairline); font-size: 14px; color: var(--text-2); }
   .pk-usage { margin-top: 12px; font-size: 14px; }
 
   .pk-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 16px; }
   .pk-shots figure { margin: 0; }
-  .pk-shots img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .pk-shots img { display: block; width: 100%; height: auto; border: 1px solid var(--hairline); border-radius: 10px; }
   .pk-shots figcaption { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 14px; color: var(--text-2); }
 
   @media (max-width: 860px) {

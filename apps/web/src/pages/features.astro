@@ -183,18 +183,18 @@ const tiles = [
   .feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: 48px; align-items: center; margin-top: 112px; }
   .feature.flip { grid-template-columns: minmax(0, 8fr) minmax(0, 5fr); }
   .feature.flip .feature-text { order: 2; }
-  .feature h2 { margin: 10px 0 12px; font-size: clamp(24px, 3vw, 30px); }
+  .feature h2 { margin: 10px 0 12px; font-size: var(--fs-xl); letter-spacing: -0.03em; }
   .feature-text > p { color: var(--text-2); margin: 0; }
   .feature-keys { margin: 24px 0 0; display: grid; gap: 10px; }
-  .feature-keys div { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .feature-keys div { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--hairline); font-size: 14px; }
   .feature-keys dt { color: var(--text-2); }
   .feature-keys dd { margin: 0; display: flex; gap: 6px; }
   .feature-foot { margin-top: 16px !important; font-size: 14px; color: var(--text-3) !important; }
 
   .more { margin-top: 128px; }
-  .more h2 { font-size: clamp(24px, 3vw, 30px); margin: 0 0 24px; }
+  .more h2 { font-size: var(--fs-xl); letter-spacing: -0.03em; margin: 0 0 24px; }
   .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .tile { padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-content); }
+  .tile { padding: 20px; border: 1px solid var(--hairline); border-radius: 10px; background: var(--bg-content); }
   .tile h3 { margin: 0 0 8px; font-size: 16px; }
   .tile p { margin: 0; color: var(--text-2); font-size: 15px; }
   .tile .tile-keys { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }

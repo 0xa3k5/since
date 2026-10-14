@@ -2,19 +2,19 @@
 
 .cm-page { padding-top: 72px; }
 .cm-head { max-width: 720px; margin-bottom: 48px; }
-.cm-head h1 { font-size: clamp(32px, 5vw, 48px); margin: 8px 0 16px; }
+.cm-head h1 { font-size: var(--fs-2xl); letter-spacing: -0.04em; line-height: 1.05; margin: 8px 0 16px; }
 .cm-head .lede { max-width: 60ch; }
 
 .cm-section { margin-top: 80px; }
-.cm-section > h2 { font-size: 24px; margin: 0 0 8px; }
+.cm-section > h2 { font-size: var(--fs-lg); margin: 0 0 8px; }
 .cm-section > .cm-intro { margin: 0 0 24px; color: var(--text-2); max-width: 64ch; }
 
 .cm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
 .cm-tile {
-  padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 22px; border: 1px solid var(--hairline); border-radius: var(--radius-lg);
   background: var(--bg-content);
 }
-.cm-tile h3 { font-size: 16px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.cm-tile h3 { font-size: var(--fs-base); margin: 0 0 6px; letter-spacing: -0.01em; }
 .cm-tile p { margin: 0; color: var(--text-2); font-size: 15px; }
 .cm-tile p + p { margin-top: 8px; }
 
@@ -22,8 +22,8 @@
 .cm-steps > li { counter-increment: step; position: relative; padding: 2px 0 0 44px; color: var(--text-2); }
 .cm-steps > li::before {
   content: counter(step); position: absolute; left: 0; top: 0;
-  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
-  font: 600 13px/1 var(--mono); color: var(--text); background: var(--bg-active);
+  width: 28px; height: 28px; border-radius: var(--radius); display: grid; place-items: center;
+  font: 500 12px/1 var(--mono); color: var(--accent-fg); background: var(--keycap-bg); box-shadow: var(--keycap-shadow);
 }
 .cm-steps strong { color: var(--text); font-weight: 600; }
 
@@ -42,11 +42,6 @@
   vertical-align: 2px;
 }
 
-kbd {
-  display: inline-block; min-width: 20px; padding: 0 5px; border: 1px solid var(--border-strong);
-  border-bottom-width: 2px; border-radius: 4px; background: var(--bg-content);
-  font-size: 12px; line-height: 18px; text-align: center; color: var(--text);
-}
 .cm-page code { padding: 1px 5px; border-radius: 4px; background: var(--bg-active); color: var(--text); }
 
-.cm-links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 15px; }
+.cm-links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--hairline); font-size: 15px; }

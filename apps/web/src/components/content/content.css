@@ -2,30 +2,24 @@
 
 .content-page { padding-top: 72px; }
 .page-head { max-width: 760px; }
-.page-head h1 { font-size: clamp(32px, 5vw, 48px); margin: 10px 0 16px; }
+.page-head h1 { font-size: var(--fs-2xl); letter-spacing: -0.04em; line-height: 1.05; margin: 10px 0 16px; }
 .page-head .lede { max-width: 62ch; }
 
 /* ---------------------------------------------------------------- Keys */
 .keys { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .keys-or { margin: 0 6px; font-size: 12px; color: var(--text-3); }
-kbd {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 22px; height: 22px; padding: 0 6px;
-  font: 500 12px/1 var(--mono); color: var(--text-2);
-  background: var(--bg-content); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 5px;
-}
 
 /* ---------------------------------------------------------------- Screenshots */
 .shot { margin: 0; }
 .shot img {
   display: block; width: 100%; height: auto;
-  border: 1px solid var(--border); border-radius: 10px; background: var(--bg-content);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 12px 32px -12px rgb(0 0 0 / 0.18);
+  border: 1px solid var(--hairline); border-radius: var(--radius-lg); background: var(--bg-content);
+  box-shadow: var(--shot-shadow);
 }
 
 /* ---------------------------------------------------------------- Prose (docs, changelog) */
 .prose { max-width: 70ch; color: var(--text-2); }
-.prose h2 { margin: 48px 0 12px; font-size: 22px; }
+.prose h2 { margin: 48px 0 12px; font-size: var(--fs-lg); }
 .prose h3 { margin: 32px 0 8px; font-size: 17px; }
 .prose p, .prose li { line-height: 1.7; }
 .prose ul, .prose ol { padding-left: 22px; }
@@ -34,11 +28,11 @@ kbd {
 .prose code { padding: 1px 5px; border-radius: 4px; background: var(--bg-active); color: var(--text); }
 .prose .shot { margin: 24px 0; }
 .prose table { width: 100%; border-collapse: collapse; font-size: 15px; }
-.prose th, .prose td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+.prose th, .prose td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--hairline); vertical-align: top; }
 .prose th { color: var(--text); font-weight: 600; }
 
 .note {
-  margin: 24px 0; padding: 14px 16px; border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  margin: 24px 0; padding: 14px 16px; border: 1px solid var(--hairline); border-left: 2px solid var(--accent);
   border-radius: var(--radius); background: var(--bg-content); color: var(--text-2);
 }
 .note p { margin: 0; }
@@ -46,10 +40,11 @@ kbd {
 
 /* ---------------------------------------------------------------- CTA band */
 .cta-band {
-  margin-top: 96px; padding: 40px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-content);
+  margin-top: 96px; padding: 40px; border: 1px solid var(--hairline); border-radius: var(--radius-xl);
+  background: radial-gradient(ellipse 70% 120% at 100% 0, var(--stage-glow-2), transparent), var(--stage);
   display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: space-between;
 }
-.cta-band h2 { margin: 0 0 4px; font-size: 24px; }
+.cta-band h2 { margin: 0 0 4px; font-size: var(--fs-lg); }
 .cta-band p { margin: 0; color: var(--text-3); }
 .cta-band .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
