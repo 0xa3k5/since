@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const git = require('../git');
-const { Journal } = require('../journal');
+const { Journal, refChanges } = require('../journal');
 
 async function repo(opts) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
@@ -529,4 +529,46 @@ test('checking out a commit and then a branch stays two undo steps', async () =>
   await journal.record('Checkout one', 'checkout', () => git.run(dir, ['checkout', '-q', first]));
   await journal.record('Checkout main', 'checkout', () => git.run(dir, ['checkout', '-q', 'main']));
   assert.equal(journal.undo.length, 2);
+});
+
+test('refChanges lists HEAD, moved, created and deleted refs', () => {
+  const a = 'a'.repeat(40), b = 'b'.repeat(40), c = 'c'.repeat(40);
+  const current = { refs: { 'refs/heads/main': b, 'refs/heads/new': c, 'refs/tags/v1': a }, head: 'refs/heads/new', headOid: c };
+  const target = { refs: { 'refs/heads/main': a, 'refs/heads/old': a, 'refs/tags/v1': a }, head: 'refs/heads/main', headOid: a };
+  assert.deepEqual(refChanges(current, target), [
+    { ref: 'HEAD', kind: 'head', from: 'refs/heads/new', to: 'refs/heads/main' },
+    { ref: 'refs/heads/main', kind: 'move', from: b, to: a },
+    { ref: 'refs/heads/new', kind: 'delete', from: c, to: null },
+    { ref: 'refs/heads/old', kind: 'create', from: null, to: a },
+  ]);
+  assert.deepEqual(refChanges(current, current), []);
+  // Same branch checked out: the branch move is listed, HEAD isn't.
+  assert.deepEqual(refChanges({ ...target, refs: { ...target.refs, 'refs/heads/main': b }, headOid: b }, target).map((x) => x.ref), ['refs/heads/main']);
+  // Detached HEAD moving to another commit, and detaching from a branch.
+  assert.equal(refChanges({ refs: {}, head: null, headOid: a }, { refs: {}, head: null, headOid: b })[0].to, b);
+  assert.equal(refChanges({ refs: {}, head: 'refs/heads/main', headOid: a }, { refs: {}, head: null, headOid: a })[0].to, a);
+});
+
+test('previewRestore shows what Restore before would change, without changing it', async () => {
+  const { dir, journal } = await repo();
+  const one = await commit(dir, 'a.txt', '1', 'one');
+  await journal.record('Branch topic', 'createBranch', () => git.run(dir, ['branch', 'topic']));
+  const two = await commit(dir, 'a.txt', '2', 'two');
+  await journal.record('Reset main', 'reset', () => git.run(dir, ['reset', '-q', '--keep', one]));
+  await journal.record('Move main', 'reset', () => git.run(dir, ['reset', '-q', '--keep', two]));
+  const [branch] = journal.list().undo;
+  const preview = await journal.previewRestore(branch.id);
+  assert.equal(preview.label, 'Branch topic');
+  assert.equal(preview.movesHead, true);
+  assert.deepEqual(preview.changes, [
+    { ref: 'refs/heads/main', kind: 'move', from: two, to: one },
+    { ref: 'refs/heads/topic', kind: 'delete', from: one, to: null },
+  ]);
+  assert.equal((await git.run(dir, ['rev-parse', 'main'])).trim(), two);
+  // Restoring does exactly what the preview listed.
+  await journal.restore(branch.id);
+  assert.equal((await git.run(dir, ['rev-parse', 'main'])).trim(), one);
+  assert.equal((await git.run(dir, ['branch', '--list', 'topic'])).trim(), '');
+  assert.deepEqual((await journal.previewRestore(branch.id)).changes, []);
+  await assert.rejects(journal.previewRestore(99999), /Snapshot not found/);
 });

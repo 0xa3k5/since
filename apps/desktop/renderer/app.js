@@ -1,10 +1,12 @@
 import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
-import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches } from './diff.js';
+import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { isCheckoutKey, isRowControl } from './keys.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
+import { fileHistoryView } from './file-history-view.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -14,7 +16,8 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 const state = {
   repo: null,
   view: 'map',
-  sidebar: true,
+  // expanded: saved choice for wide windows; pinned/hover: the overlay on narrow ones (see sidebar.js).
+  sidebar: { expanded: loadPref('sidebar', { expanded: true }).expanded, pinned: false, hover: false },
   refs: [],
   head: { branch: null, oid: null, detached: false },
   hist: createHistory(), // the history on screen; commits/index/graph below are its parts
@@ -35,6 +38,7 @@ const state = {
   stashes: [],
   history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
   historyLimit: 100, // snapshots loaded per stack; older ones load on request
+  snapSel: null, // selected row in the Snapshots view (journal entry id)
   reflog: [],
   config: [],
   configFilter: '',
@@ -443,8 +447,11 @@ function renderShell() {
   bannerEl = h('div.banner-slot');
   contentEl = h('div.content');
   root.append(sidebarEl, h('main.main', null, topbarEl, bannerEl, contentEl));
-  root.classList.toggle('no-sidebar', !state.sidebar);
+  sidebarEl.addEventListener('mouseenter', () => sidebarHover(true));
+  sidebarEl.addEventListener('mouseleave', () => sidebarHover(false));
+  root.querySelector('.main').addEventListener('mousedown', () => { if (sidebarMode(sbState()) === 'overlay') setSidebar({ ...state.sidebar, pinned: false, hover: false }); });
   renderSidebar();
+  applySidebar();
   renderTopbar();
   renderBanner();
   renderView();
@@ -464,6 +471,7 @@ function setView(v) {
   if (!state.repo) return;
   state.quick = null;
   state.split = null;
+  state.fileHistory = null;
   state.view = v;
   renderSidebar();
   renderTopbar();
@@ -482,7 +490,7 @@ function renderSidebar() {
 
   const section = (id, title, items, renderItem) => {
     const collapsed = state.collapsed[id];
-    return h('div.sb-section', null,
+    return h('div.sb-section', { 'data-section': id },
       h('button.sb-section-head', { onclick: () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); } },
         h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, items.length)),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
@@ -517,13 +525,14 @@ function renderSidebar() {
 
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
+      h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
       h('button.repo-switch', { onclick: (e) => repoMenu(e.currentTarget) },
         h('span.repo-icon', null, state.repo.name.slice(0, 1).toUpperCase()),
         h('span.repo-name', null, state.repo.name),
         icon('chevronDown', 12)),
       h('button.icon-btn', { title: `Command menu (${MOD}K)`, onclick: openPalette }, icon('search')),
     ),
-    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id },
+    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: `${v.label} (${MOD}${v.key})`, 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, MOD + v.key)))),
     h('div.sb-scroll', null,
       state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
@@ -531,13 +540,25 @@ function renderSidebar() {
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
     ),
+    // Icons-only stand-ins for the sections above, shown in the rail.
+    h('div.sb-rail-items', null,
+      state.worktrees.length > 1 ? railItem('worktrees', 'Worktrees', 'worktree') : null,
+      railItem('branches', 'Branches', 'branch'),
+      [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
+      railItem('tags', 'Tags', 'tag'),
+    ),
     h('div.sb-foot', null,
-      h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)` }, icon('fetch'), 'Fetch'),
-      h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)` }, icon('pull'), 'Pull'),
-      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)` }, icon('push'), 'Push'),
+      h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
+      h('button.sb-action', { onclick: pull, title: `Pull (${MOD}⇧L)`, 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
+      h('button.sb-action', { onclick: () => push(false), title: `Push (${MOD}⇧P)`, 'aria-label': 'Push' }, icon('push'), h('span', null, 'Push')),
     ),
   );
   renderNavCounts();
+  applySidebar();
+}
+
+function railItem(id, label, ic) {
+  return h('button.icon-btn.sb-rail-item', { title: label, 'aria-label': label, onclick: () => openSidebarAt(id) }, icon(ic));
 }
 
 function renderNavCounts() {
@@ -552,14 +573,13 @@ function renderTopbar() {
   if (!topbarEl) return;
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
-    h('button.icon-btn.sb-toggle', { title: `Toggle sidebar (${MOD}\\)`, onclick: toggleSidebar }, icon('sidebar')),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: `Switch worktree (${MOD}⌥W)`, onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
-  if (state.view === 'map' && !state.quick && !state.split) {
+  if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
       onkeydown: (e) => {
@@ -601,10 +621,50 @@ function toggleShow(key) {
   refreshHistory();
   renderTopbar();
 }
-function toggleSidebar() {
-  state.sidebar = !state.sidebar;
-  root.classList.toggle('no-sidebar', !state.sidebar);
+// Sidebar modes (expanded / rail / overlay); the rules live in sidebar.js.
+let sbHideTimer = 0;
+const sbState = () => ({ ...state.sidebar, width: window.innerWidth });
+function applySidebar() {
+  if (!sidebarEl) return;
+  const mode = sidebarMode(sbState());
+  root.classList.toggle('sb-rail', mode === 'rail');
+  root.classList.toggle('sb-overlay', mode === 'overlay');
+  const label = sidebarToggleLabel(sbState());
+  const btn = sidebarEl.querySelector('.sb-toggle');
+  if (btn) { btn.title = `${label} (${MOD}\\)`; btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
+  // Don't leave focus inside parts of the sidebar the rail hides.
+  if (mode === 'rail' && sidebarEl.contains(document.activeElement) && !document.activeElement.checkVisibility()) btn?.focus();
 }
+function setSidebar(next) {
+  if (next.expanded !== state.sidebar.expanded) savePref('sidebar', { expanded: next.expanded });
+  state.sidebar = next;
+  applySidebar();
+}
+function toggleSidebar() {
+  clearTimeout(sbHideTimer);
+  setSidebar(toggleSidebarState(state.sidebar, window.innerWidth));
+}
+// Narrow windows: hovering the rail opens the overlay; leaving it closes it after a beat.
+function sidebarHover(on) {
+  clearTimeout(sbHideTimer);
+  if (!isNarrow(window.innerWidth)) return;
+  if (on) setSidebar({ ...state.sidebar, hover: true });
+  // Keep it open while one of its context menus or dialogs is up.
+  else sbHideTimer = setTimeout(() => { if (!document.querySelector('.menu, .overlay')) setSidebar({ ...state.sidebar, hover: false }); }, 200);
+}
+// A rail icon: open the full sidebar scrolled to that section.
+function openSidebarAt(id) {
+  if (state.collapsed[id]) { state.collapsed[id] = false; savePref('collapsed', state.collapsed); renderSidebar(); }
+  setSidebar(isNarrow(window.innerWidth) ? { ...state.sidebar, pinned: true } : { ...state.sidebar, expanded: true });
+  sidebarEl.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });
+}
+let sbNarrow = isNarrow(window.innerWidth);
+window.addEventListener('resize', () => {
+  if (isNarrow(window.innerWidth) === sbNarrow) return;
+  sbNarrow = !sbNarrow;
+  state.sidebar = { ...state.sidebar, pinned: false, hover: false };
+  applySidebar();
+});
 
 function renderBanner() {
   if (!bannerEl) return;
@@ -684,6 +744,7 @@ function renderView(soft = false) {
   contentEl.dataset.view = state.view;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
+  if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
     case 'commit': commitView = createCommitView(contentEl); break;
@@ -935,7 +996,7 @@ function commitDetail(c) {
     ),
     h('div.files-head', null, h('span', null, `${c.files.length} file${c.files.length === 1 ? '' : 's'} changed`), h('span.stat', null, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`)),
       h('button.btn.ghost.small', { onclick: () => openQuick(c.sha) }, 'Open', kbd('↵'))),
-    h('div.file-list', null, c.files.slice(0, 500).map((f) => fileRow(f, () => openQuick(c.sha, f.path)))),
+    h('div.file-list', null, c.files.slice(0, 500).map((f) => withHistoryMenu(fileRow(f, () => openQuick(c.sha, f.path)), f))),
   );
 }
 
@@ -961,14 +1022,17 @@ function fileRow(f, onclick, extra) {
 // ---------------------------------------------------------------------------
 // Quick view (full-height commit inspector)
 
-function openQuick(sha, path) {
+// `back` is the file history the commit was opened from; Esc returns to it.
+function openQuick(sha, path, back = null) {
   if (!sha) return;
-  state.quick = { sha, path };
+  state.fileHistory = null;
+  state.quick = { sha, path, back };
   renderTopbar();
   renderView();
 }
 function closeQuick() {
   const sha = state.quick?.sha;
+  if (state.quick?.back) return openFileHistory(state.quick.back.path);
   state.quick = null;
   renderTopbar();
   renderView();
@@ -995,7 +1059,7 @@ function quickView({ sha, path }) {
         h('div.quick-meta', null, avatar(c.author, c.email, 16), c.author, ' · ', timeAgo(c.time), ' · ', h('span.mono', null, c.sha.slice(0, 7))),
       ),
       h('div.file-list', null, files.map((f) => {
-        const r = fileRow(f, () => { current = f.path; full = false; renderFile(); markActive(); });
+        const r = withHistoryMenu(fileRow(f, () => { current = f.path; full = false; renderFile(); markActive(); }), f);
         r.dataset.path = f.path;
         return r;
       })),
@@ -1012,7 +1076,7 @@ function quickView({ sha, path }) {
     main.replaceChildren(h('div.diff-loading'));
     const c = await loadCommit(sha);
     if (state.quick?.sha === sha) Object.assign(state.quick, { file: f, parent: c.parents[0] || null });
-    const d = await git('commitFileDiff', sha, f, c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
+    const d = await git('commitFileDiff', sha, fileRef(f), c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     main.replaceChildren(
       h('div.diff-head', null, statusBadge(f.status), h('span.mono', null, f.oldPath ? `${f.oldPath} → ${f.path}` : f.path), h('span.spacer'),
         h('span.stat.small', null, h('span.add', null, '+' + f.add), h('span.del', null, '−' + f.del))),
@@ -1041,6 +1105,7 @@ async function openSplit(c) {
   if (!c) return;
   try { await git('checkSplit', c.sha); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
   state.quick = null;
+  state.fileHistory = null;
   state.split = { sha: c.sha };
   renderTopbar();
   renderView();
@@ -1419,6 +1484,7 @@ function createCommitView(container) {
           list === 'conflicts'
             ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool([f.path]) }
             : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: [MOD, '⇧', 'D'], run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
+          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
@@ -1454,7 +1520,7 @@ function createCommitView(container) {
   async function discard(files) {
     const what = files.length === 1 ? baseName(files[0].path) : `${files.length} files`;
     if (!(await confirm(`Discard changes to ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
-    act(`Discard changes to ${what}`, 'discardFiles', [files.map((f) => ({ path: f.path, status: f.status }))]);
+    act(`Discard changes to ${what}`, 'discardFiles', [files.map(fileRef)]);
   }
 
   function chooseSide(p, side) {
@@ -1494,7 +1560,7 @@ function createCommitView(container) {
     const token = ++diffToken;
     if (list === 'conflicts') return renderConflict(file, token);
     conflictEd = null;
-    const d = await git('workingDiff', file, list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
+    const d = await git('workingDiff', fileRef(file), list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     if (token !== diffToken) return;
     state.cv.diff = d;
     // Drop selections that no longer exist.
@@ -1519,10 +1585,10 @@ function createCommitView(container) {
         const what = hunk ? 'hunk' : `${keys.length} line${keys.length > 1 ? 's' : ''}`;
         if (!(await confirm(`Discard selected ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
         sel.clear();
-        await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [file, keys]);
+        await act(`Discard ${what} in ${baseName(file.path)}`, 'discardLines', [fileRef(file), keys]);
         return;
       }
-      try { await git(method, file, keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
+      try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
       sel.clear();
       await refreshStatus();
     }
@@ -1640,13 +1706,55 @@ function snapshotsView() {
         h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(MOD, 'Z')),
         h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(MOD, '⇧', 'Z'))),
     ),
-    entries.length ? h('div.timeline', null, entries.map((e, i) => h('div.tl-row' + (e.redo ? '.undone' : '') + (!e.redo && i === r.length ? '.current' : ''), null,
+    entries.length ? h('div.timeline', null, entries.map((e, i) => h('div.tl-row' + (e.redo ? '.undone' : '') + (!e.redo && i === r.length ? '.current' : '') + (e.id === state.snapSel ? '.selected' : ''), { 'data-id': e.id, onclick: (ev) => { if (!ev.target.closest('button')) selectSnapshot(e.id); } },
       h('span.tl-dot'),
       h('div.list-main', null, h('div.list-title', null, e.label), h('div.list-sub', null, e.redo ? 'Undone — can be redone' : i === r.length ? 'Latest' : fullDate(e.time / 1000))),
       h('span.when', null, timeAgo(e.time / 1000)),
-      !e.movesRefs ? null : h('button.btn.ghost.small', { title: 'Restore refs to the state before this operation', onclick: async () => { if (await confirm(`Restore the state before “${e.label}”?`, 'Branches, tags and HEAD will be moved. Uncommitted changes are kept when possible. You can undo this.', { submit: 'Restore', destructive: false })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]); } }, icon('restore', 13), 'Restore before'),
+      !e.movesRefs ? null : h('button.btn.ghost.small', { title: 'Preview and restore refs to the state before this operation (↵)', onclick: () => restoreSnapshot(e) }, icon('restore', 13), 'Restore before'),
     )), hidden > 0 ? h('div.tl-more', null, h('button.btn.subtle.small', { onclick: more }, `Show ${hidden.toLocaleString()} more`)) : null) : h('div.empty.big', null, icon('history', 28), h('div', null, 'No snapshots yet'), h('div.muted', null, 'Operations like commit, checkout, merge, rebase or discard will appear here.')),
   );
+}
+
+const snapshotEntries = () => [...state.history.redo, ...[...state.history.undo].reverse()];
+
+function selectSnapshot(id) {
+  state.snapSel = id;
+  for (const row of document.querySelectorAll('.timeline .tl-row')) row.classList.toggle('selected', Number(row.dataset.id) === id);
+  document.querySelector('.timeline .tl-row.selected')?.scrollIntoView({ block: 'nearest' });
+}
+
+// ↑/↓ (or j/k) select a snapshot, ↵ previews restoring the state before it.
+function snapshotKey(e) {
+  const list = snapshotEntries();
+  if (!list.length) return false;
+  const at = list.findIndex((x) => x.id === state.snapSel);
+  const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[e.key];
+  if (step) { selectSnapshot(list[Math.max(0, Math.min(list.length - 1, at < 0 ? 0 : at + step))].id); return true; }
+  if (e.key === 'Enter' && at >= 0 && document.activeElement?.tagName !== 'BUTTON') { if (list[at].movesRefs) restoreSnapshot(list[at]); return true; }
+  return false;
+}
+
+const refName = (r) => r.replace(/^refs\/(heads|tags)\//, '');
+const shortOid = (o) => o.slice(0, 7);
+const changeRow = (c) => {
+  const [kind, text] = c.kind === 'head'
+    ? ['HEAD', `${c.from ? (c.from.startsWith('refs/') ? refName(c.from) : shortOid(c.from)) : 'none'} → ${c.to.startsWith('refs/') ? refName(c.to) : `${shortOid(c.to)} (detached)`}`]
+    : c.kind === 'create' ? ['Create', `${refName(c.ref)} at ${shortOid(c.to)}`]
+      : c.kind === 'delete' ? ['Delete', `${refName(c.ref)} (was ${shortOid(c.from)})`]
+        : ['Move', `${refName(c.ref)} ${shortOid(c.from)} → ${shortOid(c.to)}`];
+  return h('li.restore-change.' + c.kind, null, h('span.restore-kind', null, kind), h('span.mono', null, text), c.ref.startsWith('refs/tags/') ? h('span.muted', null, ' tag') : null);
+};
+
+// Preview what "Restore before" would change, then apply it as one undoable step.
+async function restoreSnapshot(e) {
+  let p;
+  try { p = await git('previewRestore', e.id); } catch (err) { return toast('Can’t preview this snapshot', { kind: 'error', detail: err.message }); }
+  if (!p.changes.length && !p.movesHead) return toast(`Already at the state before “${e.label}”`);
+  const desc = h('div.restore-preview', null,
+    h('div', null, `${p.changes.length} change${p.changes.length === 1 ? '' : 's'}. You can undo this with ${MOD}Z.`),
+    h('ul.restore-changes', null, p.changes.map(changeRow)),
+    p.movesHead ? h('div.muted', null, 'The working copy moves with HEAD. Uncommitted changes are kept when possible; if they’d be overwritten, nothing changes.') : null);
+  if (await dialog({ title: `Restore the state before “${e.label}”?`, description: desc, submit: 'Restore', wide: true })) act(`Restore before “${e.label}”`, 'restoreHistory', [e.id]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1902,9 +2010,12 @@ function openPalette() {
     add('Repository', 'Stash changes…', stashSave, { icon: 'stash', kbd: [MOD, '⇧', 'S'] });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: [MOD, 'Z'] });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: [MOD, '⇧', 'Z'] });
+    const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
+    if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: ['↵'], keywords: 'snapshot undo history timeline jump back restore' });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
+    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⌥', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
@@ -1941,7 +2052,7 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: [MOD, '⌥', 'C'], keywords: 'color colour swatch preview css hex rgb settings' });
-    add('View', 'Toggle sidebar', toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'] });
+    add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: [MOD, '\\'], keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
     const sel = state.commits[state.index.get(state.selected)];
@@ -2058,6 +2169,7 @@ async function loadRepo(repo) {
   setHistory(createHistory());
   state.quick = null;
   state.split = null;
+  state.fileHistory = null;
   state.search = '';
   state.configFilter = '';
   commitCache.clear();
@@ -2104,7 +2216,7 @@ const commands = {
   clone: cloneRepo,
   undo: () => { if (isEditable(document.activeElement)) document.execCommand('undo'); else if (state.repo) undo(); },
   redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); },
-  search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
+  search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
   view: (v) => setView(v),
   sidebar: toggleSidebar,
@@ -2124,6 +2236,7 @@ const commands = {
   difftool: () => openDifftool(),
   mergetool: () => openMergetool(),
   conflicts: () => openConflicts(),
+  fileHistory: () => openFileHistory(),
   licence: () => openLicence(),
   buy,
 };
@@ -2149,7 +2262,54 @@ async function openDifftool(target = difftoolTarget()) {
   if (!target) return toast('Select a file first', { detail: 'Open in Difftool works on the file shown in Commit view or in a commit.' });
   if (target.conflict) return openMergetool([target.file.path]);
   if (target.file.status === '?') return toast('Untracked files have nothing to compare', { detail: target.file.path });
-  try { await git('difftool', target.file, ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
+  try { await git('difftool', fileRef(target.file), ...target.args); } catch (e) { toast('Couldn’t open the difftool', { kind: 'error', detail: e.message }); }
+}
+
+// ---------------------------------------------------------------------------
+// File history & blame
+
+// The file on screen (commit viewer, Commit view or the open file history), if any.
+function fileHistoryTarget() {
+  if (state.fileHistory) return state.fileHistory.path;
+  if (state.quick) return state.quick.file?.path || null;
+  if (state.view === 'commit' && state.cv.list !== 'conflicts') return (state.status[state.cv.list] || []).find((f) => f.path === state.cv.path && f.status !== '?')?.path || null;
+  return null;
+}
+
+// Opens the history of `path`, of the file on screen, or of a file picked from the tracked files.
+async function openFileHistory(path = fileHistoryTarget()) {
+  if (!state.repo) return;
+  if (!path) {
+    const files = await git('trackedFiles').catch((e) => { toast('Couldn’t list files', { kind: 'error', detail: e.message }); return null; });
+    if (!files?.length) return files && toast('No tracked files yet');
+    while ($('.palette-overlay')) await new Promise((r) => setTimeout(r, 30)); // ⌘K is still closing
+    return palette(() => files.map((p) => ({ label: p, icon: 'file', run: () => openFileHistory(p) })), { placeholder: 'File history & blame: pick a file…' });
+  }
+  state.quick = null;
+  state.split = null;
+  state.fileHistory = { path };
+  renderTopbar();
+  renderView();
+}
+function closeFileHistory() {
+  state.fileHistory = null;
+  renderTopbar();
+  renderView();
+}
+// Shows a commit in the Map, or in the commit viewer when the graph doesn't have it (yet).
+function showCommit(sha) {
+  setView('map');
+  if (state.index.has(sha)) selectCommit(sha, 'center'); else openQuick(sha);
+}
+function withHistoryMenu(row, f) {
+  row.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    contextMenu(e.clientX, e.clientY, [
+      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
+      { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
+    ]);
+  });
+  return row;
 }
 
 // Opens the first conflicted file (or the selected one) in the built-in conflict editor.
@@ -2186,6 +2346,14 @@ function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName ===
 
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('.overlay')) return;
+  if (e.key === 'Escape' && sidebarMode(sbState()) === 'overlay') {
+    e.preventDefault();
+    clearTimeout(sbHideTimer);
+    const inside = sidebarEl.contains(document.activeElement);
+    setSidebar({ ...state.sidebar, pinned: false, hover: false });
+    if (inside) sidebarEl.querySelector('.sb-toggle')?.focus();
+    return;
+  }
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
   if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation
@@ -2196,6 +2364,7 @@ window.addEventListener('keydown', (e) => {
       if (v) { e.preventDefault(); setView(v); return; }
     } else if (e.key === 'g' && state.view !== 'commit') { gPending = true; setTimeout(() => { gPending = false; }, 800); return; }
     if (e.key === '/' ) { e.preventDefault(); commands.search(); }
+    if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
 });
 let gPending = false;
