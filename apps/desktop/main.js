@@ -417,27 +417,50 @@ handle('app:ai-generate', aiCall(async (e, consent, hash) => {
 }));
 
 // ---------------------------------------------------------------------------
-// Pull request status through the user's GitHub CLI (github.js), per repository and off by
-// default. `gh` only runs when the user turns it on (auth check) or fetches/refreshes PRs.
+// Pull request status through the user's GitHub CLI (github.js). One user-wide flag, plus a
+// per-repository hide. The first time it's needed, a fresh install turns it on if `gh` is installed
+// and logged in, and an upgrade turns it on if any repository had it on (the old per-repository
+// keys are dropped). Otherwise `gh` only runs when the user fetches or refreshes PRs.
 
-const prEnabled = (root) => github.isEnabled(readSettings().github, root);
+let prInit = null;
+const prSettings = () => (prInit ||= (async () => {
+  const saved = readSettings().github;
+  let s = github.normalize(saved);
+  if (s.on === null) s = { ...s, on: (await github.ghStatus()) === 'ready' };
+  if (JSON.stringify(saved) !== JSON.stringify(s)) writeSettings({ github: s });
+})().catch(() => { prInit = null; }));
+const prEnabled = async (root) => { await prSettings(); return github.isEnabled(readSettings().github, root); };
 async function prState(e) {
-  const s = session(e);
-  const remotes = await git.getRemotes(s.repo.root).catch(() => []);
-  return { enabled: prEnabled(s.repo.root), remote: github.pickRemote(remotes), installUrl: github.INSTALL_URL };
+  const root = session(e).repo.root;
+  await prSettings();
+  const saved = readSettings().github;
+  const remote = github.pickRemote(await git.getRemotes(root).catch(() => []));
+  const enabled = github.normalize(saved).on === true;
+  const hidden = github.isHidden(saved, root);
+  return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
 }
 handle('app:pr-state', (e) => prState(e));
 handle('app:pr-detect', aiCall(async (e) => github.detect({ remotes: await git.getRemotes(session(e).repo.root) })));
 handle('app:pr-enable', async (e, on) => {
-  const root = session(e).repo.root;
-  writeSettings({ github: github.setEnabled(readSettings().github, root, check.bool(on, 'pull requests on')) });
+  const v = check.bool(on, 'pull requests on');
+  await prSettings();
+  writeSettings({ github: github.setEnabled(readSettings().github, v) });
+  return prState(e);
+});
+handle('app:pr-hide', async (e, hide) => {
+  const v = check.bool(hide, 'hide pull requests');
+  await prSettings();
+  writeSettings({ github: github.setHidden(readSettings().github, session(e).repo.root, v) });
   return prState(e);
 });
 handle('app:pr-list', aiCall(async (e) => {
   const root = session(e).repo.root;
-  // Checked before anything else, so nothing runs for a repository that hasn't opted in.
-  if (!prEnabled(root)) return null;
-  return github.listPrs({ enabled: true, remotes: await git.getRemotes(root) });
+  // Checked before anything else, so nothing runs while it's off or hidden here.
+  if (!(await prEnabled(root))) return null;
+  const remotes = await git.getRemotes(root);
+  // No GitHub remote: no PRs, quietly.
+  if (!github.pickRemote(remotes)) return null;
+  return github.listPrs({ enabled: true, remotes });
 }));
 
 // Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
@@ -446,7 +469,7 @@ const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
   const root = session(e).repo.root;
   check.prNumber(number);
   const remote = check.knownRemote(await git.getRemotes(root), remoteName);
-  return fn({ enabled: prEnabled(root), remotes: [remote], number }, opts);
+  return fn({ enabled: await prEnabled(root), remotes: [remote], number }, opts);
 });
 handle('app:pr-merge-info', prAction((t) => github.mergeInfo(t)));
 handle('app:pr-approve', prAction((t, o) => github.approvePr({ ...t, body: check.str(o?.body ?? '', 'review comment', { empty: true }) })));
@@ -472,7 +495,7 @@ handle('app:pr-checkout', aiCall(async (e, number, opts) => {
   const s = session(e);
   const root = s.repo.root;
   if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
-  const { remote, head } = await github.viewPr({ enabled: prEnabled(root), remotes: await git.getRemotes(root), number });
+  const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await git.getRemotes(root), number });
   const local = head.local;
   s.busy++;
   try {
@@ -510,9 +533,9 @@ async function prBranch(s, branch) {
   check.rev(branch, 'branch');
   const root = s.repo.root;
   const remotes = await git.getRemotes(root);
-  const enabled = prEnabled(root);
+  const enabled = await prEnabled(root);
   const target = github.pickRemote(remotes);
-  if (!enabled) throw Object.assign(new Error('Pull requests are off for this repository.'), { code: 'gh-off' });
+  if (!enabled) throw Object.assign(new Error('Pull requests are off.'), { code: 'gh-off' });
   if (!target) throw Object.assign(new Error('This repository has no GitHub remote.'), { code: 'gh-no-remote' });
   const line = (await r(s, ['for-each-ref', '--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:track,nobracket)', `refs/heads/${branch}`])).trim();
   if (!line) throw new git.GitError(`${branch} isn’t a local branch.`);

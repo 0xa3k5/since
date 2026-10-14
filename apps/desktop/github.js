@@ -320,14 +320,36 @@ async function createPr({ enabled, remotes, base, head, title, body = '', draft 
   return parseCreated(out);
 }
 
-// settings.json `github`: { repos: [repository roots with PR status on] }.
+// settings.json `github`: { on, hidden: [repository roots the user hid PRs for] }. One user-wide
+// flag; `on: null` means not decided yet (a fresh install, see ghStatus). Older versions kept a
+// per-repository `repos` list: any repository on there means it was on.
 function normalize(saved = {}) {
-  return { repos: Array.isArray(saved?.repos) ? saved.repos.filter((r) => typeof r === 'string') : [] };
+  const hidden = Array.isArray(saved?.hidden) ? saved.hidden.filter((r) => typeof r === 'string') : [];
+  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) && saved.repos.some((r) => typeof r === 'string') ? true : null;
+  return { on, hidden };
 }
-const isEnabled = (saved, root) => normalize(saved).repos.includes(root);
-function setEnabled(saved, root, on) {
-  const repos = normalize(saved).repos.filter((r) => r !== root);
-  return { ...normalize(saved), repos: on ? [...repos, root] : repos };
+const isHidden = (saved, root) => normalize(saved).hidden.includes(root);
+const isEnabled = (saved, root) => normalize(saved).on === true && !isHidden(saved, root);
+const setEnabled = (saved, on) => ({ ...normalize(saved), on: Boolean(on) });
+function setHidden(saved, root, hide) {
+  const hidden = normalize(saved).hidden.filter((r) => r !== root);
+  return { ...normalize(saved), hidden: hide ? [...hidden, root] : hidden };
 }
 
-module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, setEnabled };
+// Whether `gh` is on the PATH or in the usual places. Only a lookup; no process runs.
+const ghInstalled = ({ dirs = searchDirs() } = {}) => Boolean(findBinary('gh', dirs));
+
+// The fresh-install default: on when `gh` is installed and logged in. Returns 'missing' |
+// 'logged-out' | 'ready'.
+async function ghStatus({ dirs = searchDirs(), exec } = {}) {
+  const bin = findBinary('gh', dirs);
+  if (!bin) return 'missing';
+  try {
+    await run(bin, ['auth', 'status'], { dirs, exec });
+    return 'ready';
+  } catch {
+    return 'logged-out';
+  }
+}
+
+module.exports = { PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
