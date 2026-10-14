@@ -1,4 +1,5 @@
 // Small DOM toolkit: hyperscript, icons, toasts, dialogs, menus, command palette, virtual list.
+import * as keymap from './keymap.js';
 
 export function h(tag, props, ...children) {
   const [name, ...classes] = tag.split('.');
@@ -171,11 +172,11 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
         inputs[f.name] = f.multiline
           ? h('textarea.input', { rows: f.rows || 6, placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, readonly: f.readonly })
           : h('input.input', { type: 'text', placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, autocomplete: 'off' });
-        if (f.multiline) inputs[f.name].addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) form.requestSubmit(); });
+        if (f.multiline) inputs[f.name].addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.submit') form.requestSubmit(); });
         return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
       })) : null,
       h('div.dialog-foot', null,
-        h('button.btn.ghost', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd('Esc')),
+        h('button.btn.ghost', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
         h('button.btn.' + (destructive ? 'danger' : 'primary'), { type: 'submit' }, submit, kbd('↵')),
       ),
     );
@@ -186,7 +187,7 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
       sync();
     }
     const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
-    overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); finish(null); } });
+    overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } });
     document.body.append(overlay);
     requestAnimationFrame(() => overlay.classList.add('in'));
     const first = Object.values(inputs).find((i) => i.type !== 'checkbox' && i.tagName !== 'SELECT');
@@ -232,10 +233,11 @@ export function contextMenu(x, y, items) {
   let idx = -1;
   function focusItem(i) { actionable.forEach((a) => a.classList.remove('active')); idx = i; if (actionable[i]) actionable[i].classList.add('active'); }
   const onKey = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); focusItem((idx + 1) % actionable.length); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); focusItem((idx - 1 + actionable.length) % actionable.length); }
-    else if (e.key === 'Enter' && actionable[idx]) { e.preventDefault(); e.stopPropagation(); actionable[idx].click(); }
+    const id = keymap.match('dialog', e);
+    if (id === 'dialog.cancel') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
+    else if (id === 'menu.next') { e.preventDefault(); e.stopPropagation(); focusItem((idx + 1) % actionable.length); }
+    else if (id === 'menu.prev') { e.preventDefault(); e.stopPropagation(); focusItem((idx - 1 + actionable.length) % actionable.length); }
+    else if (id === 'menu.choose' && actionable[idx]) { e.preventDefault(); e.stopPropagation(); actionable[idx].click(); }
   };
   const onDown = (e) => { if (!menu.contains(e.target)) closeMenu(); };
   window.addEventListener('keydown', onKey, true);
@@ -301,10 +303,11 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
   function close(picked) { overlay.classList.remove('in'); overlay.classList.add('closing'); setTimeout(() => overlay.remove(), 100); prev?.focus?.(); if (!picked) onDismiss?.(); }
   input.addEventListener('input', () => { idx = 0; render(); });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); idx = Math.min(idx + 1, results.length - 1); mark(); }
-    else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); idx = Math.max(idx - 1, 0); mark(); }
-    else if (e.key === 'Enter') { e.preventDefault(); choose(idx); }
-    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    const id = keymap.match('dialog', e);
+    if (id === 'menu.next') { e.preventDefault(); idx = Math.min(idx + 1, results.length - 1); mark(); }
+    else if (id === 'menu.prev') { e.preventDefault(); idx = Math.max(idx - 1, 0); mark(); }
+    else if (id === 'menu.choose') { e.preventDefault(); choose(idx); }
+    else if (id === 'dialog.cancel') { e.preventDefault(); e.stopPropagation(); close(); }
   });
   document.body.append(overlay);
   render();
