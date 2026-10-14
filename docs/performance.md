@@ -123,6 +123,14 @@ pnpm bench -- --repo path/to/repo --runs 5  # any repository (never modified)
 pnpm bench -- --out results.json
 ```
 
+The lanes overview's data (`git.lanes()`, no window) has its own case: a generated repository with 200 branches
+and 15 worktrees, about 0.2 s per call on an M1 Pro with git 2.49.
+
+```sh
+pnpm --filter @gitlanes/desktop bench:lanes                          # 200 branches, 15 worktrees
+pnpm --filter @gitlanes/desktop bench:lanes -- --branches 500 --worktrees 30
+```
+
 The app opens in a real window at 1440×900; keep the machine otherwise idle. Generated and cloned repositories
 live in `~/.cache/gitlanes-bench` (override with `--dir`). Cold runs delete the commit-graph file, so they're only
 done for repositories the benchmark owns. The raw results behind this page are in
