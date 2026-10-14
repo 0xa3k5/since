@@ -73,7 +73,7 @@ kbd {
 /* ---------------------------------------------------------------- Frames */
 /* Hairline grid: a .frame is the wrap-width column with ruled edges; .rule-top / .rule-bottom
    rule a section across it, with a small tick where the rules meet. */
-.frame { position: relative; max-width: var(--wrap); margin: 0 auto; border-inline: 1px solid var(--hairline); }
+.frame { position: relative; max-width: var(--wrap); margin: 0 auto; border-inline: 1px solid var(--hairline); overflow-x: clip; }
 .rule-top { border-top: 1px solid var(--hairline); }
 .rule-bottom { border-bottom: 1px solid var(--hairline); }
 .tick { position: relative; }
@@ -148,6 +148,8 @@ kbd {
 
 /* ---------------------------------------------------------------- Footer */
 .site-footer { margin-top: 96px; border-top: 1px solid var(--hairline); background: var(--bg); font-size: var(--fs-sm); }
+/* A page that ends on a stage runs straight into the footer. */
+main:has(> .stage:last-child) + .site-footer { margin-top: 0; border-top: 0; }
 .footer-grid { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); border-inline: 1px solid var(--hairline); }
 .footer-grid > * { padding: 40px 24px 48px; }
 .footer-grid > * + * { border-left: 1px solid var(--hairline); }
