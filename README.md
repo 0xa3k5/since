@@ -10,6 +10,8 @@ A fast, keyboard-first Git client for macOS, plus its website.
 | `apps/web` | The website (Astro, static) |
 | `packages/tokens` | Brand colour tokens for both themes, shared by the site (and mirrored in the desktop app) |
 
+pnpm is required; npm, yarn and bun installs are blocked. Enable it with `corepack enable`.
+
     corepack enable      # once: provides the pnpm version pinned in package.json
     pnpm install
     pnpm desktop [-- path/to/repo]
