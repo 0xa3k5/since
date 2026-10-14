@@ -9,6 +9,7 @@ import { fileHistoryView } from './file-history-view.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
 import { authorProfile } from './profile.js';
+import { SUBMODULE_STATES } from './submodule.js';
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -46,6 +47,7 @@ const state = {
   configFilter: '',
   remotes: [],
   worktrees: [],
+  submodules: [], // see git.getSubmodules
   cv: { list: 'unstaged', path: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
@@ -365,7 +367,17 @@ const refreshStatus = coalesce(async () => {
   renderNavCounts();
   if (opChanged) renderBanner();
   if (state.view === 'commit') commitView?.refresh();
+  refreshSubmodules();
 });
+
+// A submodule's state changes with its own work tree, so this follows the status refresh.
+async function refreshSubmodules() {
+  const root = state.repo?.root;
+  const subs = await git('submodules').catch(() => []);
+  if (state.repo?.root !== root || JSON.stringify(subs) === JSON.stringify(state.submodules)) return;
+  state.submodules = subs;
+  renderSidebar();
+}
 
 async function refreshAux() {
   if (!state.repo) return;
@@ -566,6 +578,16 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'missing') : null,
   );
 
+  const submoduleItem = (m) => h('div.sb-item', {
+    title: `${m.path}${m.url ? `\n${m.url}` : ''}\n${SUBMODULE_STATES[m.state][1]}`,
+    ondblclick: () => openSubmodule(m),
+    oncontextmenu: (e) => { e.preventDefault(); submoduleMenu(e.clientX, e.clientY, m); },
+  },
+    icon('submodule', 14),
+    h('span.sb-label', null, m.path),
+    m.state === 'clean' ? null : h(m.state === 'uninitialized' ? 'span.sb-track' : 'span.sb-gone', null, SUBMODULE_STATES[m.state][0]),
+  );
+
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
       h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
@@ -583,6 +605,7 @@ function renderSidebar() {
       section('branches', 'Branches', branches, (r) => refItem(r)),
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
+      state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
     ),
     // Icons-only stand-ins for the sections above, shown in the rail.
     h('div.sb-rail-items', null,
@@ -590,6 +613,7 @@ function renderSidebar() {
       railItem('branches', 'Branches', 'branch'),
       [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
       railItem('tags', 'Tags', 'tag'),
+      state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
     ),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: `Fetch all (${MOD}⇧F)`, 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
@@ -2138,6 +2162,41 @@ function worktreeSwitcher() {
   ], { placeholder: 'Switch to worktree…' });
 }
 
+function submoduleMenu(x, y, m) {
+  contextMenu(x, y, [
+    { label: 'Open in New Window', icon: 'plus', disabled: !m.head, run: () => openSubmodule(m) },
+    { label: m.head ? 'Update to Recorded Commit' : 'Initialise and Check Out', icon: 'pull', disabled: !['outdated', 'uninitialized'].includes(m.state), run: () => updateSubmodules([m]) },
+    '-',
+    { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', m.path) },
+    { label: 'Copy Path', icon: 'copy', run: () => copy(m.path, 'Copied path') },
+    m.url ? { label: 'Copy URL', icon: 'copy', run: () => copy(m.url, 'Copied URL') } : null,
+  ].filter(Boolean));
+}
+
+function openSubmodule(m) {
+  if (!m.head) return toast(`${m.path} isn’t checked out yet`, { kind: 'error', detail: `Update it first (${MOD}⌥U).` });
+  api.app('open-submodule', m.path).catch((e) => toast('Couldn’t open submodule', { kind: 'error', detail: e.message }));
+}
+
+// No list: every submodule that is out of date or not checked out. Undoable (git.updateSubmodules).
+function updateSubmodules(list) {
+  if (!state.repo) return;
+  const todo = (list || state.submodules).filter((m) => ['outdated', 'uninitialized'].includes(m.state));
+  if (!state.submodules.length) return toast('This repository has no submodules');
+  if (!todo.length) return toast(list ? 'Already up to date' : 'All submodules are up to date', { detail: state.submodules.some((m) => m.state === 'modified') ? 'Submodules with local changes are left alone.' : null });
+  const label = todo.length === 1 ? `Update submodule ${todo[0].path}` : `Update ${todo.length} submodules`;
+  return act(label, 'updateSubmodules', [todo.map((m) => m.path)], { busy: 'Updating submodules…' });
+}
+
+function submoduleSwitcher() {
+  if (!state.repo) return;
+  if (!state.submodules.length) return toast('This repository has no submodules');
+  palette(() => [
+    ...state.submodules.map((m) => ({ group: 'Submodules', label: m.path, icon: 'submodule', detail: SUBMODULE_STATES[m.state][0], keywords: `${m.name} ${m.url}`, run: () => (m.head ? openSubmodule(m) : updateSubmodules([m])) })),
+    { group: 'Submodules', label: 'Update all submodules', icon: 'pull', kbd: [MOD, '⌥', 'U'], run: () => updateSubmodules() },
+  ], { placeholder: 'Open submodule…' });
+}
+
 // ---------------------------------------------------------------------------
 // Command palette
 
@@ -2192,6 +2251,14 @@ function openPalette() {
       add('Worktrees', `Open worktree ${w.name} in new window`, () => openWorktreeWindow(w), { icon: 'plus', detail });
       if (!w.main) add('Worktrees', `${w.locked ? 'Unlock' : 'Lock'} worktree ${w.name}${w.locked ? '' : '…'}`, () => toggleLock(w), { icon: 'key', detail });
       if (!w.main) add('Worktrees', `Remove worktree ${w.name}…`, () => removeWorktree(w), { icon: 'trash', detail });
+    }
+    if (state.submodules.length) {
+      add('Submodules', 'Open submodule…', submoduleSwitcher, { icon: 'submodule', kbd: [MOD, '⌥', 'B'], keywords: 'submodule nested repository' });
+      add('Submodules', 'Update all submodules', () => updateSubmodules(), { icon: 'pull', kbd: [MOD, '⌥', 'U'], keywords: 'submodule init update checkout recorded' });
+      for (const m of state.submodules) {
+        if (m.head) add('Submodules', `Open submodule ${m.path} in new window`, () => openSubmodule(m), { icon: 'submodule', detail: SUBMODULE_STATES[m.state][0] });
+        if (['outdated', 'uninitialized'].includes(m.state)) add('Submodules', `Update submodule ${m.path}`, () => updateSubmodules([m]), { icon: 'pull', detail: SUBMODULE_STATES[m.state][0] });
+      }
     }
     add('Repository', 'Open in Finder', () => api.app('reveal'), { icon: 'folder' });
     add('Repository', 'Open in Terminal', () => api.app('terminal'), { icon: 'terminal' });
@@ -2384,6 +2451,8 @@ const commands = {
   worktreeAdd: () => state.repo && addWorktree(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
   lfs: () => openLfs(),
+  submodules: () => submoduleSwitcher(),
+  submoduleUpdate: () => updateSubmodules(),
   difftool: () => openDifftool(),
   mergetool: () => openMergetool(),
   conflicts: () => openConflicts(),

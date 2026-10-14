@@ -169,6 +169,7 @@ const reads = {
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
   status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
   lfs: (s) => git.getLfs(s.repo.root),
+  submodules: (s) => git.getSubmodules(s.repo.root),
   externalTools: (s) => git.getExternalTools(s.repo.root),
   // Read-only: the tool gets temporary copies; for the working tree it may edit the real file.
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
@@ -334,6 +335,7 @@ handle('git', async (e, method, ...args) => {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
       }
+      if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
       if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method) };
       if (method === 'restoreHistory') return { ok: await s.journal.restore(...realArgs) };
@@ -505,6 +507,17 @@ handle('app:open-window', async (e, dir) => {
   if (win) win.focus(); else createWindow(target);
 });
 
+// Open a checked-out submodule of this window's repository as its own repository.
+handle('app:open-submodule', async (e, p) => {
+  const s = session(e);
+  const sub = (await git.getSubmodules(s.repo.root)).find((x) => x.path === check.repoPath(p, 'submodule'));
+  if (!sub) throw new Error('Not a submodule of this repository');
+  if (!sub.head) throw new Error('That submodule isn’t checked out yet. Update it first.');
+  const target = path.join(s.repo.root, sub.path);
+  const win = windowFor(target);
+  if (win) win.focus(); else createWindow(target);
+});
+
 // ---------------------------------------------------------------------------
 // Windows & menu
 
@@ -642,6 +655,9 @@ function buildMenu() {
         { type: 'separator' },
         item('New Worktree…', 'CmdOrCtrl+Alt+N', 'worktreeAdd'),
         item('Switch Worktree…', 'CmdOrCtrl+Alt+W', 'worktreeSwitch'),
+        { type: 'separator' },
+        item('Open Submodule…', 'CmdOrCtrl+Alt+B', 'submodules'),
+        item('Update Submodules', 'CmdOrCtrl+Alt+U', 'submoduleUpdate'),
         { type: 'separator' },
         item('Git LFS Files…', 'CmdOrCtrl+Alt+F', 'lfs'),
         item('Open in Difftool', 'CmdOrCtrl+Shift+D', 'difftool'),
