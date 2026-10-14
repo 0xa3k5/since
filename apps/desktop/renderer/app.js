@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
+import { h, $, icon, kbd, loading, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -946,7 +946,11 @@ function createMapView(container) {
     const sha = state.selected;
     const token = ++detailToken;
     const cached = commitCache.get(sha);
-    if (!cached) detail.classList.add('loading');
+    if (!cached) {
+      detail.classList.add('loading');
+      detail.querySelector(':scope > .loading-state')?.remove();
+      detail.prepend(loading('Loading commit…'));
+    }
     let c;
     try { c = await loadCommit(sha); } catch (e) { detail.replaceChildren(h('div.empty', null, e.message)); return; }
     if (token !== detailToken) return;
@@ -966,8 +970,8 @@ function createMapView(container) {
     }
     const c = list[cur];
     switch (e.key) {
-      case 'ArrowDown': case 'j': move(1); break;
-      case 'ArrowUp': case 'k': move(-1); break;
+      case 'ArrowDown': move(1); break;
+      case 'ArrowUp': move(-1); break;
       case 'PageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
       case 'PageUp': move(-Math.floor(scroller.clientHeight / ROW_H)); break;
       case 'Home': move(-list.length); break;
@@ -1076,14 +1080,15 @@ function closeQuick() {
 function quickView({ sha, path }) {
   const el = h('div.quick');
   const side = h('div.quick-side');
-  const main = h('div.quick-main');
+  const main = h('div.quick-main', null, loading('Loading commit…'));
   el.append(side, main);
   let files = [];
   let current = path;
   let full = false;
 
   (async () => {
-    const c = await loadCommit(sha);
+    const c = await loadCommit(sha).catch((e) => { main.replaceChildren(h('div.empty', null, e.message)); return null; });
+    if (!c) return;
     files = c.files;
     if (!current && files[0]) current = files[0].path;
     side.replaceChildren(
@@ -1107,7 +1112,7 @@ function quickView({ sha, path }) {
   async function renderFile() {
     const f = files.find((x) => x.path === current);
     if (!f) { main.replaceChildren(h('div.empty', null, 'No changes in this commit')); return; }
-    main.replaceChildren(h('div.diff-loading'));
+    main.replaceChildren(loading('Loading diff…'));
     const c = await loadCommit(sha);
     if (state.quick?.sha === sha) Object.assign(state.quick, { file: f, parent: c.parents[0] || null });
     const d = await git('commitFileDiff', sha, fileRef(f), c.parents[0] || null).catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
@@ -1121,10 +1126,10 @@ function quickView({ sha, path }) {
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closeQuick(); }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const i = files.findIndex((f) => f.path === current);
-      const n = Math.max(0, Math.min(files.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)));
+      const n = Math.max(0, Math.min(files.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
       if (files[n]) { current = files[n].path; full = false; markActive(); renderFile(); side.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     }
   });
@@ -1156,7 +1161,7 @@ function splitView({ sha }) {
   const el = h('div.quick.split', { tabIndex: 0 });
   const side = h('div.quick-side.split-side');
   const files = h('div.file-list.split-files');
-  const main = h('div.quick-main');
+  const main = h('div.quick-main', null, loading('Loading commit…'));
   el.append(side, main);
   let diffs = [], current = null, full = false;
   const picked = new Map(); // path -> Set of line keys in the first commit
@@ -1280,9 +1285,9 @@ function splitView({ sha }) {
   el.addEventListener('keydown', (e) => {
     if (isEditable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
     const i = diffs.findIndex((d) => d.path === current);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)))];
+      const n = diffs[Math.max(0, Math.min(diffs.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (n) { current = n.path; full = false; renderFiles(); renderFile(); files.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     } else if (e.key === 'a' && diffs[i]) { e.preventDefault(); toggleFile(diffs[i]); }
     else if (e.key === 'c') { e.preventDefault(); (first.value.trim() ? second : first).focus(); }
@@ -1519,7 +1524,7 @@ function createCommitView(container) {
           list === 'conflicts'
             ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool([f.path]) }
             : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: [MOD, '⇧', 'D'], run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
-          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
+          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⇧', 'H'], run: () => openFileHistory(f.path) } : null,
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
@@ -1662,9 +1667,9 @@ function createCommitView(container) {
     if (e.target.tagName === 'TEXTAREA') return;
     const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
     const i = all.findIndex(([l, f]) => l === state.cv.list && f.path === state.cv.path);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const n = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1)))];
+      const n = all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (n) { selectFile(n[0], n[1].path); lists.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     } else if (e.key === 'Enter' && i !== -1) {
       e.preventDefault();
@@ -1708,7 +1713,7 @@ function stashesView() {
   async function renderDetail() {
     const s = state.stashes.find((x) => x.ref === current);
     if (!s) return detail.replaceChildren();
-    detail.replaceChildren(h('div.diff-loading'));
+    detail.replaceChildren(loading('Loading diff…'));
     const diffs = await git('compare', `${s.sha}^1`, s.sha).catch(() => []);
     detail.replaceChildren(
       h('div.diff-head', null, h('span.title', null, s.message), h('span.spacer'),
@@ -1777,12 +1782,12 @@ function selectSnapshot(id) {
   document.querySelector('.timeline .tl-row.selected')?.scrollIntoView({ block: 'nearest' });
 }
 
-// ↑/↓ (or j/k) select a snapshot, ↵ previews restoring the state before it.
+// ↑/↓ select a snapshot, ↵ previews restoring the state before it.
 function snapshotKey(e) {
   const list = snapshotEntries();
   if (!list.length) return false;
   const at = list.findIndex((x) => x.id === state.snapSel);
-  const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[e.key];
+  const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
   if (step) { selectSnapshot(list[Math.max(0, Math.min(list.length - 1, at < 0 ? 0 : at + step))].id); return true; }
   if (e.key === 'Enter' && at >= 0 && document.activeElement?.tagName !== 'BUTTON') { if (list[at].movesRefs) restoreSnapshot(list[at]); return true; }
   return false;
@@ -2021,8 +2026,8 @@ function worktreesView() {
   );
   el.addEventListener('keydown', (e) => {
     const w = state.worktrees[idx];
-    if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
-    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(state.worktrees.length - 1, idx + 1); mark(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(0, idx - 1); mark(); }
     else if (e.key === 'Enter' && w) { e.preventDefault(); if (e.metaKey || e.ctrlKey) openWorktreeWindow(w); else switchWorktree(w); }
     else if (e.metaKey || e.ctrlKey || e.altKey) return;
     else if (e.key === 'l' && w) { e.preventDefault(); toggleLock(w); }
@@ -2146,7 +2151,7 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
-    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⌥', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
+    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⇧', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
@@ -2441,7 +2446,7 @@ function withHistoryMenu(row, f) {
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     contextMenu(e.clientX, e.clientY, [
-      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
+      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⇧', 'H'], run: () => openFileHistory(f.path) } : null,
       { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
     ]);
   });

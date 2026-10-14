@@ -647,7 +647,7 @@ function buildMenu() {
         item('Open in Difftool', 'CmdOrCtrl+Shift+D', 'difftool'),
         item('Resolve Conflicts', 'CmdOrCtrl+Alt+M', 'conflicts'),
         item('Open in Mergetool', 'CmdOrCtrl+Shift+M', 'mergetool'),
-        item('File History & Blame…', 'CmdOrCtrl+Alt+H', 'fileHistory'),
+        item('File History & Blame…', 'CmdOrCtrl+Shift+H', 'fileHistory'),
         item('Commit Identity…', 'CmdOrCtrl+Alt+I', 'identity'),
         { type: 'separator' },
         item('Open in Finder', 'CmdOrCtrl+Shift+R', 'reveal'),
