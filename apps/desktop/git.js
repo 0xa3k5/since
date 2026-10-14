@@ -1414,6 +1414,39 @@ async function laneBase(cwd, base) {
   return { ref, sha, name: shortRef(ref), local: shortRef(ref).replace(/^origin\//, '') };
 }
 
+// Branch review: the whole change of `branch` against `base` the way a pull request shows it,
+// from their merge-base (`base...branch`). Each file carries its blob at the tip (the zero id
+// for a deletion), which is what a "reviewed" tick is keyed by. `base` defaults to laneBase's.
+async function branchReview(cwd, branch, base) {
+  if (String(branch).startsWith('-')) throw new GitError(`Unknown branch ${branch}`);
+  const b = await laneBase(cwd, base);
+  if (!b) throw new GitError('There is no base branch (main or master) to review against.');
+  const tip = (await run(cwd, ['rev-parse', '--verify', '-q', `${branch}^{commit}`], { allowCodes: [0, 1] })).trim();
+  if (!tip) throw new GitError(`${branch} has no commits yet.`);
+  const mergeBase = (await run(cwd, ['merge-base', b.sha, tip], { allowCodes: [0, 1] })).trim();
+  if (!mergeBase) throw new GitError(`${branch} shares no history with ${b.name}.`);
+  const [raw, files] = await Promise.all([
+    run(cwd, ['diff-tree', '-r', '-z', '-M', '--raw', '--no-commit-id', '--abbrev=40', mergeBase, tip]),
+    diffTreeFiles(cwd, mergeBase, tip),
+  ]);
+  const blobs = parseRawBlobsZ(raw);
+  return { branch, base: b.name, baseSha: b.sha, mergeBase, tip, files: files.map((f) => ({ ...f, blob: blobs.get(f.path) || null })) };
+}
+
+// path → blob at the new side, from `diff-tree --raw -z` (":old new oldsha newsha S\0path\0[path\0]").
+function parseRawBlobsZ(out) {
+  const blobs = new Map();
+  const parts = out.split('\0');
+  for (let i = 0; i < parts.length; i++) {
+    if (!parts[i].startsWith(':')) continue;
+    const meta = parts[i].split(' ');
+    const twoPaths = /^[RC]/.test(meta[4]);
+    blobs.set(parts[i + (twoPaths ? 2 : 1)], meta[3]);
+    i += twoPaths ? 2 : 1;
+  }
+  return blobs;
+}
+
 let gitVersion = null;
 async function hasAheadBehind(cwd) {
   gitVersion ||= run(cwd, ['version']).then((v) => (/(\d+)\.(\d+)/.exec(v) || [0, 0, 0]).slice(1).map(Number), () => [0, 0]);
@@ -1766,7 +1799,7 @@ function parseBlame(out) {
 }
 
 module.exports = {
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff,
+  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,

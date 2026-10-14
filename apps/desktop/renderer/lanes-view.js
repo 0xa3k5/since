@@ -14,9 +14,10 @@ const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 const DEBOUNCE = 400;
 
 // load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
-// onOpen(lane) opens it in the graph. actions(lane) → extra context-menu items, the hook for
+// onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review and
+// progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items, the hook for
 // later row actions (review, merge, delete); none yet.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, actions = () => [] }) {
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onReview = () => {}, progress = () => null, actions = () => [] }) {
   let lanes = [];
   let shown = [];
   let selKey = null;
@@ -42,7 +43,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     h('div.lanes-bar', null, icon('search', 14), filter, agentChip, conflictChip),
     list,
     empty,
-    h('div.diff-hint.wt-hint', null, '↵ Open · J/K Move · / Filter · A Agent lanes only · C Conflicts only'),
+    h('div.diff-hint.wt-hint', null, '↵ Open · R Review · J/K Move · / Filter · A Agent lanes only · C Conflicts only'),
   );
 
   function badges(l) {
@@ -66,6 +67,14 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
       pr.checks ? h('span.pr-ci.' + pr.checks, null, '●') : null);
   }
 
+  function reviewCell(l) {
+    const p = progress(l);
+    if (!p) return h('span.lanes-review');
+    return h('span.lanes-review' + (p.done && !p.moved ? '.done' : '') + (p.moved ? '.moved' : ''), {
+      title: p.moved ? 'The branch moved since your last review. Open it (R) to see what changed.' : 'Files you marked reviewed',
+    }, p.moved ? `${p.label} ·` : p.label, p.moved ? h('span.lanes-moved', null, ' moved') : null);
+  }
+
   function row(l) {
     const active = laneKey(l) === selKey;
     const ab = aheadBehind(l);
@@ -81,6 +90,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
         h('div.list-sub', null, l.worktree ? tildify(l.worktree.path) : l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
         // The selected lane spells out who it conflicts with and where (CSS shows it on .active).
         l.conflicts ? h('div.lanes-conflicts', null, ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c)))) : null),
+      reviewCell(l),
       h('span.lanes-changes' + (l.changes ? '.dirty' : ''), { title: l.changes == null ? '' : 'Uncommitted changes in its worktree' }, l.changes ? `${l.changes} changed` : ''),
       h('span.lanes-ab', { title: base && ab ? `Ahead/behind ${base}` : '' }, ab),
       prsOn() ? prCell(l.pr) : null,
@@ -140,6 +150,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     const extra = actions(l);
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(l) },
+      { label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => onReview(l, base) },
       ...(extra.length ? ['-', ...extra] : []),
     ]);
   }
@@ -152,6 +163,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     else if (id === 'lanes.prev') move(-1);
     else if (id === 'lanes.open') { const l = current(); if (l) onOpen(l); }
     else if (id === 'lanes.agents') toggleAgents();
+    else if (id === 'lanes.review') { const l = current(); if (l) onReview(l, base); }
     else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.clear') {

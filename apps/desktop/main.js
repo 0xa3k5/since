@@ -169,6 +169,7 @@ const reads = {
   // Throws the reason a commit can't be split (merge, not on this branch, merges above it).
   checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
+  branchReview: (s, branch, base) => git.branchReview(s.repo.root, branch, base),
   status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
   lfs: (s) => git.getLfs(s.repo.root),
   submodules: (s) => git.getSubmodules(s.repo.root),
@@ -970,6 +971,7 @@ function buildMenu() {
         item('Resolve Conflicts', acc('repo.conflicts'), 'conflicts'),
         item('Open in Mergetool', acc('repo.mergetool'), 'mergetool'),
         item('File History & Blame…', acc('repo.fileHistory'), 'fileHistory'),
+        item('Review Branch…', acc('repo.review'), 'review'),
         item('Commit Identity…', acc('repo.identity'), 'identity'),
         item('Write Commit Message with AI', acc('repo.aiMessage'), 'aiMessage'),
         item('AI Commit Messages…', undefined, 'aiSetup'),
