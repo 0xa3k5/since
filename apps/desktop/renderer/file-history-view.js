@@ -1,5 +1,6 @@
 import { h, icon, kbd, toast, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
 import { blameRows, historyRows, splitPath } from './blame.js';
+import * as keymap from './keymap.js';
 
 // File history & blame: the commits that touched a file (following renames) on the left,
 // streamed in pages so long histories show up at once; the blame of the selected version on
@@ -117,13 +118,13 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
   }
 
   el.addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const id = keymap.match('fileHistory', e);
     const r = rows[sel];
-    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(rows.length - 1, sel + 1), true); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(0, sel - 1), true); }
-    else if (e.key === 'Enter' && r.sha) { e.preventDefault(); onShow(r.sha); }
-    else if (e.key === ' ' && r.sha) { e.preventDefault(); onOpen(r.sha, r.path); }
+    if (id === 'fileHistory.close') { e.preventDefault(); onClose(); }
+    else if (id === 'fileHistory.next') { e.preventDefault(); select(Math.min(rows.length - 1, sel + 1), true); }
+    else if (id === 'fileHistory.prev') { e.preventDefault(); select(Math.max(0, sel - 1), true); }
+    else if (id === 'fileHistory.show' && r.sha) { e.preventDefault(); onShow(r.sha); }
+    else if (id === 'fileHistory.open' && r.sha) { e.preventDefault(); onOpen(r.sha, r.path); }
   });
 
   updateCount();

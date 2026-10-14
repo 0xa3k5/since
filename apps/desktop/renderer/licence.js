@@ -1,6 +1,7 @@
 // Trial / licence UI: the topbar chip and the licence window. The main process owns the state
 // (licence/index.js); this only shows it and forwards actions.
 import { h, $, icon, kbd, toast, confirm } from './ui.js';
+import * as keymap from './keymap.js';
 
 const api = window.gitlanes;
 const isMac = navigator.platform.startsWith('Mac');
@@ -56,7 +57,7 @@ export async function openLicence({ blocked = false } = {}) {
     onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); activate(); } } });
   const box = h('div.dialog.licence', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'licence-title' });
   const overlay = h('div.overlay.licence-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
-  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('.overlay:not(.licence-overlay)')) { e.stopPropagation(); close(); } });
+  overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel' && !$('.overlay:not(.licence-overlay)')) { e.stopPropagation(); close(); } });
   const off = api.on('licence', (s) => { status = s; render(); });
 
   async function run(label, fn) {

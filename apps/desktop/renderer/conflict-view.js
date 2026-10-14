@@ -1,5 +1,6 @@
 import { h, icon, confirm } from './ui.js';
 import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers } from './conflict.js';
+import * as keymap from './keymap.js';
 
 const CONTEXT = 3; // unchanged lines shown around each conflict
 // Editor state per path, kept while the status refreshes underneath (file watcher).
@@ -163,13 +164,15 @@ export function conflictEditor(info, ctx) {
 
   // Returns true when the key was handled.
   function key(e) {
-    const mod = e.metaKey || e.ctrlKey;
-    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); resolve(); return true; }
-    if (e.target === textarea) { if (e.key === 'Escape') { e.preventDefault(); toggleEdit(); return true; } return false; }
-    if (mod || e.altKey || info.kind !== 'text') return false;
-    const k = e.key;
-    const run = k === ']' ? actions.next : k === '[' ? actions.prev : k === 'o' ? actions.ours : k === 't' ? actions.theirs : k === 'b' ? actions.both
-      : k === 'O' ? actions.allOurs : k === 'T' ? actions.allTheirs : k === 'e' ? actions.edit : (k === 'Backspace' || k === 'Delete') ? actions.reset : null;
+    const id = keymap.match('conflict', e);
+    if (id === 'conflict.resolve') { e.preventDefault(); resolve(); return true; }
+    if (e.target === textarea) { if (id === 'conflict.closeEdit') { e.preventDefault(); toggleEdit(); return true; } return false; }
+    if (info.kind !== 'text') return false;
+    const run = {
+      'conflict.next': actions.next, 'conflict.prev': actions.prev, 'conflict.ours': actions.ours, 'conflict.theirs': actions.theirs,
+      'conflict.both': actions.both, 'conflict.allOurs': actions.allOurs, 'conflict.allTheirs': actions.allTheirs,
+      'conflict.edit': actions.edit, 'conflict.reset': actions.reset,
+    }[id];
     if (!run) return false;
     e.preventDefault();
     run();
