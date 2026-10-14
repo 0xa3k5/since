@@ -665,7 +665,8 @@ function renderTopbar() {
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
-  if (state.view === 'map' && !state.quick && !state.split && !state.fileHistory) {
+  const onMap = state.view === 'map' && !state.quick && !state.split && !state.fileHistory;
+  if (onMap) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
       onkeydown: (e) => {
@@ -679,7 +680,6 @@ function renderTopbar() {
         toggleChip('Remotes', 'remotes'),
       ),
       h('label.search-wrap', null, icon('search', 14), search, h('kbd.inline', null, MOD + 'F')),
-      h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: `${detailToggleLabel()} (Space, ${MOD}⌥\\)`, 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')),
     );
   }
   if (state.view === 'commit') {
@@ -691,6 +691,10 @@ function renderTopbar() {
     h('button.icon-btn', { title: `${undoTitle()} (${MOD}Z)`, disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: `${redoTitle()} (${MOD}⇧Z)`, disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
   );
+  // The panel toggle sits last, at the edge next to the panel it opens.
+  if (onMap) {
+    right.append(h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: `${detailToggleLabel()} (Space, ${MOD}⌥\\)`, 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')));
+  }
   // Background refreshes rebuild the bar; keep the caret in the search field.
   const typing = document.activeElement?.id === 'map-search' ? document.activeElement : null;
   topbarEl.replaceChildren(crumbs, right);
