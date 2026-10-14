@@ -13,25 +13,26 @@ export const SETUP_FEATURES = [
 // Off until you pick a provider; one choice for every repository, like the switches above.
 export const SETUP_AI = { id: 'ai', icon: 'sparkle', label: 'AI commit messages', detail: 'Pick a provider you trust.' };
 
-// Turned on later, per repository, because they need something from you first.
-export const SETUP_LATER = [
-  { id: 'prs', icon: 'merge', label: 'Pull requests from GitHub', detail: 'Uses your GitHub CLI login.' },
-];
+// One switch for every repository, like the ones above. Off until GitHub CLI is installed and logged in;
+// until then the row shows Set up… in the switch's place. Hide it per repository in ⌘K.
+export const SETUP_PRS = { id: 'prs', icon: 'merge', label: 'Pull requests from GitHub', detail: 'Uses your GitHub CLI login. Hide them per repository in ⌘K.' };
 
 // The saved "done" flag. Old installs without it see the step once too.
 export const SETUP_PREF = 'setup';
 export const needsSetup = (pref) => !pref?.done;
 
-// Current switch values from the app's saved choices. Unknown means on.
-export const setupValues = ({ show = {}, autoUpdate } = {}) => ({
+// Current switch values from the app's saved choices. Unknown means on, except pull requests.
+export const setupValues = ({ show = {}, autoUpdate, prs } = {}) => ({
   autoUpdate: autoUpdate !== false,
   tags: show.tags !== false,
   remotes: show.remotes !== false,
   swatches: show.swatches !== false,
+  prs: prs === true,
 });
 
 // How many of the defaults are on, for the summary line.
 export const setupSummary = (values) => {
-  const on = SETUP_FEATURES.filter((f) => values[f.id]).length;
-  return on === SETUP_FEATURES.length ? 'All on. Change any of these later in ⌘K.' : `${on} of ${SETUP_FEATURES.length} on. Change any of these later in ⌘K.`;
+  const rows = [...SETUP_FEATURES, SETUP_PRS];
+  const on = rows.filter((f) => values[f.id]).length;
+  return on === rows.length ? 'All on. Change any of these later in ⌘K.' : `${on} of ${rows.length} on. Change any of these later in ⌘K.`;
 };
