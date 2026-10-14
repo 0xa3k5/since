@@ -9,7 +9,9 @@ at `b084e11` plus the AK-48 changes (Electron 44.7.0).
 
 **`git` talks to the network only when you ask it to.** Apart from git, the app makes two kinds
 of request of its own, both from the main process: the update check and licence validation. The
-renderer makes none.
+renderer makes none. The opt-in pull request features work like git: GitLanes runs your GitHub
+CLI (`gh`), and the connection happens inside `gh`, under your `gh` login. GitLanes never sees
+or stores a GitHub token, and opens no connection for them itself.
 
 | What | When | Who connects | To where |
 | --- | --- | --- | --- |
@@ -21,8 +23,12 @@ renderer makes none.
 | Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `gitlanes-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to |
 | Update download | When a newer signed version is found | macOS's updater (Squirrel) | The release zip named by the feed |
 | Licence validation | Activating a key, at launch and about daily | Main process | Polar's licence API (`api.polar.sh`) |
+| PR set-up check | You turn on *Pull requests* for this repository (off by default, per repository) | `gh auth status --hostname <host>` | Your GitHub host (`github.com` or your GitHub Enterprise host) |
+| PR status | Pull requests are on for this repository and you fetch (⌘⇧F), refresh PRs (⌘⌥⇧P), turn them on, or approve or close one | `gh pr list --repo …` | `api.github.com`, or your GitHub Enterprise host |
+| PR actions: approve, merge, close | Pull requests are on and you pick *Approve…* (⌘⌥⇧A), *Merge…* (⌘⌥⇧M) or *Close…* (⌘⌥⇧W) | `gh pr view`, `gh repo view`, `gh pr review --approve`, `gh pr merge`, `gh pr close` (all with `--repo`) | `api.github.com`, or your GitHub Enterprise host |
 
-There is no background or scheduled fetch. Git may also reach the network through your own
+There is no background or scheduled fetch, and no PR polling: while a repository's pull request
+toggle is off, `gh` is never even looked up (`test/github.test.js` checks this). Git may also reach the network through your own
 configuration (hooks, credential helpers, Git LFS filters on checkout, `includeIf` or
 `url.*.insteadOf` rules). Those run under your settings, exactly as they would in a terminal.
 
@@ -38,6 +44,17 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
   `net`, `autoUpdater` nor `crashReporter`. The app has no runtime npm dependencies
   (`test/packaging.test.js` enforces this). The only git subcommands that use the network
   (`clone`, `fetch`, `pull`, `push`) are started from the user actions listed above.
+  `test/packaging.test.js` checks that no packaged main-process file requires a Node network
+  module or Electron's `net`, and that `git.js`, `ai.js` and `github.js` never call `fetch`;
+  the only requests the app makes itself are the update check (`updater.js`) and licence
+  validation (`licence/stores.js`).
+- **GitHub CLI calls.** `github.js` spawns `gh` the same way `ai.js` spawns AI CLIs: the binary
+  is resolved on the extended `PATH`, runs in an empty temp folder with prompts off, has a
+  30-second timeout after which its whole process group is killed. Every PR call passes `--repo` for a
+  GitHub remote of this repository. `ipc.js` checks what the renderer sends first: the PR number
+  must be a positive integer (`prNumber`) and the remote must be one of this repository's
+  remotes (`knownRemote`); merge method and flags are checked against fixed lists
+  (`test/ipc.test.js`).
 - **Renderer, enforced.** The page's Content-Security-Policy has `default-src 'none'` and
   `connect-src 'none'`, and every session cancels requests that aren't `file:`, `data:` or
   DevTools (the updater's session may also reach the update feed's host). `e2e/security.spec.js` checks that `fetch`, `WebSocket` and remote images fail.
