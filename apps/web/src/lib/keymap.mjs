@@ -120,8 +120,11 @@ export const INLINE = {
     anchor: 'if (e.target === textarea) return;',
     keys: [
       { label: 'Next / previous file', keys: ['↓', '↑'], src: ['ArrowDown', 'ArrowUp'] },
-      { label: 'Stage or unstage the selected file', keys: ['↵'], src: ['Enter'] },
-      { label: 'Discard the selected unstaged file (undoable)', keys: ['⌫'], src: ['Backspace', 'Delete'] },
+      { label: 'Extend the selection (also ⇧-click; ⌘-click adds one file)', keys: ['⇧', '↓'], src: [] },
+      { label: 'Select every file in the list', keys: ['⌘', 'A'], src: [] },
+      { label: 'Back to a single file', keys: ['Esc'], src: ['Escape'] },
+      { label: 'Stage or unstage the selected files', keys: ['↵'], src: ['Enter'] },
+      { label: 'Discard the selected unstaged files (undoable)', keys: ['⌫'], src: ['Backspace', 'Delete'] },
       { label: 'Write the commit message', keys: ['C'], src: ['c'] },
     ],
   },
