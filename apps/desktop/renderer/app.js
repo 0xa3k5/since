@@ -3,7 +3,8 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
-import { isCheckoutKey, isRowControl } from './keys.js';
+import { isCheckoutKey, isRowControl, isRepoSwitchKey } from './keys.js';
+import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
@@ -2296,8 +2297,8 @@ function submoduleSwitcher() {
 // Command palette
 
 // Recent repositories other than the open one, newest first.
-async function recentRepos() {
-  return (await api.app('recent')).filter((x) => x.root !== state.repo?.root);
+async function recentRepos(limit) {
+  return otherRecent(await api.app('recent'), state.repo?.root, limit);
 }
 function tildePath(p) { return p.replace(/^\/Users\/[^/]+/, '~'); }
 
@@ -2307,10 +2308,11 @@ async function repoSwitcher() {
   palette(() => recent.map((x) => ({ group: 'Recent repositories', label: x.name, icon: 'folder', detail: tildePath(x.root), keywords: x.root, run: () => openRepo(x.root) })), { placeholder: 'Switch repository…' });
 }
 
-async function openPalette() {
+// Opens at once; the recent repositories are added when the app:recent IPC answers.
+function openPalette() {
   if (!state.repo) return;
-  const recent = (await recentRepos()).slice(0, 8);
-  palette(() => {
+  let recent = [];
+  const pal = palette(() => {
     const items = [];
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
     VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: [MOD, v.key] }));
@@ -2408,11 +2410,12 @@ async function openPalette() {
     }
     return items;
   });
+  recentRepos(PALETTE_RECENT_LIMIT).then((list) => { recent = list; if (list.length) pal?.refresh(); });
 }
 
 async function repoMenu(anchor) {
   const r = anchor.getBoundingClientRect();
-  const recent = (await api.app('recent')).filter((x) => x.root !== state.repo?.root).slice(0, 8);
+  const recent = await recentRepos(PALETTE_RECENT_LIMIT);
   contextMenu(r.left, r.bottom + 4, [
     recent.length ? { section: 'Recent repositories' } : null,
     ...recent.map((x) => ({ label: x.name, icon: 'folder', run: () => openRepo(x.root) })),
@@ -2691,8 +2694,8 @@ window.addEventListener('keydown', (e) => {
     if (inside) sidebarEl.querySelector('.sb-toggle')?.focus();
     return;
   }
-  // ⌘⌥O: switch to a recent repository (e.code, since ⌥ turns the key into "ø")
-  if (e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey) { e.preventDefault(); commands.repoSwitch(); return; }
+  // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
+  if (isRepoSwitchKey(e)) { e.preventDefault(); commands.repoSwitch(); return; }
   if (e.key === 'Escape' && state.quick) { e.preventDefault(); closeQuick(); }
   if (e.key === 'Escape' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation
