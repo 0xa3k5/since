@@ -41,6 +41,20 @@ test('openRepo, refs, log, status', async () => {
   assert.deepEqual(st.unstaged.map((f) => f.status).sort(), ['?', 'M']);
 });
 
+test('co-authors come from Co-authored-by trailers', async () => {
+  const dir = await repo();
+  const sha = await commit(dir, 'a.txt', '1\n', 'pair\n\nBody.\n\nCo-authored-by: Bo <bo@x>\nco-authored-by: Test <T@example.com>\nCo-authored-by: Bo again <bo@x>\nCo-authored-by: Cy <cy@x>');
+  const want = [{ name: 'Bo', email: 'bo@x' }, { name: 'Cy', email: 'cy@x' }];
+  assert.deepEqual((await git.getLog(dir))[0].coAuthors, want);
+  assert.deepEqual((await git.getCommit(dir, sha)).coAuthors, want);
+  const { parseDetails } = await import('../renderer/log.js');
+  let got;
+  parseDetails(await git.getLogDetails(dir, [sha]), (...f) => { got = f[5]; });
+  assert.deepEqual(got, want);
+  await commit(dir, 'b.txt', '1\n', 'solo');
+  assert.deepEqual((await git.getLog(dir))[0].coAuthors, []);
+});
+
 test('partial staging stages only selected lines', async () => {
   const dir = await repo();
   await commit(dir, 'f.txt', 'a\nb\nc\nd\n', 'base');

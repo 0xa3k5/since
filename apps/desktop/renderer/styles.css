@@ -294,6 +294,10 @@ kbd.inline { flex: none; }
 .row:hover::before { background: var(--bg-hover); }
 .row.selected::before { background: var(--bg-selected); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
 .map-list:focus .row.selected::before { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+/* Avatar-stack rings: the row tint (if any) painted over the list background, so they match the row. */
+.row:hover { --row-tint: var(--bg-hover); }
+.row.selected { --row-tint: var(--bg-selected); }
+.map-list:focus .row.selected { --row-tint: color-mix(in srgb, var(--accent) 16%, transparent); }
 .vl-layer { z-index: 0; isolation: isolate; }
 .row.pending .subject::before { content: ""; display: inline-block; width: 38%; height: 8px; border-radius: 4px; background: var(--border); vertical-align: middle; }
 .history-note { margin-left: 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -307,6 +311,11 @@ kbd.inline { flex: none; }
 .sha { font-family: var(--mono); font-size: 11.5px; color: var(--text-4); }
 .when { color: var(--text-3); font-size: 12px; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; flex: none; }
 .avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--avatar-text); font-weight: 600; flex: none; letter-spacing: 0; }
+.avatar-stack { display: inline-flex; align-items: center; flex: none; padding-left: 1.5px; }
+.avatar-stack > .avatar { box-shadow: 0 0 0 1.5px var(--row-tint, transparent), 0 0 0 1.5px var(--bg-content); }
+.avatar-stack > .avatar + .avatar { margin-left: -5px; }
+.avatar.more { padding: 0 4px; border-radius: 999px; background: var(--border-strong); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.prop-people { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
 @container (max-width: 700px) { .author { display: none; } }
 .map-wrap.with-detail .author { display: none; }
 

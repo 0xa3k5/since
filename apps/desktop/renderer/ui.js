@@ -109,6 +109,15 @@ export function avatar(name, email, size = 18) {
   return h('span.avatar', { title: `${name} <${email}>`, style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px', background: `var(--lane-${hash(email || name) % 10})` } }, initials);
 }
 
+// Overlapping avatars for [{ name, email }], at most `max`, then a +N chip.
+export function avatarStack(people, size = 18, max = 3) {
+  const label = (p) => `${p.name} <${p.email}>`;
+  const rest = people.slice(max);
+  return h('span.avatar-stack', { title: people.map(label).join('\n') },
+    people.slice(0, max).map((p) => avatar(p.name, p.email, size)),
+    rest.length ? h('span.avatar.more', { title: rest.map(label).join('\n'), style: { height: size + 'px', minWidth: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } }, `+${rest.length}`) : null);
+}
+
 export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd', null, k)));
 
 // --- Toasts --------------------------------------------------------------------
