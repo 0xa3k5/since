@@ -120,8 +120,8 @@ export function fileHistoryView({ path, git, onShow, onOpen, onClose }) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const r = rows[sel];
     if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-    else if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); select(Math.min(rows.length - 1, sel + 1), true); }
-    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); select(Math.max(0, sel - 1), true); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(rows.length - 1, sel + 1), true); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(0, sel - 1), true); }
     else if (e.key === 'Enter' && r.sha) { e.preventDefault(); onShow(r.sha); }
     else if (e.key === ' ' && r.sha) { e.preventDefault(); onOpen(r.sha, r.path); }
   });
