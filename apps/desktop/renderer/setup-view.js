@@ -1,13 +1,14 @@
 import { h, icon, kbd } from './ui.js';
-import { SETUP_FEATURES, SETUP_LATER, setupSummary } from './setup.js';
+import { SETUP_AI, SETUP_FEATURES, SETUP_LATER, setupSummary } from './setup.js';
 
 // The "choose your defaults" step (data in setup.js). Switches apply at once, so what you see is
 // what you get; Continue (⌘↵) only marks the step done. Returns { el, refresh }.
 
-const LATER_KEYS = { prs: 'P', ai: 'G' };
+const LATER_KEYS = { prs: 'P' };
 
-export function setupView({ mod, values, theme, themes, onToggle, onTheme, onDone, done = 'Continue' }) {
-  let v = { ...values }, t = theme;
+// `ai` is the current provider's label (or 'Off'); `onAi` opens the picker and resolves to the new label.
+export function setupView({ mod, values, theme, themes, ai = 'Off', onToggle, onTheme, onAi, onDone, done = 'Continue' }) {
+  let v = { ...values }, t = theme, a = ai;
   const list = h('div.setup-list');
   const summary = h('span.setup-summary', { role: 'status', 'aria-live': 'polite' });
 
@@ -19,6 +20,13 @@ export function setupView({ mod, values, theme, themes, onToggle, onTheme, onDon
         icon(f.icon, 14),
         h('div.setup-text', null, h('div.setup-label', null, f.label), h('div.setup-detail', null, f.detail)),
         sw(v[f.id], f.label, () => { v = { ...v, [f.id]: !v[f.id] }; onToggle(f.id, v[f.id]); render(); refocus(f.label); }))),
+      h('div.setup-row', null,
+        icon(SETUP_AI.icon, 14),
+        h('div.setup-text', null, h('div.setup-label', null, SETUP_AI.label), h('div.setup-detail', null, SETUP_AI.detail)),
+        h('button.btn.subtle.small.setup-pick', {
+          type: 'button', 'aria-label': `${SETUP_AI.label}: ${a}`,
+          onclick: async () => { const next = await onAi?.(); if (next) a = next; render(); refocus(`${SETUP_AI.label}: ${a}`); },
+        }, a, icon('chevronDown', 12))),
       h('div.setup-row', null,
         icon('theme', 14),
         h('div.setup-text', null, h('div.setup-label', null, 'Appearance'), h('div.setup-detail', null, 'Follow the system, or pick one.')),
@@ -46,5 +54,12 @@ export function setupView({ mod, values, theme, themes, onToggle, onTheme, onDon
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); onDone(); }
   });
   render();
-  return { el, refresh: (values, theme) => { v = { ...values }; t = theme; render(); } };
+  // Refreshing must not drop focus from the control the user is on.
+  const refresh = (values, theme, ai = a) => {
+    const f = list.contains(document.activeElement) ? document.activeElement : null;
+    const key = f && (f.matches('.setup-pick') ? `${SETUP_AI.label}: ${ai}` : f.getAttribute('aria-label') || f.title);
+    v = { ...values }; t = theme; a = ai; render();
+    if (key) refocus(key);
+  };
+  return { el, refresh };
 }

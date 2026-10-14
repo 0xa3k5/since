@@ -10,10 +10,12 @@ export const SETUP_FEATURES = [
   { id: 'swatches', icon: 'theme', label: 'Colour swatches in diffs', detail: 'A small chip next to hex, rgb and hsl values.' },
 ];
 
+// Off until you pick a provider; one choice for every repository, like the switches above.
+export const SETUP_AI = { id: 'ai', icon: 'sparkle', label: 'AI commit messages', detail: 'Pick a provider you trust.' };
+
 // Turned on later, per repository, because they need something from you first.
 export const SETUP_LATER = [
   { id: 'prs', icon: 'merge', label: 'Pull requests from GitHub', detail: 'Uses your GitHub CLI login.' },
-  { id: 'ai', icon: 'sparkle', label: 'AI commit messages', detail: 'Pick a provider you trust.' },
 ];
 
 // The saved "done" flag. Old installs without it see the step once too.
