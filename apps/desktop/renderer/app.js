@@ -1513,7 +1513,7 @@ function createCommitView(container) {
           list === 'conflicts'
             ? { label: 'Open in Mergetool', icon: 'merge', kbd: [MOD, '⇧', 'M'], run: () => openMergetool([f.path]) }
             : f.status !== '?' ? { label: 'Open in Difftool', icon: 'diff', kbd: [MOD, '⇧', 'D'], run: () => openDifftool({ file: f, args: [list === 'staged'] }) } : null,
-          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
+          f.status !== '?' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⇧', 'H'], run: () => openFileHistory(f.path) } : null,
           { label: 'Open', icon: 'file', run: () => api.app('open-file', f.path) },
           { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', f.path) },
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
@@ -2140,7 +2140,7 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: [MOD, '⌥', 'F'], detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
-    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⌥', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
+    add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: [MOD, '⇧', 'H'], detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: [MOD, '⇧', 'D'], keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: [MOD, '⌥', 'M'], detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
@@ -2434,7 +2434,7 @@ function withHistoryMenu(row, f) {
   row.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     contextMenu(e.clientX, e.clientY, [
-      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⌥', 'H'], run: () => openFileHistory(f.path) } : null,
+      f.status !== 'D' ? { label: 'File History & Blame', icon: 'history', kbd: [MOD, '⇧', 'H'], run: () => openFileHistory(f.path) } : null,
       { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
     ]);
   });
