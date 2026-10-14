@@ -9,6 +9,8 @@ import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { lanesView } from './lanes-view.js';
+import { cleanupView } from './cleanup-view.js';
+import { STALE_DAYS } from './cleanup.js';
 import { laneTarget, laneKey } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
@@ -172,7 +174,7 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
-  if (state.view === 'lanes') lanesPage?.refresh();
+  if (state.view === 'lanes') (state.cleanup ? cleanupPage : lanesPage)?.refresh();
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
@@ -466,7 +468,7 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null, reviewPage = null;
+let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null;
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 
@@ -504,6 +506,7 @@ function setView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
+  state.cleanup = false;
   state.review = null;
   state.view = v;
   renderSidebar();
@@ -874,7 +877,7 @@ function renderView(soft = false) {
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
-    case 'lanes': contentEl.append(openLanes().el); break;
+    case 'lanes': contentEl.append(state.cleanup ? openCleanup().el : openLanes().el); break;
   }
 }
 
@@ -2243,7 +2246,33 @@ function openLanes() {
     onMerge: mergeLane,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
   });
+    onCleanup: startCleanup,
+  });
   return lanesPage;
+}
+
+// Lanes → Clean up (cleanup-view.js): stale branches and worktrees, removed in bulk as one undo step.
+function startCleanup() {
+  if (!state.repo) return;
+  setView('lanes');
+  state.cleanup = true;
+  renderView();
+}
+const cleanupPrefs = () => loadPref('cleanup', { days: STALE_DAYS });
+function openCleanup() {
+  cleanupPage = cleanupView({
+    load: () => api.app('lanes-list'),
+    run: (items, label) => git('cleanupLanes', items, { __label: label }),
+    runRemote: (names) => git('deleteRemoteBranches', names),
+    days: () => cleanupPrefs().days,
+    setDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
+    onProgress: (fn) => api.on('cleanup:progress', fn),
+    onDone: refreshAll,
+    onUndo: undo,
+    onBack: () => setView('lanes'),
+    mod: MOD,
+  });
+  return cleanupPage;
 }
 // Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
 function openReview(lane, base = null) {
@@ -2982,6 +3011,7 @@ function openPalette() {
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
     if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'lane squash merge tidy cleanup remove worktree delete branch land' });
+    add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     add('View', 'Show lanes with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'conflict forecast merge-tree overlap lanes branches worktrees' });
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
@@ -3438,6 +3468,7 @@ window.addEventListener('keydown', (e) => {
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
     if (state.view === 'snapshots' && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
+  if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
