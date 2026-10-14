@@ -233,3 +233,15 @@ test('runnable flags files that macOS would execute when opened', () => {
     assert.equal(check.runnable(path.join(dir, 'missing.md')), false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('commit file entries, trimmed by fileRef, pass the file-entry check (AK-131)', async () => {
+  const { fileRef } = await import('../renderer/diff.js');
+  const sha = 'a'.repeat(40);
+  // The shape git.commitFiles returns: status entries plus numstat counts.
+  const entry = { status: 'R100', oldPath: 'old.txt', path: 'new.txt', add: 3, del: 1, binary: false };
+  rejects(() => check.checkGit('commitFileDiff', [sha, entry, null]), /unexpected field "add"/);
+  assert.deepStrictEqual(fileRef(entry), { path: 'new.txt', oldPath: 'old.txt', status: 'R100' });
+  check.checkGit('commitFileDiff', [sha, fileRef(entry), null]);
+  check.checkGit('difftool', [fileRef(entry), false, sha, null]);
+  check.checkGit('discardFiles', [[{ path: 'a.txt', status: 'M', lfs: true }].map(fileRef)]);
+});
