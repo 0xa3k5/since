@@ -23,6 +23,24 @@ let nextId = Date.now();
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+// What restoring ref state `target` over `current` would change: where HEAD
+// points (a branch name, or a commit when detached), then each branch and tag.
+// [{ ref, kind: 'head' | 'move' | 'create' | 'delete', from, to }]
+function refChanges(current, target) {
+  const out = [];
+  const detachedMove = !target.head && !current.head && target.headOid && target.headOid !== current.headOid;
+  if ((target.head && target.head !== current.head) || (!target.head && current.head) || detachedMove) {
+    out.push({ ref: 'HEAD', kind: 'head', from: current.head || current.headOid, to: target.head || target.headOid });
+  }
+  const names = [...new Set([...Object.keys(target.refs), ...Object.keys(current.refs)])].sort();
+  for (const ref of names) {
+    const from = current.refs[ref] ?? null, to = target.refs[ref] ?? null;
+    if (from === to) continue;
+    out.push({ ref, kind: !from ? 'create' : !to ? 'delete' : 'move', from, to });
+  }
+  return out;
+}
+
 function pins(entry) {
   const objects = [];
   const { before, after } = entry;
@@ -436,6 +454,14 @@ class Journal {
     }
   }
 
+  // What "Restore before" an entry would change right now, without changing anything.
+  async previewRestore(id) {
+    const entry = this.find(id);
+    if (!entry) throw new git.GitError('Snapshot not found');
+    const current = await git.captureRefState(this.root);
+    return { label: entry.label, changes: refChanges(current, entry.before), movesHead: !!entry.before.headOid && entry.before.headOid !== current.headOid };
+  }
+
   // Move refs back to the state before an entry (the Snapshots view's "Restore before").
   restore(id) {
     return this.lock(async () => {
@@ -446,4 +472,4 @@ class Journal {
   }
 }
 
-module.exports = { Journal, workOps, worktreeOps, PAGE };
+module.exports = { Journal, workOps, worktreeOps, PAGE, refChanges };
