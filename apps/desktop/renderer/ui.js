@@ -257,6 +257,45 @@ export function closeMenu() {
   openMenu = null;
 }
 
+// --- Tooltips ---------------------------------------------------------------
+// Icon-only buttons carry their name and key in `data-tip` (see tipFor): shown on hover after a
+// moment and at once on keyboard focus, kept inside the window. One tooltip at a time.
+export const tipFor = (label, keyId) => [label, keyId ? keymap.keys(keyId).join('') : ''].filter(Boolean).join('  ');
+let tipEl = null;
+let tipTimer = 0;
+let tipTarget = null;
+function showTip(target) {
+  const text = target.dataset.tip;
+  if (!text || !target.isConnected) return;
+  tipEl ||= h('div.tooltip', { role: 'tooltip' });
+  tipEl.textContent = text;
+  document.body.append(tipEl);
+  const r = target.getBoundingClientRect();
+  const t = tipEl.getBoundingClientRect();
+  const below = r.bottom + 6 + t.height < innerHeight - 4;
+  tipEl.style.left = Math.max(4, Math.min(r.left + r.width / 2 - t.width / 2, innerWidth - t.width - 4)) + 'px';
+  tipEl.style.top = (below ? r.bottom + 6 : r.top - 6 - t.height) + 'px';
+  tipTarget = target;
+}
+function hideTip() { clearTimeout(tipTimer); tipEl?.remove(); tipTarget = null; }
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerover', (e) => {
+    const t = e.target.closest?.('[data-tip]');
+    if (t === tipTarget) return;
+    hideTip();
+    if (!t) return;
+    if (!t.hasAttribute('title')) t.setAttribute('title', ''); // no native tooltip from a titled row around it
+    tipTimer = setTimeout(() => showTip(t), 450);
+  });
+  document.addEventListener('focusin', (e) => {
+    const t = e.target.closest?.('[data-tip]');
+    hideTip();
+    if (t && t.matches(':focus-visible')) showTip(t);
+  });
+  // Any key hides it (Tab shows the next one on focus).
+  for (const ev of ['focusout', 'pointerdown', 'scroll', 'keydown']) document.addEventListener(ev, hideTip, true);
+}
+
 // --- Command palette ---------------------------------------------------------------
 export function fuzzy(q, s) {
   if (!q) return 1;

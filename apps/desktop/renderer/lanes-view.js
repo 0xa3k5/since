@@ -1,7 +1,8 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
+import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason } from './review-rows.js';
 import { catchupCard } from './catchup-view.js';
+import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
@@ -44,7 +45,8 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
 // catchup: { load, mark } for the catch-up card (app:catchup, app:catchup-mark); null leaves it out.
-export function lanesView({ catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
+// git(method, ...args) reads the files an Everything else row's branch changes, for its preview in the pane.
+export function lanesView({ git = null, catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last PR load
   let inboxFailed = false;
@@ -79,19 +81,20 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
   const title = h('h1', null, 'Review');
   const lede = h('p.muted');
   const hint = h('div.review-hints');
-  const cleanupBtn = onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null;
+  const cleanupBtn = onCleanup ? h('button.btn.ghost.icon-btn', { onclick: () => onCleanup(), 'data-tip': `${tipFor('Clean up…', 'global.cleanup')}\nFind stale branches and worktrees and remove them in bulk`, 'aria-label': 'Clean up…' }, icon('trash', 15)) : null;
+  // One line: the title, the counts and Clean up; the description under it at full width.
   const left = h('div.page.flush.lanes', null,
-    h('div.page-head', null,
-      h('div', null, title, lede),
-      h('div.page-actions', null, count, cleanupBtn)),
+    h('div.page-head.review-head', null,
+      h('div.review-head-row', null, title, count, h('span.spacer'), cleanupBtn),
+      lede),
     h('div.lanes-bar', null, icon('search', 14), filter, allChip, agentChip, conflictChip),
     list,
     empty,
-    hint,
   );
   const paneHost = h('div.review-pane-host');
   const handle = h('div.review-split-handle', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize' });
-  const el = h('div.review-split', { tabIndex: 0 }, left, handle, paneHost);
+  // The key bar runs under both panes, across the window (the grid's last row).
+  const el = h('div.review-split', { tabIndex: 0 }, left, handle, paneHost, hint);
   let paneObj = null;
   let paneTimer = 0;
   let settled = null; // the row the pane last showed, for Back and Forward
@@ -122,8 +125,8 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     return [
       l.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${l.agent.reason}: ${l.agent.match})` }, 'Agent') : null,
       l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
-      l.isBase ? h('span.badge', null, 'Base') : null,
-      l.worktree?.current ? h('span.badge.local', null, 'This window') : null,
+      l.isBase ? h('span.badge', { title: 'The base branch' }, 'Base') : null,
+      l.worktree?.current ? h('span.badge.local', { title: 'Open in this window' }, 'This window') : null,
       l.done ? h('span.badge', { title: doneText(l) }, 'Merged') : null,
       l.upstreamGone ? h('span.badge.warn', { title: 'Its upstream branch was deleted' }, 'Gone') : null,
       l.worktree?.prunable ? h('span.badge.warn', { title: 'The worktree folder no longer exists' }, 'Missing') : null,
@@ -151,8 +154,10 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
   function row(l) {
     const active = allKey(l) === selKey;
     const ab = aheadBehind(l);
+    // Narrow lists hide the ↑↓, PR and progress columns (styles.css); the row's tooltip keeps them.
+    const tip = [laneTitle(l), ab && base ? `${ab} against ${base}` : ab, l.pr ? `#${l.pr.number}${l.pr.checks ? ` · CI ${l.pr.checks}` : ''}${l.pr.review ? ` · review ${l.pr.review}` : ''}` : null, progress(l)?.label ? `Reviewed ${progress(l).label}` : null, l.changes ? `${l.changes} uncommitted` : null].filter(Boolean).join('\n');
     return h('div.list-row.lanes-row' + (active ? '.active' : ''), {
-      role: 'option', 'aria-selected': String(active), 'data-key': allKey(l),
+      role: 'option', 'aria-selected': String(active), 'data-key': allKey(l), title: tip,
       onclick: () => select(allKey(l)),
       ondblclick: () => onOpen(l),
       oncontextmenu: (e) => { e.preventDefault(); select(allKey(l)); menu(e.clientX, e.clientY, l); },
@@ -180,10 +185,10 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
   function actionBtn(l, id, inline = false) {
     const a = ACTIONS[id];
     return h(inline ? 'button.btn.subtle.lanes-fix-btn' : 'button.btn.subtle.lanes-step', {
-      title: `${a.label} (${keymap.keys(a.keyId).join(' or ')})`,
+      'data-tip': tipFor(a.label, a.keyId), 'aria-label': a.label,
       onclick: (e) => { e.stopPropagation(); select(allKey(l)); run(id, l); },
       ondblclick: (e) => e.stopPropagation(),
-    }, icon(a.icon, 12), a.label);
+    }, icon(a.icon, 12), h('span.btn-label', null, a.label));
   }
   function stepBtn(l) {
     const [id] = laneActions(l);
@@ -240,15 +245,16 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     const sub = r.pr
       ? [r.pr.author, r.branch].filter(Boolean).join(' · ')
       : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    return h('div.list-row.lanes-row.review-row' + (active ? '.active' : ''), {
+    return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
+      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
       onclick: () => select(r.key),
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
       icon(r.pr ? 'merge' : r.worktree ? 'worktree' : 'branch', 14),
       // Two lines: the title, then status tags, who and where, and age. Only the selected row shows
-      // its buttons and why it's stuck.
+      // its buttons (pinned to the title line, styles.css) and why it's stuck.
       h('div.list-main', null,
         h('div.list-title', null, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : null, h('span.lanes-name', { title: r.title }, r.title)),
         h('div.list-sub.review-row-meta', null,
@@ -259,21 +265,21 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
         r.stage === 'stuck' && reason(r) ? h('div.review-reason', { title: reason(r, 20) }, reason(r)) : null,
         open ? detailsEl(r) : null),
       h('div.review-row-acts', null,
-        r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn', {
-          title: `Send back with a ready-made prompt (${keymap.keys('lanes.sendBack').join(' or ').toUpperCase()})`,
+        r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn.review-sendback', {
+          'data-tip': `${tipFor('Send back…', 'lanes.sendBack')}\nA ready-made prompt for whoever made it`, 'aria-label': 'Send back…',
           onclick: (e) => { e.stopPropagation(); select(r.key); act('sendBack', r); },
           ondblclick: (e) => e.stopPropagation(),
-        }, 'Send back…') : null,
-        h('button.btn.ghost.review-details-btn', {
-          title: `Details (${keymap.keys('lanes.details').join(' or ').toUpperCase()})`, 'aria-expanded': String(open),
+        }, icon('sparkle', 13), h('span.btn-label', null, 'Send back…')) : null,
+        h('button.btn.ghost.icon-btn.review-details-btn', {
+          'data-tip': tipFor(open ? 'Hide details' : 'Details', 'lanes.details'), 'aria-label': 'Details', 'aria-expanded': String(open),
           onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
           ondblclick: (e) => e.stopPropagation(),
-        }, open ? 'Details ▾' : 'Details ▸'),
+        }, icon('chevron', 13)),
         h('button.btn.subtle.lanes-step', {
-          title: `${s.label} (${keymap.keys(s.keyId).join(' or ')})`,
+          'data-tip': tipFor(s.label, s.keyId), 'aria-label': s.label,
           onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
           ondblclick: (e) => e.stopPropagation(),
-        }, icon(s.icon, 12), s.label)),
+        }, icon(s.icon, 12), h('span.btn-label', null, s.label))),
     );
   }
 
@@ -332,7 +338,8 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     const r = split() ? current() : null;
     if (!r || isLaneEntry(r)) {
       clearTimeout(paneTimer); paneObj?.destroy(); paneObj = null;
-      paneHost.replaceChildren(r ? h('div.empty', null, `${laneTitle(r.lane)}: ↵ ${r.lane.worktree && !r.lane.worktree.current ? 'switches to its worktree' : 'shows it in the Map'} · R reviews the branch`) : '');
+      if (!r) paneHost.replaceChildren('');
+      else if (paneHost.firstChild?.dataset?.key !== r.key || paneHost.firstChild.lane !== r.lane) paneHost.replaceChildren(branchPreview(r));
       if (r && moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
       if (r) { moved = false; settled = r.key; }
       return;
@@ -352,6 +359,53 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     if (moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
     moved = false;
     settled = r.key;
+  }
+
+  // The pane for an Everything else row: the branch at a glance (upstream, ↑↓, worktree), its
+  // actions, predicted conflicts, its commits and the files it changes against the base, then the
+  // way in as a muted line. Files come from git branchReview, cached per branch tip.
+  const previewFiles = new Map();
+  function branchPreview(x) {
+    const l = x.lane;
+    const ab = aheadBehind(l);
+    const ids = [...laneActions(l), ...(l.branch && !l.isBase && base ? ['rebase'] : []), ...(!l.isBase && (l.branch || l.head) ? ['review'] : [])]
+      .filter((id, i, all) => all.indexOf(id) === i && id !== 'delete' && id !== 'discard');
+    const section = (label, ...body) => h('section.branch-preview-section', null, h('div.lanes-group', null, label), ...body);
+    const files = h('div.branch-preview-files');
+    const el = h('div.review-pane.branch-preview', { 'data-key': x.key },
+      h('div.review-pane-head', null,
+        h('div.review-pane-title', null, h('div.quick-title', { title: laneTitle(l) }, icon(l.worktree ? 'worktree' : 'branch', 14), ' ', laneTitle(l)), ...badges(l)),
+        h('div.quick-meta.review-pane-meta', null,
+          h('span.mono', null, l.name),
+          h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
+          ab ? h('span', { title: base ? `Ahead/behind ${base}` : '' }, ab) : null,
+          l.worktree ? h('span.mono', { title: l.worktree.path }, tildify(l.worktree.path)) : null),
+        ids.length ? h('div.review-pane-actions', null, ...ids.map((id) => actionBtn(l, id, true))) : null),
+      h('div.branch-preview-body', null,
+        l.conflicts ? section('Predicted conflicts', ...l.conflicts.map((c) => h('div.review-detail.warn', { title: c.files.join('\n') }, conflictText(c)))) : null,
+        l.isBase ? null : section(l.ahead != null ? `Commits not on ${base || 'the base'} · ${l.ahead}` : 'Commits',
+          l.ahead === 0 ? h('div.review-none', null, 'Nothing here that isn’t on the base.')
+            : h('div.branch-preview-commit', null, icon('commit', 13), h('span.lanes-name', { title: l.title || '' }, l.title || l.name), l.activity ? h('span.review-row-age', { title: fullDate(l.activity / 1000) }, timeAgo(l.activity / 1000)) : null),
+          l.ahead > 1 ? h('div.review-none', null, `and ${plural(l.ahead - 1, 'older commit')}: R reviews them all`) : null),
+        l.isBase ? h('div.review-none', null, 'This is the base branch.') : section('Changed files', files)),
+      h('div.branch-preview-hint', null, `↵ ${l.worktree && !l.worktree.current ? 'switches to its worktree' : 'shows it in the Map'} · R reviews the branch`));
+    el.lane = l;
+    if (!l.isBase && git && (l.branch || l.head)) {
+      const id = `${laneKey(l)}@${l.head || ''}@${base || ''}`;
+      const show = (list) => files.replaceChildren(...(list.length ? list.map((f) => {
+        const [name, dir] = fileName(f.path);
+        return h('div.file-row', { title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path }, statusBadge(f.status), h('span.fname', null, name), h('span.fdir', null, dir),
+          f.add || f.del ? h('span.stat.small', null, f.add ? h('span.add', null, '+' + f.add) : null, f.del ? h('span.del', null, '−' + f.del) : null) : null);
+      }) : [h('div.review-none', null, 'No changes against the base.')]));
+      if (previewFiles.has(id)) show(previewFiles.get(id));
+      else {
+        files.replaceChildren(loading('Reading its changes…'));
+        git('branchReview', l.branch || l.head, base || undefined)
+          .then((res) => { previewFiles.set(id, res.files); if (files.isConnected) show(res.files); })
+          .catch((e) => files.replaceChildren(h('div.review-none', null, `Couldn’t read its changes: ${e.message}`)));
+      }
+    }
+    return el;
   }
 
   // After a pane action on row `key` (approve, merge, close…): re-stage it at once and move the
@@ -412,7 +466,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     if (walking) {
       shown = walking;
       rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, `What landed · ${walking.length}`,
-        h('button.btn.ghost.small.catchup-stop', { onclick: () => walk(false), title: 'Back to Review (Esc)' }, 'Done', kbd('Esc'))));
+        h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Review (Esc)' }, 'Done', kbd('Esc'))));
       for (const r of walking) rows.push(landedRowEl(r));
     } else if (q) {
       shown = filterRows(staged.all, q);
@@ -428,7 +482,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
         if (COLLAPSED.has(s.id)) {
           rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, `${s.label} · ${rs.length} ${collapsed ? '▸' : '▾'}`));
         } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, `${s.label} · ${rs.length}`,
-          s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.catchup-stop', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
+          s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
         if (collapsed) continue;
         if (!rs.length && loaded && !prsLoading) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
@@ -461,7 +515,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     conflictChip.classList.toggle('on', conflictsOnly);
     const n = staged.stages.stuck.length;
     const ready = staged.stages.ready.length;
-    count.textContent = !loaded || prsLoading ? 'Loading…' : [`${n} stuck`, prsOn() ? `${ready} ready to merge` : null].filter(Boolean).join(' · ');
+    count.textContent = !loaded || prsLoading ? 'Loading…' : [`${n} stuck`, prsOn() ? `${ready} ready` : null].filter(Boolean).join(' · ');
     empty.textContent = !loaded ? '' : prsLoading ? 'Loading pull requests…' : inboxFailed && prsOn() ? 'Couldn’t load pull requests.' : q && !shown.length ? 'Nothing matches.' : '';
     empty.hidden = !empty.textContent;
     const many = readyPrs().length;

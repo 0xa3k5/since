@@ -2324,6 +2324,7 @@ function worktreesView() {
 // Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
 function openLanes() {
   lanesPage = lanesView({
+    git,
     load: (opts) => api.app('lanes-list', opts),
     forecast: () => api.app('lanes-forecast'),
     prsOn: () => Boolean(state.prs?.active),
