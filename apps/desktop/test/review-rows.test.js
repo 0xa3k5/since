@@ -145,7 +145,7 @@ test('PRs off: no gh call is made for any of the data the stages read', async ()
   assert.equal(calls.length, 0);
 });
 
-test('PR header data: review verdicts (login and state only) and size', () => {
+test('PR header data: reviews (no bodies) and size', () => {
   const p = github.normalizePr({
     number: 5, title: 't', headRefName: 'x', additions: 12, deletions: 3, changedFiles: 2,
     latestReviews: [
@@ -155,7 +155,7 @@ test('PR header data: review verdicts (login and state only) and size', () => {
       { author: { login: 'ana' }, state: 'CHANGES_REQUESTED' },
     ],
   });
-  assert.deepEqual(p.reviews, [{ login: 'ana', state: 'approved' }, { login: 'bo', state: 'changes' }]);
+  assert.deepEqual(p.reviews.map((r) => [r.login, r.state]), [['ana', 'approved'], ['bo', 'changes'], ['cy', 'commented']]);
   assert.deepEqual(p.size, { additions: 12, deletions: 3, files: 2 });
   assert.ok(!JSON.stringify(p).includes('secret'));
   assert.deepEqual(github.normalizePr({ number: 6 }).size, { additions: null, deletions: null, files: null });
@@ -188,6 +188,35 @@ test('badges: CI and review state, conflicts and uncommitted changes', async () 
   assert.deepEqual(texts({ pr: pr(1, { checks: 'failure', mergeable: false }) }), ['CI failing', 'Conflicts']);
   assert.deepEqual(texts({ pr: pr(1, { draft: true }) }, { requested: new Set([1]) }), ['Draft', 'CI running', 'Your review']);
   assert.deepEqual(texts({ pr: null, worktree: { path: '/w', changes: 2 } }), ['2 changed']);
+});
+
+test('agent-made: lane guesses and bot authors, only while marks are on', async () => {
+  const { rowBadges, rowAgent } = await load();
+  const texts = (r, o) => rowBadges({ conflicts: [], worktree: null, ...r }, o).map((b) => b.text);
+  const botPr = pr(1, { checks: null, bot: true, author: 'app/renovate', authorName: 'renovate' });
+  assert.deepEqual(texts({ pr: botPr }), []);
+  assert.deepEqual(texts({ pr: botPr }, { agents: true }), ['Agent']);
+  assert.equal(rowAgent({ pr: botPr }), 'Opened by a bot (renovate)');
+  assert.match(rowAgent({ lane: { agent: { reason: 'branch', match: 'claude/' } }, pr: pr(2) }), /Looks agent-made/);
+  assert.equal(rowAgent({ pr: pr(3) }), null);
+  assert.deepEqual(rowBadges({ conflicts: [], pr: pr(4, { checks: null, review: 'required' }) }).map((b) => b.icon), ['pending']);
+});
+
+test('reviewers: requests are pending, then by state, dismissed left out', async () => {
+  const { reviewers } = await load();
+  const list = reviewers({
+    reviews: [
+      { login: 'ana', name: 'Ana', state: 'approved', submittedAt: 'x' },
+      { login: 'bo', name: '', state: 'changes' },
+      { login: 'copilot[bot]', name: '', state: 'commented' },
+      { login: 'dee', name: '', state: 'dismissed' },
+      { login: 'fay', name: '', state: 'approved' },
+    ],
+    reviewRequests: [{ login: 'fay', name: '', team: false }, { login: 'core', name: 'Core', team: true }],
+  });
+  assert.deepEqual(list.map((r) => [r.name, r.state]), [['bo', 'changes'], ['Ana', 'approved'], ['copilot', 'commented'], ['fay', 'pending'], ['Core', 'pending']]);
+  assert.equal(list.find((r) => r.name === 'Core').login, null);
+  assert.deepEqual(reviewers(null), []);
 });
 
 test('filter: every word in the title, branch, number or author', async () => {

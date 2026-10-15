@@ -160,20 +160,46 @@ export const STEPS = {
 };
 
 // Small CI and review badges for a row: [{ text, kind, title }], kind '' | 'ok' | 'warn' | 'busy'.
-export function rowBadges(row, { requested = new Set() } = {}) {
+export function rowBadges(row, { requested = new Set(), agents = false } = {}) {
   const { pr } = row;
   const out = [];
-  if (pr?.draft) out.push({ text: 'Draft', kind: '', title: 'A draft pull request' });
+  const agent = agents ? rowAgent(row) : null;
+  if (agent) out.push({ text: 'Agent', kind: 'agent', title: agent });
+  if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
   if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed' });
   else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing' });
   else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
   if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
-  else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved' });
-  else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes' });
-  else if (pr?.review === 'required') out.push({ text: 'Needs review', kind: '', title: 'Waiting for a review' });
+  else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check' });
+  else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes', icon: 'x' });
+  else if (pr?.review === 'required') out.push({ text: 'Needs review', kind: '', title: 'Waiting for a review', icon: 'pending' });
   if ((row.conflicts || []).length || pr?.mergeable === false) out.push({ text: 'Conflicts', kind: 'warn', title: 'Conflicts with its base or another branch' });
   if (row.worktree?.changes) out.push({ text: `${row.worktree.changes} changed`, kind: '', title: 'Uncommitted changes in its worktree' });
   return out;
+}
+
+// Why a row looks agent-made, or null: its lane's guess (branch name, commit trailers), else a bot
+// opened its PR.
+export function rowAgent({ lane, pr } = {}) {
+  if (lane?.agent) return `Looks agent-made (${lane.agent.reason}: ${lane.agent.match})`;
+  return pr?.bot ? `Opened by a bot (${pr.authorName || pr.author})` : null;
+}
+
+// What to call a reviewer or author: the name, else the login without a bot's "[bot]".
+const who = (p) => p.name || String(p.login || '').replace(/^app\//, '').replace(/\[bot\]$/, '');
+
+// A PR's reviewers for its header: one entry per person or team, [{ key, name, login, state }],
+// state 'changes' | 'approved' | 'commented' | 'pending'. A request outranks an older review (it was
+// re-requested); dismissed reviews are left out. Changes first, then approvals, comments, pending.
+const REVIEWER_ORDER = { changes: 0, approved: 1, commented: 2, pending: 3 };
+export function reviewers(pr) {
+  const out = new Map();
+  for (const r of pr?.reviewRequests || []) out.set(`${r.team ? 'team:' : ''}${r.login}`, { key: `${r.team ? 'team:' : ''}${r.login}`, name: who(r), login: r.team ? null : r.login, state: 'pending' });
+  for (const r of pr?.reviews || []) {
+    if (out.has(r.login) || !(r.state in REVIEWER_ORDER)) continue;
+    out.set(r.login, { key: r.login, name: who(r), login: r.login, state: r.state, at: r.submittedAt || null });
+  }
+  return [...out.values()].sort((a, b) => REVIEWER_ORDER[a.state] - REVIEWER_ORDER[b.state]);
 }
 
 // Rows whose title, branch, PR number or author has every word of `query`.
@@ -181,7 +207,7 @@ export function filterRows(rows, query = '') {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return rows;
   return rows.filter((r) => {
-    const text = [r.title, r.branch, r.lane?.name, r.pr ? `#${r.pr.number}` : '', r.pr?.author].filter(Boolean).join(' ').toLowerCase();
+    const text = [r.title, r.branch, r.lane?.name, r.pr ? `#${r.pr.number}` : '', r.pr?.author, r.pr?.authorName].filter(Boolean).join(' ').toLowerCase();
     return words.every((w) => text.includes(w));
   });
 }

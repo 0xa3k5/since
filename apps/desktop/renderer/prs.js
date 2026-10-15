@@ -47,7 +47,7 @@ export function prStatusLine(pr) {
 export function prTitle(pr, stale = false) {
   return [
     `#${pr.number} ${pr.title}`,
-    `${pr.author ? `by ${pr.author} · ` : ''}${pr.branch} → ${pr.base}`,
+    `${pr.author ? `by ${pr.authorName || pr.author} · ` : ''}${pr.branch} → ${pr.base}`,
     prStatusLine(pr) || null,
     stale ? 'Not refreshed: showing the last result' : null,
   ].filter(Boolean).join('\n');
