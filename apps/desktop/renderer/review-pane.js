@@ -43,7 +43,8 @@ function reviewersLine(pr) {
       ...counts.map(([s, n]) => h('span.review-verdict.' + s, { title: `${n} ${STATE[s].many}` }, `${STATE[s].glyph}${n}`))));
 }
 
-// row: a reviewRows row; ctx: { base, remote, requested, step, prsOn }. run(id, row, ctx) runs a
+// row: a reviewRows row; ctx: { base, remote, requested, step, prsOn, agents, conflicts, onConflicts }
+// (conflicts: it conflicts with its base, so the files start with what conflicts, AK-305). run(id, row, ctx) runs a
 // pane action (PANE_ACTIONS); call(channel, ...args) is api.app; onBack() returns focus to the list.
 export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   const el = h('div.review-pane');
@@ -51,6 +52,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   let view = null;
   let actions = [];
   let alive = true;
+  let jump = false; // showConflicts() before the review mounted
 
   // Title, meta and actions run across the whole pane; the files and the diff sit below.
   // Labelled buttons for the actions you take most, icon buttons for the rest, GitHub on the right.
@@ -118,8 +120,9 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   };
 
   function mount(review) {
-    view = reviewView({ ...review, root, git, store, header: head, embedded: true, onKey, onClose: onBack });
+    view = reviewView({ ...review, root, git, store, header: head, embedded: true, onKey, onClose: onBack, checkConflicts: Boolean(ctx.conflicts), onConflicts: (files) => ctx.onConflicts?.(files) });
     el.replaceChildren(view.el);
+    if (jump) view.showConflicts();
   }
 
   async function load() {
@@ -148,6 +151,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     // The row changed under the pane (approved, CI finished): new header, same diff and ticks.
     update(r, c) { row = r; ctx = c; renderHead(); },
     destroy() { alive = false; },
+    // The row's "Conflicts in N files" note: jump to the Conflicting group.
+    showConflicts() { if (view) view.showConflicts(); else jump = true; },
     focus: () => (view?.el || el).focus({ preventScroll: true }),
   };
 }

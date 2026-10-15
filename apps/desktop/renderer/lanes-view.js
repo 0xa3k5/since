@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
-import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason } from './review-rows.js';
+import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote } from './review-rows.js';
 import { catchupCard } from './catchup-view.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
@@ -98,6 +98,8 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   let paneObj = null;
   let paneTimer = 0;
   let settled = null; // the row the pane last showed, for Back and Forward
+  const paneConflicts = new Map(); // row key → files the pane found conflicting with the base (AK-305)
+  let jumpTo = null; // the row whose "Conflicts in N files" was clicked before its pane opened
   let moved = false; // the selection changed by the user since the pane last showed
   let after = null; // { before, key }: an action ran on `key`; pick the next row on the next render
   const w = paneWidth();
@@ -212,7 +214,23 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   const requested = () => new Set(prsOn() ? inbox?.requested || [] : []);
   // A row as a lane for the lane actions: its PR joined on, or just the PR when it isn't checked out here.
   const asLane = (r) => (r.lane ? (r.pr && !r.lane.pr ? { ...r.lane, pr: r.pr } : r.lane) : { name: r.title, title: r.title, pr: r.pr });
-  const paneCtx = (r) => (r.landed ? { base: r.landed.parent, remote: null, requested: new Set(), step: null, prsOn: false } : { base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents() });
+  const paneCtx = (r) => (r.landed ? { base: r.landed.parent, remote: null, requested: new Set(), step: null, prsOn: false } : {
+    base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
+    conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
+  });
+  // The pane read which files conflict: the row's note counts them.
+  function noteConflicts(key, files) {
+    const paths = files.map((f) => f.path);
+    if (paneConflicts.get(key)?.join('\0') === paths.join('\0')) return;
+    paneConflicts.set(key, paths);
+    render();
+  }
+  // "Conflicts in N files": select the row and jump its pane to the Conflicting group.
+  function jumpToConflicts(r) {
+    select(r.key);
+    if (paneObj?.key === r.key) paneObj.showConflicts?.();
+    else jumpTo = r.key;
+  }
   const split = () => Boolean(pane);
   function act(id, r) {
     const { pr, lane } = r;
@@ -264,7 +282,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
             : h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
           sub ? h('span.review-row-sub', { title: r.pr?.authorName && r.pr.authorName !== r.pr.author ? `${r.pr.authorName} (${r.pr.author})` : null }, sub) : null,
           at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : null),
-        r.stage === 'stuck' && reason(r) ? h('div.review-reason', { title: reason(r, 20) }, reason(r)) : null,
+        r.stage === 'stuck' && reason(r) ? reasonEl(r) : null,
         open ? detailsEl(r) : null),
       h('div.review-row-acts', null,
         r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn.review-sendback', {
@@ -286,6 +304,14 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   }
 
   const reason = (r, max = 2) => stuckReason(r, { base, max });
+  // Why it's stuck; a conflict with the base is its own note that jumps to the conflicting files.
+  function reasonEl(r) {
+    const note = conflictNote(r, { base, files: paneConflicts.get(r.key) });
+    const rest = stuckReason(r, { base, max: 2, noBase: Boolean(note) });
+    return h('div.review-reason', { title: reason(r, 20) },
+      note ? h('button.review-reason-link', { title: 'Show the conflicting files', onclick: (e) => { e.stopPropagation(); jumpToConflicts(r); }, ondblclick: (e) => e.stopPropagation() }, note) : null,
+      note && rest ? ' · ' : null, rest);
+  }
 
   // Details ▸: the branch, its commits, worktree and uncommitted changes, and the way into the map.
   function detailsEl(r) {
@@ -357,6 +383,8 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     paneObj?.destroy();
     paneObj = pane(r, paneCtx(r));
     paneHost.replaceChildren(paneObj.el);
+    if (jumpTo === r.key) paneObj.showConflicts?.();
+    jumpTo = null;
     if (had) el.focus({ preventScroll: true });
     if (moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
     moved = false;
@@ -470,7 +498,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     card?.setCounts({ stuck: staged.stages.stuck.length, ready: staged.stages.ready.length });
     if (walking) {
       shown = walking;
-      rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, `What landed · ${walking.length}`,
+      rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, 'What landed ', h('span.lanes-count', null, String(walking.length))),
         h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Review (Esc)' }, 'Done', kbd('Esc'))));
       for (const r of walking) rows.push(landedRowEl(r));
     } else if (q) {
@@ -485,14 +513,14 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
         if (!rs.length && (COLLAPSED.has(s.id) || (s.id === 'ready' && !prsOn()))) continue;
         const collapsed = COLLAPSED.has(s.id) && !opened.has(s.id);
         if (COLLAPSED.has(s.id)) {
-          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, `${s.label} · ${rs.length} ${collapsed ? '▸' : '▾'}`));
-        } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, `${s.label} · ${rs.length}`,
+          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, s.label, ' ', h('span.lanes-count', null, String(rs.length)), ` ${collapsed ? '▸' : '▾'}`));
+        } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, h('span', null, s.label, ' ', h('span.lanes-count', null, String(rs.length))),
           s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
         if (collapsed) continue;
         if (!rs.length && loaded && !prsLoading) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
       }
-      rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, `Everything else · ${lanes.length} ${all ? '▾' : '▸'}`));
+      rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▾' : '▸'}`));
       if (all) {
         let bucket = null;
         for (const x of everything) {

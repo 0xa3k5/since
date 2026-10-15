@@ -28,6 +28,8 @@ import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+// First letter up, for lower-case labels shown as captions.
+const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const api = window.gitlanes;
 const ROW_H = 32;
@@ -668,7 +670,7 @@ function renderSidebar() {
     h('span.sb-label', null, label),
     r.kind === 'branch' && r.short === state.head.branch ? h('span.dot-head', { title: 'HEAD' }) : null,
     r.kind === 'branch' && (r.ahead || r.behind) ? h('span.sb-track', null, r.ahead ? `${r.ahead}↑` : '', r.behind ? ` ${r.behind}↓` : '') : null,
-    r.gone ? h('span.sb-gone', { title: 'Upstream is gone' }, 'gone') : null,
+    r.gone ? h('span.sb-gone', { title: 'Upstream is gone' }, 'Gone') : null,
     r.kind === 'branch' && worktreeOf(r.short) ? h('span.sb-wt', { title: `Checked out in worktree ${worktreeOf(r.short).name}` }, icon('worktree', 12)) : null,
   );
 
@@ -680,8 +682,8 @@ function renderSidebar() {
     icon('worktree', 14),
     h('span.sb-label', null, w.name),
     w.current ? h('span.dot-head', { title: 'This window' }) : null,
-    w.locked ? h('span.sb-track', { title: w.lockReason ? `Locked: ${w.lockReason}` : 'Locked' }, 'locked') : null,
-    w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'missing') : null,
+    w.locked ? h('span.sb-track', { title: w.lockReason ? `Locked: ${w.lockReason}` : 'Locked' }, 'Locked') : null,
+    w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'Missing') : null,
   );
 
   const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => goToPr(pr), oncontextmenu: (e) => prMenu(e, pr) },
@@ -698,7 +700,7 @@ function renderSidebar() {
   },
     icon('submodule', 14),
     h('span.sb-label', null, m.path),
-    m.state === 'clean' ? null : h(m.state === 'uninitialized' ? 'span.sb-track' : 'span.sb-gone', null, SUBMODULE_STATES[m.state][0]),
+    m.state === 'clean' ? null : h(m.state === 'uninitialized' ? 'span.sb-track' : 'span.sb-gone', null, sentence(SUBMODULE_STATES[m.state][0])),
   );
 
   sidebarEl.replaceChildren(
@@ -2115,7 +2117,7 @@ function reflogView() {
       h('span.reflog-sel', null, e.selector.replace(/@\{\d+\}$/, '')),
       h('span.reflog-action', null, e.action),
       h('span.when', null, timeAgo(e.time)),
-      !state.index.has(e.sha) ? h('span.badge.warn', { title: 'Not reachable from any branch or tag' }, 'unreachable') : h('span'),
+      !state.index.has(e.sha) ? h('span.badge.warn', { title: 'Not reachable from any branch or tag' }, 'Unreachable') : h('span'),
     ));
   }
   if (!state.reflog.length) rows.append(h('div.empty', null, 'Reflog is empty'));
@@ -2144,7 +2146,7 @@ function configView() {
             { label: 'Delete', icon: 'trash', danger: true, disabled: c.scope !== 'local', run: () => act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false }) },
           ]);
         },
-      }, h('span.badge.' + c.scope, null, c.scope), h('span.mono', null, c.key), h('span.config-val', null, c.value)));
+      }, h('span.badge.' + c.scope, null, sentence(c.scope)), h('span.mono', null, c.key), h('span.config-val', null, c.value)));
     }
   };
   el.append(

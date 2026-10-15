@@ -19,7 +19,7 @@ test('restore a lost commit to a new branch from the Reflog, then undo', async (
 
   await app.view('reflog');
   const row = reflogRow(app, lost);
-  await expect(row.locator('.badge.warn', { hasText: 'unreachable' })).toBeVisible();
+  await expect(row.locator('.badge.warn', { hasText: 'Unreachable' })).toBeVisible();
   await app.contextMenu(row, 'Create Branch Here…');
   await app.dialog({ fields: { Name: 'rescued', 'Check out after creating': false }, submit: 'Create branch' });
   await app.toast('Create branch rescued');
