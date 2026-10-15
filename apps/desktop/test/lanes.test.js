@@ -223,3 +223,56 @@ test('forecastConflicts: hidden on git before 2.38; a cancelled forecast throws 
     await assert.rejects(git.forecastConflicts(dir, res.lanes, { baseSha: res.baseSha, now: clock * 1000, signal: ctrl.signal }), { name: 'AbortError' });
   } finally { git._setForecastGate(null); fs.rmSync(parent, { recursive: true, force: true }); }
 });
+
+test('lanes: shipped (net patch, key, PR head), titles, unmerged and baseline-only lanes stay open', async () => {
+  const { dir } = await repo();
+  const baseline = (d) => g(d, ['commit', '-q', '--allow-empty', '-m', 'chore(agent): baseline — the task worktree started here']);
+  // Squash-merged under another branch name, with a baseline commit and a merge from main on top.
+  await g(dir, ['switch', '-q', '-c', 'agent/eng/wip']); await baseline(dir); await commit(dir, 'w.txt', 'w1\n', 'start w'); await commit(dir, 'w.txt', 'w\n', 'feat: add w');
+  await g(dir, ['switch', '-q', 'main']); await commit(dir, 'm.txt', 'm\n', 'main moves');
+  await g(dir, ['switch', '-q', 'agent/eng/wip']); clock += 60; await g(dir, ['merge', '-q', '--no-edit', 'main']);
+  await g(dir, ['switch', '-q', 'main']); await commit(dir, 'm2.txt', 'm2\n', 'main moves on'); await g(dir, ['merge', '-q', '--squash', 'agent/eng/wip']); clock += 60; await g(dir, ['commit', '-q', '-m', 'Ship the w file (#3)']);
+  // Key match: the base carries "(AK-12)" with different content.
+  await g(dir, ['switch', '-q', '-c', 'agent/eng/ak-12']); await commit(dir, 'k.txt', 'k\n', 'try k');
+  await g(dir, ['switch', '-q', 'main']); await commit(dir, 'k2.txt', 'k2\n', 'feat(desktop): k done properly (AK-12) (#4)');
+  // PR head match (mocked merged PR list), nothing of it on base.
+  await g(dir, ['switch', '-q', '-c', 'feat-pr']); await commit(dir, 'p.txt', 'p\n', 'p work');
+  const prHead = (await g(dir, ['rev-parse', 'HEAD'])).trim();
+  // Genuinely unmerged, and a fresh agent lane with only its baseline commit.
+  await g(dir, ['switch', '-q', '-c', 'agent/eng/ak-99', 'main']); await baseline(dir); await commit(dir, 'o.txt', 'o\n', 'feat: open work');
+  await g(dir, ['switch', '-q', '-c', 'agent/eng/fresh', 'main']); await baseline(dir);
+  // Only agent bookkeeping: a baseline plus swept-up scratch files.
+  await g(dir, ['switch', '-q', '-c', 'agent/eng/scratch', 'main']); await baseline(dir); await commit(dir, 'description.md', 'notes\n', 'chore(agent): uncommitted changes from task');
+  // Older "AK-48: …" subjects carry the key as a prefix.
+  await g(dir, ['switch', '-q', '-c', 'review-x', 'main']); await commit(dir, 'h.txt', 'h1\n', 'AK-48: harden things');
+  await g(dir, ['switch', '-q', 'main']); await commit(dir, 'h.txt', 'h2\n', 'AK-48: Electron hardening (#15)');
+  await commit(dir, 'z.txt', 'z\n', 'main moves again');
+
+  const l = byName(await git.lanes(dir, { prHeads: [{ sha: prHead, number: 9, title: 'Add the p file', branch: 'other-name' }] }));
+  assert.deepEqual(l['agent/eng/wip'].done, { reason: 'net-patch' });
+  assert.equal(l['agent/eng/wip'].title, 'feat: add w', 'baseline and merge commits skipped');
+  assert.deepEqual(l['agent/eng/ak-12'].done, { reason: 'key', key: 'AK-12' });
+  assert.deepEqual(l['feat-pr'].done, { reason: 'pr', pr: 9 });
+  assert.equal(l['feat-pr'].title, 'Add the p file');
+  assert.equal(l['agent/eng/ak-99'].done, null);
+  assert.equal(l['agent/eng/ak-99'].title, 'feat: open work');
+  assert.equal(l['agent/eng/fresh'].done, null, 'nothing to ship is not shipped');
+  assert.equal(l['agent/eng/fresh'].title, 'agent/eng/fresh');
+  assert.equal(l.main.done, null);
+  assert.deepEqual([l['agent/eng/scratch'].done, l['agent/eng/scratch'].noWork, l['agent/eng/ak-99'].noWork], [null, true, false]);
+  assert.deepEqual(l['review-x'].done, { reason: 'key', key: 'AK-48' });
+  // Without PR features: no PR match, and no network at all (git.lanes never calls gh).
+  assert.equal(byName(await git.lanes(dir))['feat-pr'].done, null);
+});
+
+test('branchKey, plainSubject, shortPath; the forecast skips done lanes', () => {
+  assert.equal(git.branchKey('agent/gitlanes-engineer/ak-228'), 'AK-228');
+  assert.equal(git.branchKey('ak-255-shipped-lanes'), 'AK-255');
+  assert.equal(git.branchKey('feature/login'), null);
+  assert.equal(git.plainSubject('Fix the thing (AK-1) (#12)'), 'fix the thing (ak-1)');
+  assert.equal(git.shortPath('/Users/me/work/repos/app/wt', '/Users/me'), '~/…/app/wt');
+  assert.equal(git.shortPath('/Users/me/app', '/Users/me'), '~/app');
+  const now = Date.now();
+  const lane = (head, done) => ({ head, ahead: 1, isBase: false, merged: null, done, activity: now });
+  assert.deepEqual(git.forecastLanes([lane('a', { reason: 'pr', pr: 1 }), lane('b', null)], now).map((l) => l.head), ['b']);
+});

@@ -63,13 +63,21 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     hint,
   );
 
+  function doneText(l) {
+    const why = l.done.reason === 'pr' ? `Pull request #${l.done.pr} was merged`
+      : l.done.reason === 'key' ? `${l.done.key} is on the base branch`
+        : l.done.reason === 'subject' ? 'A commit with its title is on the base branch'
+          : l.merged === 'ancestor' ? 'Already part of the base branch' : 'Its changes are already on the base branch';
+    return l.changes ? `${why} · ${l.changes} uncommitted file${l.changes === 1 ? '' : 's'}` : why;
+  }
+
   function badges(l) {
     return [
       l.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${l.agent.reason}: ${l.agent.match})` }, 'Agent') : null,
       l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
       l.isBase ? h('span.badge', null, 'Base') : null,
       l.worktree?.current ? h('span.badge.local', null, 'This window') : null,
-      l.merged ? h('span.badge', { title: l.merged === 'squash' ? 'Its changes are already on the base branch' : 'Already part of the base branch' }, 'Merged') : null,
+      l.done ? h('span.badge', { title: doneText(l) }, 'Merged') : null,
       l.upstreamGone ? h('span.badge.warn', { title: 'Its upstream branch was deleted' }, 'Gone') : null,
       l.worktree?.prunable ? h('span.badge.warn', { title: 'The worktree folder no longer exists' }, 'Missing') : null,
     ];

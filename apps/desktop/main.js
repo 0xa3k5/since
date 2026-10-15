@@ -504,25 +504,29 @@ handle('app:lanes-list', async (e, opts) => {
   const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
   const withInbox = opts?.inbox == null ? false : check.bool(opts.inbox, 'inbox');
   const root = session(e).repo.root;
-  const { lanes, ...rest } = await git.lanes(root, { base });
   let listed = null;
   let prError = null;
   let inbox = null;
   let inboxError = null;
+  let prHeads = [];
   if (withPrs && (await prEnabled(root))) {
     const remotes = await git.getRemotes(root);
     if (github.pickRemote(remotes)) {
-      // A failed inbox lookup (token scope, Enterprise) keeps the PR list and the lane badges.
-      const [l, i] = await Promise.allSettled([
+      // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
+      // lane badges; merged PRs only add the "shipped" check.
+      const [l, i, m] = await Promise.allSettled([
         github.listPrs({ enabled: true, remotes }),
         withInbox ? github.inbox({ enabled: true, remotes }) : null,
+        github.mergedPrs({ enabled: true, remotes }),
       ]);
       if (l.status === 'fulfilled') listed = l.value;
       else prError = serializeError(l.reason);
       if (i.status === 'fulfilled') inbox = i.value;
       else if (!prError) inboxError = serializeError(i.reason);
+      if (m.status === 'fulfilled') prHeads = m.value;
     }
   }
+  const { lanes, ...rest } = await git.lanes(root, { base, prHeads });
   const s = session(e);
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);

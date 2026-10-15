@@ -118,6 +118,22 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   return { remote, owners: remoteOwners(remotes), prs: parsePrs(out), at: Date.now() };
 }
 
+// Recently merged PRs, for the lanes list's "shipped" check (git.lanes `prHeads`): a lane whose
+// tip or one of whose commits is a merged PR's head is done. One call per lanes refresh, only
+// while PRs are on. → [{ number, title, sha, branch }].
+async function mergedPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName'], { dirs, exec });
+  return parseMerged(out);
+}
+function parseMerged(out) {
+  let list;
+  try { list = JSON.parse(out); } catch { throw coded('GitHub CLI returned something that isn’t JSON.', 'gh-failed'); }
+  if (!Array.isArray(list)) throw coded('GitHub CLI returned something that isn’t a list.', 'gh-failed');
+  return list.filter((p) => Number.isSafeInteger(p?.number) && p.number > 0 && /^[0-9a-f]{40}$/.test(p.headRefOid))
+    .map((p) => ({ number: p.number, title: text(p.title), sha: p.headRefOid, branch: text(p.headRefName) }));
+}
+
 // The PR inbox (lanes overview): which open PRs ask for your review (team requests included),
 // and who you are on GitHub. Two more calls per inbox refresh, only while PRs are on; the login
 // is asked once per host and remembered for the session.
@@ -394,7 +410,7 @@ function joinLanes(lanes = [], listed = null) {
     const head = slash > 0 ? l.upstream.slice(slash + 1) : l.branch;
     const owner = slash > 0 ? owners[l.upstream.slice(0, slash)] : null;
     const p = head && !l.isBase ? prs.find((x) => x.branch === head && (!owner || !x.headOwner || x.headOwner.toLowerCase() === owner.toLowerCase())) : null;
-    return { ...l, pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, review: p.review, url: p.url } : null };
+    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, review: p.review, url: p.url } : null };
   });
 }
 
@@ -413,4 +429,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { inbox, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

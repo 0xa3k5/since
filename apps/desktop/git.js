@@ -1562,6 +1562,27 @@ const LANE_COMMITS = 5000;
 const BASE_COMMITS = 2000;
 // Lanes further ahead than this skip the per-commit (cherry) check: too much diff for too little.
 const CHERRY_MAX = 100;
+// Commits that say nothing about a lane's work: the empty commit an agent's task worktree starts
+// from, and the commit that sweeps up its scratch files at the end. Merge commits (merging base
+// in) are skipped by parent count.
+const BASELINE = /^chore\(agent\): (?:baseline\b|uncommitted changes from task\b)/i;
+// An issue key in a branch name's segment ("agent/x/ak-228", "ak-228-fix-thing") → "AK-228".
+function branchKey(branch) {
+  for (const seg of String(branch || '').split('/').reverse()) {
+    const m = /^([a-z][a-z0-9]{0,9}-\d+)(?:[-_.]|$)/i.exec(seg);
+    if (m) return m[1].toUpperCase();
+  }
+  return null;
+}
+// A commit subject as the base shows it after a squash merge: without the trailing "(#123)".
+const plainSubject = (s) => String(s || '').trim().replace(/\s*\(#\d+\)$/, '').toLowerCase();
+// "~/…/<last two segments>" for a worktree path; the full path stays on `worktree.path`.
+function shortPath(p, home = os.homedir()) {
+  const inHome = home && (p === home || p.startsWith(`${home}/`));
+  const segs = (inHome ? p.slice(home.length) : p).split('/').filter(Boolean);
+  const tail = segs.slice(-2).join('/');
+  return `${inHome ? '~/' : '/'}${segs.length > 2 ? `…/${tail}` : tail}`;
+}
 
 function parseTrailers(text) {
   return text.split('\n').flatMap((l) => {
@@ -1605,6 +1626,68 @@ async function laneBase(cwd, base) {
   const sha = (await run(cwd, ['rev-parse', '--verify', '-q', `${ref}^{commit}`], { allowCodes: [0, 1] })).trim();
   if (!sha) return null;
   return { ref, sha, name: shortRef(ref), local: shortRef(ref).replace(/^origin\//, '') };
+}
+
+// Shipped checks on top of `merged`, for lanes with commits ahead of base, cheapest first: a merged
+// PR's head (by SHA: task branches are often named differently from the PR branch), the branch's
+// issue key or its newest subject on a squash-merged base commit, then the net patch. Sets l.done ({ reason,
+// pr?, key? }), l.prTitle, and l.netEmpty (tip tree = merge-base tree: nothing to ship, never done).
+// The key matches "(AK-12)" anywhere or "AK-12:" leading a base subject.
+// Batched: one merge-base per lane, one log, one diff-tree, one patch-id, then merge-tree only for
+// lanes still open.
+async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) {
+  if (!b || !lanes.length) return;
+  const heads = new Map((prHeads || []).filter((p) => p && /^[0-9a-f]{40}$/.test(p.sha)).map((p) => [p.sha, p]));
+  // Key and subject matches only count on base commits newer than the lane's merge-base (the
+  // base log is newest first), so a subject the lane forked from never marks it shipped.
+  const rowAt = new Map(baseRows.map((r, i) => [r.sha, i]));
+  const since = new Map();
+  const newer = (mb) => {
+    if (!since.has(mb)) {
+      const rows = baseRows.slice(0, rowAt.get(mb) ?? baseRows.length);
+      // Subjects only of squash-merged PRs ("… (#12)"): plain subjects like "fix tests" repeat.
+      since.set(mb, { subjects: new Set(rows.filter((r) => /\(#\d+\)\s*$/.test(r.subject)).map((r) => plainSubject(r.subject))), keys: `\n${rows.map((r) => r.subject).join('\n').toUpperCase()}` });
+    }
+    return since.get(mb);
+  };
+  const mbs = await mapLimit(lanes, 8, (l) => run(cwd, ['merge-base', l.head, b.sha], { allowCodes: [0, 1] }).then((o) => o.trim() || null, () => null));
+  const uniq = [...new Set(mbs.filter(Boolean))];
+  const mbTrees = new Map();
+  if (uniq.length) {
+    const out = await run(cwd, ['log', '--no-walk=unsorted', '--format=%H %T', ...uniq, '--']);
+    for (const line of out.split('\n')) { const [h, t] = line.split(' '); if (t) mbTrees.set(h, t); }
+  }
+  const open = [];
+  lanes.forEach((l, i) => {
+    l.mergeBase = mbs[i];
+    l.netEmpty = l.mergeBase != null && mbTrees.get(l.mergeBase) === l.tree;
+    if (l.netEmpty || l.noWork) return;
+    const pr = heads.get(l.head) || (l.commits || []).map((c) => heads.get(c)).find(Boolean);
+    // The key in the branch name, else the one leading its newest subject ("AK-48: …").
+    const key = branchKey(l.branch) || (/^([a-z][a-z0-9]{0,9}-\d+):/i.exec(l.subject || '')?.[1] || '').toUpperCase() || null;
+    const subject = plainSubject(l.subject);
+    const base = newer(l.mergeBase);
+    if (pr) { l.done = { reason: 'pr', pr: pr.number }; l.prTitle = pr.title || null; }
+    else if (l.merged) return;
+    else if (key && (base.keys.includes(`(${key})`) || base.keys.includes(`\n${key}:`))) l.done = { reason: 'key', key };
+    else if (subject.length >= 10 && base.subjects.has(subject)) l.done = { reason: 'subject' };
+    else if (l.mergeBase) open.push(l);
+  });
+  if (!open.length) return;
+  // Net patch: the lane's whole change since its merge-base (merges of base and the empty baseline
+  // drop out) is a base commit's patch, or merging the lane into base changes nothing.
+  const lines = [...new Set(open.map((l) => `${l.head} ${l.mergeBase}`))];
+  const ids = await patchIds(cwd, await run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${lines.join('\n')}\n` }));
+  const rest = open.filter((l) => {
+    if (!baseIds.has(ids.get(l.head))) return true;
+    l.done = { reason: 'net-patch' };
+    return false;
+  });
+  if (!rest.length || !baseTree || !(await canForecast(cwd))) return;
+  await mapLimit(rest, 8, async (l) => {
+    const out = await run(cwd, ['merge-tree', '--write-tree', '--no-messages', b.sha, l.head], { allowCodes: [0, 1] }).catch(() => '');
+    if (out.split('\n')[0].trim() === baseTree) l.done = { reason: 'net-patch' };
+  });
 }
 
 // Branch review: the whole change of `branch` against `base` the way a pull request shows it,
@@ -1671,7 +1754,9 @@ function dirtyMtime(dir, paths) {
 }
 
 // `aheadBehind: false` forces the rev-list fallback git before 2.41 uses (for tests).
-async function lanes(cwd, { base, aheadBehind } = {}) {
+// `prHeads` ([{ sha, number, title }], merged PRs from github.mergedPrs, only while pull requests
+// are on) lets a lane count as shipped when a merged PR's head is its tip or one of its commits.
+async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
   const [b, worktrees] = await Promise.all([laneBase(cwd, base), getWorktrees(cwd)]);
   const fast = b && aheadBehind !== false && await hasAheadBehind(cwd);
   const fields = ['%(refname)', '%(objectname)', '%(tree)', '%(committerdate:unix)', '%(upstream:short)', '%(upstream:track)', ...(fast ? [`%(ahead-behind:${b.sha})`] : [])];
@@ -1713,11 +1798,11 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
   const tips = [...new Set(ahead.map((l) => l.head))];
   const commits = new Map();
   if (tips.length) {
-    const out = await run(cwd, ['log', '-z', `--max-count=${LANE_COMMITS}`, '--format=%H%x1f%P%x1f%(trailers:unfold,only)', ...tips, '--not', b.sha, '--']);
+    const out = await run(cwd, ['log', '-z', `--max-count=${LANE_COMMITS}`, '--format=%H%x1f%P%x1f%s%x1f%(trailers:unfold,only)', ...tips, '--not', b.sha, '--']);
     for (const rec of out.split('\0')) {
       if (!rec) continue;
-      const [sha, parents, trailers] = rec.split('\x1f');
-      commits.set(sha, { parents: parents ? parents.split(' ') : [], trailers: parseTrailers(trailers || '') });
+      const [sha, parents, subject, trailers] = rec.split('\x1f');
+      commits.set(sha, { order: commits.size, parents: parents ? parents.split(' ') : [], subject, trailers: parseTrailers(trailers || '') });
     }
   }
   for (const l of ahead) {
@@ -1735,6 +1820,11 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
     l.commits = [...seen];
     l.complete = l.commits.length === l.ahead;
     l.forkPoint = l.complete && boundary.size === 1 ? [...boundary][0] : null;
+    // The newest commit that is the lane's own work (not a baseline, not a merge of base). No
+    // such commit at all: the lane holds only agent bookkeeping, nothing to ship or forecast.
+    const own = l.commits.map((c) => commits.get(c)).filter((c) => c.parents.length < 2 && !BASELINE.test(c.subject));
+    l.subject = own.sort((x, y) => x.order - y.order)[0]?.subject || null;
+    l.noWork = l.complete && !own.length;
   }
 
   // Squash-merge checks: a lane whose tip tree matches a base commit's tree, whose whole diff
@@ -1742,28 +1832,37 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
   // on base (`git cherry`; rebase-merged).
   const candidates = ahead.filter((l) => l.complete);
   let baseTrees = new Set(); let baseIds = new Set(); let laneIds = new Map(); let squashIds = new Map();
-  if (candidates.length) {
+  let baseRows = []; let baseTree = null;
+  if (ahead.length) {
     // Base side is bounded by count only: excluding lane tips would hide all of base whenever a
     // lane descends from the base tip (any freshly branched lane).
     const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
     const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
     const [trees, baseDiff, laneDiff, squashDiff] = await Promise.all([
-      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%T', b.sha, '--']),
+      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', b.sha, '--']),
       run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']),
       cherryTips.length ? run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : '',
       squashLines.length ? run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : '',
     ]);
-    baseTrees = new Set(trees.split('\n').filter(Boolean));
+    const rows = trees.split('\n').filter(Boolean).map((r) => r.split('\0'));
+    baseTrees = new Set(rows.map((r) => r[1]));
+    baseTree = rows[0]?.[1] || null;
+    baseRows = rows.map((r) => ({ sha: r[0], subject: r[2] || '' }));
     [baseIds, laneIds, squashIds] = await Promise.all([patchIds(cwd, baseDiff).then((m) => new Set(m.values())), patchIds(cwd, laneDiff), patchIds(cwd, squashDiff)]);
   }
 
-  const result = await Promise.all(list.map(async (l) => {
-    let merged = null;
-    if (l.ahead === 0 && l.behind > 0) merged = 'ancestor';
+  for (const l of list) {
+    l.merged = null;
+    if (l.ahead === 0 && l.behind > 0) l.merged = 'ancestor';
     else if (l.ahead > 0 && l.complete && !l.isBase) {
       const ids = l.ahead <= CHERRY_MAX ? l.commits.map((c) => laneIds.get(c)).filter(Boolean) : [];
-      if (baseTrees.has(l.tree) || baseIds.has(squashIds.get(l.head)) || (ids.length && ids.every((id) => baseIds.has(id)))) merged = 'squash';
+      if (baseTrees.has(l.tree) || baseIds.has(squashIds.get(l.head)) || (ids.length && ids.every((id) => baseIds.has(id)))) l.merged = 'squash';
     }
+  }
+  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree });
+
+  const result = await Promise.all(list.map(async (l) => {
+    const merged = l.merged;
     const w = l.wt;
     const prunable = w ? w.missing || !fs.existsSync(w.path) : false;
     let changes = null;
@@ -1780,7 +1879,7 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
       head: l.head,
       detached: l.detached,
       isBase: l.isBase,
-      worktree: w ? { path: w.path, main: w.main, current: w.current, locked: w.locked, prunable } : null,
+      worktree: w ? { path: w.path, short: shortPath(w.path), main: w.main, current: w.current, locked: w.locked, prunable } : null,
       upstream: l.upstream,
       upstreamGone: l.upstreamGone,
       activity: activity || null,
@@ -1788,7 +1887,16 @@ async function lanes(cwd, { base, aheadBehind } = {}) {
       behind: l.behind,
       changes,
       merged,
+      // Shipped: { reason: 'merged' | 'pr' | 'key' | 'subject' | 'net-patch', pr? } or null. A done
+      // lane is "Merged" in the list: never "needs you", never forecast. `changes` still shows
+      // uncommitted files on it.
+      done: l.netEmpty || l.noWork ? null : l.done || (merged ? { reason: 'merged' } : null),
+      // The PR title (github.joinLanes, or the merged PR that shipped it), else the newest commit
+      // subject of the lane's own work, else the branch name.
+      title: l.prTitle || l.subject || l.name,
       nothingAhead: l.ahead === 0,
+      // Only agent bookkeeping commits ahead (baseline, swept-up scratch files): no forecast.
+      noWork: Boolean(l.noWork),
       agent: agentGuess(l.branch, trailers),
     };
   }));
@@ -1833,11 +1941,11 @@ async function mergeConflicts(cwd, a, b) {
   return files;
 }
 
-// Lanes worth forecasting: real commits ahead of base, not merged, not the base, worktree not
+// Lanes worth forecasting: real commits ahead of base, not merged or shipped, not the base, worktree not
 // missing, and touched within FORECAST_STALE. Newest first, so the pair cap keeps live work.
 function forecastLanes(lanes, now = Date.now()) {
   return lanes
-    .filter((l) => l.head && l.ahead > 0 && !l.isBase && !l.merged && !l.worktree?.prunable && l.activity && now - l.activity < FORECAST_STALE)
+    .filter((l) => l.head && l.ahead > 0 && !l.isBase && !l.merged && !l.done && !l.noWork && !l.worktree?.prunable && l.activity && now - l.activity < FORECAST_STALE)
     .sort((x, y) => (y.activity || 0) - (x.activity || 0));
 }
 
@@ -2000,7 +2108,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,
