@@ -221,19 +221,38 @@ export function nextSelection(before, staged, acted) {
 // Forecast conflicts name the other side and the files (file names, the first `max`, then "+N
 // more"); without a forecast, GitHub's own conflict check stands in. Failing checks are named when
 // GitHub reported them (pr.failing, github.normalizePr). Send back (AK-279) builds on this too.
-export function stuckReason(row, { base = null, max = 2 } = {}) {
+// noBase leaves out the conflict with the base, which Review shows as its own note (conflictNote).
+export function stuckReason(row, { base = null, max = 2, noBase = false } = {}) {
   const { pr } = row;
-  const conflicts = row.conflicts || [];
+  const conflicts = (row.conflicts || []).filter((c) => !noBase || !c.base);
   const out = [];
   const files = (list) => {
     const names = list.slice(0, max).map((f) => f.split('/').pop());
     return `${names.join(', ')}${list.length > max ? ` +${list.length - max} more` : ''}`;
   };
   for (const c of conflicts) out.push(c.files?.length ? `conflicts with ${c.with} in ${files(c.files)}` : `conflicts with ${c.with}`);
-  if (!conflicts.length && pr?.mergeable === false) out.push(`conflicts with ${pr.base || base || 'its base'}`);
+  if (!noBase && !conflicts.length && pr?.mergeable === false) out.push(`conflicts with ${pr.base || base || 'its base'}`);
   if (pr?.checks === 'failure') {
     const failing = pr.failing || [];
     out.push(failing.length ? `CI ✗ ${failing.slice(0, max).join(', ')}${failing.length > max ? ` +${failing.length - max} more` : ''}` : 'CI ✗ checks failing');
   }
   return out.length ? out.join(' · ') : null;
+}
+
+// A row's conflict with its base (AK-305): the forecast's { with, files }, else GitHub's own check
+// ({ with, files: null }), else null.
+export function baseConflict(row, base = null) {
+  const c = (row.conflicts || []).find((x) => x.base);
+  if (c) return { with: c.with, files: c.files || null };
+  if (row.pr?.mergeable === false) return { with: row.pr.base || base || 'its base', files: null };
+  return null;
+}
+
+// Review's note for it, which jumps to the Conflicting files: "Conflicts in 3 files", or
+// "Conflicts with main" until the files are known. `files` (what the pane read) wins over the forecast.
+export function conflictNote(row, { base = null, files = null } = {}) {
+  const c = baseConflict(row, base);
+  if (!c) return null;
+  const n = (files?.length ? files : c.files)?.length;
+  return n ? `Conflicts in ${n} file${n === 1 ? '' : 's'}` : `Conflicts with ${c.with}`;
 }
