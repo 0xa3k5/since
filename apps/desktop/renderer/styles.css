@@ -830,6 +830,17 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-progress.done { color: var(--accent-fg); }
 .review-changed { color: var(--warn); }
 .review-row.reviewed .fname { color: var(--text-3); }
+/* Review: what conflicts with the base (AK-305) */
+.review-files-group { display: flex; align-items: center; gap: 6px; padding: 8px 8px 4px; }
+.review-files-group:first-child { padding-top: 0; }
+.review-files-group.conflicting { color: var(--warn); }
+.review-files-n { font-variant-numeric: tabular-nums; color: var(--text-4); font-weight: 500; }
+.review-conflict-row > .icon { flex: none; color: var(--warn); }
+.review-conflict-count { flex: none; font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.cf-line.cf-marker { color: var(--warn); font-weight: 600; }
+.review-conflict .cf-col-head { text-transform: none; letter-spacing: 0; font-family: var(--mono); }
+.review-reason-link { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+.review-reason-link:hover { text-decoration-color: currentColor; }
 .review-tick { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--accent-text); }
 .review-tick.on { background: var(--accent); border-color: var(--accent); }
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

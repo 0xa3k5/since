@@ -175,6 +175,7 @@ const gitSchemas = {
   checkSplit: [rev],
   compare: [rev, rev],
   branchReview: [rev, optional(rev)],
+  mergeConflicts: [rev, rev],
   mergeLanePlan: [rev, optional(rev)],
   status: [],
   opState: [],
