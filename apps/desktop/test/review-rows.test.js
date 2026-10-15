@@ -158,3 +158,59 @@ test('PR header data: review verdicts (login and state only) and size', () => {
   assert.deepEqual(github.normalizePr({ number: 6 }).size, { additions: null, deletions: null, files: null });
   for (const f of ['latestReviews', 'additions', 'deletions', 'changedFiles']) assert.ok(github.PR_FIELDS.includes(f));
 });
+
+test('one primary button per stage', async () => {
+  const { primaryAction, STEPS } = await load();
+  const row = (stage, o = {}) => ({ stage, pr: null, lane: null, conflicts: [], ...o });
+  // Needs you: Review when your review is requested, Merge when it's approved and green.
+  assert.equal(primaryAction(row('needsYou', { pr: pr(1) }), { requested: new Set([1]) }), 'review');
+  assert.equal(primaryAction(row('needsYou', { pr: pr(1, READY) })), 'merge');
+  assert.equal(primaryAction(row('needsYou', { pr: pr(1, READY) }), { requested: new Set([1]) }), 'review');
+  // Blocked: Rebase when it conflicts and the branch is here, else the failing checks, else Open.
+  const conflicts = [{ with: 'main', base: true, files: ['a'] }];
+  assert.equal(primaryAction(row('blocked', { lane: lane('x'), conflicts }), { base: 'main' }), 'rebase');
+  assert.equal(primaryAction(row('blocked', { pr: pr(1, { mergeable: false }), lane: lane('b1') }), { base: 'main' }), 'rebase');
+  assert.equal(primaryAction(row('blocked', { pr: pr(1, { checks: 'failure', url: 'https://x/pull/1' }) }), { base: 'main' }), 'checks');
+  assert.equal(primaryAction(row('blocked', { pr: pr(1, { mergeable: false }) }), { base: 'main' }), 'open'); // not checked out here
+  for (const s of ['inProgress', 'elsewhere']) assert.equal(primaryAction(row(s, { pr: pr(1) })), 'open');
+  for (const id of ['review', 'merge', 'rebase', 'checks', 'open']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
+});
+
+test('badges: CI and review state, conflicts and uncommitted changes', async () => {
+  const { rowBadges } = await load();
+  const texts = (r, o) => rowBadges({ conflicts: [], worktree: null, ...r }, o).map((b) => b.text);
+  assert.deepEqual(texts({ pr: pr(1, { checks: 'success', review: 'approved' }) }), ['CI passed', 'Approved']);
+  assert.deepEqual(texts({ pr: pr(1, { checks: 'failure', mergeable: false }) }), ['CI failing', 'Conflicts']);
+  assert.deepEqual(texts({ pr: pr(1, { draft: true }) }, { requested: new Set([1]) }), ['Draft', 'CI running', 'Your review']);
+  assert.deepEqual(texts({ pr: null, worktree: { path: '/w', changes: 2 } }), ['2 changed']);
+});
+
+test('filter: every word in the title, branch, number or author', async () => {
+  const { reviewRows, filterRows } = await load();
+  const r = reviewRows({ lanes: [lane('feature-a'), lane('fix-b')], prs: [pr(12, { title: 'Speed up the graph', author: 'agent' })], prsOn: true, now: NOW });
+  const titles = (q) => filterRows(r.all, q).map((x) => x.title);
+  assert.deepEqual(titles(''), r.all.map((x) => x.title));
+  assert.deepEqual(titles('#12'), ['Speed up the graph']);
+  assert.deepEqual(titles('graph agent'), ['Speed up the graph']);
+  assert.deepEqual(titles('feature'), ['feature-a']); // Show all rows too: a local branch with no PR
+});
+
+test('rename: the view is "Review" and its user-visible strings never say "Lanes"', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const keymap = await import('../renderer/keymap.js');
+  const labels = keymap.COMMANDS.filter((c) => c.id === 'view.lanes' || c.id?.startsWith('lanes.') || c.id === 'cleanup.back').map((c) => c.label);
+  assert.ok(labels.length > 10);
+  assert.ok(labels.includes('Review'));
+  for (const l of labels) assert.doesNotMatch(l, /\blanes?\b/i, l);
+  // String literals in the view, its keymap context and the menu: no "Lanes" (the brand "GitLanes" is fine).
+  const visible = (file) => (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
+    .filter((s) => !/^['`][\w.:/-]*['`]$/.test(s)); // ids, keys, class names
+  for (const file of ['renderer/lanes-view.js', 'renderer/review-rows.js']) {
+    for (const s of visible(file)) assert.doesNotMatch(s.replace(/GitLanes/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
+  }
+  assert.match(fs.readFileSync(path.join(__dirname, '../renderer/keymap.js'), 'utf8'), /lanes: 'Review',/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /item\('Review', acc\('view\.lanes'\)/);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /Pull Request Inbox/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
+});

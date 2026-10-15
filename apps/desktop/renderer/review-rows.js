@@ -133,3 +133,53 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
     all: [...STAGES.flatMap((s) => stages[s.id]), ...finished, ...rest],
   };
 }
+
+// The row's one primary button, by stage (ids; STEPS has their labels):
+//   needsYou  merge when it's approved, green and mergeable and your review isn't requested, else review
+//   blocked   rebase when it conflicts and its branch is here, else the failing checks, else open
+//   others    open (the lane in the map, or the PR's review when it isn't checked out here)
+export function primaryAction(row, { base = null, requested = new Set() } = {}) {
+  const { pr, lane } = row;
+  const conflicts = row.conflicts || [];
+  if (row.stage === 'needsYou') return pr && !requested.has(pr.number) && ready(pr, conflicts) ? 'merge' : 'review';
+  if (row.stage === 'blocked') {
+    if (lane?.branch && !lane.isBase && base && (conflicts.length || pr?.mergeable === false)) return 'rebase';
+    if (pr?.url && pr.checks === 'failure') return 'checks';
+  }
+  return 'open';
+}
+
+export const STEPS = {
+  review: { label: 'Review', keyId: 'lanes.review', icon: 'diff' },
+  merge: { label: 'Merge', keyId: 'lanes.merge', icon: 'merge' },
+  rebase: { label: 'Rebase', keyId: 'lanes.rebase', icon: 'rebase' },
+  checks: { label: 'Open checks', keyId: 'lanes.checks', icon: 'external' },
+  open: { label: 'Open', keyId: 'lanes.open', icon: 'worktree' },
+};
+
+// Small CI and review badges for a row: [{ text, kind, title }], kind '' | 'ok' | 'warn' | 'busy'.
+export function rowBadges(row, { requested = new Set() } = {}) {
+  const { pr } = row;
+  const out = [];
+  if (pr?.draft) out.push({ text: 'Draft', kind: '', title: 'A draft pull request' });
+  if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed' });
+  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing' });
+  else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
+  if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
+  else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved' });
+  else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes' });
+  else if (pr?.review === 'required') out.push({ text: 'Needs review', kind: '', title: 'Waiting for a review' });
+  if ((row.conflicts || []).length || pr?.mergeable === false) out.push({ text: 'Conflicts', kind: 'warn', title: 'Conflicts with its base or another branch' });
+  if (row.worktree?.changes) out.push({ text: `${row.worktree.changes} changed`, kind: '', title: 'Uncommitted changes in its worktree' });
+  return out;
+}
+
+// Rows whose title, branch, PR number or author has every word of `query`.
+export function filterRows(rows, query = '') {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return rows;
+  return rows.filter((r) => {
+    const text = [r.title, r.branch, r.lane?.name, r.pr ? `#${r.pr.number}` : '', r.pr?.author].filter(Boolean).join(' ').toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}
