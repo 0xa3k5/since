@@ -10,7 +10,7 @@ import * as keymap from './keymap.js';
 // has the mapping). Refreshes in place, keeping the selection. The conflict forecast runs after the
 // list shows (git merge-tree, main process) and re-sorts the list when it lands.
 // While pull requests are on, Tab switches to the Inbox: the open PRs you can act on, in buckets
-// (prs.js inboxBuckets). ↵ checks a PR out as a new lane, ⇧M merges the whole Ready bucket.
+// (prs.js inboxBuckets). R reviews a PR (its diff and actions), ↵ checks it out as a new lane, ⇧M merges the whole Ready bucket.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 // Row-action keys → their action (lanes.js ACTIONS); review, merge and open have their own branches.
@@ -26,7 +26,7 @@ const DEBOUNCE = 400;
 // onCleanup(lane?) opens Clean up, with only that lane ticked when one is given. onCheckout(pr) and
 // onMergeReady(prs, remote) are the Inbox's actions; `tab` picks the tab to start on. `place` is a `location()` to
 // return to (Back, ⌘[): its tab, row, filter and scroll, put back once the lanes load.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes', place = null }) {
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes', place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last inbox load
   let inboxFailed = false;
@@ -243,13 +243,14 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     list.replaceChildren(...rows);
     const n = ready().length;
     count.textContent = !inbox ? (inboxFailed ? '' : 'Loading…') : `${order.length} pull request${order.length === 1 ? '' : 's'}${n ? ` · ${n} ready` : ''}`;
-    hint.textContent = `↵ Check out as a lane · J/K Move · / Filter${n ? ' · ⇧M Merge all ready' : ''} · Tab Lanes`;
+    hint.textContent = `R Review · ↵ Check out as a lane · J/K Move · / Filter${n ? ' · ⇧M Merge all ready' : ''} · Tab Lanes`;
     empty.textContent = !inbox ? (inboxFailed ? 'Couldn’t load pull requests.' : 'Loading pull requests…') : order.length ? '' : inbox.prs.length ? 'Nothing here needs you.' : 'No open pull requests.';
     empty.hidden = !empty.textContent;
   }
 
   function prMenu(x, y, pr) {
     contextMenu(x, y, [
+      { label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => onPrReview(pr, inbox?.remote) },
       { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.open'), run: () => onCheckout(pr) },
       ...(ready().some((p) => p.number === pr.number) ? [{ label: 'Merge All Ready…', icon: 'merge', kbd: keymap.keys('lanes.mergeReady'), run: mergeReady }] : []),
     ]);
@@ -326,7 +327,8 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     else if (id === 'lanes.open') { const x = current(); if (x) (tab === 'inbox' ? onCheckout : onOpen)(x); }
     else if (id === 'lanes.tab') { if (!prsOn()) return false; setTab(tab === 'inbox' ? 'lanes' : 'inbox'); }
     else if (id === 'lanes.mergeReady') { if (tab !== 'inbox' || typing) return false; mergeReady(); }
-    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.review' || id === 'lanes.merge' || id === 'lanes.conflicts' || id === 'lanes.step' || LANE_KEYS[id])) return false; // lane-only keys
+    else if (tab === 'inbox' && id === 'lanes.review') { if (typing) return false; const pr = current(); if (pr) onPrReview(pr, inbox?.remote); }
+    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.merge' || id === 'lanes.conflicts' || id === 'lanes.step' || LANE_KEYS[id])) return false; // lane-only keys
     else if (id === 'lanes.step') { if (typing) return false; const l = current(); const [a] = l ? laneActions(l) : []; if (a) run(a, l); else if (l) toast(`Nothing needs doing on ${laneTitle(l)}`); }
     else if (LANE_KEYS[id]) { if (typing) return false; runKey(LANE_KEYS[id], current()); }
     else if (id === 'lanes.agents') toggleAgents();

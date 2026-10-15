@@ -4,12 +4,12 @@
 // happens inside `git fetch`, and only when the user fetches or refreshes pull requests. Off until
 // the user turns it on for a repository (settings.json `github.repos`).
 // The adapter is `detect` + `listPrs` returning plain objects, so a `glab` version can sit beside it.
-// Approve, merge and close (`mergeInfo`, `approvePr`, `mergePr`, `closePr`) are remote actions:
+// Approve, request changes, merge and close (`mergeInfo`, `approvePr`, `requestChangesPr`, `mergePr`, `closePr`) are remote actions:
 // they can't be undone with ⌘Z, and the renderer's confirm sheets say so.
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'additions', 'deletions', 'changedFiles'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -52,6 +52,22 @@ function checksState(rollup) {
 }
 
 const text = (v, max = 1024) => (typeof v === 'string' ? v.slice(0, max) : '');
+const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
+
+// `latestReviews` → one verdict per reviewer: [{ login, state: 'approved' | 'changes' }]. Login and
+// state only; review bodies are dropped here and never reach the renderer. Comment-only reviews
+// aren't verdicts and are left out.
+const VERDICTS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes' };
+function reviewVerdicts(list) {
+  if (!Array.isArray(list)) return [];
+  const out = new Map();
+  for (const r of list) {
+    const login = text(r?.author?.login, 200);
+    const state = VERDICTS[r?.state];
+    if (login && state && !out.has(login)) out.set(login, { login, state });
+  }
+  return [...out.values()];
+}
 
 function normalizePr(p) {
   if (!p || typeof p !== 'object' || !Number.isSafeInteger(p.number) || p.number <= 0) return null;
@@ -70,6 +86,8 @@ function normalizePr(p) {
     updatedAt: text(p.updatedAt, 64),
     // GitHub's own conflict check: true, false, or null while GitHub is still working it out.
     mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
+    reviews: reviewVerdicts(p.latestReviews),
+    size: { additions: count(p.additions), deletions: count(p.deletions), files: count(p.changedFiles) },
   };
 }
 
@@ -250,6 +268,15 @@ async function approvePr({ enabled, remotes, number, body, dirs = searchDirs(), 
   return { number };
 }
 
+// Request changes: GitHub requires a message, so an empty one never reaches `gh`.
+async function requestChangesPr({ enabled, remotes, number, body, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const c = comment(body);
+  if (!c) throw coded('Say what needs to change.', 'gh-failed');
+  await ghRun(bin, ['pr', 'review', prNumber(number), '--repo', repo, '--request-changes', `--body=${c}`], { dirs, exec });
+  return { number };
+}
+
 // `--repo` keeps `gh` away from any local checkout: it deletes only the remote branch, and the
 // local side (fetch --prune, deleting the local branch) goes through GitLanes' journal.
 async function mergePr({ enabled, remotes, number, method = 'squash', deleteBranch = false, admin = false, dirs = searchDirs(), exec } = {}) {
@@ -303,6 +330,15 @@ async function viewPr({ enabled, remotes, number, dirs = searchDirs(), exec } = 
   const { bin, remote, repo } = target({ enabled, remotes, dirs });
   const out = await ghRun(bin, ['pr', 'view', prNumber(number), '--repo', repo, '--json', VIEW_FIELDS.join(',')], { dirs, exec });
   return { remote, head: parsePrHead(out, number) };
+}
+
+// Reviewing a PR without checking it out: `run(args)` is git in the repository. Fetches the PR's
+// head into FETCH_HEAD only (forks included), so no ref moves, and returns its commit.
+async function fetchPrHead(run, remote, number) {
+  await run(['fetch', '--no-tags', '--', remote, `refs/pull/${prNumber(number)}/head`]);
+  const sha = String(await run(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) throw coded(`Couldn’t fetch pull request #${number}.`, 'gh-failed');
+  return sha;
 }
 
 // The upstream a checked-out PR branch pulls from: the head branch on the same remote for a
@@ -429,4 +465,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
