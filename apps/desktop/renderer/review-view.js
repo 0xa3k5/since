@@ -53,11 +53,11 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     const s = [...states.values()];
     const done = s.filter((x) => x.state === 'reviewed').length;
     const changed = s.filter((x) => x.state === 'changed').length;
-    meta.replaceChildren(
-      h('span', null, `against ${review.base}`), ' · ',
+    meta.replaceChildren(...[
+      h('span', null, `against ${/^[0-9a-f]{40}$/.test(review.base) ? review.base.slice(0, 7) : review.base}`), ' · ',
       h('span.review-progress' + (done === review.files.length && done ? '.done' : ''), null, `${done} / ${review.files.length} reviewed`),
       changed ? h('span.review-changed', null, ` · ${changed} changed since you last looked`) : null,
-    );
+    ].filter(Boolean));
     deltaBtn.classList.toggle('on', delta);
     deltaBtn.disabled = !changed && !delta;
   }

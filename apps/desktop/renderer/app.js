@@ -2332,6 +2332,7 @@ function openLanes() {
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
     all: lanesAll,
+    catchup: { load: (opts) => api.app('catchup', opts), mark: (to) => api.app('catchup-mark', to) },
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
@@ -3293,6 +3294,11 @@ function openPalette() {
       }
     }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
+    if (state.view === 'lanes' && lanesOpen() && lanesPage) {
+      add('Review', 'Walk through what landed', () => lanesPage.walk(), { icon: 'commit', kbd: keymap.keys('lanes.walk'), keywords: 'catch up merged landed since checkpoint walk step through main' });
+      add('Review', 'Mark caught up', () => lanesPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('lanes.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
+      add('Review', 'Catch up since…', () => lanesPage.pickSince(), { icon: 'history', kbd: keymap.keys('lanes.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
+    }
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
     add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
