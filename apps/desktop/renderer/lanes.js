@@ -7,14 +7,16 @@ export const STALLED_AFTER = 2 * HOUR;
 // A lane with activity this recent is "active"; older ones are idle.
 export const ACTIVE_FOR = 3 * 24 * HOUR;
 
-// Buckets, in the order the list shows them. `needs` marks the ones that need you.
+// Buckets, in the order the list shows them. `needs` marks the ones that need you. The most
+// actionable first: a conflict usually has a clear fix (rebase onto base), failing CI one link.
 export const BUCKETS = [
+  { id: 'conflicts', label: 'Predicted conflicts', needs: true },
   { id: 'failing', label: 'CI failing', needs: true },
   { id: 'review', label: 'Review', needs: true },
-  { id: 'conflicts', label: 'Predicted conflicts', needs: true },
-  { id: 'stalled', label: 'Stalled', needs: true },
   { id: 'ready', label: 'Ready to merge', needs: true },
+  { id: 'stalled', label: 'Stalled', needs: true },
   { id: 'active', label: 'Active', needs: false },
+  { id: 'merged', label: 'Merged', needs: false },
   { id: 'idle', label: 'Idle', needs: false },
 ];
 const RANK = new Map(BUCKETS.map((b, i) => [b.id, i]));
@@ -22,31 +24,78 @@ const RANK = new Map(BUCKETS.map((b, i) => [b.id, i]));
 // Which bucket a lane sorts into. PR fields only exist while pull requests are on.
 export function laneBucket(lane, now = Date.now()) {
   const pr = lane.pr;
-  if (lane.done) return 'idle'; // shipped: never "needs you"
+  if (lane.done) return 'merged'; // shipped: never "needs you"
+  if (lane.conflicts?.length) return 'conflicts';
   if (pr?.checks === 'failure') return 'failing';
   if (pr && (pr.review === 'changes' || pr.review === 'required')) return 'review';
-  if (lane.conflicts?.length) return 'conflicts';
-  if (lane.changes > 0 && lane.activity && now - lane.activity > STALLED_AFTER) return 'stalled';
   if (pr && !pr.draft && pr.checks === 'success' && pr.review === 'approved') return 'ready';
+  if (lane.changes > 0 && lane.activity && now - lane.activity > STALLED_AFTER) return 'stalled';
   if (lane.isBase || lane.merged || lane.worktree?.prunable) return 'idle';
   return lane.activity && now - lane.activity < ACTIVE_FOR ? 'active' : 'idle';
 }
 
+// A conflict with the base branch has one clear next step (rebase onto it); one with another lane
+// needs a look first. Those sort first within the conflicts bucket.
+const baseConflict = (lane) => Boolean(lane.conflicts?.some((c) => c.base));
+
 // Sort order, "needs you" first:
-//   1. CI failing on the lane's PR
-//   2. review requested or changes requested on the PR
-//   3. predicted conflicts with the base or another lane (lane.conflicts, from the forecast)
-//   4. a worktree with uncommitted changes and no activity for STALLED_AFTER (stuck or abandoned work)
-//   5. ready to merge: checks green and approved, not a draft, no predicted conflicts
+//   1. predicted conflicts with the base or another lane (lane.conflicts, from the forecast), the ones
+//      with the base first
+//   2. CI failing on the lane's PR
+//   3. review requested or changes requested on the PR
+//   4. ready to merge: checks green and approved, not a draft, no predicted conflicts
+//   5. a worktree with uncommitted changes and no activity for STALLED_AFTER (stuck or abandoned work)
 //   6. active: committed to or edited within ACTIVE_FOR
-//   7. idle: older lanes, merged lanes, missing worktrees and the base branch itself
+//   7. merged: shipped on the base branch, waiting for Clean up
+//   8. idle: older lanes, missing worktrees and the base branch itself
 // Within a bucket the most recent activity comes first, then by name so the order is stable.
 export function sortLanes(lanes, now = Date.now()) {
   return lanes
     .map((lane) => ({ lane, bucket: laneBucket(lane, now) }))
-    .sort((a, b) => RANK.get(a.bucket) - RANK.get(b.bucket) || (b.lane.activity || 0) - (a.lane.activity || 0) || a.lane.name.localeCompare(b.lane.name))
+    .sort((a, b) => RANK.get(a.bucket) - RANK.get(b.bucket) || baseConflict(b.lane) - baseConflict(a.lane)
+      || (b.lane.activity || 0) - (a.lane.activity || 0) || a.lane.name.localeCompare(b.lane.name))
     .map(({ lane, bucket }) => ({ ...lane, bucket }));
 }
+
+// Row actions: id → label and its key (keymap id). The first one a lane gets is its next step, shown
+// as a button on the row; the rest are in its menu.
+export const ACTIONS = {
+  rebase: { label: 'Rebase onto base', keyId: 'lanes.rebase', icon: 'rebase' },
+  review: { label: 'Review', keyId: 'lanes.review', icon: 'check' },
+  delete: { label: 'Delete', keyId: 'lanes.delete', icon: 'trash' },
+  checks: { label: 'Open checks', keyId: 'lanes.checks', icon: 'external' },
+  merge: { label: 'Merge and tidy', keyId: 'lanes.merge', icon: 'merge' },
+  open: { label: 'Open worktree', keyId: 'lanes.open', icon: 'worktree' },
+  discard: { label: 'Discard', keyId: 'lanes.delete', icon: 'trash' },
+  cleanup: { label: 'Clean up', keyId: 'lanes.cleanup', icon: 'trash' },
+};
+
+// Can the lane's worktree and branch go? Not the base, nor a worktree this window or the main one shows.
+export const canRemove = (l) => !l.isBase && !l.worktree?.current && !l.worktree?.main && !l.worktree?.locked && Boolean(l.branch || l.worktree);
+
+// The actions a lane offers, next step first (ids of ACTIONS); [] when nothing needs doing.
+// `bucket` is the lane's sortLanes bucket.
+export function laneActions(l, bucket = l.bucket) {
+  const ids = {
+    conflicts: baseConflict(l) ? ['rebase', 'review', 'delete'] : ['review', 'rebase', 'delete'],
+    failing: ['checks', 'review'],
+    review: ['review', 'checks'],
+    ready: ['merge', 'review'],
+    stalled: ['open', 'discard'],
+    merged: ['cleanup'],
+  }[bucket] || [];
+  return ids.filter((id) => {
+    if (id === 'rebase' || id === 'merge') return Boolean(l.branch) && !l.isBase;
+    if (id === 'checks') return Boolean(l.pr?.url);
+    if (id === 'open') return Boolean(l.worktree && !l.worktree.current && !l.worktree.prunable);
+    if (id === 'delete' || id === 'discard') return canRemove(l);
+    if (id === 'review') return !l.isBase && Boolean(l.branch || l.head);
+    return true;
+  });
+}
+
+// What the row leads with: its title (PR title, else the newest commit subject), then the branch.
+export const laneTitle = (l) => l.title || l.pr?.title || l.name;
 
 // A stable key per lane, for keeping the selection across refreshes.
 export const laneKey = (lane) => (lane.branch ? `b:${lane.branch}` : `w:${lane.worktree?.path || lane.name}`);
@@ -59,7 +108,7 @@ export function filterLanes(lanes, query = '', { agentsOnly = false, conflictsOn
     if (agentsOnly && !l.agent) return false;
     if (conflictsOnly && !l.conflicts?.length) return false;
     if (!words.length) return true;
-    const hay = [l.name, l.branch, l.worktree?.path, l.upstream, l.pr ? `#${l.pr.number} ${l.pr.title}` : ''].filter(Boolean).join(' ').toLowerCase();
+    const hay = [l.title, l.name, l.branch, l.worktree?.path, l.upstream, l.pr ? `#${l.pr.number} ${l.pr.title}` : ''].filter(Boolean).join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   });
 }
@@ -85,13 +134,14 @@ export function keepPrs(lanes, previous = []) {
 }
 
 // The forecast (app:lanes-forecast pairs) per lane: Map(laneKey → [{ with, base, files }]), where
-// `with` names the other lane, or the base branch when `base` is true. Both lanes of a pair get it.
-export function conflictsByLane(pairs = [], baseName = null) {
+// `with` names the other lane (by `titleOf`, its title), or the base branch when `base` is true. Both
+// lanes of a pair get it.
+export function conflictsByLane(pairs = [], baseName = null, titleOf = laneTitle) {
   const out = new Map();
   const add = (lane, other, files) => {
     const k = laneKey(lane);
     if (!out.has(k)) out.set(k, []);
-    out.get(k).push({ with: other ? other.name : baseName || 'base', base: !other, files });
+    out.get(k).push({ with: other ? titleOf(other) : baseName || 'base', base: !other, files });
   };
   for (const p of pairs) {
     add(p.a, p.b, p.files);

@@ -223,6 +223,8 @@ const refMutations = {
   revert: (s, sha) => r(s, ['revert', '--no-edit', sha]),
   merge: (s, ref, ffOnly) => r(s, ['merge', '--no-edit', ...(ffOnly ? ['--ff-only'] : []), ref]),
   rebaseOnto: (s, sha) => r(s, ['rebase', '--autostash', sha]),
+  // A lane's branch from Lanes: checks it out here, then rebases. No autostash: this window's changes stay put.
+  rebaseBranch: (s, base, branch) => r(s, ['rebase', base, branch]),
   rewrite: (s, op, sha, extra) => git.rewrite(s.repo.root, op, sha, extra),
   createCommit: (s, message, amend) => r(s, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message }),
   pull: (s) => r(s, ['pull', '--no-edit']),

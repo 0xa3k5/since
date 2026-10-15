@@ -13,8 +13,8 @@ const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 // load() → app:lanes-list result; run(items, label) and runRemote(names) call git; days() and
 // setDays(n) read and store the "untouched for" setting; onProgress(fn) subscribes to progress
 // and returns an unsubscribe; onDone() refreshes the app; onUndo() undoes the last step;
-// onBack() returns to Lanes.
-export function cleanupView({ load, run, runRemote, days, setDays, onProgress, onDone, onUndo, onBack, mod = '⌘' }) {
+// onBack() returns to Lanes. `only` (a laneKey) ticks just that lane when the list opens (a lane's Clean up button).
+export function cleanupView({ load, run, runRemote, days, setDays, onProgress, onDone, onUndo, onBack, only = null, mod = '⌘' }) {
   let lanes = [];
   let groups = [];
   let shown = [];
@@ -99,7 +99,7 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
     const keys = new Set(shown.map(laneKey));
     for (const l of shown) {
       const k = laneKey(l);
-      if (!seen.has(k)) { seen.add(k); if (preselect(l)) ticked.add(k); }
+      if (!seen.has(k)) { seen.add(k); if (only ? k === only : preselect(l)) ticked.add(k); }
       if (blocked(l)) ticked.delete(k);
     }
     for (const k of ticked) if (!keys.has(k)) ticked.delete(k);

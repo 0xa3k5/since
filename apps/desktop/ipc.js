@@ -209,6 +209,7 @@ const gitSchemas = {
   revert: [rev],
   merge: [rev, optional(bool)],
   rebaseOnto: [rev],
+  rebaseBranch: [rev, rev],
   rewrite: [oneOf('drop', 'reword', 'squash', 'fixup', 'swapParent', 'split'), oid, optional(rewriteExtra)],
   createCommit: [text, optional(bool)],
   pull: [],

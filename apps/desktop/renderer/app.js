@@ -11,8 +11,8 @@ import { fileHistoryView } from './file-history-view.js';
 import { lanesView } from './lanes-view.js';
 import { createNav } from './nav.js';
 import { cleanupView } from './cleanup-view.js';
-import { STALE_DAYS } from './cleanup.js';
-import { laneTarget, laneKey } from './lanes.js';
+import { STALE_DAYS, cleanupItem } from './cleanup.js';
+import { laneTarget, laneKey, laneTitle, laneActions, canRemove, ACTIONS } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
@@ -2325,8 +2325,9 @@ function openLanes() {
     tab: lanesTab,
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
+    onAction: laneAction,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
-    onCleanup: startCleanup,
+    onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
   });
   lanesTab = 'lanes';
@@ -2346,8 +2347,10 @@ function openInboxNow() {
 
 // Lanes → Clean up (cleanup-view.js): stale branches and worktrees, removed in bulk as one undo step.
 function startCleanup(...args) { return go(() => startCleanupNow(...args)); }
-function startCleanupNow() {
+let cleanupOnly = null; // a lane's Clean up button: the laneKey to tick, alone
+function startCleanupNow(lane = null) {
   if (!state.repo) return;
+  cleanupOnly = lane?.name ? laneKey(lane) : null;
   setView('lanes');
   state.cleanup = true;
   renderView();
@@ -2364,8 +2367,10 @@ function openCleanup() {
     onDone: refreshAll,
     onUndo: undo,
     onBack: () => setView('lanes'),
+    only: cleanupOnly,
     mod: MOD,
   });
+  cleanupOnly = null;
   return cleanupPage;
 }
 // Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
@@ -2444,6 +2449,49 @@ function closeReviewNow() {
   renderTopbar();
   renderView();
 }
+// Row actions from Lanes (lanes.js ACTIONS) that aren't open, review, merge or clean up.
+function laneAction(id, lane, base) {
+  if (id === 'rebase') return rebaseLane(lane, base);
+  if (id === 'delete' || id === 'discard') return deleteLane(lane);
+  if (id === 'checks' && lane.pr?.url) return api.app('external', `${lane.pr.url}/checks`);
+}
+
+// Rebase a lane's branch onto the base, where its conflicts can be fixed: in its own worktree (this
+// window switches there first), else in this window, which checks the branch out. A stop on conflicts
+// opens the conflict editor as usual; ⌘Z undoes the rebase.
+async function rebaseLane(lane, base) {
+  if (!state.repo || !lane?.branch || lane.isBase) return;
+  if (!base) return toast('No base branch', { detail: 'Lanes couldn’t tell which branch this one is based on.' });
+  const w = lane.worktree;
+  if (w?.prunable) return toast(`${laneTitle(lane)}’s worktree folder is missing`, { kind: 'error', detail: 'Clean it up or prune it first.' });
+  const label = `Rebase ${lane.branch} onto ${base}`;
+  if (w && !w.current) {
+    const wt = state.worktrees.find((x) => x.path === w.path);
+    if (!wt) return;
+    await switchWorktree(wt);
+    if (state.repo?.root !== w.path) return; // open in another window, or it failed to open
+    return act(label, 'rebaseOnto', [base], { busy: 'Rebasing…' });
+  }
+  if (w?.current) return act(label, 'rebaseOnto', [base], { busy: 'Rebasing…' });
+  if (!(await confirm(`${label}?`, `This window checks out ${lane.branch} to rebase it${state.head.branch ? `, leaving ${state.head.branch}` : ''}. ${MOD}Z undoes both.`, { submit: 'Rebase' }))) return;
+  act(label, 'rebaseBranch', [base, lane.branch], { busy: 'Rebasing…' });
+}
+
+// Delete a lane (Lanes: conflicts → Delete, stalled → Discard): its worktree and branch, one undo
+// step. Its remote branch stays.
+async function deleteLane(lane) {
+  if (!state.repo || !lane || !canRemove(lane)) return;
+  const n = lane.changes || 0;
+  const verb = n ? 'Discard' : 'Delete';
+  const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
+  const lost = n ? ` with ${n} uncommitted file${n > 1 ? 's' : ''}` : '';
+  if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: verb }))) return;
+  act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[cleanupItem(lane)]], {
+    busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,
+    then: (res) => { if (res?.failed?.length) toast(`Couldn’t remove all of ${lane.name}`, { kind: 'error', detail: res.failed.map((f) => `${f.name}: ${f.message}`).join('\n') }); },
+  });
+}
+
 function openLane(lane) {
   const t = laneTarget(lane);
   const w = t?.kind === 'worktree' && state.worktrees.find((x) => x.path === t.path);
@@ -3140,6 +3188,16 @@ function openPalette() {
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
     if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'lane squash merge tidy cleanup remove worktree delete branch land' });
+    if (laneSel && !state.review) {
+      const l = laneSel.lane;
+      const t = laneTitle(l);
+      const next = laneActions(l)[0];
+      if (next) add('Repository', `Next step on ${t}: ${ACTIONS[next].label.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'lane next step button' });
+      if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'lane conflicts update base' });
+      if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'lane ci failing pull request github' });
+      if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} lane ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'lane remove worktree branch discard stalled abandon' });
+      if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'lane merged shipped tidy remove' });
+    }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     add('View', 'Show lanes with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'conflict forecast merge-tree overlap lanes branches worktrees' });
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
