@@ -1,4 +1,9 @@
 ---
+import AppShot from './AppShot.astro';
+import mapShot from '../../assets/app/map-dark.png';
+import commitShot from '../../assets/app/commit-dark.png';
+import conflictShot from '../../assets/app/conflict-dark.png';
+import cleanupShot from '../../assets/app/cleanup-dark.png';
 ---
 <section class="s wrap rule" id="git" aria-labelledby="g-h">
   <div class="tabs-h">
@@ -12,37 +17,10 @@
       <button type="button" class="tab" role="tab" id="git-tab-3" aria-controls="git-panel-3" aria-selected="false" tabindex="-1"><i></i><span><kbd>X</kbd></span><b>Clean up</b><span>Finished branches gone, undoable</span></button>
     </div>
     <div class="tabpanels halo">
-      <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Map</div>
-        <svg viewBox="0 0 1000 250" class="map-svg" aria-hidden="true">
-          <g style="font:12px var(--font)">
-            <path d="M40 30 V 230" style="stroke:var(--lane-0,var(--accent));stroke-width:2.5;fill:none"/>
-            <path d="M40 190 C 40 170, 80 170, 80 150 V 70 C 80 50, 40 50, 40 30" style="stroke:var(--lane-1);stroke-width:2.5;fill:none"/>
-            <path d="M40 150 C 40 130, 120 130, 120 110 V 90" style="stroke:var(--lane-3);stroke-width:2.5;fill:none"/>
-            <g style="fill:var(--surface);stroke-width:2.5"><circle cx="40" cy="30" r="6" style="stroke:var(--accent)"/><circle cx="80" cy="70" r="6" style="stroke:var(--lane-1)"/><circle cx="80" cy="110" r="6" style="stroke:var(--lane-1)"/><circle cx="120" cy="90" r="6" style="stroke:var(--lane-3)"/><circle cx="40" cy="150" r="6" style="stroke:var(--accent)"/><circle cx="40" cy="190" r="6" style="stroke:var(--accent)"/><circle cx="40" cy="230" r="6" style="stroke:var(--accent)"/></g>
-            <g style="fill:var(--text-2)"><text x="170" y="34">Merge pull request #121 · Show reviewers on PRs</text><text x="170" y="74">Restyle review header</text><text x="170" y="94">Show conflicting files for a stuck PR</text><text x="170" y="114">Fix key bar spacing</text><text x="170" y="154">Collapse the catch-up card</text><text x="170" y="194">Medium weights, no all-caps</text><text x="170" y="234">Make Review the home view</text></g>
-            <g style="fill:var(--text-4);font:11.5px var(--mono)"><text x="960" y="34" text-anchor="end">main</text><text x="960" y="94" text-anchor="end">agent/web-305 · worktree</text><text x="960" y="74" text-anchor="end">agent/web-293</text></g>
-          </g>
-        </svg></div></div>
-      <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Commit · 2 files</div>
-        <div class="app-main"><div class="diff">
-          <div class="hd"><span>apps/web/src/pages/index.astro</span><span>2 of 3 lines staged</span></div>
-          <div class="del"><span class="chk on">✓</span>- &lt;h1&gt;Rebase without fear.&lt;/h1&gt;</div>
-          <div class="add"><span class="chk on">✓</span>+ &lt;h1&gt;21 PRs landed while you were away.&lt;/h1&gt;</div>
-          <div class="add"><span class="chk"></span>+ &lt;!-- TODO: hero clip --&gt;</div>
-        </div><div class="sheet-actions"><span class="small" style="margin-right:auto">Space stages the line</span><span class="btn btn-sm btn-primary">Commit 2 lines ⌘↵</span></div></div></div></div>
-      <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Conflict · styles.css</div>
-        <div class="app-main"><div class="three">
-          <div class="diff"><div class="hd"><span>Ours · main</span></div><div class="add">--fw-strong: 550;</div><div>--radius: 6px;</div></div>
-          <div class="diff"><div class="hd"><span>Base</span></div><div>--fw-strong: 600;</div><div>--radius: 6px;</div></div>
-          <div class="diff"><div class="hd"><span>Theirs · #121</span></div><div>--fw-strong: 600;</div><div class="add">--radius: 8px;</div></div>
-        </div><div class="sheet-actions"><span class="small" style="margin-right:auto">Take both changes · undoable</span><span class="btn btn-sm">Ours</span><span class="btn btn-sm">Theirs</span><span class="btn btn-sm btn-primary">Mark resolved</span></div></div></div></div>
-      <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Clean up · 15 found</div>
-        <div class="app-main"><div class="mini">
-          <div class="ln-row"><span><span class="chk on">✓</span>merged</span><span>agent/web-301 · worktree</span><span class="muted">2 days</span></div>
-          <div class="ln-row"><span><span class="chk on">✓</span>merged</span><span>agent/web-302</span><span class="muted">2 days</span></div>
-          <div class="ln-row"><span><span class="chk on">✓</span>remote gone</span><span>agent/web-288 · worktree</span><span class="muted">5 days</span></div>
-          <div class="ln-row"><span><span class="chk"></span>untouched</span><span>spike/graph-perf</span><span class="muted">31 days</span></div>
-        </div><div class="sheet-actions"><span class="small" style="margin-right:auto">Branches and worktrees · <kbd>⌘Z</kbd> brings them back</span><span class="btn btn-sm btn-primary">Delete 14</span></div></div></div></div>
+      <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><AppShot src={mapShot} alt="The Map: every branch and worktree on one commit graph" /></div>
+      <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><AppShot src={commitShot} alt="Commit: staged and unstaged changes with the diff of the selected file" /></div>
+      <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><AppShot src={conflictShot} alt="The conflict editor: ours, base and theirs side by side" /></div>
+      <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><AppShot src={cleanupShot} alt="Clean up: finished branches and worktrees grouped by why, ready to remove" /></div>
     </div>
   </div>
 </section>
