@@ -1,6 +1,6 @@
 'use strict';
 // Review's catch-up card (AK-281): what landed since a tag, grouped by issue key or folder, the
-// walk-through in the split pane, and Mark caught up (with Undo). PR features stay off: git only.
+// walk-through in the split pane, and Mark caught up (with Undo; caught up collapses it to one line). PR features stay off: git only.
 
 const { test, expect } = require('./fixtures');
 
@@ -51,11 +51,24 @@ test('catch-up: since a tag, grouped, walk through, mark caught up', async ({ sa
   await page.locator('.review-split').press('Escape');
   await expect(page.locator('.lanes-group[data-stage="landed"]')).toHaveCount(0);
 
-  // Mark caught up: the checkpoint moves to the tip, nothing is new; Undo puts it back.
+  // Mark caught up: the checkpoint moves to the tip, nothing is new, so the card is one line; Undo puts it back.
   await page.locator('.review-split').press('Shift+C');
   const t = await app.toast('Caught up to');
-  await expect(card.locator('.catchup-title')).toContainText('Caught up to');
-  await expect(card).toContainText('Nothing new on main.');
+  await expect(card).toHaveClass(/compact/);
+  await expect(card.locator('.catchup-title')).toContainText('Caught up ·');
+  await expect(card.locator('.catchup-counts')).toHaveCount(0);
   await t.locator('.toast-action').click();
-  await expect(card.locator('.catchup-title')).not.toContainText('Caught up to');
+  await expect(card.locator('.catchup-title')).not.toContainText('Caught up');
+
+  // Caught up again: ⇧C is a no-op with a toast.
+  await page.locator('.review-split').press('Shift+C');
+  await app.toast('Caught up to');
+  await expect(card).toHaveClass(/compact/);
+  await page.locator('.review-split').press('Shift+C');
+  await app.toast('Already caught up');
+  for (const theme of ['light', 'dark']) {
+    await app.palette(`Theme: ${theme === 'light' ? 'Light' : 'Dark'}`);
+    await expect.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(theme === 'dark');
+    await shot(`${theme}-caught-up`);
+  }
 });
