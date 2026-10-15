@@ -9,14 +9,16 @@ const year = new Date().getFullYear();
   <div class="wrap">
     <div class="footer-grid">
       <div class="footer-brand"><Logo /><span>· made for Mac</span></div>
-      {FOOTER_NAV.map((col) => (
-        <nav aria-label={col.title}>
-          <h2>{col.title}</h2>
-          <ul>
-            {col.links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
-          </ul>
-        </nav>
-      ))}
+      <div class="footer-cols">
+        {FOOTER_NAV.map((col) => (
+          <nav aria-label={col.title}>
+            <h2>{col.title}</h2>
+            <ul>
+              {col.links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
+            </ul>
+          </nav>
+        ))}
+      </div>
     </div>
     <div class="footer-legal">
       <p>© {year} {PRODUCT_NAME}</p>
