@@ -912,6 +912,21 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-verdict { display: inline-flex; align-items: center; gap: 3px; }
 .review-verdict.approved { color: var(--green); }
 .review-verdict.changes { color: var(--warn); }
+.review-verdict.commented { color: var(--text-2); }
+.review-verdict.pending { color: var(--text-3); }
+.review-pane-updated { color: var(--text-3); }
+.review-pane-reviewers { display: flex; align-items: center; gap: 4px 12px; margin-top: 6px; min-width: 0; font-size: 12.5px; font-weight: 500; }
+.review-reviewers-full { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.review-reviewers-more { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.review-reviewers-short { display: none; gap: 10px; font-variant-numeric: tabular-nums; }
+@container review-pane (max-width: 560px) {
+  .review-reviewers-full { display: none; }
+  .review-reviewers-short { display: inline-flex; }
+}
+/* A row's review decision, as an icon next to its tags. */
+.review-decision { display: inline-flex; flex: none; align-items: center; color: var(--text-3); }
+.review-decision.ok { color: var(--green); }
+.review-decision.warn { color: var(--warn); }
 .review-pr-actions .btn.primary.small { gap: 5px; }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }

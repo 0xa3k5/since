@@ -62,7 +62,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, reviews: [], size: { additions: null, deletions: null, files: null } });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null } });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
@@ -397,4 +397,36 @@ test('requestChangesPr: needs a message; gh arguments; off runs nothing', async 
   assert.equal(calls.length, 0);
   await github.requestChangesPr({ ...t, body: ' --admin rename this ' });
   assert.deepEqual(calls[0].args, ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--request-changes', '--body=--admin rename this']);
+});
+
+test('normalizePr: bot authors, names, drafts, mixed reviews and pending requests', () => {
+  const bot = github.normalizePr(PR({ author: { login: 'app/dependabot', is_bot: true }, isDraft: true, updatedAt: '2026-10-14T08:00:00Z' }));
+  assert.equal(bot.author, 'app/dependabot');
+  assert.equal(bot.authorName, 'dependabot');
+  assert.equal(bot.bot, true);
+  assert.equal(bot.draft, true);
+  assert.equal(bot.updatedAt, '2026-10-14T08:00:00Z');
+  const named = github.normalizePr(PR({ author: { login: 'kim', name: 'Kim Lee', is_bot: false } }));
+  assert.deepEqual([named.author, named.authorName, named.bot], ['kim', 'Kim Lee', false]);
+  const p = github.normalizePr(PR({
+    reviewDecision: 'CHANGES_REQUESTED',
+    latestReviews: [
+      { author: { login: 'ana', name: 'Ana' }, state: 'APPROVED', submittedAt: '2026-10-12T00:00:00Z', body: 'secret' },
+      { author: { login: 'bo' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-10-11T00:00:00Z' },
+      { author: { login: 'copilot[bot]' }, state: 'COMMENTED' },
+      { author: { login: 'dee' }, state: 'DISMISSED' },
+      { author: { login: 'eve' }, state: 'PENDING' },
+    ],
+    reviewRequests: [{ __typename: 'User', login: 'fay' }, { __typename: 'Team', name: 'Core', slug: 'core' }, { __typename: 'User', login: 'fay' }, {}],
+  }));
+  assert.equal(p.review, 'changes');
+  assert.deepEqual(p.reviews, [
+    { login: 'ana', name: 'Ana', state: 'approved', submittedAt: '2026-10-12T00:00:00Z' },
+    { login: 'bo', name: '', state: 'changes', submittedAt: '2026-10-11T00:00:00Z' },
+    { login: 'copilot[bot]', name: '', state: 'commented', submittedAt: '' },
+    { login: 'dee', name: '', state: 'dismissed', submittedAt: '' },
+  ]);
+  assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: '', team: false }, { login: 'core', name: 'Core', team: true }]);
+  assert.ok(!JSON.stringify(p).includes('secret'));
+  assert.ok(github.PR_FIELDS.includes('reviewRequests'));
 });

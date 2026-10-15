@@ -50,6 +50,8 @@ const P = {
   minus: '<path d="M3 8h10"/>',
   check: '<path d="m3 8.5 3 3 7-7"/>',
   x: '<path d="m4 4 8 8M12 4l-8 8"/>',
+  pending: '<circle cx="8" cy="8" r="4.5"/>',
+  comment: '<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/>',
   more: '<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>',
   chevron: '<path d="m6 4 4 4-4 4"/>',
   chevronLeft: '<path d="m10 4-4 4 4 4"/>',
