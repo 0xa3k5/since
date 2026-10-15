@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
-import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows } from './review-rows.js';
+import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection } from './review-rows.js';
 import * as keymap from './keymap.js';
 
 // Review: one row per piece of work (per pull request while PRs are on), in stages
@@ -17,6 +17,8 @@ import * as keymap from './keymap.js';
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 // Row-action keys → their action (lanes.js ACTIONS); review, merge and open have their own branches.
 const LANE_KEYS = { 'lanes.rebase': 'rebase', 'lanes.checks': 'checks', 'lanes.delete': 'delete', 'lanes.cleanup': 'cleanup' };
+// The split view's pane actions from the list (pr-review.js PANE_ACTIONS; M merges through lanes.merge).
+const PANE_KEYS = { 'lanes.approve': 'approve', 'lanes.closePr': 'close', 'lanes.checkout': 'checkout', 'lanes.github': 'github' };
 const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 const COLLAPSED = new Set(['inProgress', 'elsewhere']);
 // Live refreshes after commits are debounced; the watcher can fire several times per commit.
@@ -30,7 +32,11 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // onCleanup(lane?) opens Clean up, with only that lane ticked when one is given. onCheckout(pr), onPrReview(pr, remote) and
 // onMergeReady(prs, remote) act on pull requests; onPrSetup() turns pull requests on. `all` starts on Show all. `place` is a
 // `location()` to return to (Back, ⌘[): its mode, row, filter, open stages and scroll, put back once the rows load.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, actions = () => [], all = false, place = null }) {
+// Split view (staged rows only): pane(row, ctx) builds the right-hand pane for the selected row (review-pane.js:
+// { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
+// list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
+// pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
+export function lanesView({ pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, actions = () => [], all = false, place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last PR load
   let inboxFailed = false;
@@ -65,7 +71,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const lede = h('p.muted');
   const hint = h('div.diff-hint.wt-hint');
   const cleanupBtn = onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null;
-  const el = h('div.page.flush.lanes', { tabIndex: 0 },
+  const left = h('div.page.flush.lanes', null,
     h('div.page-head', null,
       h('div', null, title, lede),
       h('div.page-actions', null, count, cleanupBtn)),
@@ -74,6 +80,26 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     empty,
     hint,
   );
+  const paneHost = h('div.review-pane-host');
+  const handle = h('div.review-split-handle', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize' });
+  const el = h('div.review-split', { tabIndex: 0 }, left, handle, paneHost);
+  let paneObj = null;
+  let paneTimer = 0;
+  let settled = null; // the row the pane last showed, for Back and Forward
+  let moved = false; // the selection changed by the user since the pane last showed
+  let after = null; // { before, key }: an action ran on `key`; pick the next row on the next render
+  const w = paneWidth();
+  if (w) el.style.setProperty('--pane-w', `${w}px`);
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    const box = el.getBoundingClientRect();
+    let px = null;
+    const onMove = (m) => { px = Math.round(Math.max(360, Math.min(box.width - 320, box.right - m.clientX))); el.style.setProperty('--pane-w', `${px}px`); };
+    const onUp = () => { handle.removeEventListener('pointermove', onMove); handle.removeEventListener('pointerup', onUp); if (px) setPaneWidth(px); };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  });
 
   function doneText(l) {
     const why = l.done.reason === 'pr' ? `Pull request #${l.done.pr} was merged`
@@ -172,9 +198,13 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const requested = () => new Set(prsOn() ? inbox?.requested || [] : []);
   // A row as a lane for the lane actions: its PR joined on, or just the PR when it isn't checked out here.
   const asLane = (r) => (r.lane ? (r.pr && !r.lane.pr ? { ...r.lane, pr: r.pr } : r.lane) : { name: r.title, title: r.title, pr: r.pr });
+  const paneCtx = (r) => ({ base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn() });
+  const split = () => Boolean(pane && !all);
   function act(id, r) {
     const { pr, lane } = r;
-    if (id === 'review') { if (pr) onPrReview(pr, inbox?.remote); else if (lane) onReview(lane, base); }
+    if (split() && ['merge', 'approve', 'close', 'checkout', 'github'].includes(id) && onPaneAction) return onPaneAction(id, r, paneCtx(r));
+    if (id === 'review' && split() && paneObj?.key === r.key) paneObj.focus();
+    else if (id === 'review') { if (pr) onPrReview(pr, inbox?.remote); else if (lane) onReview(lane, base); }
     else if (id === 'merge') {
       if (lane?.branch && !lane.isBase) onMerge(asLane(r), base);
       else if (pr) onMergeReady([pr], inbox?.remote);
@@ -265,6 +295,42 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     allChip.classList.toggle('on', all);
     allChip.setAttribute('aria-pressed', String(all));
     if (all) renderAll(); else renderStaged();
+    syncPane();
+  }
+
+  // The pane follows the selection, a moment after it stops moving (a PR not here is fetched).
+  function syncPane() {
+    el.classList.toggle('split', split());
+    const r = split() ? current() : null;
+    if (!r) { clearTimeout(paneTimer); paneObj?.destroy(); paneObj = null; paneHost.replaceChildren(); return; }
+    if (paneObj?.key === r.key) { paneObj.update(r, paneCtx(r)); return; }
+    clearTimeout(paneTimer);
+    paneTimer = setTimeout(showPane, paneObj ? 120 : 0);
+  }
+  function showPane() {
+    const r = split() ? current() : null;
+    if (!r || paneObj?.key === r.key || !el.isConnected) return;
+    const had = paneHost.contains(document.activeElement);
+    paneObj?.destroy();
+    paneObj = pane(r, paneCtx(r));
+    paneHost.replaceChildren(paneObj.el);
+    if (had) el.focus({ preventScroll: true });
+    if (moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
+    moved = false;
+    settled = r.key;
+  }
+
+  // After a pane action on row `key` (approve, merge, close…): re-stage it at once and move the
+  // selection to the next row that needs you; the PR list reloads behind it.
+  function afterAction(key, id) {
+    if (all) return;
+    const before = shown.map((r) => r.key);
+    const n = rowPrNumber(key);
+    if (inbox && n != null) inbox = { ...inbox, ...applyAction(inbox, n, id) };
+    after = { before, key };
+    render();
+    list.querySelector('.lanes-row.active')?.scrollIntoView({ block: 'nearest' });
+    if (prsOn() && (id === 'approve' || id === 'close' || id === 'merge')) fetchLanes({ prs: true }).catch(fail);
   }
 
   function renderStaged() {
@@ -297,6 +363,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
       if (!prsOn()) rows.push(h('button.review-prs-off', { onclick: () => onPrSetup() }, icon('merge', 12), 'Turn on PR features to see your PRs here'));
     }
     adopt(shown.map((r) => r.key));
+    if (after) { selKey = nextSelection(after.before, staged, after.key) ?? selKey; after = null; }
     if (!shown.some((r) => r.key === selKey)) selKey = shown[0]?.key ?? null;
     list.replaceChildren(...rows);
     const n = staged.stages.needsYou.length;
@@ -305,7 +372,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     empty.textContent = !loaded ? '' : prsLoading ? 'Loading pull requests…' : inboxFailed && prsOn() ? 'Couldn’t load pull requests.' : q && !shown.length ? 'Nothing matches.' : '';
     empty.hidden = !empty.textContent;
     const ready = readyPrs().length;
-    hint.textContent = `Space Primary button · ↵ Open · R Review · M Merge · D Details · E In progress and Handled elsewhere · S Show all · J/K Move · / Filter${ready > 1 ? ' · ⇧M Merge all ready' : ''}`;
+    hint.textContent = `Space Primary button · ↵ Open · R Review${pane ? ' (Esc back)' : ''} · M Merge${pane && prsOn() ? ' · ⇧A Approve · ⇧X Close · W Check out · ⇧O GitHub' : ''} · D Details · E In progress and Handled elsewhere · S Show all · J/K Move · / Filter${ready > 1 ? ' · ⇧M Merge all ready' : ''}`;
   }
 
   function renderAll() {
@@ -365,13 +432,15 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   function adopt(keys) {
     if (wanted && keys.includes(wanted)) selKey = wanted;
     if (loaded && (!prsOn() || inbox || inboxFailed)) wanted = null; // gone since: keep the usual first row
-    if (loaded && wantedScroll != null) { const y = wantedScroll; wantedScroll = null; setTimeout(() => { el.scrollTop = y; }); }
+    if (loaded && wantedScroll != null) { const y = wantedScroll; wantedScroll = null; setTimeout(() => { left.scrollTop = y; }); }
   }
 
   function select(key, scroll = true) {
+    if (key !== selKey) moved = true;
     selKey = key;
     list.querySelectorAll('.lanes-row').forEach((r) => { const on = r.dataset.key === key; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
     if (scroll) list.querySelector('.lanes-row.active')?.scrollIntoView({ block: 'nearest' });
+    syncPane();
   }
   function move(d) {
     if (!shown.length) return;
@@ -436,6 +505,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
       else if (id === 'lanes.review') act('review', x);
       else if (id === 'lanes.merge') act('merge', x);
       else if (id === 'lanes.details') act('details', x);
+      else if (PANE_KEYS[id] && split()) act(PANE_KEYS[id], x);
       else if (LANE_KEYS[id]) act(LANE_KEYS[id], x);
       else return false;
     } else if (id === 'lanes.step') { const [a] = x ? laneActions(x) : []; if (a) run(a, x); else if (x) toast(`Nothing needs doing on ${laneTitle(x)}`); }
@@ -448,6 +518,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     return true;
   }
   el.addEventListener('keydown', (e) => {
+    if (paneHost.contains(e.target)) return; // the pane's own keys (review-view.js)
     if (e.target === filter || command(e, false)) return;
     // Any other letter starts filtering.
     if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -498,7 +569,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   // Called on every repo change: debounced, local only (no network), keeps the selection.
   function refresh() {
     clearTimeout(timer);
-    timer = setTimeout(() => { if (el.isConnected) fetchLanes({ prs: false }).catch(fail); }, DEBOUNCE);
+    timer = setTimeout(() => { if (el.isConnected) { fetchLanes({ prs: false }).catch(fail); paneObj?.refresh(); } }, DEBOUNCE);
   }
   // Other worktrees' files aren't watched: recount (and re-read PRs) when the window comes back.
   const onFocus = () => { if (el.isConnected) fetchLanes({ prs: true }).catch(fail); else window.removeEventListener('focus', onFocus); };
@@ -519,7 +590,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     return x.lane ? { lane: asLane(x), base, step: STEPS[step(x)].label } : null;
   };
   // Where the user is, for Back and Forward (app.js passes it back as `place`).
-  const location = () => ({ all, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, opened: [...opened], scroll: el.scrollTop });
+  const location = () => ({ all, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, opened: [...opened], scroll: left.scrollTop });
   // ⌘K "Next step on …": the selected row's primary button.
   const runStep = () => {
     const x = current();
@@ -528,5 +599,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     const [a] = laneActions(x);
     if (a) run(a, x);
   };
-  return { el, refresh, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  // The selected row and its pane context, for ⌘K's pane actions (split view only).
+  const paneSelection = () => { const x = split() ? current() : null; return x ? { row: x, ctx: paneCtx(x) } : null; };
+  return { el, refresh, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }

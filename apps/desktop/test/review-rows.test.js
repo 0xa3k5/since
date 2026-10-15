@@ -214,3 +214,77 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /Pull Request Inbox/);
   assert.match(fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
 });
+
+// Split view (AK-272): what an action does to the row, and where the selection goes next.
+test('approve re-stages a requested PR: ready to merge when green, else handled elsewhere', async () => {
+  const { applyAction, reviewRows } = await load();
+  const before = { prs: [pr(1, { checks: 'success', mergeable: true }), pr(2)], requested: [1, 2] };
+  const after = applyAction(before, 1, 'approve');
+  assert.deepEqual(after.requested, [2]);
+  assert.equal(after.prs[0].review, 'approved');
+  assert.equal(before.prs[0].review, null); // not mutated
+  const staged = reviewRows({ prs: after.prs, reviewRequested: after.requested, prsOn: true, now: NOW });
+  assert.deepEqual(staged.stages.needsYou.map((r) => r.key), ['pr:2', 'pr:1']); // requested first, then ready
+  const red = applyAction({ prs: [pr(3, { checks: 'pending' })], requested: [3] }, 3, 'approve');
+  assert.deepEqual(reviewRows({ prs: red.prs, reviewRequested: red.requested, prsOn: true, now: NOW }).stages.elsewhere.map((r) => r.key), ['pr:3']);
+});
+
+test('merge and close take the PR row away; its lane goes to the finished line once shipped', async () => {
+  const { applyAction, reviewRows } = await load();
+  for (const id of ['merge', 'close']) {
+    const after = applyAction({ prs: [pr(1, READY), pr(2, READY)], requested: [1] }, 1, id);
+    assert.deepEqual(after.prs.map((p) => p.number), [2]);
+    assert.deepEqual(after.requested, []);
+  }
+  const shipped = reviewRows({ lanes: [lane('b1', { done: { reason: 'pr', pr: 1 } })], prs: [], prsOn: true, now: NOW });
+  assert.equal(shipped.finished.count, 1);
+  // Unknown PRs and local actions change nothing.
+  const same = { prs: [pr(1)], requested: [1] };
+  assert.deepEqual(applyAction(same, 9, 'merge'), same);
+  assert.deepEqual(applyAction(same, 1, 'checkout'), same);
+});
+
+test('rowPrNumber reads PR row keys only', async () => {
+  const { rowPrNumber } = await load();
+  assert.equal(rowPrNumber('pr:12'), 12);
+  assert.equal(rowPrNumber('feature'), null);
+  assert.equal(rowPrNumber(null), null);
+});
+
+test('next selection: the next row below that still needs you, else the first, else stay', async () => {
+  const { nextSelection, reviewRows, applyAction } = await load();
+  const inbox = { prs: [pr(1, READY), pr(2, READY), pr(3, { checks: 'failure' }), pr(4, { draft: true })], requested: [] };
+  const before = reviewRows({ ...inbox, reviewRequested: inbox.requested, prsOn: true, now: NOW }).all.map((r) => r.key);
+  assert.deepEqual(before, ['pr:1', 'pr:2', 'pr:3', 'pr:4']);
+  const staged = (i) => reviewRows({ prs: i.prs, reviewRequested: i.requested, prsOn: true, now: NOW });
+  // Merging #1: #2 is next.
+  assert.equal(nextSelection(before, staged(applyAction(inbox, 1, 'merge')), 'pr:1'), 'pr:2');
+  // Merging #2 (in the middle): the blocked #3 below it, not #1 above it.
+  assert.equal(nextSelection(before, staged(applyAction(inbox, 2, 'merge')), 'pr:2'), 'pr:3');
+  // Closing #3, the last that needs you: wrap to the first that does.
+  assert.equal(nextSelection(before, staged(applyAction(inbox, 3, 'close')), 'pr:3'), 'pr:1');
+  // Nothing else needs you: stay on the row if it's still listed, else let the list choose.
+  const one = { prs: [pr(5, READY), pr(6, { draft: true })], requested: [] };
+  assert.equal(nextSelection(['pr:5', 'pr:6'], staged(applyAction(one, 5, 'checkout')), 'pr:5'), 'pr:5');
+  assert.equal(nextSelection(['pr:5', 'pr:6'], staged(applyAction(one, 5, 'merge')), 'pr:5'), null);
+  // A row that wasn't listed before (filter changed): the first that needs you.
+  assert.equal(nextSelection([], staged(inbox), 'pr:9'), 'pr:1');
+});
+
+test('pane actions: every PR action with a primary by stage; local branches merge and tidy', async () => {
+  const { paneActions } = await import('../renderer/pr-review.js');
+  const ids = (r, s) => paneActions(r, s).actions.map((a) => a.id);
+  const p = { pr: pr(1, { url: 'https://github.com/o/r/pull/1' }), lane: null };
+  assert.deepEqual(ids(p, 'review'), ['merge', 'approve', 'close', 'checkout', 'github']);
+  assert.equal(paneActions(p, 'review').primary, 'approve');
+  assert.equal(paneActions(p, 'merge').primary, 'merge');
+  assert.equal(paneActions(p, 'open').primary, 'checkout'); // not here yet: check it out
+  assert.equal(paneActions({ ...p, lane: lane('b1') }, 'open').primary, null);
+  assert.ok(paneActions(p, 'review').actions.filter((a) => ['merge', 'approve', 'close'].includes(a.id)).every((a) => a.remote));
+  assert.equal(paneActions(p, 'review').actions.find((a) => a.id === 'checkout').remote, false);
+  // PR features off: a local branch, nothing remote, no request-changes anywhere.
+  const local = paneActions({ pr: null, lane: lane('feat', { worktree: { path: '/x', current: false } }) }, 'open');
+  assert.deepEqual(local.actions.map((a) => [a.id, a.label, a.remote]), [['merge', 'Merge and tidy…', false], ['checkout', 'Open worktree', false]]);
+  assert.deepEqual(ids({ pr: null, lane: lane('main', { isBase: true }) }, 'open'), ['checkout']);
+  assert.ok(!ids(p, 'review').includes('changes'));
+});

@@ -183,3 +183,33 @@ export function filterRows(rows, query = '') {
     return words.every((w) => text.includes(w));
   });
 }
+
+// What an action does to the PR list until it reloads (GitHub takes a moment to show it):
+// approving marks the PR approved and drops your review request, so it re-stages (ready to merge,
+// or Handled elsewhere); merging or closing it takes the row away (its lane, if any, goes on to
+// the finished line once its work is on the base). Other actions change nothing here.
+export function applyAction({ prs = [], requested = [] } = {}, number, id) {
+  if (number == null || !prs.some((p) => p.number === number)) return { prs, requested };
+  const rest = requested.filter((n) => n !== number);
+  if (id === 'approve') return { prs: prs.map((p) => (p.number === number ? { ...p, review: 'approved' } : p)), requested: rest };
+  if (id === 'merge' || id === 'close') return { prs: prs.filter((p) => p.number !== number), requested: rest };
+  return { prs, requested };
+}
+
+// The PR number of a row key from reviewRows (`pr:<n>`), or null for a lane's row.
+export const rowPrNumber = (key) => (/^pr:\d+$/.test(key || '') ? Number(key.slice(3)) : null);
+
+const NEEDS = ['needsYou', 'blocked'];
+// Where the selection goes after an action on row `acted`: the next row that still needs you
+// (Needs you or Blocked) below where `acted` was in `before` (the keys in the order shown), else the
+// first one that does, else `acted` itself while it's still listed; null lets the list pick its
+// first row. `staged` is the reviewRows result after the action.
+export function nextSelection(before, staged, acted) {
+  const needs = NEEDS.flatMap((s) => staged.stages[s] || []).filter((r) => r.key !== acted);
+  const keys = new Set(needs.map((r) => r.key));
+  const i = before.indexOf(acted);
+  const below = i >= 0 ? before.slice(i + 1).find((k) => keys.has(k)) : null;
+  if (below) return below;
+  if (needs.length) return needs[0].key;
+  return staged.all.some((r) => r.key === acted) ? acted : null;
+}

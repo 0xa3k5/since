@@ -14,7 +14,8 @@ import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
 import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
 import { reviewView } from './review-view.js';
-import { loadPrReview, leavesPage } from './pr-review.js';
+import { reviewPane } from './review-pane.js';
+import { loadPrReview, leavesPage, paneActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
@@ -482,8 +483,9 @@ let lanesPlace = null; // the lanes row, filter and scroll for the next lanes pa
 
 const lanesOpen = () => state.view === 'lanes' && !state.cleanup && !state.review && !state.fileHistory && !state.quick && !state.split;
 // Names the place on screen; a jump that ends where it started records nothing.
-const placeKey = () => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
-  state.view === 'map' && !state.quick ? state.selected : '', lanesOpen() ? lanesPage?.location().all : ''].join('|');
+// In Review the selected row counts too: the split view's pane shows it (AK-272).
+const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
+  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.all}:${lanes.all ? '' : lanes.key ?? ''}` : ''].join('|');
 function place() {
   return {
     key: placeKey(), root: state.repo?.root, view: state.view, cleanup: state.cleanup, review: state.review,
@@ -2332,6 +2334,12 @@ function openLanes() {
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
     onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
+    pane: (row, ctx) => reviewPane({ row, ctx, root: state.repo.root, git, store: localStorage, call: (...a) => api.app(...a), run: paneAction, onBack: () => lanesPage?.el.focus({ preventScroll: true }) }),
+    onPaneAction: paneAction,
+    paneWidth: () => loadPref('reviewPane', {}).width || null,
+    setPaneWidth: (width) => savePref('reviewPane', { width }),
+    // Moving to another row is a step for ⌘[ / ⌘] once the pane shows it.
+    onSettle: (from) => { if (lanesOpen() && !navigating && !navDepth && nav.record({ ...place(), lanes: from, key: placeKey(from) }, placeKey())) renderTopbar(); },
   });
   lanesAll = false;
   lanesPlace = null;
@@ -2427,11 +2435,27 @@ function prDeskAction(id) {
   if (id === 'close') return closePr(pr, leave);
   if (id === 'checkout') return checkoutPr(pr, { worktree: true });
 }
+// Review's split-view pane actions (review-pane.js, pr-review.js PANE_ACTIONS) on a row. Merge,
+// approve and close happen on GitHub (their dialogs say so); then the row re-stages and the
+// selection moves to the next row that needs you. Merge on a local branch is merge and tidy.
+function paneAction(id, row, ctx) {
+  const { pr, lane } = row;
+  const done = () => lanesPage?.afterAction(row.key, id);
+  const local = lane?.branch && !lane.isBase ? (pr && !lane.pr ? { ...lane, pr } : lane) : null;
+  if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
+  if (id === 'approve' && pr) return approvePr(pr, done);
+  if (id === 'close' && pr) return closePr(pr, done);
+  if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
+  if (id === 'github' && pr) return openPrOnGitHub(pr);
+  if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
+  toast(`That doesn’t apply to ${row.title}`);
+}
+
 // Merge and tidy (lanes overview, branch review, ⌘K): land a lane on its base as one squashed
 // commit, then remove its worktree and delete its branch, as one undo step. A lane with an open
 // PR (pull requests on) can be merged on GitHub instead (`gh pr merge --squash`, not undoable);
 // the local tidy after it is. Deleting the remote branch is opt-in and never undoable.
-async function mergeLane(lane, base = null) {
+async function mergeLane(lane, base = null, onDone = null) {
   if (!state.repo || !lane) return;
   if (!lane.branch) return toast(`${lane.name} is not on a branch`, { detail: 'Merge and tidy works on branches.' });
   let plan;
@@ -2469,6 +2493,7 @@ async function mergeLane(lane, base = null) {
     const res = await prCall('pr-merge', pr, { method: 'squash', deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
     if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
     toast(`Merged #${pr.number} on GitHub`, { kind: 'success', detail: 'The merge on GitHub can’t be undone.' });
+    onDone?.();
     await fetchAll();
     return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
@@ -2477,6 +2502,7 @@ async function mergeLane(lane, base = null) {
     ? await act(label, 'mergeLane', [lane.branch, plan.base, v.message], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}` })
     : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
+  if (ok) onDone?.();
   if (ok && state.review) closeReview();
 }
 function closeReview(...args) { return go(() => closeReviewNow(...args)); }
@@ -2999,7 +3025,7 @@ async function prCall(channel, pr, opts, busy) {
 }
 const prError = (title, err) => toast(title, { kind: 'error', detail: err.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : err.message });
 
-const approvePr = (given) => withPr(given, 'Approve', async (pr) => {
+const approvePr = (given, onDone) => withPr(given, 'Approve', async (pr) => {
   const v = await dialog({
     title: `Approve #${pr.number}?`,
     description: `${pr.title}\n${REMOTE_NOTE}`,
@@ -3010,6 +3036,7 @@ const approvePr = (given) => withPr(given, 'Approve', async (pr) => {
   const res = await prCall('pr-approve', pr, { body: v.body }, `Approving #${pr.number}…`);
   if (res.error) return prError(`Couldn’t approve #${pr.number}`, res.error);
   toast(`Approved #${pr.number}`, { kind: 'success' });
+  onDone?.();
   refreshPrs();
 });
 
@@ -3253,6 +3280,13 @@ function openPalette() {
       if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'lane ci failing pull request github' });
       if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} lane ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'lane remove worktree branch discard stalled abandon' });
       if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'lane merged shipped tidy remove' });
+    }
+    const paneSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.paneSelection() : null;
+    if (paneSel) {
+      const t = paneSel.row.pr ? `#${paneSel.row.pr.number}` : paneSel.row.title;
+      for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
+        add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
+      }
     }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });

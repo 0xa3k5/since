@@ -741,6 +741,26 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tick { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--accent-text); }
 .review-tick.on { background: var(--accent); border-color: var(--accent); }
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Review split view (lanes-view.js + review-pane.js): the list on the left, the selected row's review on the right */
+.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; outline: 0; }
+.review-split.split { grid-template-columns: minmax(320px, 1fr) 6px var(--pane-w, 62%); }
+.review-split > .lanes { min-width: 0; }
+.review-split:not(.split) > .review-split-handle, .review-split:not(.split) > .review-pane-host { display: none; }
+.review-split.split .page.flush .page-head { padding: 20px 20px 12px; }
+.review-split.split .lanes-time { display: none; }
+.review-split-handle { cursor: col-resize; background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat; }
+.review-split-handle:hover, .review-split-handle:active { background-image: linear-gradient(var(--accent), var(--accent)); background-size: 2px 100%; }
+.review-pane-host { display: flex; min-width: 0; min-height: 0; }
+.review-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.review-pane > .quick.review { grid-template-columns: minmax(200px, 34%) 1fr; }
+.review-pane > .review-pane-head { padding: 16px; }
+.review-pane-meta { display: flex; align-items: center; gap: 6px; }
+.review-pane-checks { margin-left: auto; }
+.review-pane-reviewers { display: flex; flex-wrap: wrap; gap: 10px; }
+.review-verdict { display: inline-flex; align-items: center; gap: 3px; }
+.review-verdict.approved { color: var(--green); }
+.review-verdict.changes { color: var(--warn); }
+.review-pr-actions .btn.primary.small { gap: 5px; }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }
 
