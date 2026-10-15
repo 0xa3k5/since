@@ -33,39 +33,15 @@ section.s { padding-block: 150px; }
   transition: filter .35s ease-out, opacity .35s ease-out, letter-spacing .35s ease-out; }
 .glitch.scr { filter: blur(.06em); opacity: .55; letter-spacing: .06em; color: var(--text); }
 
-/* ---------------------------------------------------------------- App frames (drawn, not screenshots) */
+/* ---------------------------------------------------------------- App frames (real captures in AppShot) */
 .app { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; font-size: 13px; color: var(--text-2); }
-.app-top { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--text-3); font-size: 12px; }
-.dots { display: flex; gap: 6px; margin-right: 10px; }
-.dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); }
-.app-body { display: grid; grid-template-columns: 180px 1fr; min-height: 540px; }
-.app-side { border-right: 1px solid var(--line); padding: 14px 10px; display: grid; gap: 2px; align-content: start; color: var(--text-3); }
-.app-side span { padding: 5px 8px; border-radius: 5px; display: flex; justify-content: space-between; }
-.app-side span.on { background: var(--accent-soft); color: var(--text); }
-.app-main { padding: 18px 22px; display: grid; gap: 18px; align-content: start; }
-.card { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; background: var(--raised); }
-.counts { display: flex; gap: 28px; align-items: baseline; flex-wrap: wrap; }
-.counts b { font-size: 22px; color: var(--text); font-weight: 600; letter-spacing: -0.02em; margin-right: 4px; }
-.grp-h { font-size: 12px; color: var(--text-3); margin: 0 0 6px; display: flex; justify-content: space-between; max-width: none; }
+/* Real app captures (AppShot): the dark-theme window fills the frame edge to edge. */
+.app-shot { margin: 0; line-height: 0; }
+.app-shot img { display: block; width: 100%; height: auto; }
+.app-shot.fade-out { padding-bottom: 0; border-bottom: 0; }
 .row { display: grid; grid-template-columns: 58px 1fr auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 5px; }
 .row + .row { border-top: 1px solid var(--line); }
 .row .num { font: 12px var(--mono); color: var(--text-4); }
-.row .why { font-size: 12px; color: var(--text-3); grid-column: 2 / 3; margin-top: -4px; }
-.tag { font-size: 11.5px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--text-3); white-space: nowrap; }
-.tag.red { color: var(--red); border-color: currentColor; }
-.tag.green { color: var(--green); border-color: currentColor; }
-.tag.warn { color: var(--warn); border-color: currentColor; }
-.collapsed { color: var(--text-3); font-size: 12.5px; display: flex; gap: 22px; flex-wrap: wrap; }
-.prompt { font: 12.5px/1.6 var(--mono); white-space: pre-wrap; background: var(--sunk); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; color: var(--text-2); margin: 10px 0 12px; }
-.sheet-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
-.sheet-actions .btn-sm kbd { color: inherit; border-color: currentColor; background: transparent; }
-.diff { font: 12px/1.7 var(--mono); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.diff div { padding: 0 12px; white-space: pre; }
-.diff .add { background: var(--add-bg); }
-.diff .del { background: var(--del-bg); }
-.diff .hd { background: var(--sunk); color: var(--text-3); padding: 6px 12px; display: flex; justify-content: space-between; }
-.chk { display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 3px; font-size: 10px; margin-right: 8px; vertical-align: -2px; }
-.chk.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .lit-shot { border-color: var(--line); box-shadow: 0 -1px 0 0 color-mix(in srgb, var(--text) 14%, transparent); }
 .fade-out { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); padding-bottom: 40px; }
 /* The wireframe drew orange glows behind .halo and the keyboard with gradients the browser rejected, so the approved
@@ -129,18 +105,10 @@ section.s { padding-block: 150px; }
 /* 2 · Review: text on the left, the app on the right, the text stays put */
 #review h2, #unblock h2 { font-size: clamp(32px, 3.8vw, 48px); }
 #review .copy { position: sticky; top: 120px; }
-.review-split { display: grid; grid-template-columns: 200px 1fr; min-height: 360px; }
-.review-files { border-right: 1px solid var(--line); padding: 12px 10px; display: grid; gap: 2px; align-content: start; font-size: 12.5px; }
-.review-files .row { grid-template-columns: 18px 1fr; }
-.review-files .row.sel { grid-template-columns: 18px 1fr auto; background: var(--accent-soft); border-radius: 6px; }
 
 /* 3 · Send back: off-centre, the sheet floats over a dimmed Review list */
 #unblock .feat { grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 80px; align-items: center; }
 #unblock .copy p { color: var(--text-3); }
-.layer { position: relative; padding: 56px 0 0 56px; }
-.layer .ghost { position: absolute; inset: 0 64px 72px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); opacity: .55; padding: 16px 18px; display: grid; gap: 4px; align-content: start; overflow: hidden; }
-.layer .ghost .row { font-size: 12.5px; }
-.layer > .app { position: relative; box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .45), 0 0 0 1px var(--line-strong); }
 
 /* 4 · Merge: title centred above, the two orders side by side */
 #merge .feat { grid-template-columns: 1fr; gap: 56px; }
@@ -148,23 +116,6 @@ section.s { padding-block: 150px; }
 #merge .copy h2 { margin: 0 auto; max-width: 22ch; }
 #merge .copy p { margin: 20px auto 0; max-width: 44rem; color: var(--text-3); text-wrap: balance; }
 #merge .facts3 { max-width: none; }
-.orders { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.order { border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px 18px; background: var(--surface); }
-.order.good { border-color: var(--line-strong); }
-.order h3 { font-family: var(--font); font-size: 14px; font-weight: 500; color: var(--text-3); display: flex; justify-content: space-between; letter-spacing: 0; }
-.track { position: relative; display: grid; grid-template-columns: 70px repeat(3, minmax(0, 1fr)); align-items: start; margin-top: 22px; }
-.track::before { content: ""; position: absolute; left: 10px; right: 0; top: 9px; height: 2px; background: var(--line-strong); }
-.track .node { position: relative; display: grid; gap: 6px; font-size: 13px; color: var(--text-2); }
-.track .node i { width: 20px; height: 20px; border-radius: 50%; background: var(--surface); border: 2px solid var(--line-strong); display: grid; place-items: center; font: 600 11px var(--font); font-style: normal; }
-.track .node.main i { background: var(--text-4); border-color: var(--text-4); }
-.track .node.ok i { border-color: var(--green); color: var(--green); }
-.track .node.bad i { border-color: var(--red); background: var(--red); color: var(--red-text); }
-.track .node.dim { opacity: .45; }
-.track .node b { font: 500 12px var(--mono); color: var(--text); }
-.track .node small { font-size: 12px; color: var(--text-3); line-height: 1.35; }
-.track .node.bad small { color: var(--red); }
-.order .foot { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--text-3); }
-.order .foot .btn { margin-left: auto; }
 
 /* ---------------------------------------------------------------- Still a Git client: tabs */
 .tabs-h { text-align: center; }
@@ -182,12 +133,6 @@ section.s { padding-block: 150px; }
 .tabpanels { max-width: 1080px; margin: 40px auto 0; }
 .tabpanels > [data-panel] { display: none; }
 .tabpanels > [data-panel].on { display: block; }
-.map-svg { display: block; width: 100%; height: auto; }
-.mini { display: grid; font: 12.5px/1.7 var(--mono); }
-.mini .ln-row { display: grid; grid-template-columns: 120px 1fr auto; gap: 14px; align-items: center; padding: 6px 4px; border-top: 1px solid var(--line); }
-.mini .ln-row:first-child { border-top: 0; }
-.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.three .diff div { white-space: pre-wrap; }
 
 /* ---------------------------------------------------------------- Keyboard: an echo line and a tilted keyboard */
 .kb-sec { text-align: center; padding-top: 40px !important; }
@@ -283,16 +228,12 @@ section.s { padding-block: 150px; }
 /* ---------------------------------------------------------------- Narrower screens */
 @media (max-width: 860px) {
   section.s, .problem { padding-block: 100px; }
-  .feat, #unblock .feat, .orders { grid-template-columns: 1fr; gap: 40px; }
+  .feat, #unblock .feat { grid-template-columns: 1fr; gap: 40px; }
   #review .copy { position: static; }
-  .app-body { grid-template-columns: 1fr; }
-  .app-side { display: none; }
-  .layer { padding: 24px 0 0 24px; }
   .fit-facts, .facts3 { grid-template-columns: 1fr; }
   .fit-facts div + div, .facts3 > div + div { padding-left: 0; border-left: 0; }
   .tabbar { grid-template-columns: 1fr 1fr; }
   .tab + .tab { border-left: 0; padding-left: 0; }
-  .three { grid-template-columns: 1fr; }
   .promises { grid-template-columns: 1fr 1fr; }
   .promises div:nth-child(3) { border-left: 0; padding-left: 0; }
 }

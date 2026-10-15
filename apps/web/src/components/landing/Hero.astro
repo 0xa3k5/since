@@ -1,4 +1,6 @@
 ---
+import AppShot from './AppShot.astro';
+import review from '../../assets/app/review-dark.png';
 import { PRODUCT_NAME, DOWNLOAD_URL, PRICE_NOW, SHOW_PRICING, TRIAL_DAYS } from '../../config';
 import AppleGlyph from '../AppleGlyph.astro';
 ---
@@ -13,46 +15,14 @@ import AppleGlyph from '../AppleGlyph.astro';
   <p class="small">{SHOW_PRICING && `${TRIAL_DAYS} days free · `}No account · Local-first · macOS 12+</p>
 
   <div class="hero-shot">
-    <div class="app" role="img" aria-label={`${PRODUCT_NAME} Review screen: catch-up card, Stuck and Ready to merge`}>
-      <div class="app-top"><span class="dots"><i></i><i></i><i></i></span>gitlanes · main <span style="margin-left:auto">⌘K</span></div>
-      <div class="app-body">
-        <div class="app-side">
-          <span class="on">Review <span>⌘1</span></span><span>Map <span>⌘2</span></span><span>Commit <span>⌘3</span></span><span>Stashes <span>⌘4</span></span><span>Worktrees <span>⌘8</span></span>
-        </div>
-        <div class="app-main">
-          <div class="card">
-            <div class="grp-h"><span>Since your checkpoint · <span style="font-family:var(--mono)">a1b2c3d</span> · Tuesday</span><span>Mark caught up ⇧C</span></div>
-            <div class="counts"><span><b data-hero-merged>21</b>merged</span><span><b style="color:var(--red)">2</b>stuck</span><span><b style="color:var(--green)">3</b>ready to merge</span><span class="tag green">main CI ✓</span></div>
-            <div style="margin-top:12px; display:grid; gap:4px; font-size:12.5px">
-              <span>WEB-142 · New onboarding <span class="muted">· 4 PRs</span></span>
-              <span>API-88 · Rate limits <span class="muted">· 7 PRs</span></span>
-              <span>apps/web <span class="muted">· 3 PRs</span></span>
-              <span class="muted">+ 7 more ▸</span>
-            </div>
-          </div>
-          <div>
-            <p class="grp-h">Stuck · 2</p>
-            <div class="row"><span class="num">#118</span><span>Show conflicting files for a stuck PR</span><span class="tag red">conflict</span><span class="why">conflicts with main in review.js (changed in #117)</span></div>
-            <div class="row"><span class="num">#115</span><span>Restyle review header, buttons and key bar</span><span class="tag red">CI ✗</span><span class="why">test/review-keys.test.js failed</span></div>
-          </div>
-          <div>
-            <p class="grp-h"><span>Ready to merge · 3</span><span>Plan merge ⇧P</span></p>
-            <div class="row"><span class="num">#121</span><span>Show reviewers, bot authors and draft on PRs</span><span class="tag green">approved</span></div>
-            <div class="row"><span class="num">#120</span><span>Collapse the catch-up card when caught up</span><span class="tag green">approved</span></div>
-            <div class="row"><span class="num">#119</span><span>Medium weights, no all-caps captions</span><span class="tag green">approved</span></div>
-          </div>
-          <div class="collapsed"><span>In progress · 4 ▸</span><span>Everything else · 38 ▸</span><span>12 finished · Clean up ▸</span></div>
-        </div>
-      </div>
-    </div>
+    <AppShot src={review} eager alt={`${PRODUCT_NAME} Review: the catch-up card with merged, stuck and ready counts, then Stuck and Ready to merge`} />
   </div>
 </section>
 
 <script>
-  // The hero number scrambles, lands on a new count (single digits about 1 in 10) and updates the
-  // screenshot's merged count; about every 2.3 s. Static under reduced motion.
+  // The hero number scrambles and lands on a new count (single digits about 1 in 10), about every
+  // 2.3 s. Static under reduced motion.
   const g = document.querySelector<HTMLElement>('[data-glitch]');
-  const card = document.querySelector<HTMLElement>('[data-hero-merged]');
   if (g && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
     const rnd = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
     const pick = () => { const r = Math.random(); return r < .1 ? rnd(5, 9) : r < .7 ? rnd(12, 29) : rnd(30, 48); };
@@ -64,7 +34,6 @@ import AppleGlyph from '../AppleGlyph.astro';
       for (let i = 0; i < 14; i++) { await wait(55); show(rnd(10, 99)); }
       show(t);
       g.classList.remove('scr');
-      if (card) card.textContent = String(t);
     };
     (async () => {
       await wait(900);

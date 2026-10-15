@@ -1,4 +1,6 @@
 ---
+import AppShot from './AppShot.astro';
+import pr from '../../assets/app/review-pr-dark.png';
 ---
 <section class="s wrap rule fs" id="review" data-name="Review" aria-labelledby="rv-h">
   <div class="feat">
@@ -11,26 +13,6 @@
         <li>Approve <kbd>A</kbd>, request changes <kbd>C</kbd>, merge <kbd>M</kbd></li>
       </ul>
     </div>
-    <div class="app lit-shot" role="img" aria-label="Reviewing PR #121: two of three files ticked, the diff since your last look, and Request changes, Approve and Merge">
-      <div class="app-top"><span class="dots"><i></i><i></i><i></i></span>#121 · Show reviewers on PRs <span style="margin-left:auto" class="small">agent/web-307 → main</span></div>
-      <div class="review-split">
-        <div class="review-files">
-          <p class="grp-h">3 files · 1 changed since you looked</p>
-          <div class="row"><span class="chk on">✓</span><span>pr-list.js</span></div>
-          <div class="row sel"><span class="chk"></span><span>review-pane.js</span><span class="tag warn">new</span></div>
-          <div class="row"><span class="chk on">✓</span><span>styles.css</span></div>
-        </div>
-        <div class="app-main" style="gap:12px">
-          <div class="diff">
-            <div class="hd"><span>review-pane.js · since your last look</span><span>V reviewed</span></div>
-            <div>{"   const people = pr.reviewers ?? [];"}</div>
-            <div class="del">{"-  row.append(names(people));"}</div>
-            <div class="add">{"+  row.append(avatars(people, { max: 3 }));"}</div>
-            <div class="add">{"+  if (pr.isDraft) row.append(tag('draft'));"}</div>
-          </div>
-          <div class="sheet-actions"><span class="small" style="margin-right:auto">CI ✓ · 1 approval</span><span class="btn btn-sm">Request changes <kbd>C</kbd></span><span class="btn btn-sm">Approve <kbd>A</kbd></span><span class="btn btn-sm btn-primary">Merge <kbd style="color:inherit;border-color:currentColor;background:transparent">M</kbd></span></div>
-        </div>
-      </div>
-    </div>
+    <AppShot src={pr} alt="A pull request open next to the Review list: its files, some ticked as reviewed, and the diff" />
   </div>
 </section>
