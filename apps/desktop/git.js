@@ -1646,7 +1646,9 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
     if (!since.has(mb)) {
       const rows = baseRows.slice(0, rowAt.get(mb) ?? baseRows.length);
       // Subjects only of squash-merged PRs ("… (#12)"): plain subjects like "fix tests" repeat.
-      since.set(mb, { subjects: new Set(rows.filter((r) => /\(#\d+\)\s*$/.test(r.subject)).map((r) => plainSubject(r.subject))), keys: `\n${rows.map((r) => r.subject).join('\n').toUpperCase()}` });
+      const subjects = new Map();
+      for (const r of rows) if (/\(#\d+\)\s*$/.test(r.subject) && !subjects.has(plainSubject(r.subject))) subjects.set(plainSubject(r.subject), r.sha);
+      since.set(mb, { rows, subjects, keys: `\n${rows.map((r) => r.subject).join('\n').toUpperCase()}` });
     }
     return since.get(mb);
   };
@@ -1669,8 +1671,10 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
     const base = newer(l.mergeBase);
     if (pr) { l.done = { reason: 'pr', pr: pr.number }; l.prTitle = pr.title || null; }
     else if (l.merged) return;
-    else if (key && (base.keys.includes(`(${key})`) || base.keys.includes(`\n${key}:`))) l.done = { reason: 'key', key };
-    else if (subject.length >= 10 && base.subjects.has(subject)) l.done = { reason: 'subject' };
+    else if (key && (base.keys.includes(`(${key})`) || base.keys.includes(`\n${key}:`))) {
+      const row = base.rows.find((r) => { const s = r.subject.toUpperCase(); return s.includes(`(${key})`) || s.startsWith(`${key}:`); });
+      l.done = { reason: 'key', key, ...squashOf(row) };
+    } else if (subject.length >= 10 && base.subjects.has(subject)) l.done = { reason: 'subject', ...squashOf(baseRows[rowAt.get(base.subjects.get(subject))]) };
     else if (l.mergeBase) open.push(l);
   });
   if (!open.length) return;
@@ -1680,7 +1684,7 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
   const ids = await patchIds(cwd, await run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${lines.join('\n')}\n` }));
   const rest = open.filter((l) => {
     if (!baseIds.has(ids.get(l.head))) return true;
-    l.done = { reason: 'net-patch' };
+    l.done = { reason: 'net-patch', sha: baseIds.get(ids.get(l.head)) };
     return false;
   });
   if (!rest.length || !baseTree || !(await canForecast(cwd))) return;
@@ -1738,6 +1742,16 @@ async function mapLimit(items, n, fn) {
 }
 
 // Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
+// The base commit a key or subject match points at: its sha and, for a squash-merged PR ("… (#12)"), the number.
+function squashOf(row) {
+  if (!row) return {};
+  const m = /\(#(\d+)\)\s*$/.exec(row.subject);
+  return m ? { sha: row.sha, pr: Number(m[1]) } : { sha: row.sha };
+}
+
+// patch id → newest commit with it, from patchIds over a newest-first log.
+const newestBy = (m) => { const out = new Map(); for (const [sha, id] of m) if (!out.has(id)) out.set(id, sha); return out; };
+
 async function patchIds(cwd, diff) {
   if (!diff.trim()) return new Map();
   const out = await run(cwd, ['patch-id', '--stable'], { input: diff });
@@ -1831,7 +1845,7 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
   // matches a base commit's patch (squash), or whose every commit has a patch-equivalent commit
   // on base (`git cherry`; rebase-merged).
   const candidates = ahead.filter((l) => l.complete);
-  let baseTrees = new Set(); let baseIds = new Set(); let laneIds = new Map(); let squashIds = new Map();
+  let baseTrees = new Set(); let baseIds = new Map(); let laneIds = new Map(); let squashIds = new Map();
   let baseRows = []; let baseTree = null;
   if (ahead.length) {
     // Base side is bounded by count only: excluding lane tips would hide all of base whenever a
@@ -1848,7 +1862,7 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
     baseTrees = new Set(rows.map((r) => r[1]));
     baseTree = rows[0]?.[1] || null;
     baseRows = rows.map((r) => ({ sha: r[0], subject: r[2] || '' }));
-    [baseIds, laneIds, squashIds] = await Promise.all([patchIds(cwd, baseDiff).then((m) => new Set(m.values())), patchIds(cwd, laneDiff), patchIds(cwd, squashDiff)]);
+    [baseIds, laneIds, squashIds] = await Promise.all([patchIds(cwd, baseDiff).then(newestBy), patchIds(cwd, laneDiff), patchIds(cwd, squashDiff)]);
   }
 
   for (const l of list) {
@@ -1856,7 +1870,10 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
     if (l.ahead === 0 && l.behind > 0) l.merged = 'ancestor';
     else if (l.ahead > 0 && l.complete && !l.isBase) {
       const ids = l.ahead <= CHERRY_MAX ? l.commits.map((c) => laneIds.get(c)).filter(Boolean) : [];
-      if (baseTrees.has(l.tree) || baseIds.has(squashIds.get(l.head)) || (ids.length && ids.every((id) => baseIds.has(id)))) l.merged = 'squash';
+      if (baseTrees.has(l.tree) || baseIds.has(squashIds.get(l.head)) || (ids.length && ids.every((id) => baseIds.has(id)))) {
+        l.merged = 'squash';
+        l.mergedAs = baseIds.get(squashIds.get(l.head)) || null; // the base commit with the same change, when one matches
+      }
     }
   }
   await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree });
@@ -1887,7 +1904,9 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
       behind: l.behind,
       changes,
       merged,
-      // Shipped: { reason: 'merged' | 'pr' | 'key' | 'subject' | 'net-patch', pr? } or null. A done
+      mergedAs: l.mergedAs || null,
+      // Shipped: { reason: 'merged' | 'pr' | 'key' | 'subject' | 'net-patch', pr?, key?, sha? } or null
+      // (sha: the base commit with the same key, subject or change; pr: its pull request number). A done
       // lane is "Merged" in the list: never "needs you", never forecast. `changes` still shows
       // uncommitted files on it.
       done: l.netEmpty || l.noWork ? null : l.done || (merged ? { reason: 'merged' } : null),
