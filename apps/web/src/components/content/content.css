@@ -1,4 +1,4 @@
-/* Shared by /features, /shortcuts, /changelog, /docs and /press. Colours come only from @gitlanes/tokens. */
+/* Shared by /features, /shortcuts, /changelog and /docs. Colours come only from @gitlanes/tokens. */
 
 .content-page { padding-top: 72px; }
 .page-head { max-width: 760px; }

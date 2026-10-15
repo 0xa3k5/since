@@ -1,6 +1,5 @@
 // Landing page questions. Answers are HTML; the FAQ JSON-LD on / uses the same list with the tags stripped.
 import { PRODUCT_NAME } from '../../config';
-import { MACS_PER_LICENCE } from '../commerce/links';
 
 export type Question = { q: string; a: string };
 
@@ -11,7 +10,6 @@ export const FAQ: Question[] = [
   { q: 'What about the Git client I use now?', a: `Keep it. ${PRODUCT_NAME} uses your system git and the same repo folder, so there's nothing to import or migrate. Use both.` },
   { q: 'Does it send my code anywhere?', a: `No. ${PRODUCT_NAME} is local-first: everything is worked out on your Mac, with your git. It talks to GitHub only when you turn pull request features on. AI commit messages are optional and can run fully on your Mac. Activating a licence needs a connection once.` },
   { q: 'What happens when the trial ends?', a: `${PRODUCT_NAME} stays open in read-only mode. You can still browse history and diffs, but anything that changes a repository waits until you enter a licence key. Nothing is deleted.` },
-  { q: 'How many Macs can I use it on?', a: `One licence covers up to ${MACS_PER_LICENCE} of your Macs at once.` },
   { q: 'Windows or Linux?', a: 'Not yet. macOS 12 or later, Apple silicon and Intel. The merge plan and conflict forecast need git 2.38 or later.' },
 ];
 

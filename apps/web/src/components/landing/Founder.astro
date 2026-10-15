@@ -1,8 +1,8 @@
 ---
 import { PRODUCT_NAME } from '../../config';
 
-/** The signature's name. Not public yet, so the note is signed by role until it's set. */
-const FOUNDER_NAME: string | null = null;
+/** The note is signed with initials only. */
+const FOUNDER_NAME = 'AK';
 ---
 <section class="s wrap rule founder" id="why" aria-labelledby="why-h">
   <div class="founder-in">
@@ -10,6 +10,6 @@ const FOUNDER_NAME: string | null = null;
     <p>My agents were writing the code, opening the PRs, and sometimes merging them too. I couldn't keep up. I lost track of what was actually in my own repo, and the easy way out was to stop reading and just trust them.</p>
     <p>I didn't want that. I wanted the agents working for me, with me still in charge of what ships. So I built a Git client for that job.</p>
     <p>Now I open {PRODUCT_NAME} and I know what happened, where I'm needed, and what's still being worked on. When I need to do something by hand, it's still a full Git client underneath.</p>
-    <p class="sig">— {FOUNDER_NAME ? `${FOUNDER_NAME}, who makes ${PRODUCT_NAME}` : `The person who makes ${PRODUCT_NAME}`}</p>
+    <p class="sig">— {FOUNDER_NAME}</p>
   </div>
 </section>

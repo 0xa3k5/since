@@ -88,7 +88,7 @@ const checkedLabel = new Date(c.checked + 'T00:00:00Z').toLocaleDateString('en-G
 
     <section id="sources" class="sources">
       <h2>Sources</h2>
-      <p class="muted">All accessed <time datetime={c.checked}>{checkedLabel}</time>. “Unverified” marks a claim we could not confirm on the vendor’s own pages. Spot an error? <a href="/contact">Tell us</a> and we’ll fix it within a week.</p>
+      <p class="muted">All accessed <time datetime={c.checked}>{checkedLabel}</time>. “Unverified” marks a claim we could not confirm on the vendor’s own pages.</p>
       <ol>
         {c.sources.map((s) => (
           <li id={`src-${s.id}`}>

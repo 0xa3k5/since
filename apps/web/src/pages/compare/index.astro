@@ -70,7 +70,7 @@ const checkedLabel = new Date(CHECKED + 'T00:00:00Z').toLocaleDateString('en-GB'
 
     <section id="sources" class="sources">
       <h2>Sources</h2>
-      <p class="muted">All accessed <time datetime={CHECKED}>{checkedLabel}</time>. Spot an error? <a href="/contact">Tell us</a> and we’ll fix it within a week.</p>
+      <p class="muted">All accessed <time datetime={CHECKED}>{checkedLabel}</time>.</p>
       <ol>
         {sources.map((s) => <li id={`src-${s.key}`}>{s.title}: <a href={s.url} rel="nofollow noopener">{s.url}</a> <span class="muted">(accessed {CHECKED})</span></li>)}
       </ol>
