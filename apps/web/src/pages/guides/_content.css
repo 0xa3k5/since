@@ -67,6 +67,8 @@
 .compare sup { margin-left: 2px; font-size: 11px; }
 .compare sup a { text-decoration: none; }
 .compare.wide td { width: auto; }
+.compare.wide { min-width: 0; }
+.compare caption { text-align: left; }
 .note { margin: 10px 0 0; font-size: 13px; color: var(--text-3); }
 
 .diffs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -94,4 +96,6 @@
 @media (max-width: 760px) {
   .choose, .diffs, .related { grid-template-columns: 1fr; }
   .in-app { padding: 22px 18px 18px; }
+  .compare th, .compare td { padding: 10px 12px; }
+  .compare.wide tbody th { width: 34%; }
 }
