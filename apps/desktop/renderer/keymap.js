@@ -193,6 +193,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.details', 'Show or hide the row’s details', 'd'),
   c('lanes', null, 'lanes.stages', 'Open or close In progress', 'e'),
   c('lanes', null, 'lanes.mergeReady', 'Squash-merge every pull request ready to merge', 'Shift+M'),
+  c('lanes', null, 'lanes.mergePlan', 'Plan merge: merge the ready pull requests in an order with no conflicts', 'Shift+P'),
   c('lanes', null, 'lanes.conflicts', 'Everything else, predicted conflicts only', 'c'),
   c('lanes', null, 'lanes.review', 'Review the pull request, or the branch', 'r'),
   c('lanes', null, 'lanes.merge', 'Merge the pull request, or merge and tidy the branch', 'm'),

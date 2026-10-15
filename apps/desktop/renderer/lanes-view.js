@@ -44,7 +44,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
 // catchup: { load, mark } for the catch-up card (app:catchup, app:catchup-mark); null leaves it out.
-export function lanesView({ catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, actions = () => [], all = false, place = null }) {
+export function lanesView({ catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last PR load
   let inboxFailed = false;
@@ -423,7 +423,8 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
         const collapsed = COLLAPSED.has(s.id) && !opened.has(s.id);
         if (COLLAPSED.has(s.id)) {
           rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, `${s.label} · ${rs.length} ${collapsed ? '▸' : '▾'}`));
-        } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, `${s.label} · ${rs.length}`));
+        } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, `${s.label} · ${rs.length}`,
+          s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.catchup-stop', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
         if (collapsed) continue;
         if (!rs.length && loaded && !prsLoading) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
@@ -461,7 +462,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     empty.hidden = !empty.textContent;
     const many = readyPrs().length;
     if (walking) { hint.textContent = 'J/K Next and previous · ↵ Show in Map · R Read the diff · Esc Done'; return; }
-    hint.textContent = `Space Primary button · ↵ Open · R Review${pane ? ' (Esc back)' : ''} · M Merge${pane && prsOn() ? ' · ⇧A Approve · ⇧X Close · W Check out · ⇧O GitHub' : ''} · D Details · E In progress · S Everything else${all ? ` · A Agent-made only${forecastOk ? ' · C Conflicts only' : ''}` : ''} · J/K Move · / Filter${many > 1 ? ' · ⇧M Merge all ready' : ''}`;
+    hint.textContent = `Space Primary button · ↵ Open · R Review${pane ? ' (Esc back)' : ''} · M Merge${pane && prsOn() ? ' · ⇧A Approve · ⇧X Close · W Check out · ⇧O GitHub' : ''} · D Details · E In progress · S Everything else${all ? ` · A Agent-made only${forecastOk ? ' · C Conflicts only' : ''}` : ''} · J/K Move · / Filter${many > 1 ? ' · ⇧M Merge all ready' : ''}${many && canPlan() ? ' · ⇧P Plan merge' : ''}`;
   }
 
   // Ready-to-merge PRs whose primary button is Merge: ⇧M merges them all after one confirmation.
@@ -470,6 +471,19 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     const prs = readyPrs();
     if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed (or none), and no conflicts.' });
     onMergeReady(prs, inbox?.remote);
+  }
+
+  // Merge plan (merge-plan-view.js): on git 2.38+ with pull requests on. With them off nothing is
+  // ever ready, so there's no plan for local branches.
+  const canPlan = () => Boolean(onMergePlan && prsOn() && forecastOk && inbox?.remote);
+  function mergePlan() {
+    if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : 'Merge plan needs git 2.38 or later');
+    const all = readyPrs();
+    if (!all.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed (or none), and no conflicts.' });
+    const to = all[0].base;
+    const ready = all.filter((p) => p.base === to);
+    const others = (inbox?.prs || []).filter((p) => p.base === to && !ready.some((x) => x.number === p.number));
+    onMergePlan({ ready, others, base: to, remote: inbox.remote });
   }
 
   function toggleStage(id) {
@@ -569,6 +583,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.stages') toggleStages();
     else if (id === 'lanes.mergeReady') mergeReady();
+    else if (id === 'lanes.mergePlan') mergePlan();
     else if (!x) return false;
     else if (l) {
       if (id === 'lanes.step') { const [a] = laneActions(l); if (a) run(a, l); else toast(`Nothing needs doing on ${laneTitle(l)}`); }
@@ -688,5 +703,5 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     select(r.key);
     act('sendBack', r);
   }
-  return { el, walk: () => walk(), markCaughtUp: () => card?.markCaughtUp(), pickSince: () => card?.pickSince(), refresh, stuckSelection, sendBack, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  return { el, walk: () => walk(), markCaughtUp: () => card?.markCaughtUp(), pickSince: () => card?.pickSince(), refresh, stuckSelection, sendBack, mergePlan, canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }
