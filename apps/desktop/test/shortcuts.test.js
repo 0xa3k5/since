@@ -17,7 +17,7 @@ test('rows show the current keys, every binding and both keys of a pair', async 
   const { shortcutSections } = await load();
   const s = shortcutSections({ mac: true });
   assert.deepEqual(find(s, 'help.shortcuts').keys, [['⌘', '/']]);
-  assert.deepEqual(find(s, 'view.commit').keys, [['⌘', '2'], ['G', 'C']]);
+  assert.deepEqual(find(s, 'view.commit').keys, [['⌘', '3'], ['G', 'C']]);
   assert.deepEqual(find(s, 'map.next').keys, [['↓', '↑']]);
   assert.deepEqual(find(s, 'map.prev').ids, ['map.next', 'map.prev']);
   assert.deepEqual(find(shortcutSections({ mac: false }), 'view.cycleTheme').keys, [['Ctrl', '⌥', '⇧', 'T']]);
