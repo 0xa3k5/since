@@ -171,6 +171,8 @@ const reads = {
   checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
   branchReview: (s, branch, base) => git.branchReview(s.repo.root, branch, base),
+  // Review (AK-305): the files and hunks that conflict when `head` merges into `base` (merge-tree, read-only).
+  mergeConflicts: (s, base, head) => git.mergeConflictHunks(s.repo.root, base, head),
   // Merge and tidy: the plan, with the squash commit message drafted from the branch's commits.
   mergeLanePlan: async (s, branch, base) => {
     const plan = await git.mergeLanePlan(s.repo.root, branch, base);

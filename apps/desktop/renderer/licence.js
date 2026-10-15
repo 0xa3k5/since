@@ -88,7 +88,7 @@ export async function openLicence({ blocked = false } = {}) {
     box.replaceChildren(
       h('div.dialog-head', null,
         h('div.licence-mark', null, icon(s.mode === 'licensed' ? 'check' : s.mode === 'unverified' || s.mode === 'revoked' ? 'warning' : 'key', 16)),
-        s.profile !== 'production' ? h('span.licence-profile', { title: 'Payments go to the test store in this build' }, `${s.profile} store`) : null,
+        s.profile !== 'production' ? h('span.licence-profile', { title: 'Payments go to the test store in this build' }, `${s.profile[0].toUpperCase()}${s.profile.slice(1)} store`) : null,
         h('div.dialog-title', { id: 'licence-title' }, title),
         h('div.dialog-desc', null, blocked && !s.canMutate ? 'That change wasn’t made. ' + desc : desc)),
       h('div.dialog-body', null,

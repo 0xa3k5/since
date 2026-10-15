@@ -116,7 +116,7 @@ export function cleanupView({ load, run, runRemote, age, setAge, onProgress, onD
       const box = h('input', { type: 'checkbox', checked: all, disabled: !open.length || busy, tabIndex: -1, 'aria-label': `Tick all in ${group.label}`, onchange: () => tickGroup(open, !all) });
       box.indeterminate = some && !all;
       rows.push(h('label.lanes-group.cleanup-group' + (group.warn ? '.warn' : ''), { role: 'presentation', title: group.detail },
-        box, group.warn ? icon('warning', 12) : null, group.id === 'old' ? `${group.label} for ${days()}+ days` : group.label, h('span.muted', null, ` · ${ls.length}`)));
+        box, group.warn ? icon('warning', 12) : null, group.id === 'old' ? `${group.label} for ${days()}+ days` : group.label, ' ', h('span.lanes-count', null, String(ls.length))));
       rows.push(...ls.map(row));
     }
     list.replaceChildren(...rows);
