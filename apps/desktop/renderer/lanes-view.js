@@ -9,7 +9,7 @@ import * as keymap from './keymap.js';
 // one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
 // merge · N, then lines that open in place: In progress · N ▸, Everything else · N ▸ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
-// "N finished · Clean up". Keyboard-first: ↑/↓ or J/K move, Space runs the row's one primary
+// "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
 // button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
 // uncommitted changes, Show in Map), E opens In progress, S opens Everything else (A agent lanes
 // only, C predicted conflicts only), typing filters every row.
@@ -468,7 +468,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     // A few keys with short labels; everything else is in ⌘K.
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     hint.replaceChildren(...(walking
-      ? [k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Done')]
+      ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Done')]
       : [k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'),
         pane ? k(['Esc'], 'Back') : many > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
       k(keymap.keys('view.palette'), 'All commands', '.all'));
