@@ -566,14 +566,14 @@ function renderShell() {
 let startView = 'lanes';
 
 const VIEWS = [
-  { id: 'lanes', label: 'Review', icon: 'lanes', key: '8' },
-  { id: 'map', label: 'Map', icon: 'map', key: '1' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '2' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '3' },
-  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '4' },
-  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '5' },
-  { id: 'config', label: 'Config', icon: 'config', key: '6' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '7' },
+  { id: 'lanes', label: 'Review', icon: 'lanes', key: '1' },
+  { id: 'map', label: 'Map', icon: 'map', key: '2' },
+  { id: 'commit', label: 'Commit', icon: 'commit', key: '3' },
+  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '4' },
+  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '5' },
+  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '6' },
+  { id: 'config', label: 'Config', icon: 'config', key: '7' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '8' },
 ];
 
 function setView(v) {

@@ -38,7 +38,7 @@ export const US = {
   keyboard: 'Single-key commit actions on the graph (E edit message, S squash, F fixup, R rebase, M merge…), arrow keys to move, ⌘K command menu.',
   history: 'Edit message, squash or fixup with parent, delete a commit, move a branch tip, all by key on the graph. No drag and drop.',
   splitter: 'Yes. Select a commit, press ⇧S and pick the lines that go into each new commit.',
-  worktrees: 'Yes (⌘7): add, switch, open in a new window, lock and remove. Other worktrees’ branches are marked on the graph.',
+  worktrees: 'Yes (⌘8): add, switch, open in a new window, lock and remove. Other worktrees’ branches are marked on the graph.',
   submodulesLfs: 'Yes, both. Submodule status, update and open (⌥⌘B); LFS detection and a list of LFS files (⌥⌘F).',
   conflicts: 'Built-in 3-way merge editor (⌥⌘M), or pick ours or theirs per file. Your own merge tool opens with ⌘⇧M.',
   blame: 'File history and blame (⌘⇧H).',
@@ -129,7 +129,7 @@ export const COMPETITORS: Competitor[] = [
     differences: [
       { title: 'Pay once, keep every update', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, once, with lifetime updates and no renewal. Tower Basic is $69 per user per year.` },
       { title: 'History edits are single keys', body: 'Select a commit and press E, S or F to edit its message, squash or fix it up. You never leave the keyboard or open a rebase editor.' },
-      { title: 'Undo you can read ahead', body: 'The Edit menu names the exact step ⌘Z will undo, and the Snapshots view (⌘4) lists every recorded operation so you can restore the state before any of them.' },
+      { title: 'Undo you can read ahead', body: 'The Edit menu names the exact step ⌘Z will undo, and the Snapshots view (⌘5) lists every recorded operation so you can restore the state before any of them.' },
     ],
     betterChoice: [
       'Tower has pull requests, stacked branches, Graphite and team management. GitLanes has none of these.',
