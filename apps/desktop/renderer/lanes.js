@@ -22,6 +22,7 @@ const RANK = new Map(BUCKETS.map((b, i) => [b.id, i]));
 // Which bucket a lane sorts into. PR fields only exist while pull requests are on.
 export function laneBucket(lane, now = Date.now()) {
   const pr = lane.pr;
+  if (lane.done) return 'idle'; // shipped: never "needs you"
   if (pr?.checks === 'failure') return 'failing';
   if (pr && (pr.review === 'changes' || pr.review === 'required')) return 'review';
   if (lane.conflicts?.length) return 'conflicts';
