@@ -6,7 +6,7 @@ import * as keymap from './keymap.js';
 // Lanes → Clean up: finished branches and worktrees (merged, shipped, remote gone, folder missing),
 // grouped by why (cleanup.js), removed in bulk. The local part (worktrees and branches) is one
 // undo step; deleting branches on the remote is a separate opt-in tick per lane and can't be
-// undone. Keyboard-first: J/K move, Space ticks, A ticks everything clean, R ticks "delete on
+// undone. Keyboard-first: ↑/↓ move, Space ticks, A ticks everything clean, R ticks "delete on
 // remote", ⌘↵ cleans up, Escape goes back to Lanes.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
@@ -46,7 +46,7 @@ export function cleanupView({ load, run, runRemote, age, setAge, onProgress, onD
       progress),
     list,
     empty,
-    h('div.diff-hint.wt-hint', null, `Space Tick · A Tick all · R Also delete on remote · J/K Move · ${mod}↵ Clean up · Esc Back`),
+    h('div.diff-hint.wt-hint', null, `Space Tick · A Tick all · R Also delete on remote · ↑/↓ Move · ${mod}↵ Clean up · Esc Back`),
   );
 
   daysInput.addEventListener('change', () => {

@@ -41,7 +41,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
       h('div.review-tools', null, deltaBtn, header ? null : !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
       pr && !header ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
     listEl,
-    embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
+    embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · ↑/↓ Move · Esc Back`),
   );
   const main = h('div.quick-main', null, loading('Loading the branch…'));
   const el = h('div.quick.review', { tabIndex: 0 }, side, main);

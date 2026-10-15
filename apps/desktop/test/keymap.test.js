@@ -52,6 +52,18 @@ test('macOS-reserved keys are marked not rebindable', async () => {
   assert.ok(!command('repo.fetch').reserved);
 });
 
+// AK rule: navigation is arrow keys only. J/K (or H/L) must never move to the next or previous item.
+test('no next/previous command is bound to a vim letter', async () => {
+  const { COMMANDS, bindings, parse } = await load();
+  for (const mac of [true, false]) {
+    for (const cmd of COMMANDS.filter((c) => /\.(next|prev)/.test(c.id))) {
+      for (const b of bindings(cmd.id, mac)) {
+        for (const step of parse(b)) assert.ok(!/^[hjkl]$/i.test(step.key), `${cmd.id} is bound to ${b}`);
+      }
+    }
+  }
+});
+
 // Every command id the app's source refers to must exist, and every command must be used somewhere.
 const SOURCES = ['main.js', ...fs.readdirSync(path.join(__dirname, '../renderer')).filter((f) => f.endsWith('.js') && f !== 'keymap.js').map((f) => `renderer/${f}`)];
 const source = SOURCES.map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
