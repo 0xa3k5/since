@@ -9,7 +9,7 @@
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'additions', 'deletions', 'changedFiles'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'additions', 'deletions', 'changedFiles'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -87,6 +87,8 @@ function normalizePr(p) {
     number: p.number,
     title: text(p.title),
     branch: text(p.headRefName),
+    // The head commit, for Merge plan's simulated merges; null when GitHub didn't send one.
+    head: /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(p.headRefOid) ? p.headRefOid : null,
     headOwner: text(p.headRepositoryOwner?.login, 200),
     base: text(p.baseRefName),
     draft: p.isDraft === true,
@@ -331,6 +333,15 @@ async function closePr({ enabled, remotes, number, body, dirs = searchDirs(), ex
   return { number };
 }
 
+// Merge plan: the squash commit a merged PR left on its base, so the next merge can check the
+// base moved only by that. null while GitHub hasn't recorded one.
+async function mergedCommit({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const p = parseJson(await ghRun(bin, ['pr', 'view', prNumber(number), '--repo', repo, '--json', 'state,mergeCommit'], { dirs, exec }));
+  const oid = text(p.mergeCommit?.oid, 64).toLowerCase();
+  return { state: text(p.state, 32).toLowerCase(), commit: /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(oid) ? oid : null };
+}
+
 // Send back (renderer/send-back.js): the failing runs of a PR, from `gh pr view --json
 // statusCheckRollup` (a failed check run's detailsUrl is …/actions/runs/<run>/job/<job>; commit
 // statuses and other CI systems have no run to read and are skipped), at most 3, in GitHub's order.
@@ -549,4 +560,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

@@ -624,6 +624,65 @@ handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str
 // an explicit click in the sheet, and only while pull requests are on (target() checks).
 handle('app:pr-failed-log', prAction((t) => github.failedLog(t)));
 handle('app:pr-comment', prAction((t, o) => github.commentPr({ ...t, body: check.str(o?.body ?? '', 'comment') })));
+// Merge plan (renderer/merge-plan.js, Review's Ready to merge). Planning: `gh pr view` for each
+// ready PR (is it still ready, and where is its head), then git fetches the base and any PR heads
+// missing here into FETCH_HEAD only (no ref moves) and simulates the merges locally with
+// merge-tree. Merging: before each PR, `gh pr view` and `git ls-remote` check nothing changed since
+// the plan, then `gh pr merge --squash`, then `gh pr view` for the squash commit the base should be
+// at next. Only while pull requests are on, and remote merges can't be undone.
+const mergePlan = require('./renderer/merge-plan.js');
+const planErr = (message, code = 'gh-failed') => Object.assign(new Error(message), { code });
+const oidArg = (v, w) => check.oid(v, w);
+async function planTarget(e, remoteName, base) {
+  const s = session(e);
+  if (!(await prEnabled(s.repo.root))) throw planErr('Pull requests are off for this repository.', 'gh-off');
+  if (!(await git.canForecast(s.repo.root))) throw planErr('Merge plan needs git 2.38 or later.');
+  const remote = check.knownRemote(await git.getRemotes(s.repo.root), remoteName);
+  return { s, remote, base: check.rev(base, 'base branch'), t: { enabled: true, remotes: [remote] } };
+}
+async function remoteBase(s, remote, base) {
+  const out = await r(s, ['ls-remote', '--', remote.name, `refs/heads/${base}`]);
+  const oid = out.split(/\s/)[0];
+  if (!/^[0-9a-f]{40,64}$/.test(oid)) throw planErr(`${base} isn’t on ${remote.name}.`);
+  return oid;
+}
+handle('app:merge-plan', aiCall(async (e, remoteName, baseName, ready, others) => {
+  const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
+  if (!Array.isArray(ready) || !Array.isArray(others)) throw new check.IpcArgError('Invalid merge plan');
+  const numbers = ready.slice(0, mergePlan.MAX_READY).map((n) => check.prNumber(n));
+  const rest = others.slice(0, mergePlan.MAX_OTHERS).map((o) => check.obj(o, 'open pull request', { number: check.prNumber, head: oidArg }));
+  const has = async (oid) => Boolean((await r(s, ['cat-file', '-t', oid], { allowCodes: [0, 1, 128] }).catch(() => '')).trim() === 'commit');
+  const infos = await Promise.all(numbers.map((number) => github.mergeInfo({ ...t, number }).catch((err) => ({ error: err.message }))));
+  const prs = [], skipped = [];
+  infos.forEach((info, i) => {
+    if (info.error || !info.headOid || !mergePlan.isReady(info)) skipped.push({ number: numbers[i], reason: info.error || info.gate?.hard || info.gate?.soft?.[0] || 'It isn’t approved.' });
+    else prs.push({ number: numbers[i], head: info.headOid, snap: { head: info.headOid, checks: info.checks, review: info.review } });
+  });
+  await r(s, ['fetch', '--no-tags', '--', remote.name, `refs/heads/${base}`]);
+  const baseSha = (await r(s, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
+  const missing = [];
+  for (const p of [...prs, ...rest]) if (!(await has(p.head))) missing.push(`refs/pull/${p.number}/head`);
+  if (missing.length) await r(s, ['fetch', '--no-tags', '--', remote.name, ...missing]);
+  const known = [];
+  for (const o of rest) if (await has(o.head)) known.push(o);
+  for (const p of prs.splice(0)) { if (await has(p.head)) prs.push(p); else skipped.push({ number: p.number, reason: 'Couldn’t fetch its head commit.' }); }
+  const plan = await mergePlan.planOrder({ prs, others: known, baseSha, merge: (tip, head) => git.simulateSquash(s.repo.root, tip, head) });
+  return { ...plan, base, baseSha, skipped, snapshots: Object.fromEntries(prs.map((p) => [p.number, p.snap])) };
+}));
+// One PR of a plan: { snap, baseSha } from the plan (or the previous merge's squash commit).
+// → { stop: reason } when something changed, else { merged: true, commit }.
+handle('app:merge-plan-merge', aiCall(async (e, remoteName, baseName, number, o) => {
+  const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
+  check.prNumber(number);
+  const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
+  check.obj(o, 'merge step', { baseSha: oidArg, snap: (v, w) => check.obj(v, w, { head: oidArg, checks: nullable, review: nullable }) });
+  const why = mergePlan.changedSince(o.snap, await github.mergeInfo({ ...t, number }));
+  if (why) return { stop: `#${number}: ${why}` };
+  if ((await remoteBase(s, remote, base)) !== o.baseSha) return { stop: `${base} moved on GitHub since the plan` };
+  await github.mergePr({ ...t, number, method: 'squash' });
+  const m = await github.mergedCommit({ ...t, number }).catch(() => ({ commit: null }));
+  return { merged: true, commit: m.commit };
+}));
 // Send back's templates (renderer/send-back.js): this repository's, the user-wide default, and
 // the built-in ones, resolved. Saving one with empty text resets it to the next level.
 const sendBack = require('./renderer/send-back.js');
