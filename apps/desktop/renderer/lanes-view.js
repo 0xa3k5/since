@@ -78,7 +78,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
   const empty = h('div.empty');
   const title = h('h1', null, 'Review');
   const lede = h('p.muted');
-  const hint = h('div.diff-hint.wt-hint');
+  const hint = h('div.review-hints');
   const cleanupBtn = onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null;
   const left = h('div.page.flush.lanes', null,
     h('div.page-head', null,
@@ -238,7 +238,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     const open = details.has(r.key);
     const at = r.pr?.updatedAt ? Date.parse(r.pr.updatedAt) : r.lane?.activity || 0;
     const sub = r.pr
-      ? [`#${r.pr.number}`, r.pr.author, r.branch].filter(Boolean).join(' · ')
+      ? [r.pr.author, r.branch].filter(Boolean).join(' · ')
       : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
     return h('div.list-row.lanes-row.review-row' + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
@@ -247,29 +247,33 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
       icon(r.pr ? 'merge' : r.worktree ? 'worktree' : 'branch', 14),
+      // Two lines: the title, then status tags, who and where, and age. Only the selected row shows
+      // its buttons and why it's stuck.
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title),
+        h('div.list-title', null, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : null, h('span.lanes-name', { title: r.title }, r.title)),
+        h('div.list-sub.review-row-meta', null,
           ...rowBadges(r, { requested: requested() }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
-          r.lane?.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${r.lane.agent.reason}: ${r.lane.agent.match})` }, 'Agent') : null),
-        h('div.list-sub', null, sub),
+          r.lane?.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${r.lane.agent.reason}: ${r.lane.agent.match})` }, 'Agent') : null,
+          sub ? h('span.review-row-sub', null, sub) : null,
+          at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : null),
         r.stage === 'stuck' && reason(r) ? h('div.review-reason', { title: reason(r, 20) }, reason(r)) : null,
         open ? detailsEl(r) : null),
-      r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn', {
-        title: `Send back with a ready-made prompt (${keymap.keys('lanes.sendBack').join(' or ').toUpperCase()})`,
-        onclick: (e) => { e.stopPropagation(); select(r.key); act('sendBack', r); },
-        ondblclick: (e) => e.stopPropagation(),
-      }, 'Send back…') : null,
-      h('button.btn.ghost.review-details-btn', {
-        title: `Details (${keymap.keys('lanes.details').join(' or ').toUpperCase()})`, 'aria-expanded': String(open),
-        onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
-        ondblclick: (e) => e.stopPropagation(),
-      }, open ? 'Details ▾' : 'Details ▸'),
-      h('button.btn.subtle.lanes-step', {
-        title: `${s.label} (${keymap.keys(s.keyId).join(' or ')})`,
-        onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
-        ondblclick: (e) => e.stopPropagation(),
-      }, icon(s.icon, 12), s.label),
-      h('span.lanes-time', { title: at ? fullDate(at / 1000) : '' }, at ? timeAgo(at / 1000) : ''),
+      h('div.review-row-acts', null,
+        r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn', {
+          title: `Send back with a ready-made prompt (${keymap.keys('lanes.sendBack').join(' or ').toUpperCase()})`,
+          onclick: (e) => { e.stopPropagation(); select(r.key); act('sendBack', r); },
+          ondblclick: (e) => e.stopPropagation(),
+        }, 'Send back…') : null,
+        h('button.btn.ghost.review-details-btn', {
+          title: `Details (${keymap.keys('lanes.details').join(' or ').toUpperCase()})`, 'aria-expanded': String(open),
+          onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
+          ondblclick: (e) => e.stopPropagation(),
+        }, open ? 'Details ▾' : 'Details ▸'),
+        h('button.btn.subtle.lanes-step', {
+          title: `${s.label} (${keymap.keys(s.keyId).join(' or ')})`,
+          onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
+          ondblclick: (e) => e.stopPropagation(),
+        }, icon(s.icon, 12), s.label)),
     );
   }
 
@@ -461,8 +465,13 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     empty.textContent = !loaded ? '' : prsLoading ? 'Loading pull requests…' : inboxFailed && prsOn() ? 'Couldn’t load pull requests.' : q && !shown.length ? 'Nothing matches.' : '';
     empty.hidden = !empty.textContent;
     const many = readyPrs().length;
-    if (walking) { hint.textContent = '↑/↓ Next and previous · ↵ Show in Map · R Read the diff · Esc Done'; return; }
-    hint.textContent = `Space Primary button · ↵ Open · R Review${pane ? ' (Esc back)' : ''} · M Merge${pane && prsOn() ? ' · ⇧A Approve · ⇧X Close · W Check out · ⇧O GitHub' : ''} · D Details · E In progress · S Everything else${all ? ` · A Agent-made only${forecastOk ? ' · C Conflicts only' : ''}` : ''} · ↑/↓ Move · / Filter${many > 1 ? ' · ⇧M Merge all ready' : ''}${many && canPlan() ? ' · ⇧P Plan merge' : ''}`;
+    // A few keys with short labels; everything else is in ⌘K.
+    const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
+    hint.replaceChildren(...(walking
+      ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Done')]
+      : [k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'),
+        pane ? k(['Esc'], 'Back') : many > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
+      k(keymap.keys('view.palette'), 'All commands', '.all'));
   }
 
   // Ready-to-merge PRs whose primary button is Merge: ⇧M merges them all after one confirmation.
