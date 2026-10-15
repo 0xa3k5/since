@@ -44,13 +44,11 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
   <div class="kb-console">
     <div class="echo" aria-live="polite"><span class="combo" data-echo-k><kbd>↓</kbd></span><span class="echo-t" data-echo-t>Press a key. The lit keys do something.</span></div>
     <ul class="tries" data-tries>
-      <li data-t="nav"><kbd>↓</kbd>pick a PR</li>
       <li data-t="p"><kbd>P</kbd>send it back</li>
       <li data-t="r"><kbd>R</kbd>review</li>
       <li data-t="plan"><kbd>⇧P</kbd>plan merge</li>
       <li data-t="x"><kbd>X</kbd>clean up</li>
-      <li data-t="undo"><kbd>⌘Z</kbd>undo it</li>
-      <li data-t="pal"><kbd>⌘K</kbd>everything else</li>
+      <li data-t="undo"><kbd>⌘Z</kbd>undo</li>
     </ul>
   </div>
   <div class="board-frame">
