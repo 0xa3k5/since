@@ -2355,14 +2355,14 @@ function startCleanupNow(lane = null) {
   state.cleanup = true;
   renderView();
 }
-const cleanupPrefs = () => loadPref('cleanup', { days: STALE_DAYS });
+const cleanupPrefs = () => ({ on: false, days: STALE_DAYS, ...loadPref('cleanup', {}) });
 function openCleanup() {
   cleanupPage = cleanupView({
     load: () => api.app('lanes-list'),
     run: (items, label) => git('cleanupLanes', items, { __label: label }),
     runRemote: (names) => git('deleteRemoteBranches', names),
-    days: () => cleanupPrefs().days,
-    setDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
+    age: cleanupPrefs,
+    setAge: (v) => savePref('cleanup', { ...cleanupPrefs(), ...v }),
     onProgress: (fn) => api.on('cleanup:progress', fn),
     onDone: refreshAll,
     onUndo: undo,

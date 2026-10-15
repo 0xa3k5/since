@@ -708,6 +708,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .cleanup-progress[hidden] { display: none; }
 .cleanup-group { display: flex; align-items: center; gap: 8px; cursor: default; }
 .cleanup-group input, .cleanup .lanes-row input { accent-color: var(--accent); margin: 0; flex: none; }
+.cleanup-group.warn { color: var(--warn); }
 .cleanup .lanes-row.blocked { opacity: 0.55; }
 .cleanup-remote { flex: none; }
 .cleanup-remote.on { color: var(--red-text); background: var(--red); }

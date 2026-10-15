@@ -68,19 +68,34 @@ async function staleRepo() {
   return { parent, dir };
 }
 
-test('cleanup groups: one per stale category; base, fresh and unborn lanes never show', async () => {
+test('cleanup groups: every finished lane by default; age is an opt-in filter; dirty lanes apart and unticked', async () => {
   const { dir } = await staleRepo();
-  const { groupLanes, preselect, blocked, dirty } = await load();
+  const { groupLanes, preselect, blocked, dirty, reason } = await load();
   const { lanes } = await git.lanes(dir);
   const now = (clock + 60) * 1000;
+  const ids = (gs) => Object.fromEntries(gs.flatMap((x) => x.lanes.map((l) => [l.name, x.group.id])));
+  // Default: no age filter. Finished lanes show whatever their age; fresh, empty and old-but-open don't.
+  assert.deepEqual(ids(groupLanes(lanes, { now })), { merged: 'merged', squashed: 'merged', 'wt-merged': 'mergedWorktree', dirty: 'dirty', missing: 'missing', gone: 'gone' });
   const groups = groupLanes(lanes, { days: 30, now });
-  const of = Object.fromEntries(groups.flatMap((x) => x.lanes.map((l) => [l.name, x.group.id])));
-  assert.deepEqual(of, { merged: 'merged', squashed: 'merged', 'wt-merged': 'mergedWorktree', dirty: 'mergedWorktree', missing: 'missing', gone: 'gone', empty: 'empty', old: 'old' });
+  assert.deepEqual(ids(groups), { merged: 'merged', squashed: 'merged', 'wt-merged': 'mergedWorktree', dirty: 'dirty', missing: 'missing', gone: 'gone', old: 'old' });
   assert.equal(groupLanes(lanes, { days: 90, now }).some((x) => x.group.id === 'old'), false);
-  // Shipped without a merge git can see (a PR merge, a matching subject): offered with the merged ones.
+  assert.equal(groups.at(-1).group.id, 'dirty');
+  assert.ok(groups.at(-1).group.warn);
+  // Shipped without a merge git can see (a PR merge, a matching subject), however old: offered with the merged ones.
   const { cleanupGroup } = await load();
-  assert.equal(cleanupGroup({ name: 'pr', head: 'a'.repeat(40), done: { reason: 'pr', pr: 3 }, merged: null, worktree: null }, { now }), 'merged');
+  const pr = { name: 'pr', head: 'a'.repeat(40), done: { reason: 'pr', pr: 3 }, merged: null, worktree: null, activity: 1 };
+  assert.equal(cleanupGroup(pr, { now }), 'merged');
+  assert.equal(cleanupGroup({ ...pr, worktree: { path: '/w' }, changes: 2 }, { now }), 'dirty');
   const l = byName(groups.flatMap((x) => x.lanes));
+  // Reasons: the PR, the base commit with the same change, a gone remote, a missing folder.
+  assert.equal(reason(pr), 'Merged in #3');
+  const squash = await tip(dir, 'main'); // the squash commit
+  assert.equal(l.squashed.mergedAs, squash);
+  assert.equal(reason(l.squashed), `Same change as ${squash.slice(0, 7)}`);
+  assert.equal(reason(l.gone), 'Remote gone');
+  assert.equal(reason(l.missing), 'Folder missing');
+  assert.equal(reason(l.merged), 'Merged');
+  assert.equal(reason(l.old, { days: 30 }), 'Untouched for 30+ days');
   assert.equal(dirty(l.dirty), 1);
   assert.equal(preselect(l.dirty), false);
   assert.equal(preselect(l['wt-merged']), true);

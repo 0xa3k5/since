@@ -249,9 +249,12 @@ test('lanes: shipped (net patch, key, PR head), titles, unmerged and baseline-on
   await commit(dir, 'z.txt', 'z\n', 'main moves again');
 
   const l = byName(await git.lanes(dir, { prHeads: [{ sha: prHead, number: 9, title: 'Add the p file', branch: 'other-name' }] }));
-  assert.deepEqual(l['agent/eng/wip'].done, { reason: 'net-patch' });
+  assert.equal(l['agent/eng/wip'].done.reason, 'net-patch');
+  assert.match(l['agent/eng/wip'].done.sha, /^[0-9a-f]{40}$/, 'points at the base commit with the same change');
   assert.equal(l['agent/eng/wip'].title, 'feat: add w', 'baseline and merge commits skipped');
-  assert.deepEqual(l['agent/eng/ak-12'].done, { reason: 'key', key: 'AK-12' });
+  assert.equal(l['agent/eng/ak-12'].done.reason, 'key');
+  assert.equal(l['agent/eng/ak-12'].done.key, 'AK-12');
+  assert.equal(l['agent/eng/ak-12'].done.pr, 4, 'the PR number from the squash subject');
   assert.deepEqual(l['feat-pr'].done, { reason: 'pr', pr: 9 });
   assert.equal(l['feat-pr'].title, 'Add the p file');
   assert.equal(l['agent/eng/ak-99'].done, null);
@@ -260,7 +263,7 @@ test('lanes: shipped (net patch, key, PR head), titles, unmerged and baseline-on
   assert.equal(l['agent/eng/fresh'].title, 'agent/eng/fresh');
   assert.equal(l.main.done, null);
   assert.deepEqual([l['agent/eng/scratch'].done, l['agent/eng/scratch'].noWork, l['agent/eng/ak-99'].noWork], [null, true, false]);
-  assert.deepEqual(l['review-x'].done, { reason: 'key', key: 'AK-48' });
+  assert.deepEqual({ ...l['review-x'].done, sha: null }, { reason: 'key', key: 'AK-48', sha: null, pr: 15 }, 'points at the squash commit and its PR');
   // Without PR features: no PR match, and no network at all (git.lanes never calls gh).
   assert.equal(byName(await git.lanes(dir))['feat-pr'].done, null);
 });
