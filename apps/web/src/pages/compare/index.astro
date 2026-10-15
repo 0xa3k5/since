@@ -47,6 +47,10 @@ const checkedLabel = new Date(CHECKED + 'T00:00:00Z').toLocaleDateString('en-GB'
         <h2>{row.label}</h2>
         <div class="table-scroll" tabindex="0" role="region" aria-label={row.label}>
           <table class="compare wide">
+            <caption class="sr-only">{row.label}, by Git client</caption>
+            <thead class="sr-only">
+              <tr><th scope="col">Git client</th><th scope="col">{row.label}</th></tr>
+            </thead>
             <tbody>
               <tr><th scope="row">{PRODUCT_NAME}</th><td>{row.us}</td></tr>
               {row.cells.map(({ c, r }) => (

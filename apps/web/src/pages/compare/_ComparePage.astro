@@ -41,6 +41,7 @@ const checkedLabel = new Date(c.checked + 'T00:00:00Z').toLocaleDateString('en-G
       <h2>Side by side</h2>
       <div class="table-scroll" tabindex="0" role="region" aria-label={`${PRODUCT_NAME} and ${c.name} compared`}>
         <table class="compare">
+          <caption class="sr-only">{PRODUCT_NAME} and {c.name} compared, feature by feature</caption>
           <thead>
             <tr><th scope="col"><span class="sr-only">Feature</span></th><th scope="col">{PRODUCT_NAME}</th><th scope="col">{c.name}</th></tr>
           </thead>
