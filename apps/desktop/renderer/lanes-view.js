@@ -1,28 +1,32 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
-import { BUCKETS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText } from './lanes.js';
+import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { inboxBuckets } from './prs.js';
 import * as keymap from './keymap.js';
 
 // Lanes overview: every branch and worktree in the repository as one triage list, the lanes that
 // need you first (lanes.js has the order). Keyboard-first: ↑/↓ or J/K move, ↵ opens the lane,
 // typing filters, A shows agent lanes only, C lanes with predicted conflicts only, R reviews the
-// lane's branch. Refreshes in place, keeping the selection. The conflict forecast runs after the
+// lane's branch, Space runs the selected lane's next step (the button on its row; lanes.js laneActions
+// has the mapping). Refreshes in place, keeping the selection. The conflict forecast runs after the
 // list shows (git merge-tree, main process) and re-sorts the list when it lands.
 // While pull requests are on, Tab switches to the Inbox: the open PRs you can act on, in buckets
 // (prs.js inboxBuckets). ↵ checks a PR out as a new lane, ⇧M merges the whole Ready bucket.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
+// Row-action keys → their action (lanes.js ACTIONS); review, merge and open have their own branches.
+const LANE_KEYS = { 'lanes.rebase': 'rebase', 'lanes.checks': 'checks', 'lanes.delete': 'delete', 'lanes.cleanup': 'cleanup' };
 const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 // Live refreshes after commits are debounced; the watcher can fire several times per commit.
 const DEBOUNCE = 400;
 
 // load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
 // onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
-// progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items, the hook for
-// later row actions (review, merge, delete); none yet. onCleanup() opens Clean up. onCheckout(pr) and
+// progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items.
+// onAction(id, lane, base) runs the other row actions (rebase, delete, discard, checks; ACTIONS in lanes.js).
+// onCleanup(lane?) opens Clean up, with only that lane ticked when one is given. onCheckout(pr) and
 // onMergeReady(prs, remote) are the Inbox's actions; `tab` picks the tab to start on. `place` is a `location()` to
 // return to (Back, ⌘[): its tab, row, filter and scroll, put back once the lanes load.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes', place = null }) {
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes', place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last inbox load
   let inboxFailed = false;
@@ -111,16 +115,48 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     },
       icon(l.worktree ? 'worktree' : 'branch', 14),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', null, l.name), ...badges(l)),
-        h('div.list-sub', null, l.worktree ? tildify(l.worktree.path) : l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
-        // The selected lane spells out who it conflicts with and where (CSS shows it on .active).
-        l.conflicts ? h('div.lanes-conflicts', null, ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c)))) : null),
+        h('div.list-title', null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
+        h('div.list-sub', null,
+          laneTitle(l) !== l.name ? h('span.lanes-branch', null, l.name) : null,
+          l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch'))),
+        // The selected lane spells out who it conflicts with and where, with the fixes right there (CSS shows it on .active).
+        l.conflicts ? h('div.lanes-conflicts', null,
+          ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c))),
+          h('div.lanes-fix', null, ...laneActions(l, 'conflicts').filter((id) => id !== 'delete').map((id) => actionBtn(l, id, true)))) : null),
+      stepBtn(l),
       reviewCell(l),
       h('span.lanes-changes' + (l.changes ? '.dirty' : ''), { title: l.changes == null ? '' : 'Uncommitted changes in its worktree' }, l.changes ? `${l.changes} changed` : ''),
       h('span.lanes-ab', { title: base && ab ? `Ahead/behind ${base}` : '' }, ab),
       prsOn() ? prCell(l.pr) : null,
       h('span.lanes-time', { title: l.activity ? fullDate(l.activity / 1000) : '' }, l.activity ? timeAgo(l.activity / 1000) : ''),
     );
+  }
+
+  // The lane's next step as a button, and the dispatcher every row action goes through.
+  function actionBtn(l, id, inline = false) {
+    const a = ACTIONS[id];
+    return h(inline ? 'button.btn.subtle.lanes-fix-btn' : 'button.btn.subtle.lanes-step', {
+      title: `${a.label} (${keymap.keys(a.keyId).join(' or ')})`,
+      onclick: (e) => { e.stopPropagation(); select(laneKey(l)); run(id, l); },
+      ondblclick: (e) => e.stopPropagation(),
+    }, icon(a.icon, 12), a.label);
+  }
+  function stepBtn(l) {
+    const [id] = laneActions(l);
+    return id ? actionBtn(l, id) : h('span.lanes-step-none');
+  }
+  function run(id, l) {
+    if (id === 'review') onReview(l, base);
+    else if (id === 'merge') onMerge(l, base);
+    else if (id === 'open') onOpen(l);
+    else if (id === 'cleanup') onCleanup(l);
+    else onAction(id, l, base);
+  }
+  // A key for a row action: runs it when the selected lane allows it (even when it isn't the row's button).
+  function runKey(id, l) {
+    if (!l) return;
+    const ok = { rebase: Boolean(l.branch && !l.isBase && base), checks: Boolean(l.pr?.url), delete: canRemove(l), cleanup: Boolean(l.done) }[id];
+    if (ok) run(id, l); else toast(`${ACTIONS[id].label} doesn’t apply to ${laneTitle(l)}`);
   }
 
   function render() {
@@ -134,7 +170,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     title.textContent = 'Lanes';
     if (cleanupBtn) cleanupBtn.hidden = false;
     lede.textContent = 'Every branch and worktree in this repository. Lanes that need you come first.';
-    hint.textContent = `↵ Open · R Review · M Merge and tidy · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
+    hint.textContent = `Space Next step · ↵ Open · R Review · B Rebase · M Merge and tidy · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
     if (agentsOnly && !markAgents()) agentsOnly = false;
     shown = filterLanes(lanes, filter.value, { agentsOnly, conflictsOnly });
     adopt(shown.map(laneKey));
@@ -272,6 +308,11 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(l) },
       { label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => onReview(l, base) },
       { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !l.branch || l.isBase, run: () => onMerge(l, base) },
+      { label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), disabled: !l.branch || l.isBase || !base, run: () => run('rebase', l) },
+      ...(l.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => run('checks', l) }] : []),
+      ...(l.done ? [{ label: 'Clean Up…', icon: 'trash', kbd: keymap.keys('lanes.cleanup'), run: () => run('cleanup', l) }] : []),
+      '-',
+      { label: l.changes ? 'Discard Lane…' : 'Delete Lane…', icon: 'trash', kbd: keymap.keys('lanes.delete'), disabled: !canRemove(l), run: () => run('delete', l) },
       ...(extra.length ? ['-', ...extra] : []),
     ]);
   }
@@ -285,7 +326,9 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     else if (id === 'lanes.open') { const x = current(); if (x) (tab === 'inbox' ? onCheckout : onOpen)(x); }
     else if (id === 'lanes.tab') { if (!prsOn()) return false; setTab(tab === 'inbox' ? 'lanes' : 'inbox'); }
     else if (id === 'lanes.mergeReady') { if (tab !== 'inbox' || typing) return false; mergeReady(); }
-    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.review' || id === 'lanes.merge' || id === 'lanes.conflicts')) return false; // lane-only keys
+    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.review' || id === 'lanes.merge' || id === 'lanes.conflicts' || id === 'lanes.step' || LANE_KEYS[id])) return false; // lane-only keys
+    else if (id === 'lanes.step') { if (typing) return false; const l = current(); const [a] = l ? laneActions(l) : []; if (a) run(a, l); else if (l) toast(`Nothing needs doing on ${laneTitle(l)}`); }
+    else if (LANE_KEYS[id]) { if (typing) return false; runKey(LANE_KEYS[id], current()); }
     else if (id === 'lanes.agents') toggleAgents();
     else if (id === 'lanes.review') { const l = current(); if (l) onReview(l, base); }
     else if (id === 'lanes.merge') { const l = current(); if (l) onMerge(l, base); }
@@ -341,7 +384,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     const res = await forecast().catch(() => null);
     if (!res || n !== seq || !el.isConnected) return;
     forecastOk = res.supported;
-    conflicts = conflictsByLane(res.pairs, base);
+    conflicts = conflictsByLane(res.pairs, base, (o) => laneTitle(lanes.find((x) => laneKey(x) === laneKey(o)) || o));
     if (!forecastOk) conflictsOnly = false;
     lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
@@ -368,5 +411,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const selected = () => (tab !== 'inbox' && current() ? { lane: current(), base } : null);
   // Where the user is, for Back and Forward (app.js passes it back as `place`).
   const location = () => ({ tab, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, scroll: el.scrollTop });
-  return { el, refresh, rerender: render, show, showConflicts, selected, location, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  // ⌘K "Next step on …": the selected lane's button.
+  const step = () => { const l = tab !== 'inbox' && current(); const [a] = l ? laneActions(l) : []; if (a) run(a, l); };
+  return { el, refresh, rerender: render, show, showConflicts, selected, location, step, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }

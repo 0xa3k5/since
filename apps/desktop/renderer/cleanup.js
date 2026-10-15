@@ -22,7 +22,7 @@ export function cleanupGroup(lane, { days = STALE_DAYS, now = Date.now() } = {})
   const w = lane.worktree;
   if (w?.prunable) return 'missing';
   if (!lane.head) return null; // an unborn branch: nothing to judge yet
-  if (lane.merged) return w ? 'mergedWorktree' : 'merged';
+  if (lane.merged || lane.done) return w ? 'mergedWorktree' : 'merged'; // done: shipped (a squash or PR merge)
   if (lane.upstreamGone) return 'gone';
   if (lane.nothingAhead) return 'empty';
   if (lane.activity && now - lane.activity > days * DAY) return 'old';
