@@ -141,8 +141,8 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
 
   function prCell(pr) {
     if (!pr) return h('span.lanes-pr.muted', null, '');
+    // The number itself sits before the row's title; this column keeps draft, review and CI.
     return h('span.lanes-pr', { title: [`#${pr.number} ${pr.title || ''}`, pr.checks ? `CI: ${pr.checks}` : null, pr.review ? `Review: ${pr.review}` : null].filter(Boolean).join('\n') },
-      `#${pr.number}`,
       pr.draft ? h('span.pr-draft', null, 'draft') : null,
       pr.review === 'approved' ? h('span.pr-review.approved', null, '✓') : pr.review === 'changes' ? h('span.pr-review.changes', null, '✗') : pr.review === 'required' ? h('span.pr-review', null, 'review') : null,
       pr.checks ? h('span.pr-ci.' + pr.checks, null, '●') : null);
@@ -170,7 +170,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     },
       icon(l.worktree ? 'worktree' : 'branch', 14),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
+        h('div.list-title', null, l.pr ? h('span.review-row-num', null, `#${l.pr.number}`) : null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
         h('div.list-sub', null,
           laneTitle(l) !== l.name ? h('span.lanes-branch', null, l.name) : null,
           l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
@@ -483,7 +483,10 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     },
       icon(e.kind === 'pr' ? 'merge' : 'commit', 14),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title), e.key ? h('span.badge', null, e.key) : null),
+        h('div.list-title', null,
+          e.kind === 'pr' ? h('span.review-row-num', null, `#${e.number}`) : null,
+          h('span.lanes-name', { title: r.title }, e.kind === 'pr' ? e.title : r.title),
+          e.key ? h('span.badge', null, e.key) : null),
         // A PR's date is when it merged; a commit's is when it was made.
         h('div.list-sub', { title: e.date ? `${e.kind === 'pr' ? 'Merged' : 'Committed'} ${fullDate(e.date / 1000)}` : null },
           [e.sha.slice(0, 7), e.author, e.date ? (e.kind === 'pr' ? 'merged ' : '') + ago(e.date / 1000) : null, e.kind === 'pr' ? e.branch : null, e.area].filter(Boolean).join(' · '))));

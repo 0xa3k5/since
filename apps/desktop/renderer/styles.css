@@ -794,15 +794,16 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-changes { min-width: 72px; }
 .lanes-changes.dirty { color: var(--warn); }
 .lanes-ab { min-width: 64px; }
-.lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 84px; }
+.lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 56px; }
 .lanes-time { min-width: 36px; color: var(--text-4); }
 .lanes-ago { color: var(--text-4); font-variant-numeric: tabular-nums; }
 .lanes-count { font-size: 12px; }
 .lanes-row .list-main { min-width: min(120px, 40%); }
-/* Narrow list: the title wins. The ↑↓, PR and progress columns go to the row's tooltip, then the
-   row's button keeps only its icon and tags shrink to dots (each keeps its tooltip). */
+/* Narrow list: the title wins, but the PR number before it never hides. The ↑↓, PR status and
+   progress columns go to the row's tooltip, then the row's button keeps only its icon and tags
+   shrink to dots (each keeps its tooltip). */
 @container review-list (max-width: 640px) {
-  .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review, .review-row-num { display: none; }
+  .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review { display: none; }
   .review-sendback .btn-label { display: none; }
   .review-sendback.btn { width: 28px; padding: 0; justify-content: center; }
 }
