@@ -8,10 +8,7 @@ const year = new Date().getFullYear();
 <footer class="site-footer">
   <div class="wrap">
     <div class="footer-grid">
-      <div class="footer-brand">
-        <Logo />
-        <p class="muted">A keyboard-first client for Git on macOS.</p>
-      </div>
+      <div class="footer-brand"><Logo /><span>· made for Mac</span></div>
       {FOOTER_NAV.map((col) => (
         <nav aria-label={col.title}>
           <h2>{col.title}</h2>
@@ -22,7 +19,7 @@ const year = new Date().getFullYear();
       ))}
     </div>
     <div class="footer-legal">
-      <p>© {year} {PRODUCT_NAME} · Made for macOS · <a href="/contact">Contact</a></p>
+      <p>© {year} {PRODUCT_NAME} · <a href="/contact">Contact</a></p>
       <p>Git™ is a trademark of Software Freedom Conservancy. {PRODUCT_NAME} is not affiliated with or endorsed by the Git project.</p>
     </div>
   </div>

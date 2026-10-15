@@ -1,0 +1,268 @@
+---
+// "Every action is one key away": an echo line, the try-it chips and a tilted keyboard. Real keys work while the
+// section is on screen, the lit keys can be clicked, and an autoplay demo walks the chips until someone takes over.
+// The keys mirror the Review bindings in apps/desktop/renderer/keymap.js.
+// The Review window below is visually hidden: it only holds the demo's state (selection, pane, palette).
+
+/** Legends under the keys that do something. A key listed here is lit. */
+const LEG: Record<string, string> = {
+  escape: 'back', 1: 'Review', 2: 'Map', p: 'send back', r: 'review', m: 'merge', x: 'clean up', w: 'worktree', o: 'checks', b: 'rebase',
+  s: 'all', e: 'in progress', a: 'agents', c: 'conflicts', d: 'details', v: 'reviewed', '/': 'filter', enter: 'open', shift: '⇧P plan', meta: '⌘K ⌘Z',
+  z: 'undo', k: 'palette', ' ': 'next step', arrowup: '', arrowdown: '',
+};
+type Key = [k: string, label: string, cls?: string];
+const ROWS: Key[][] = [
+  [['escape', 'esc', 'w12'], ...'1234567890'.split('').map((c): Key => [c, c]), ['backspace', '⌫', 'grow']],
+  [['tab', 'tab', 'w15'], ...'qwertyuiop'.split('').map((c): Key => [c, c.toUpperCase()]), ['[', '['], [']', ']', 'grow']],
+  [['caps', 'caps', 'w18'], ...'asdfghjkl'.split('').map((c): Key => [c, c.toUpperCase()]), [';', ';'], ['enter', '↵', 'grow']],
+  [['shift', '⇧', 'w22'], ...'zxcvbnm'.split('').map((c): Key => [c, c.toUpperCase()]), [',', ','], ['.', '.'], ['/', '/'], ['shift', '⇧', 'grow']],
+];
+const BOTTOM: Key[] = [['ctrl', '⌃'], ['alt', '⌥'], ['meta', '⌘', 'w15'], [' ', 'space', 'space'], ['meta', '⌘', 'w15'], ['alt', '⌥']];
+const ARROWS: Key[] = [['arrowup', '↑', 'half up'], ['arrowleft', '←', 'half lt'], ['arrowdown', '↓', 'half dn'], ['arrowright', '→', 'half rt']];
+const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
+---
+<section class="s wrap kb-sec" id="keys" aria-labelledby="keys-h">
+  <h2 id="keys-h">Every action is one key away. <span class="soft">Try it.</span></h2>
+  <p class="lede">Catch up, review, send back and merge without reaching for the mouse. Every key can be rebound.</p>
+
+  <div class="kbwin" data-kbwin aria-hidden="true">
+    <div class="list">
+      <div class="row" data-stage="stuck" data-why="conflicts with main in review.js, changed in #117" data-branch="agent/web-305"><span class="num">#118</span><span>Show conflicting files</span></div>
+      <div class="row" data-stage="stuck" data-why="test/review-keys.test.js failed" data-branch="agent/web-293"><span class="num">#115</span><span>Restyle review header</span></div>
+      <div class="row" data-stage="ready" data-why="approved · CI green" data-branch="agent/web-307"><span class="num">#121</span><span>Show reviewers on PRs</span></div>
+      <div class="row" data-stage="ready" data-why="approved · CI green" data-branch="agent/web-302"><span class="num">#120</span><span>Collapse the catch-up card</span></div>
+      <div class="row" data-stage="ready" data-why="approved · CI green" data-branch="agent/web-301"><span class="num">#119</span><span>Medium weights</span></div>
+      <div data-kb-fin>12 finished · Clean up</div>
+    </div>
+    <div class="pane on" data-pane="detail"></div>
+    <div class="pane" data-pane="send"></div>
+    <div class="pane" data-pane="review"></div>
+    <div class="pane" data-pane="plan"></div>
+    <div class="palette" data-kb-pal><input data-kb-q value="" readonly tabindex="-1"></div>
+  </div>
+
+  <div class="kb-console">
+    <div class="echo" aria-live="polite"><span class="combo" data-echo-k><kbd>↓</kbd></span><span class="echo-t" data-echo-t>Press a key. The lit keys do something.</span></div>
+    <ul class="tries" data-tries>
+      <li data-t="nav"><kbd>↓</kbd>pick a PR</li>
+      <li data-t="p"><kbd>P</kbd>send it back</li>
+      <li data-t="r"><kbd>R</kbd>review</li>
+      <li data-t="plan"><kbd>⇧P</kbd>plan merge</li>
+      <li data-t="x"><kbd>X</kbd>clean up</li>
+      <li data-t="undo"><kbd>⌘Z</kbd>undo it</li>
+      <li data-t="pal"><kbd>⌘K</kbd>everything else</li>
+    </ul>
+  </div>
+  <div class="board-frame">
+    <div class="board" data-kb aria-hidden="true">
+      {ROWS.map((r) => (
+        <div class="krow">{r.map((key) => <button type="button" class={cls(key)} data-k={key[0]} tabindex="-1">{key[1]}{LEG[key[0]] && <small>{LEG[key[0]]}</small>}</button>)}</div>
+      ))}
+      <div class="krow">
+        {BOTTOM.map((key) => <button type="button" class={cls(key)} data-k={key[0]} tabindex="-1">{key[1]}{LEG[key[0]] && <small>{LEG[key[0]]}</small>}</button>)}
+        <div class="arrows">{ARROWS.map((key) => <button type="button" class={cls(key)} data-k={key[0]} tabindex="-1">{key[1]}</button>)}</div>
+      </div>
+    </div>
+  </div>
+  <p class="small kb-more"><a href="/shortcuts">Every shortcut →</a></p>
+</section>
+
+<script>
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const section = document.getElementById('keys');
+  const board = document.querySelector<HTMLElement>('[data-kb]');
+  const win = document.querySelector<HTMLElement>('[data-kbwin]');
+
+  if (section && board && win) {
+    const q = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+    const keys = [...board.querySelectorAll<HTMLElement>('.k')];
+    const flash = (k: string) => keys.filter((e) => e.dataset.k === k).forEach((el) => {
+      el.classList.add('down');
+      setTimeout(() => el.classList.remove('down'), 160);
+    });
+
+    /* ---------- the Review window's state ---------- */
+    const rows = [...win.querySelectorAll<HTMLElement>('.list .row')];
+    const fin = q('[data-kb-fin]'), pal = q('[data-kb-pal]'), input = q<HTMLInputElement>('[data-kb-q]');
+    type State = { sel: number; pane: string; pal: boolean; cleaned: boolean; undo: (() => void)[]; reviewed: boolean };
+    let S: State;
+    const cur = () => rows[S.sel];
+    const num = () => cur().querySelector('.num')!.textContent!;
+    const ttl = () => cur().children[1].textContent!;
+    const live = () => rows.filter((r) => !r.classList.contains('out'));
+    const render = () => {
+      rows.forEach((r, i) => r.classList.toggle('sel', i === S.sel));
+      win.querySelectorAll<HTMLElement>('.pane').forEach((p) => p.classList.toggle('on', p.dataset.pane === S.pane));
+      pal.classList.toggle('on', S.pal);
+    };
+    const reset = () => {
+      S = { sel: 0, pane: 'detail', pal: false, cleaned: false, undo: [], reviewed: false };
+      rows.forEach((r) => r.classList.remove('out'));
+      fin.textContent = '12 finished · Clean up';
+      render();
+    };
+
+    // What the last key did, for the echo line.
+    let lastMsg = '', msgN = 0;
+    const toast = (html: string) => { lastMsg = html; msgN++; };
+    const tried = new Set<string>();
+    const mark = (t: string, real: boolean) => {
+      if (!real) return;
+      tried.add(t);
+      document.querySelectorAll<HTMLElement>('[data-tries] li').forEach((li) => li.classList.toggle('done', tried.has(li.dataset.t!)));
+    };
+
+    function act(k: string, shift: boolean, meta: boolean, real: boolean): boolean {
+      if (S.pal) {
+        if (k === 'escape') { S.pal = false; input.value = ''; render(); return true; }
+        if (k === 'enter') { S.pal = false; input.value = ''; S.pane = cur().dataset.stage === 'stuck' ? 'send' : 'plan'; render(); return true; }
+        if (k === 'backspace') { input.value = input.value.slice(0, -1); return true; }
+        if (k.length === 1 && !meta) { input.value += k; return true; }
+      }
+      if (meta) {
+        if (k === 'k') { S.pal = true; render(); mark('pal', real); return true; }
+        if (k === 'z') {
+          const u = S.undo.pop();
+          if (!u) { toast('Nothing to undo yet. Try <kbd>X</kbd> first.'); return true; }
+          u(); toast('Undone · 12 branches and worktrees are back'); mark('undo', real); return true;
+        }
+        if (k === 'c' && S.pane === 'send') { toast('Prompt copied. Paste it to your agent.'); return true; }
+        if (k === '1') { S.pane = 'detail'; render(); return true; }
+        if (k === '2') { toast(`Map: ${num()} in the commit graph`); return true; }
+        return false;
+      }
+      if (k === 'arrowdown' || k === 'arrowup') {
+        const l = live();
+        let i = l.indexOf(cur());
+        i = (i + (k === 'arrowdown' ? 1 : l.length - 1)) % l.length;
+        S.sel = rows.indexOf(l[i]); S.pane = 'detail'; S.reviewed = false; render(); mark('nav', real); return true;
+      }
+      if (k === 'escape') { S.pane = 'detail'; render(); return true; }
+      if (shift && k === 'p') { S.pane = 'plan'; render(); mark('plan', real); return true; }
+      if (shift && k === 'c') { toast('Caught up to <span style="font-family:var(--mono)">6f602d2</span> on main'); return true; }
+      if (shift && k === 'enter') { toast('Walking through 21 merged PRs · <kbd>↓</kbd> next'); return true; }
+      if (shift) return false;
+      switch (k) {
+        case 'p':
+          if (cur().dataset.stage !== 'stuck') { toast(`${num()} isn't stuck. Only stuck PRs go back.`); return true; }
+          S.pane = 'send'; render(); mark('p', real); return true;
+        case 'r': case 'enter':
+          if (k === 'enter' && S.pane === 'plan') {
+            rows.filter((r) => r.dataset.stage === 'ready').forEach((r) => r.classList.add('out'));
+            S.sel = 0; S.pane = 'detail'; render();
+            toast('Merged #120 ✓ #119 ✓ #121 ✓ · squash-merged on GitHub'); return true;
+          }
+          S.pane = 'review'; render(); mark('r', real); return true;
+        case 'v': if (S.pane === 'review') { S.reviewed = !S.reviewed; render(); } return true;
+        case 'm':
+          toast(cur().dataset.stage === 'ready' ? `Merge ${num()} on GitHub? <kbd>↵</kbd> to confirm. It can't be undone.` : `${num()} is stuck. Send it back with <kbd>P</kbd>.`); return true;
+        case 'x':
+          if (S.cleaned) { toast('Nothing left to clean up'); return true; }
+          S.cleaned = true; fin.textContent = 'Cleaned up 12 finished branches';
+          S.undo.push(() => { S.cleaned = false; fin.textContent = '12 finished · Clean up'; });
+          toast('Cleaned up 12 branches and worktrees · <kbd>⌘Z</kbd> undo'); mark('x', real); return true;
+        case 'w': toast(`Checked out ${num()} as a worktree`); return true;
+        case 'o': toast(`Checks for ${num()}: ${cur().dataset.why}`); return true;
+        case 'b': toast(`Rebased ${num()} onto main · <kbd>⌘Z</kbd> undo`); return true;
+        case 'd': toast(`${num()}: opened by an agent, reviewer requested, updated 4 min ago`); return true;
+        case 's': toast('Everything else: 38 branches and worktrees'); return true;
+        case 'e': toast('In progress: 4 drafts and branches'); return true;
+        case 'a': toast('Showing agent-made work only'); return true;
+        case 'c': toast('Predicted conflicts: #118 with main'); return true;
+        case '/': toast('Filter: type to narrow the list'); return true;
+        case ' ': return act(cur().dataset.stage === 'stuck' ? 'p' : 'm', false, false, real);
+      }
+      return false;
+    }
+
+    /* ---------- the echo line: the keys pressed and what they did ---------- */
+    const LBL = (k: string) => ({ enter: '↵', arrowdown: '↓', arrowup: '↑', escape: 'esc', ' ': 'space' } as Record<string, string>)[k] || k.toUpperCase();
+    const describe = () => {
+      if (S.pal) return 'Command palette: every command, with its key';
+      return ({
+        detail: `${num()} · ${ttl()}`,
+        send: `Send back ${num()}: the prompt is ready to copy`,
+        review: `Reviewing ${num()} · <kbd>V</kbd> marks a file reviewed`,
+        plan: 'Merge plan: #120, then #119, then #121',
+      } as Record<string, string>)[S.pane];
+    };
+    const echoK = q('[data-echo-k]'), echoT = q('[data-echo-t]');
+    function run(k: string, sh: boolean, me: boolean, real: boolean) {
+      const n0 = msgN;
+      if (!act(k, sh, me, real)) return false;
+      echoK.innerHTML = [me && '⌘', sh && '⇧', LBL(k)].filter(Boolean).map((c) => `<kbd>${c}</kbd>`).join('');
+      echoT.innerHTML = msgN !== n0 ? lastMsg : describe();
+      return true;
+    }
+
+    /* ---------- real keys: only while the section is on screen ---------- */
+    let armed = false, auto = !reduce, autoT: ReturnType<typeof setTimeout> | undefined, step = 0;
+    const takeOver = () => { if (!auto) return; auto = false; clearTimeout(autoT); reset(); };
+    addEventListener('keydown', (e) => {
+      if (!armed || e.ctrlKey || e.altKey) return;
+      // Leave keys alone while focus is on a link, button or field elsewhere on the page.
+      const t = e.target as HTMLElement | null;
+      if (t && t !== document.body && t.closest('a, button, input, textarea, select, summary, [contenteditable]') && !board.contains(t)) return;
+      const k = e.key.toLowerCase();
+      takeOver();
+      if (k === 'shift' || k === 'meta') return flash(k);
+      if (run(k, e.shiftKey, e.metaKey, true)) {
+        e.preventDefault(); flash(k);
+        if (e.shiftKey) flash('shift');
+        if (e.metaKey) flash('meta');
+      }
+    });
+
+    /* ---------- clickable keys; ⇧ and ⌘ latch for the next key ---------- */
+    let latch = { shift: false, meta: false };
+    keys.forEach((el) => el.addEventListener('click', () => {
+      takeOver();
+      const k = el.dataset.k!;
+      if (k === 'shift' || k === 'meta') {
+        latch[k] = !latch[k];
+        keys.filter((x) => x.dataset.k === k).forEach((x) => x.classList.toggle('latched', latch[k as 'shift' | 'meta']));
+        return;
+      }
+      if (run(k, latch.shift, latch.meta, true)) flash(k);
+      latch = { shift: false, meta: false };
+      keys.forEach((x) => x.classList.remove('latched'));
+    }));
+
+    /* ---------- autoplay: walks through the chips until someone presses a key ---------- */
+    const SCRIPT: [string, number?, number?][] = [['arrowdown'], ['arrowup'], ['p'], ['c', 0, 1], ['escape'], ['arrowdown'], ['arrowdown'], ['r'], ['v'], ['escape'], ['p', 1], ['escape'], ['x'], ['z', 0, 1], ['k', 0, 1], ['escape']];
+    const play = () => {
+      clearTimeout(autoT);
+      autoT = setTimeout(() => {
+        if (!auto || !armed) return;
+        if (step === 0) reset();
+        const [k, sh, me] = SCRIPT[step];
+        if (sh) flash('shift');
+        if (me) flash('meta');
+        flash(k); run(k, !!sh, !!me, false);
+        step = (step + 1) % SCRIPT.length;
+        play();
+      }, step === 0 ? 900 : 1500);
+    };
+    new IntersectionObserver(([e]) => {
+      armed = e.isIntersecting;
+      if (armed && auto) play(); else clearTimeout(autoT);
+    }, { threshold: 0.4 }).observe(section);
+    reset();
+
+    /* ---------- grow the keyboard with the screen ---------- */
+    // The near (bottom) row spans min(1500px, 94vw). It pivots on its bottom edge, so pull it up by the height the tilt takes away.
+    const fitBoard = () => {
+      board.style.removeProperty('--kz'); board.style.removeProperty('--kmt');
+      const natW = board.offsetWidth, natH = board.offsetHeight;
+      if (!natW) return;
+      const z = Math.min(1500, innerWidth * 0.94) / natW;
+      const h = natH * z, P = 1600, th = 32 * Math.PI / 180;
+      const shown = h * Math.cos(th) * P / (P + h * Math.sin(th));
+      board.style.setProperty('--kz', z.toFixed(3));
+      board.style.setProperty('--kmt', `${-((h - shown) / z).toFixed(0)}px`);
+    };
+    addEventListener('resize', fitBoard);
+    requestAnimationFrame(fitBoard);
+    document.fonts?.ready.then(fitBoard);
+  }
+</script>

@@ -1,0 +1,11 @@
+---
+import { FAQ } from './faq';
+---
+<section class="s wrap faq-sec" id="faq" aria-labelledby="faq-h">
+  <h2 id="faq-h">Questions</h2>
+  <div class="faq">
+    {FAQ.map(({ q, a }, i) => (
+      <details open={i === 0}><summary>{q}</summary><p set:html={a} /></details>
+    ))}
+  </div>
+</section>

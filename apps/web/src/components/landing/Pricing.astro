@@ -1,0 +1,22 @@
+---
+import { BUY_URL, DOWNLOAD_URL, PRICE_LATER, PRICE_NOW, PRODUCT_NAME, TRIAL_DAYS } from '../../config';
+import { MACS_PER_LICENCE } from '../commerce/links';
+import AppleGlyph from '../AppleGlyph.astro';
+---
+<section class="s price-band" id="pricing" aria-labelledby="pricing-h">
+  <div class="wrap price-c">
+    <h2 class="eyebrow" id="pricing-h">Pay once. Keep it.</h2>
+    <div class="bigc">${PRICE_NOW}<small>once</small></div>
+    <p class="then">Launch price · ${PRICE_LATER} after launch</p>
+    <div class="promises">
+      <div><b>Every update</b><span>Every future version, included</span></div>
+      <div><b>No subscription</b><span>Nothing renews, ever</span></div>
+      <div><b>No account</b><span>A licence key, nothing else</span></div>
+      <div><b>{MACS_PER_LICENCE} Macs</b><span>On one licence, at once</span></div>
+    </div>
+    <div class="cta-row">
+      <a class="btn btn-primary" href={BUY_URL}>Buy {PRODUCT_NAME} · ${PRICE_NOW}</a>
+      <a class="btn" href={DOWNLOAD_URL}><AppleGlyph />Try free for {TRIAL_DAYS} days</a>
+    </div>
+  </div>
+</section>
