@@ -4,7 +4,7 @@ import * as keymap from './keymap.js';
 
 // Review's catch-up card (AK-281), at the top of the list: where you're caught up to, counts for
 // merged / stuck / ready to merge and the base's CI, what landed grouped by issue key or area, and
-// three actions: Change ▾ (⇧T, where to catch up from), Walk through what landed (⇧↵) and Mark caught up (⇧C). The checkpoint
+// three actions: the range picker ▾ (⇧T, where to catch up from), Walk through what landed (⇧↵) and Mark caught up (⇧C). The checkpoint
 // lives in app data (main process) and only moves on Mark caught up, which Undo on its
 // toast puts back. With PRs off it's git log alone.
 //
@@ -34,9 +34,12 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
     const c = countsText({ entries, stuck: counts.stuck, ready: counts.ready, prsOn: prsOn(), ci: res.ci, base: res.base });
     const groups = groupLanded(entries);
     const top = more ? groups : groups.slice(0, TOP);
-    const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'lanes.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } }, 'Change ▾');
+    // The picker shows the range it's set to ("Last checkpoint", "Last week", "Tag v0.1.0") instead of a generic verb.
+    const cur = sinceOptions(res.tags || []).find((o) => o.kind === since.since && (o.kind !== 'tag' || o.tag === since.tag));
+    const curLabel = cur?.label || (since.since === 'tag' ? `Tag ${since.tag}` : 'Last checkpoint');
+    const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'lanes.since'), 'aria-haspopup': 'menu', 'aria-label': `Catch up since: ${curLabel}`, onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } }, `${curLabel} ▾`);
     const ciDot = c.ci ? h('span.catchup-ci.' + c.ci.state, { title: c.ci.text }, h('span.pr-ci.' + c.ci.state, { 'aria-label': c.ci.text }, '●')) : null;
-    // Nothing landed: one line (check, where you're caught up to, CI dot, Change ▾). The full card returns once something lands.
+    // Nothing landed: one line (check, where you're caught up to, CI dot, range picker ▾). The full card returns once something lands.
     if (!entries.length && !head.warn) {
       const cp = res.checkpoint || {};
       const at = cp.date ? ago(cp.date) : '';

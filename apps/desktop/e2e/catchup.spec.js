@@ -41,7 +41,7 @@ test('catch-up: since a tag, grouped, walk through, mark caught up', async ({ sa
   // Walk through: one row per commit (no PRs), the pane shows the first one's diff.
   await page.locator('.review-split').focus();
   await page.locator('.review-split').press('Shift+Enter');
-  await expect(page.locator('.lanes-group[data-stage="landed"]')).toContainText('What landed 4');
+  await expect(page.locator('.lanes-group[data-stage="landed"]')).toContainText('Landed since tag v0.1 · 4');
   await expect(page.locator('.lanes-row.active .lanes-name')).toHaveText('docs: release notes');
   await expect(page.locator('.review-pane .quick-title')).toContainText('docs: release notes');
   await page.locator('.review-split').press('ArrowDown');

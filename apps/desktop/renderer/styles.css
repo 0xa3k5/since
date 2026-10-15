@@ -719,7 +719,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-group > .badge, .catchup-group > .muted { flex: none; white-space: nowrap; }
 .catchup-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catchup-more { height: 22px; padding: 0 6px; color: var(--accent-fg); }
-.review-catchup-card.compact { padding: 6px 8px 6px 12px; }
+/* Same inset on every side, whichever range the picker is set to. */
+.review-catchup-card.compact { padding: 8px; }
 .review-catchup-card.compact .catchup-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .review-catchup-card.compact .catchup-head > .icon { flex: none; color: var(--green); }
 .catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
