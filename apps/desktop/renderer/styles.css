@@ -695,13 +695,14 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-detail.warn { display: block; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-catchup:empty { display: none; }
-.review-catchup-card { display: grid; gap: 6px; margin: 4px 0 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-sm); font-size: 12px; color: var(--text-2); }
+.review-catchup-card { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 6px; margin: 4px 0 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-sm); font-size: 12px; color: var(--text-2); }
 .review-catchup-card:empty { display: none; }
 .catchup-head { display: flex; align-items: center; gap: 8px; }
 .catchup-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catchup-warn { display: flex; align-items: center; gap: 6px; color: var(--warn); }
-.catchup-counts { display: flex; gap: 14px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--text-2); }
-.catchup-counts > span { flex: none; }
+.catchup-counts { display: flex; flex-wrap: wrap; gap: 2px 14px; min-width: 0; color: var(--text-2); }
+.catchup-counts > span { flex: none; white-space: nowrap; }
+.catchup-since { flex: none; height: 22px; padding: 0 6px; color: var(--text-3); }
 .catchup-ci { display: inline-flex; align-items: center; gap: 4px; }
 .catchup-ci.passing .pr-ci { color: var(--green); }
 .catchup-ci.failing { color: var(--red); }
@@ -714,7 +715,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catchup-more { height: 22px; padding: 0 6px; color: var(--accent-fg); }
 .catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-.catchup-stop { float: right; height: 20px; padding: 0 6px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+/* A section header's own button (Done, Plan merge) sits on the header line, so rows keep their full width. */
+.lanes-group.needs { display: flex; align-items: center; gap: 8px; }
+.lanes-group-act { margin-left: auto; height: 20px; padding: 0 6px; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .review-none { padding: 4px 16px 8px; font-size: 12px; color: var(--text-4); }
 .review-reason { margin-top: 2px; font-size: 12px; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lanes-row.review-row { align-items: flex-start; padding: 10px 12px; border-radius: 8px; }
@@ -725,6 +728,21 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-row-age { flex: none; color: var(--text-4); font-variant-numeric: tabular-nums; }
 .review-row-acts { display: flex; align-items: center; gap: 4px; align-self: center; }
+/* Staged rows: a grid, so the actions stay pinned to the title line (top right) whether the row's
+   details are open or not, and the title keeps a share of the width and truncates. */
+.lanes-row.review-row.staged { display: grid; grid-template-columns: auto minmax(min(140px, 45%), 1fr) auto; column-gap: 12px; align-items: start; }
+.review-row.staged > .list-main { display: contents; }
+.lanes-row.review-row.staged > .icon { grid-row: 1; grid-column: 1; align-self: center; margin-top: 0; }
+.review-row.staged .list-title { grid-row: 1; grid-column: 2; align-self: center; }
+.review-row.staged .list-main > :not(.list-title) { grid-column: 2 / -1; }
+.review-row.staged > .review-row-acts { grid-row: 1; grid-column: 3; align-self: start; margin: -4px 0; }
+.review-details-btn.icon-btn { width: 28px; padding: 0; }
+.review-details-btn.icon-btn .icon { transition: transform .12s ease-out; }
+.review-row[aria-expanded="true"] .review-details-btn.icon-btn .icon { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .review-details-btn.icon-btn .icon { transition: none; } }
+.review-sendback { gap: 5px; }
+.review-sendback .icon { color: var(--accent-fg); }
+.lanes-fix { flex-wrap: wrap; }
 .lanes-row.review-row:not(.active) .review-row-acts, .lanes-row.review-row:not(.active) .review-reason { display: none; }
 .sendback .sendback-reason { white-space: normal; }
 .sendback-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -772,6 +790,20 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 84px; }
 .lanes-time { min-width: 36px; color: var(--text-4); }
 .lanes-count { font-size: 12px; }
+.lanes-row .list-main { min-width: min(120px, 40%); }
+/* Narrow list: the title wins. The ↑↓, PR and progress columns go to the row's tooltip, then the
+   row's button keeps only its icon and tags shrink to dots (each keeps its tooltip). */
+@container review-list (max-width: 640px) {
+  .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review, .lanes-row .lanes-time, .review-row-num { display: none; }
+  .review-sendback .btn-label { display: none; }
+  .review-sendback.btn { width: 28px; padding: 0; justify-content: center; }
+}
+@container review-list (max-width: 480px) {
+  .lanes-row .lanes-changes, .lanes-row > .lanes-step .btn-label, .review-row-acts .lanes-step .btn-label { display: none; }
+  .lanes-row > .lanes-step, .review-row-acts .lanes-step { width: 28px; padding: 0; justify-content: center; }
+  .lanes-row .list-title .badge, .lanes-row .list-sub .badge { flex: none; width: 8px; height: 8px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; background: currentColor; }
+  .lanes-row .list-title .badge .icon { display: none; }
+}
 .cleanup-bar { display: flex; align-items: center; gap: 16px; margin: 0 16px 8px; padding: 0 16px; min-height: 32px; font-size: 12px; }
 .cleanup-days { width: 64px; height: 26px; padding: 0 6px; font-variant-numeric: tabular-nums; }
 .cleanup-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
@@ -802,7 +834,16 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tick.on { background: var(--accent); border-color: var(--accent); }
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Review split view (lanes-view.js + review-pane.js): the list on the left, the selected row's review on the right */
-.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; outline: 0; }
+.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; outline: 0; }
+.review-split > .review-hints { grid-column: 1 / -1; }
+/* Each pane is a size container: dragging the divider and resizing the window behave the same. */
+.review-split > .lanes { container: review-list / inline-size; }
+.review-pane-host { container: review-pane / inline-size; }
+.review-head { display: block; }
+.review-head-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.page-head .review-head-row h1 { flex: none; margin: 0; }
+.review-head-row .lanes-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-head > p { margin-top: 4px; }
 .review-split.split { grid-template-columns: minmax(320px, 1fr) 6px var(--pane-w, 62%); }
 .review-split > .lanes { min-width: 0; }
 .review-split:not(.split) > .review-split-handle, .review-split:not(.split) > .review-pane-host { display: none; }
@@ -815,15 +856,40 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane > .quick.review { grid-template-columns: minmax(200px, 248px) 1fr; }
 .quick.review.with-header { grid-template-rows: auto minmax(0, 1fr); }
 .review-pane-head { padding: 18px 20px 14px; }
-.quick.review > .review-pane-head { grid-column: 1 / -1; border-bottom: 1px solid var(--border); }
-.review-pane-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.review-pane-title .quick-title { margin-top: 0; min-width: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pane-top { grid-column: 1 / -1; min-width: 0; border-bottom: 1px solid var(--border); }
+.review-pane-top > .review-pane-head { padding-bottom: 10px; }
+.review-progress-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 20px 12px; }
+.review-progress-line .quick-meta { margin-top: 0; }
+.review-progress-line .chip:disabled { opacity: 0.5; }
+.review-pane-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; min-width: 0; }
+.review-pane-title .quick-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; margin-top: 0; min-width: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.3; overflow: hidden; overflow-wrap: anywhere; }
 .review-pane-title .badge { flex: none; }
 .review-pane-num { color: var(--text-4); font-weight: 500; }
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
 .review-pane-arrow { color: var(--text-4); }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
+.review-pane-actions > .btn { flex: none; }
+.review-pane-actions .pane-more { display: none; }
+@container review-pane (max-width: 720px) {
+  .btn.pane-shrink { width: 32px; padding: 0; justify-content: center; }
+  .pane-shrink .btn-label, .pane-shrink .kbd-group { display: none; }
+}
+@container review-pane (max-width: 560px) {
+  .review-pane-actions .pane-secondary { display: none; }
+  .review-pane-actions .pane-more { display: inline-flex; }
+}
+/* Branch preview: the pane for an Everything else row. */
+.branch-preview > .review-pane-head { border-bottom: 1px solid var(--border); }
+.branch-preview .review-pane-actions { flex-wrap: wrap; }
+.branch-preview-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px; }
+.branch-preview-section .lanes-group { padding-left: 12px; }
+.branch-preview-section .review-detail.warn { padding: 2px 12px; font-size: 12px; }
+.branch-preview-commit { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 12px; font-size: 13px; }
+.branch-preview-commit .icon { flex: none; color: var(--text-3); }
+.branch-preview-commit .lanes-name { flex: 1; min-width: 0; }
+.branch-preview-files .file-row { cursor: default; }
+.branch-preview-hint { padding: 8px 20px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-4); }
 .review-pane-sep { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--border); }
 .review-verdict { display: inline-flex; align-items: center; gap: 3px; }
 .review-verdict.approved { color: var(--green); }
@@ -832,7 +898,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }
 /* Review's key bar: a few boxed keys with short labels, then the way to every command. */
-.review-hints { display: flex; align-items: center; gap: 18px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; }
+.review-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); white-space: nowrap; }
 .review-hint { display: inline-flex; align-items: center; gap: 6px; }
 .review-hint .kbd-group { margin-left: 0; }
 .review-hint.all { margin-left: auto; color: var(--text-4); }
@@ -895,6 +961,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .shortcuts-hint { margin-right: auto; font-size: 12px; color: var(--text-4); }
 .shortcuts-custom { flex: none; padding: 1px 6px; border-radius: 4px; font-size: 11px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
+/* Tooltip for icon-only buttons (ui.js data-tip): name and key, on hover and keyboard focus. */
+.tooltip { position: fixed; z-index: 70; max-width: 280px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elevated); box-shadow: var(--shadow-sm); color: var(--text); font-size: 11.5px; line-height: 1.4; white-space: pre-line; pointer-events: none; }
 .menu { position: fixed; z-index: 60; min-width: 230px; padding: 4px; background: var(--bg-elevated); border-radius: 9px; box-shadow: var(--shadow); animation: pop .1s ease-out; }
 @keyframes pop { from { opacity: 0; transform: scale(.98); } }
 .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; height: 30px; padding: 0 8px; border-radius: 6px; color: var(--text-2); text-align: left; }

@@ -1,10 +1,10 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
+import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { landedEntries, groupLanded, sinceOptions, sinceText, countsText, TOP } from './catchup.js';
 import * as keymap from './keymap.js';
 
 // Review's catch-up card (AK-281), at the top of the list: where you're caught up to, counts for
 // merged / stuck / ready to merge and the base's CI, what landed grouped by issue key or area, and
-// three actions: Since… (⇧T), Walk through what landed (⇧↵) and Mark caught up (⇧C). The checkpoint
+// three actions: Change ▾ (⇧T, where to catch up from), Walk through what landed (⇧↵) and Mark caught up (⇧C). The checkpoint
 // lives in app data (main process) and only moves on Mark caught up, which Undo on its
 // toast puts back. With PRs off it's git log alone.
 //
@@ -34,7 +34,7 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
     const c = countsText({ entries, stuck: counts.stuck, ready: counts.ready, prsOn: prsOn(), ci: res.ci, base: res.base });
     const groups = groupLanded(entries);
     const top = more ? groups : groups.slice(0, TOP);
-    const sinceBtn = btn('Since… ', 'lanes.since', (e) => pickSince(e.currentTarget), 'button.btn.ghost.small.catchup-since');
+    const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'lanes.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } }, 'Change ▾');
     el.replaceChildren(...[
       h('div.catchup-head', null,
         h('span.catchup-title', { title: res.checkpoint?.at ? `Marked ${fullDate(res.checkpoint.at / 1000)}` : '' }, head.text),
