@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
-import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote } from './review-rows.js';
+import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import { catchupCard } from './catchup-view.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
@@ -222,6 +222,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   const paneCtx = (r) => (r.landed ? { base: r.landed.parent, remote: null, requested: new Set(), step: null, prsOn: false } : {
     base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
     conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
+    onSelectPr: (n) => { const x = staged?.all.find((y) => y.pr?.number === n); if (x) select(x.key); else toast(`#${n} isn’t listed`); },
   });
   // The pane read which files conflict: the row's note counts them.
   function noteConflicts(key, files) {
@@ -265,6 +266,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     const s = STEPS[id];
     const open = details.has(r.key);
     const at = r.pr?.updatedAt ? Date.parse(r.pr.updatedAt) : r.lane?.activity || 0;
+    const overlap = overlapNote(r);
     const sub = r.pr
       ? [r.pr.authorName || r.pr.author, r.branch].filter(Boolean).join(' · ')
       : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
@@ -284,13 +286,15 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
           // The review decision is an icon here; the pane's header spells it out.
           ...rowBadges(r, { requested: requested(), agents: markAgents() }).map((b) => b.icon
             ? h('span.review-decision' + (b.kind ? `.${b.kind}` : ''), { title: b.title, 'aria-label': b.text }, icon(b.icon, 12))
-            : h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
+            : h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text)),
           sub ? h('span.review-row-sub', { title: r.pr?.authorName && r.pr.authorName !== r.pr.author ? `${r.pr.authorName} (${r.pr.author})` : null }, sub) : null,
+          // Overlaps with other open PRs (AK-321): quiet text, never a tag.
+          overlap ? h('span.review-row-overlap', { title: overlap.title }, overlap.text) : null,
           at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : null),
         r.stage === 'stuck' && reason(r) ? reasonEl(r) : null,
         open ? detailsEl(r) : null),
       h('div.review-row-acts', null,
-        r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn.review-sendback', {
+        r.stage === 'stuck' && id !== 'sendBack' ? h('button.btn.ghost.review-details-btn.review-sendback', {
           'data-tip': `${tipFor('Send back…', 'lanes.sendBack')}\nA ready-made prompt for whoever made it`, 'aria-label': 'Send back…',
           onclick: (e) => { e.stopPropagation(); select(r.key); act('sendBack', r); },
           ondblclick: (e) => e.stopPropagation(),
@@ -496,7 +500,9 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   function renderStaged() {
     lede.textContent = prsOn() ? 'What’s stuck and what’s ready to merge come first. Everything else is a step away.' : 'Your branches and worktrees. What’s stuck comes first.';
     const prsLoading = prsOn() && !inbox && !inboxFailed;
-    staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now() });
+    // A PR GitHub is still checking keeps the stage it had (AK-321).
+    const previous = staged ? new Map(staged.all.map((x) => [x.key, x.stage])) : null;
+    staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now(), previous });
     if (pendingSendBack != null && staged.all.some((x) => x.pr?.number === pendingSendBack)) { const n = pendingSendBack; pendingSendBack = null; setTimeout(() => sendBack(n)); }
     if (agentsOnly && !markAgents()) agentsOnly = false;
     // A lane whose open PR a bot opened counts as agent-made too.
@@ -579,7 +585,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   const readyPrs = () => (staged ? staged.stages.ready.filter((r) => r.pr && step(r) === 'merge').map((r) => r.pr) : []);
   function mergeReady() {
     const prs = readyPrs();
-    if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed (or none), and no conflicts.' });
+    if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means GitHub would merge it now.' });
     onMergeReady(prs, inbox?.remote);
   }
 
@@ -589,7 +595,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   function mergePlan() {
     if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : 'Merge plan needs git 2.38 or later');
     const all = readyPrs();
-    if (!all.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed (or none), and no conflicts.' });
+    if (!all.length) return toast('Nothing is ready to merge', { detail: 'Ready means GitHub would merge it now.' });
     const to = all[0].base;
     const ready = all.filter((p) => p.base === to);
     const others = (inbox?.prs || []).filter((p) => p.base === to && !ready.some((x) => x.number === p.number));

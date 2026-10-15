@@ -9,7 +9,7 @@
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'mergeStateStatus', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -35,6 +35,7 @@ function pickRemote(remotes = []) {
 // Owner per remote name, so the renderer can place fork PRs on branches that track a fork.
 const remoteOwners = (remotes = []) => Object.fromEntries(remotes.map(parseRemote).filter(Boolean).map((r) => [r.name, r.owner]));
 
+const MERGE_STATES = new Set(['CLEAN', 'UNSTABLE', 'BEHIND', 'BLOCKED', 'DIRTY', 'DRAFT', 'HAS_HOOKS', 'UNKNOWN']);
 const REVIEW = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes', REVIEW_REQUIRED: 'required' };
 const FAILED = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 
@@ -119,6 +120,9 @@ function normalizePr(p) {
     updatedAt: text(p.updatedAt, 64),
     // GitHub's own conflict check: true, false, or null while GitHub is still working it out.
     mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
+    // GitHub's merge box state (AK-321), lower case: clean, unstable, behind, blocked, dirty, draft,
+    // has_hooks, or unknown while GitHub works it out; null when gh didn't send it.
+    mergeState: MERGE_STATES.has(p.mergeStateStatus) ? p.mergeStateStatus.toLowerCase() : null,
     reviews: reviewVerdicts(p.latestReviews),
     reviewRequests: reviewRequests(p.reviewRequests),
     size: { additions: count(p.additions), deletions: count(p.deletions), files: count(p.changedFiles) },

@@ -736,6 +736,10 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .review-row-meta > .badge { flex: none; }
 .review-row-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-row-overlap { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-3); white-space: nowrap; }
+/* GitHub still checking whether a PR merges cleanly (AK-321). */
+.badge-spinner { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; border: 1.5px solid currentColor; border-top-color: transparent; vertical-align: -1px; animation: spin .7s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .badge-spinner { animation-duration: 2.4s; } }
 .review-row-age { flex: none; color: var(--text-4); font-variant-numeric: tabular-nums; }
 .review-row-acts { display: flex; align-items: center; gap: 4px; align-self: center; }
 /* Staged rows: a grid, so the actions stay pinned to the title line (top right) whether the row's
@@ -892,6 +896,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
 .review-pane-arrow { color: var(--text-4); }
+.review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.review-pane-order > .muted { flex: none; }
+.review-pane-order .mono { color: var(--text-2); }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }

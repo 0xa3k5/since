@@ -1,7 +1,7 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
-import { rowBadges, reviewers as reviewersOf } from './review-rows.js';
+import { rowBadges, reviewers as reviewersOf, mergeOrder } from './review-rows.js';
 import { loadPrReview, paneActions } from './pr-review.js';
 import * as keymap from './keymap.js';
 
@@ -104,7 +104,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     head.replaceChildren(...[
       h('div.review-pane-title', null,
         h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(row.landed ? 'commit' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
-        ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text))),
+        ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text))),
       h('div.quick-meta.review-pane-meta', null,
         pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,
         pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
@@ -112,6 +112,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
         updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null),
       pr ? reviewersLine(pr) : null,
+      ...(pr ? mergeOrderLines() : []),
       main.length || icons.length || send || github ? h('div.review-pane-actions', null,
         ...main.map(button),
         send ? button(send) : null,
@@ -122,6 +123,18 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         moreBtn) : null,
     ].filter(Boolean));
     fit();
+  }
+
+  // Merge order (AK-321), one line per open PR this one overlaps: "Overlaps #87 in lanes-view.js.
+  // Whichever merges second needs a rebase. Smaller first: this one (+28 −12)." #87 selects that PR.
+  function mergeOrderLines() {
+    return mergeOrder(row).map((o) => h('div.review-pane-order', null,
+      h('span.muted', null, 'Merge order'),
+      h('span', null, 'Overlaps ',
+        h('button.review-reason-link', { 'data-tip': `Select #${o.number}`, onclick: () => ctx.onSelectPr?.(o.number) }, `#${o.number}`),
+        o.files ? [' in ', h('span.mono', null, o.files)] : null,
+        '. Whichever merges second needs a rebase.',
+        o.smaller ? [' Smaller first: ', o.smaller.self ? 'this one' : `#${o.number}`, ' (', h('span.add', null, `+${o.smaller.size.additions}`), ' ', h('span.del', null, `−${o.smaller.size.deletions}`), ').'] : null)));
   }
 
   const onKey = (id) => {
