@@ -47,3 +47,23 @@ test('Review → open a branch → Map → Back returns to Review with the same 
   await expect(page.locator('.content')).toHaveAttribute('data-view', 'map');
   await expect(back).toBeDisabled();
 });
+
+test('a repository opens on Review: Stuck, Everything else in place, then the Map and Back', async ({ sandbox, launch }) => {
+  const repo = sandbox.linear('home');
+  sandbox.git(repo, 'branch', 'feature-a', 'HEAD~1');
+  const app = await launch(repo, { env: { GITLANES_START_VIEW: '' } });
+  const { page } = app;
+  await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
+  await expect(page.locator('.lanes-group[data-stage="stuck"]')).toHaveText('Stuck · 0');
+  const everything = page.locator('.review-stage[data-stage="everything"]');
+  await expect(everything).toContainText('Everything else · 2');
+  await expect(page.locator('.lanes-row', { has: page.locator('.lanes-name', { hasText: 'feature-a' }) })).toHaveCount(0);
+  await everything.click();
+  const row = page.locator('.lanes-row', { has: page.locator('.lanes-name', { hasText: 'feature-a' }) });
+  await expect(row).toHaveCount(1);
+  await row.dblclick();
+  await expect(page.locator('.content')).toHaveAttribute('data-view', 'map');
+  await page.locator('.topbar .nav-btns button[aria-label="Back"]').click();
+  await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
+  await expect(page.locator('.lanes-row.active .lanes-name')).toHaveText('feature-a');
+});
