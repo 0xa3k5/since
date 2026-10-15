@@ -199,6 +199,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.step', 'Run the row’s primary button', 'Space'),
   c('lanes', null, 'lanes.rebase', 'Rebase the branch onto the base branch', 'b'),
   c('lanes', null, 'lanes.checks', 'Open the checks of the pull request', 'o'),
+  c('lanes', null, 'lanes.sendBack', 'Send back a stuck row with a ready-made prompt', 'p'),
   c('lanes', null, 'lanes.delete', 'Delete the worktree and branch (undoable)', 'Mod+Backspace'),
   c('lanes', null, 'lanes.cleanup', 'Clean up the merged branch', 'x'),
   c('lanes', null, 'lanes.approve', 'Approve the pull request', 'Shift+A'),

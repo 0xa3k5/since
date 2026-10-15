@@ -192,6 +192,7 @@ const gitSchemas = {
   previewRestore: [int],
   worktrees: [],
   worktreeChanges: [worktreeDir],
+  baseTouches: [rev, rev, repoPaths],
   conflict: [repoPath],
   fileHistory: [repoPath, optional((v, w) => obj(v, w, { from: rev, skip: int, limit: int, path: repoPath }))],
   blame: [repoPath, optional(rev)],

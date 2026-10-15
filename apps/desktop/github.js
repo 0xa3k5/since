@@ -305,6 +305,52 @@ async function closePr({ enabled, remotes, number, body, dirs = searchDirs(), ex
   return { number };
 }
 
+// Send back (renderer/send-back.js): the failing runs of a PR, from `gh pr view --json
+// statusCheckRollup` (a failed check run's detailsUrl is …/actions/runs/<run>/job/<job>; commit
+// statuses and other CI systems have no run to read and are skipped), at most 3, in GitHub's order.
+function parseFailedRuns(out) {
+  let rollup;
+  try { rollup = JSON.parse(out)?.statusCheckRollup; } catch { return []; }
+  if (!Array.isArray(rollup)) return [];
+  const runs = [];
+  for (const c of rollup) {
+    if (!FAILED.has(String(c?.conclusion || c?.state || '').toUpperCase())) continue;
+    const id = /\/actions\/runs\/(\d+)/.exec(text(c?.detailsUrl, 2048))?.[1];
+    if (id && !runs.includes(id)) runs.push(id);
+  }
+  return runs.slice(0, 3);
+}
+
+// `gh run view --log-failed` prints "job<TAB>step<TAB>2026-…Z line"; keeps the last `n` lines'
+// text, without the job, step, timestamp or colour codes, each at most 500 characters.
+function tailLog(out, n = 20) {
+  const lines = String(out || '').split(/\r?\n/).map((l) => l.split('\t').pop()
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+    .replace(/^\uFEFF?\d{4}-\d\d-\d\dT[\d:.]+Z ?/, '')
+    .slice(0, 500)).filter((l) => l.trim());
+  return lines.slice(-n).join('\n');
+}
+
+// The last lines of a PR's failed CI log: `gh pr view` finds the failing runs, then one
+// `gh run view --log-failed` per run (at most 3). '' when nothing failed on GitHub Actions.
+async function failedLog({ enabled, remotes, number, lines = 20, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const n = prNumber(number);
+  const runs = parseFailedRuns(await ghRun(bin, ['pr', 'view', n, '--repo', repo, '--json', 'statusCheckRollup'], { dirs, exec }));
+  const logs = [];
+  for (const id of runs) logs.push(await ghRun(bin, ['run', 'view', id, '--repo', repo, '--log-failed'], { dirs, exec }));
+  return { runs, log: tailLog(logs.join('\n'), lines) };
+}
+
+// Send back's "Post as PR comment".
+async function commentPr({ enabled, remotes, number, body, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const c = comment(body);
+  if (!c) throw coded('The comment is empty.', 'gh-failed');
+  await ghRun(bin, ['pr', 'comment', prNumber(number), '--repo', repo, `--body=${c}`], { dirs, exec });
+  return { number };
+}
+
 // Checking out a PR: `gh pr view` says where its head is; git then fetches `refs/pull/<n>/head`
 // from the same remote (forks included, no fork remote needed), so every ref change goes through
 // the journal and ⌘Z undoes it.
@@ -477,4 +523,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

@@ -1923,6 +1923,26 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
   return { base: b ? b.name : null, baseRef: b ? b.ref : null, baseSha: b ? b.sha : null, lanes: result };
 }
 
+// Send back (renderer/send-back.js): for each conflicting file, the commits on `base` since `head`
+// left it that changed the file, newest first (at most 3 per file, 20 files). Read-only.
+// { [file]: [{ sha, subject, pr }] }, pr from a squash title's "(#12)" or a merge commit; {} when
+// the two have no merge base.
+async function baseTouches(cwd, head, base, files = []) {
+  let mb;
+  try { mb = (await run(cwd, ['merge-base', head, base])).trim(); } catch { return {}; }
+  if (!mb) return {};
+  const out = {};
+  await mapLimit(files.slice(0, 20), 4, async (f) => {
+    const log = await run(cwd, ['log', '-n', '3', '--format=%h%x1f%s', `${mb}..${base}`, '--', f]).catch(() => '');
+    out[f] = log.split('\n').filter(Boolean).map((l) => {
+      const [sha, subject = ''] = l.split('\x1f');
+      const m = /\(#(\d+)\)\s*$/.exec(subject) || /^Merge pull request #(\d+)\b/.exec(subject);
+      return { sha, subject: subject.slice(0, 200), pr: m ? Number(m[1]) : null };
+    });
+  });
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Conflict forecast: which lanes would conflict, and on which files, before anyone merges. One
 // `git merge-tree --write-tree` per pair (each active lane against base, then pairs of active
@@ -2125,7 +2145,7 @@ module.exports = {
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
-  samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
+  samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
   AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
