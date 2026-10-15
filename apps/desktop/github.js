@@ -9,7 +9,7 @@
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'additions', 'deletions', 'changedFiles'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -52,6 +52,22 @@ function checksState(rollup) {
 }
 
 const text = (v, max = 1024) => (typeof v === 'string' ? v.slice(0, max) : '');
+const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
+
+// `latestReviews` → one verdict per reviewer: [{ login, state: 'approved' | 'changes' }]. Login and
+// state only; review bodies are dropped here and never reach the renderer. Comment-only reviews
+// aren't verdicts and are left out.
+const VERDICTS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes' };
+function reviewVerdicts(list) {
+  if (!Array.isArray(list)) return [];
+  const out = new Map();
+  for (const r of list) {
+    const login = text(r?.author?.login, 200);
+    const state = VERDICTS[r?.state];
+    if (login && state && !out.has(login)) out.set(login, { login, state });
+  }
+  return [...out.values()];
+}
 
 function normalizePr(p) {
   if (!p || typeof p !== 'object' || !Number.isSafeInteger(p.number) || p.number <= 0) return null;
@@ -70,6 +86,8 @@ function normalizePr(p) {
     updatedAt: text(p.updatedAt, 64),
     // GitHub's own conflict check: true, false, or null while GitHub is still working it out.
     mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
+    reviews: reviewVerdicts(p.latestReviews),
+    size: { additions: count(p.additions), deletions: count(p.deletions), files: count(p.changedFiles) },
   };
 }
 
@@ -447,4 +465,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
