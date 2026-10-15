@@ -683,6 +683,25 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-detail.warn { display: block; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-catchup:empty { display: none; }
+.review-catchup-card { display: grid; gap: 6px; margin: 4px 16px 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-content); font-size: 12px; color: var(--text-2); }
+.review-catchup-card:empty { display: none; }
+.catchup-head { display: flex; align-items: center; gap: 8px; }
+.catchup-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catchup-warn { display: flex; align-items: center; gap: 6px; color: var(--warn); }
+.catchup-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-2); }
+.catchup-ci { display: inline-flex; align-items: center; gap: 4px; }
+.catchup-ci.passing .pr-ci { color: var(--green); }
+.catchup-ci.failing { color: var(--red); }
+.catchup-ci.failing .pr-ci { color: var(--red); }
+.catchup-ci.pending .pr-ci { color: var(--yellow); }
+.catchup-groups { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
+.catchup-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.catchup-group > .badge, .catchup-group > .muted { flex: none; white-space: nowrap; }
+.catchup-group > .badge { text-transform: none; letter-spacing: 0; }
+.catchup-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catchup-more { height: 22px; padding: 0 6px; color: var(--accent-fg); }
+.catchup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.catchup-stop { float: right; height: 20px; padding: 0 6px; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .review-none { padding: 4px 16px 8px; font-size: 12px; color: var(--text-4); }
 .review-reason { margin-top: 2px; font-size: 12px; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lanes-subgroup { padding: 8px 16px 2px 28px; font-size: 11px; color: var(--text-4); }

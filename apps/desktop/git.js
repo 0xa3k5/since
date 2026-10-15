@@ -1628,6 +1628,46 @@ async function laneBase(cwd, base) {
   return { ref, sha, name: shortRef(ref), local: shortRef(ref).replace(/^origin\//, '') };
 }
 
+// Review's catch-up card (AK-281): what reached the base since a checkpoint, one entry per commit
+// on the base's first-parent line (a merged PR is one entry), with the files each changed against
+// its first parent. `since` is { sha } (a checkpoint), { ref } (a tag) and/or { date } (ms). A sha
+// or tag that is no longer part of the base (force-push) falls back to `since.date`, or to the
+// commit's own date, and says so (`fallback`). Local git only. → { base, baseSha, baseDate, from,
+// fallback, commits: [{ sha, parent, date, author, subject, files }], truncated, tags } or null
+// without a base branch.
+async function landed(cwd, { base, since = {}, limit = 300 } = {}) {
+  const b = await laneBase(cwd, base);
+  if (!b) return null;
+  let date = since.date ?? null;
+  let from = null;
+  let fallback = null;
+  const at = since.sha || since.ref;
+  if (at) {
+    if (String(at).startsWith('-')) throw new GitError(`Unknown checkpoint ${at}`);
+    const sha = (await run(cwd, ['rev-parse', '--verify', '-q', `${at}^{commit}`], { allowCodes: [0, 1, 128] })).trim();
+    const onBase = sha && await run(cwd, ['merge-base', '--is-ancestor', sha, b.sha]).then(() => true, () => false);
+    if (onBase) from = sha;
+    else {
+      if (sha && date == null) date = Number((await run(cwd, ['log', '-1', '--format=%ct', sha])).trim()) * 1000;
+      fallback = { sha: since.sha || since.ref, reason: sha ? 'unreachable' : 'missing' };
+    }
+  }
+  const range = from ? [`${from}..${b.sha}`] : [b.sha, ...(date != null ? [`--since=${new Date(date).toISOString()}`] : [])];
+  const [out, baseDate, tags] = await Promise.all([
+    from || date != null ? run(cwd, ['log', '--first-parent', '-m', '--name-only', '-z', `--max-count=${limit + 1}`, '--format=%x1e%H%x00%P%x00%ct%x00%an%x00%s%x00', ...range, '--']) : '',
+    run(cwd, ['log', '-1', '--format=%ct', b.sha]),
+    run(cwd, ['for-each-ref', '--sort=-creatordate', '--count=20', '--format=%(refname:short)', 'refs/tags']),
+  ]);
+  const commits = [];
+  for (const rec of out.split('\x1e')) {
+    if (!rec) continue;
+    const [sha, parents, ct, author, subject, ...rest] = rec.split('\0');
+    commits.push({ sha, parent: parents.split(' ')[0] || null, date: Number(ct) * 1000, author, subject, files: [...new Set(rest.map((f) => f.replace(/^\n+/, '')).filter(Boolean))] });
+  }
+  const truncated = commits.length > limit;
+  return { base: b.name, baseSha: b.sha, baseDate: Number(baseDate.trim()) * 1000, from, date, fallback, commits: commits.slice(0, limit), truncated, tags: tags.split('\n').filter(Boolean) };
+}
+
 // Shipped checks on top of `merged`, for lanes with commits ahead of base, cheapest first: a merged
 // PR's head (by SHA: task branches are often named differently from the PR branch), the branch's
 // issue key or its newest subject on a squash-merged base commit, then the net patch. Sets l.done ({ reason,
@@ -2119,6 +2159,7 @@ function parseBlame(out) {
 }
 
 module.exports = {
+  landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
