@@ -2,6 +2,8 @@ import { h, icon, kbd, toast, loading } from './ui.js';
 import { renderDiff, statusBadge, fileName, fileRef } from './diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
 import * as keymap from './keymap.js';
+import { prStatusLine } from './prs.js';
+import { PR_ACTIONS, prActionFor } from './pr-review.js';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).
@@ -11,7 +13,9 @@ import * as keymap from './keymap.js';
 // lane: { key, name, rev } (key from lanes.laneKey; rev is the branch or the detached head).
 // git(method, ...args) calls the main process; store is localStorage; onClose() goes back;
 // onMerge() merges and tidies the branch (null: not offered, e.g. a detached head).
-export function reviewView({ lane, base, root, git, store, onClose, onMerge = null }) {
+// pr: an Inbox pull request (pr-review.js): the head shows its author and checks, and
+// onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) on it.
+export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {} }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -28,11 +32,13 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   const side = h('div.quick-side.review-side', null,
     h('div.quick-head', null,
       h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
-      h('div.quick-title', { title: lane.name }, icon('branch', 14), ' ', lane.name),
+      h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
+      pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
-      h('div.review-tools', null, deltaBtn, onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null)),
+      h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
+      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
     listEl,
-    h('div.diff-hint', null, `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
+    h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
   );
   const main = h('div.quick-main', null, loading('Loading the branch…'));
   const el = h('div.quick.review', { tabIndex: 0 }, side, main);
@@ -158,10 +164,11 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
 
   el.addEventListener('keydown', (e) => {
     const id = keymap.match('review', e);
-    if (!id) return;
+    if (!id || (!pr && prActionFor(id) && id !== 'review.merge')) return;
     e.preventDefault();
     e.stopPropagation();
     if (id === 'review.close') onClose();
+    else if (pr && prActionFor(id)) onPrAction(prActionFor(id));
     else if (id === 'review.merge' && onMerge) onMerge();
     else if (id === 'review.next') move(1);
     else if (id === 'review.prev') move(-1);
