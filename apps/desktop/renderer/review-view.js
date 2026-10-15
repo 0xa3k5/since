@@ -15,8 +15,9 @@ import { PR_ACTIONS, prActionFor } from './pr-review.js';
 // onMerge() merges and tidies the branch (null: not offered, e.g. a detached head).
 // pr: an Inbox pull request (pr-review.js): the head shows its author and checks, and
 // onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) on it.
-// Embedded in Review's pane (review-pane.js): `header` replaces the title, PR line and buttons,
-// there's no Back button and it doesn't take focus; onKey(keyId) runs first and returns true when
+// Embedded in Review's pane (review-pane.js): `header` replaces the title, PR line and buttons and
+// runs across the full width above the files and the diff; there's no Back button and it doesn't
+// take focus; onKey(keyId) runs first and returns true when
 // it handled a `review` key (the pane's actions); Esc still calls onClose.
 export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null }) {
   const key = storeKey(root, lane.key);
@@ -35,7 +36,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   const side = h('div.quick-side.review-side', null,
     h('div.quick-head', null,
       embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
-      header || h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
+      header ? null : h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
       pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
       h('div.review-tools', null, deltaBtn, header ? null : !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
@@ -44,7 +45,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
   );
   const main = h('div.quick-main', null, loading('Loading the branch…'));
-  const el = h('div.quick.review', { tabIndex: 0 }, side, main);
+  const el = h('div.quick.review' + (header ? '.with-header' : ''), { tabIndex: 0 }, header, side, main);
 
   const shown = () => (review ? review.files.filter((f) => !delta || states.get(f.path)?.state === 'changed') : []);
 
