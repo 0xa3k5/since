@@ -7,8 +7,7 @@ import * as keymap from './keymap.js';
 
 // Review's right-hand pane: the selected row's header (title, CI and review state, author, size,
 // draft, last update, reviewers and their states, a link to the checks) and its actions over the
-// branch review (review-view.js,
-// per-file ticks and "changed since last look"). A row with a local branch reviews that branch; a
+// branch review (review-view.js, per-file ticks and "changed since last look"). A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
 
