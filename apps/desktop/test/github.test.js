@@ -388,3 +388,13 @@ test('mergedPrs: parses merged heads, drops bad SHAs; joinLanes takes the open P
   const out = github.joinLanes([{ name: 'f', branch: 'f', title: 'commit subject' }], { owners: {}, prs: [{ number: 1, title: 'PR title', branch: 'f' }] });
   assert.equal(out[0].title, 'PR title');
 });
+
+test('requestChangesPr: needs a message; gh arguments; off runs nothing', async () => {
+  const { calls, exec } = recorder('');
+  const t = { enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec };
+  await assert.rejects(github.requestChangesPr({ ...t, body: '  ' }), { code: 'gh-failed' });
+  await assert.rejects(github.requestChangesPr({ ...t, enabled: false, body: 'fix it' }), { code: 'gh-off' });
+  assert.equal(calls.length, 0);
+  await github.requestChangesPr({ ...t, body: ' --admin rename this ' });
+  assert.deepEqual(calls[0].args, ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--request-changes', '--body=--admin rename this']);
+});
