@@ -9,8 +9,9 @@ import * as keymap from './keymap.js';
 // from the tip it was ticked at to the current tip.
 
 // lane: { key, name, rev } (key from lanes.laneKey; rev is the branch or the detached head).
-// git(method, ...args) calls the main process; store is localStorage; onClose() goes back.
-export function reviewView({ lane, base, root, git, store, onClose }) {
+// git(method, ...args) calls the main process; store is localStorage; onClose() goes back;
+// onMerge() merges and tidies the branch (null: not offered, e.g. a detached head).
+export function reviewView({ lane, base, root, git, store, onClose, onMerge = null }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -29,9 +30,9 @@ export function reviewView({ lane, base, root, git, store, onClose }) {
       h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
       h('div.quick-title', { title: lane.name }, icon('branch', 14), ' ', lane.name),
       meta,
-      h('div.review-tools', null, deltaBtn)),
+      h('div.review-tools', null, deltaBtn, onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null)),
     listEl,
-    h('div.diff-hint', null, 'V Reviewed · D Changed only · J/K Move · Esc Back'),
+    h('div.diff-hint', null, `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
   );
   const main = h('div.quick-main', null, loading('Loading the branch…'));
   const el = h('div.quick.review', { tabIndex: 0 }, side, main);
@@ -161,6 +162,7 @@ export function reviewView({ lane, base, root, git, store, onClose }) {
     e.preventDefault();
     e.stopPropagation();
     if (id === 'review.close') onClose();
+    else if (id === 'review.merge' && onMerge) onMerge();
     else if (id === 'review.next') move(1);
     else if (id === 'review.prev') move(-1);
     else if (id === 'review.tick') tick(current);

@@ -546,7 +546,7 @@ async function updateSubmodules(cwd, paths = []) {
   if (busy.length) throw new GitError(`${busy.map((s) => s.path).join(', ')} ${busy.length > 1 ? 'have' : 'has'} local changes or a conflict. Commit or stash them in the submodule first.`);
   const before = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
   let error = null;
-  await run(cwd, ['submodule', 'update', '--init', '--', ...chosen.map((s) => s.path)]).catch((err) => { error = err; });
+  await run(cwd, ['submodule', 'update', '--init', '--checkout', '--', ...chosen.map((s) => s.path)]).catch((err) => { error = err; });
   const after = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
   const changes = chosen.map((s, i) => ({ path: s.path, before: before[i], after: after[i] })).filter((c) => !sameHead(c.before, c.after));
   return { changes, error };
@@ -566,7 +566,7 @@ async function restoreSubmodules(cwd, changes, dir) {
   for (const c of changes) {
     const want = c[next];
     if (!want) { await run(cwd, ['submodule', 'deinit', '-q', '--', c.path]); continue; }
-    if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '-q', '--', c.path]);
+    if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '--checkout', '-q', '--', c.path]);
     const abs = path.join(cwd, c.path);
     const onBranch = want.branch && (await run(abs, ['rev-parse', '-q', '--verify', `refs/heads/${want.branch}`], { allowCodes: [0, 1] })).trim() === want.sha;
     await run(abs, onBranch ? ['checkout', '-q', want.branch] : ['checkout', '-q', '--detach', want.sha]);
@@ -764,7 +764,7 @@ function remoteWebUrl(url) {
 function remoteLabel(url) {
   const web = remoteWebUrl(url);
   if (web) return web.slice('https://'.length);
-  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, '$1');
+  return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
 }
 
 // ---------------------------------------------------------------------------
@@ -1328,12 +1328,7 @@ async function removeWorktree(cwd, dir) {
   const wt = await findWorktree(cwd, dir);
   if (wt.main) throw new GitError('The main worktree can’t be removed.');
   if (wt.current) throw new GitError('This window is showing that worktree. Switch to another one first.');
-  if (wt.locked) throw new GitError(`“${wt.name}” is locked${wt.lockReason ? ` (${wt.lockReason})` : ''}. Unlock it first.`);
-  if (wt.missing) throw new GitError(`“${wt.name}” no longer exists on disk. Use Prune Missing Worktrees instead.`);
-  const n = await worktreeChanges(wt.path);
-  if (n) throw new GitError(`“${wt.name}” has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.`);
-  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
-  if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
+  await checkRemovable(wt);
   await run(cwd, ['worktree', 'remove', wt.path], { env: W_ENV });
   return wt;
 }
@@ -1347,6 +1342,204 @@ async function restoreWorktree(cwd, { path: dir, branch, head }) {
 const lockWorktree = async (cwd, dir, reason) => run(cwd, ['worktree', 'lock', ...(reason ? ['--reason', reason] : []), (await findWorktree(cwd, dir)).path], { env: W_ENV });
 const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (await findWorktree(cwd, dir)).path], { env: W_ENV });
 const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
+
+// Lanes → Clean up: remove worktrees and delete branches in bulk. Each item is
+// { branch, head, worktree, force }: `head` is the branch tip the user saw (a branch that has
+// moved since is kept), `force` allows removing a dirty worktree (its uncommitted files are lost).
+// Worktrees go first, since a branch checked out in one can't be deleted: one `worktree remove`
+// each, or a single `worktree prune` when every missing folder is selected. Branches then go in
+// one `git branch -D` per 200. Never throws part-way: returns { removed, deleted, failed } so the
+// journal can record exactly what happened. `onProgress({ done, total })` after each step.
+async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
+  const worktrees = await getWorktrees(cwd);
+  const removed = [];
+  const failed = [];
+  const keep = new Set(); // branches whose worktree is still there
+  const wtItems = items.filter((i) => i.worktree);
+  const found = wtItems.map((i) => ({ item: i, wt: worktrees.find((w) => samePath(w.path, i.worktree)) }));
+  const branches = items.filter((i) => i.branch);
+  const batches = chunk(branches, 200);
+  const total = wtItems.length + batches.length;
+  let done = 0;
+  const tick = () => onProgress({ done: ++done, total });
+
+  const missing = worktrees.filter((w) => w.missing && !w.locked);
+  const pruneAll = missing.length > 0 && missing.every((m) => found.some((f) => f.wt === m));
+  if (pruneAll) {
+    try { await pruneWorktrees(cwd); } catch { /* fall back to one remove each below */ }
+  }
+  const after = pruneAll ? await getWorktrees(cwd) : worktrees;
+  for (const { item, wt } of found) {
+    try {
+      if (!wt) throw new GitError('That worktree no longer exists.');
+      if (wt.missing && !after.some((w) => w.path === wt.path)) {
+        removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: true, lost: 0 });
+        continue;
+      }
+      if (wt.main) throw new GitError('The main worktree can’t be removed.');
+      if (wt.current) throw new GitError('This window is showing it.');
+      if (wt.locked) throw new GitError('It is locked.');
+      let lost = 0;
+      if (!wt.missing) {
+        lost = await worktreeChanges(wt.path);
+        if (lost && !item.force) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
+        const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+        if (op) throw new GitError(`It has a ${op} in progress.`);
+      }
+      await run(cwd, ['worktree', 'remove', ...(lost || wt.missing ? ['--force'] : []), wt.path], { env: W_ENV });
+      removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost });
+    } catch (err) {
+      failed.push({ name: wt?.name || path.basename(item.worktree), message: err.message });
+      if (item.branch) keep.add(item.branch);
+    } finally {
+      tick();
+    }
+  }
+
+  const deleted = [];
+  if (branches.length) {
+    const tips = new Map((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads'])).split('\n').filter(Boolean).map((l) => l.split(SEP)));
+    for (const batch of batches) {
+      const go = [];
+      for (const i of batch) {
+        if (keep.has(i.branch)) continue;
+        if (!tips.has(i.branch)) failed.push({ name: i.branch, message: 'That branch no longer exists.' });
+        else if (i.head && tips.get(i.branch) !== i.head) failed.push({ name: i.branch, message: 'It has new commits since. Kept.' });
+        else go.push(i.branch);
+      }
+      let error = null;
+      if (go.length) await run(cwd, ['branch', '-D', '--', ...go], { env: W_ENV }).catch((err) => { error = err; });
+      const left = error ? new Set((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)', ...go.map((b) => `refs/heads/${b}`)])).split('\n').filter(Boolean)) : new Set();
+      for (const b of go) {
+        if (!left.has(b)) deleted.push(b);
+        else failed.push({ name: b, message: (error.stderr || error.message).split('\n').find((l) => l.includes(`'${b}'`))?.replace(/^error: /, '') || error.message });
+      }
+      tick();
+    }
+  }
+  return { removed, deleted, failed };
+}
+
+// Delete branches on their remotes, one `git push --delete` per remote. `shorts` are
+// remote-tracking names ("origin/feature/x"), split on the longest matching remote name.
+// Not undoable. Returns { deleted, failed }.
+async function deleteRemoteBranches(cwd, shorts) {
+  const remotes = (await getRemotes(cwd)).map((r) => r.name).sort((a, b) => b.length - a.length);
+  const byRemote = new Map();
+  const failed = [];
+  for (const s of shorts) {
+    const remote = remotes.find((r) => s.startsWith(`${r}/`) && s.length > r.length + 1);
+    if (!remote) { failed.push({ name: s, message: 'No such remote.' }); continue; }
+    byRemote.set(remote, [...(byRemote.get(remote) || []), s.slice(remote.length + 1)]);
+  }
+  const deleted = [];
+  for (const [remote, names] of byRemote) {
+    try {
+      await run(cwd, ['push', remote, '--delete', '--', ...names]);
+      deleted.push(...names.map((n) => `${remote}/${n}`));
+    } catch (err) {
+      // A partial push still deleted some: whatever is no longer listed as a remote-tracking ref is gone.
+      const left = new Set((await run(cwd, ['for-each-ref', '--format=%(refname:short)', `refs/remotes/${remote}`]).catch(() => '')).split('\n'));
+      for (const n of names) (left.has(`${remote}/${n}`) ? failed.push({ name: `${remote}/${n}`, message: err.message }) : deleted.push(`${remote}/${n}`));
+    }
+  }
+  return { deleted, failed };
+}
+
+// ---------------------------------------------------------------------------
+// Merge and tidy: land a lane's branch on its base as one squashed commit, then remove the
+// lane's worktree and delete the branch. The squash is built with `merge-tree --write-tree` and
+// `commit-tree`, so no worktree but the base's own (when this window has it checked out) is
+// touched. The journal records all of it as one step (journal.runLane).
+
+// What merging `branch` into `base` would do, without changing anything. `blocker` stops the
+// whole action; `mergeBlocker` only stops merging here (a GitHub merge can still go ahead).
+// commits: newest first, [{ subject, body }]; empty when the branch has nothing left to merge.
+async function mergeLanePlan(cwd, branch, base) {
+  if (String(branch).startsWith('-')) throw new GitError(`Unknown branch ${branch}`);
+  const head = (await run(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`], { allowCodes: [0, 1] })).trim();
+  if (!head) throw new GitError(`There is no branch ${branch}.`);
+  const b = await laneBase(cwd, base);
+  const into = b?.local || null;
+  const baseSha = into ? (await run(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${into}^{commit}`], { allowCodes: [0, 1] })).trim() : '';
+  const worktrees = await getWorktrees(cwd);
+  const wt = worktrees.find((w) => w.branch === branch) || null;
+  const baseWt = into ? worktrees.find((w) => w.branch === into) : null;
+  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && { path: wt.path, name: wt.name }, blocker: null, mergeBlocker: null };
+  if (wt?.current) plan.blocker = `${branch} is checked out in this window. Switch to another branch first.`;
+  else if (wt?.main) plan.blocker = `${branch} is checked out in the main worktree (${wt.name}). Switch it to another branch first.`;
+  else if (wt) {
+    try { await checkRemovable(wt); } catch (err) { plan.blocker = err.message; }
+  }
+  if (!into || !baseSha) plan.mergeBlocker = into ? `There is no local ${into} branch to merge into.` : 'There is no base branch (main or master) to merge into.';
+  else if (into === branch) plan.blocker = `${branch} is the base branch.`;
+  else if (baseWt && !baseWt.current) plan.mergeBlocker = `${into} is checked out in ${baseWt.name}. Merge from that worktree’s window.`;
+  if (plan.blocker || !baseSha) return plan;
+  plan.commits = (await run(cwd, ['log', '--format=%s%x00%b%x1e', `${baseSha}..${head}`, '--'])).split('\x1e').map((r) => r.replace(/^\n+/, '')).filter(Boolean)
+    .map((r) => { const i = r.indexOf('\0'); return { subject: r.slice(0, i).trim(), body: r.slice(i + 1).trim() }; });
+  if (plan.commits.length) {
+    const tree = await squashTree(cwd, baseSha, head).catch((err) => { plan.mergeBlocker ||= err.message; return null; });
+    if (tree?.conflicts.length) {
+      plan.conflicts = tree.conflicts;
+      plan.mergeBlocker ||= `It conflicts with ${into} in ${tree.conflicts.length} file${tree.conflicts.length > 1 ? 's' : ''}. Rebase it or merge ${into} into it first.`;
+    }
+  }
+  return plan;
+}
+
+// The tree of `head` merged onto `baseSha`, or the conflicted paths. Needs git 2.38.
+async function squashTree(cwd, baseSha, head) {
+  let out;
+  try {
+    out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
+  } catch {
+    throw new GitError('Merging here needs git 2.38 or later.');
+  }
+  // A clean merge prints only the tree; a conflicted one lists the conflicted paths after it.
+  const [tree, ...rest] = out.split('\0');
+  return { tree: tree.trim(), conflicts: [...new Set(rest.filter(Boolean))] };
+}
+
+// Whether `wt` (from getWorktrees) can be removed: unlocked, on disk, clean, nothing in progress.
+async function checkRemovable(wt) {
+  if (wt.locked) throw new GitError(`“${wt.name}” is locked${wt.lockReason ? ` (${wt.lockReason})` : ''}. Unlock it first.`);
+  if (wt.missing) throw new GitError(`“${wt.name}” no longer exists on disk. Use Prune Missing Worktrees instead.`);
+  const n = await worktreeChanges(wt.path);
+  if (n) throw new GitError(`“${wt.name}” has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.`);
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
+}
+
+// Squash `branch` onto `base` with `message` (skipped when `merge` is false, or when the branch
+// has nothing left to merge), then remove its worktree and delete it. Everything is checked
+// before anything changes. `done` reports what happened, for the journal, even on a failure
+// part-way: { commit, worktree } (the removed worktree, as removeWorktree returns it).
+async function mergeLane(cwd, { branch, base, message = '', merge = true } = {}, done = {}) {
+  const plan = await mergeLanePlan(cwd, branch, base);
+  if (plan.blocker) throw new GitError(plan.blocker);
+  let tree = null;
+  if (merge && plan.commits.length) {
+    if (plan.mergeBlocker) throw new GitError(plan.mergeBlocker);
+    if (!String(message).trim()) throw new GitError('The commit message is empty.');
+    tree = (await squashTree(cwd, plan.baseSha, plan.head)).tree;
+    if (tree === (await run(cwd, ['rev-parse', `${plan.baseSha}^{tree}`])).trim()) tree = null; // already on base
+  }
+  if (tree) {
+    const commit = (await run(cwd, ['commit-tree', tree, '-p', plan.baseSha, '-F', '-'], { input: message.trim() + '\n' })).trim();
+    const here = (await run(cwd, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] })).trim();
+    // The base checked out here: move it with the working copy (local changes are kept, as undo does).
+    if (here === `refs/heads/${plan.base}`) {
+      if (await getOperationState((await run(cwd, ['rev-parse', '--absolute-git-dir'])).trim())) throw new GitError('Finish or abort the operation in progress first.');
+      await run(cwd, ['reset', '--keep', commit], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+    } else {
+      await run(cwd, ['update-ref', '-m', `gitlanes: merge ${branch}`, `refs/heads/${plan.base}`, commit, plan.baseSha]);
+    }
+    done.commit = commit;
+  }
+  if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path);
+  await run(cwd, ['branch', '-D', '--', branch]);
+  return { commit: done.commit || null, base: plan.base, worktree: plan.worktree };
+}
 
 // ---------------------------------------------------------------------------
 // Lanes: one record per local branch and per worktree, measured against the repository's
@@ -1805,8 +1998,8 @@ module.exports = {
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
-  samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree,
-  restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees,
+  samePath, getWorktrees, findWorktree, worktreeChanges, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
+  restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
   AGENT_HINTS, parseTrailers, agentGuess, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,

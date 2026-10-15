@@ -141,6 +141,14 @@ const label = (v) => ({ __label: str(v.__label, 'label', { max: 1024 }) });
 const worktreeDir = Object.assign((v, what) => absDir(v, what), { worktree: true });
 const worktreeSpec = (v, what) => obj(v, what, { dir: optional((d, w) => str(d, w, { max: 4096 })), branch: optional(rev), base: optional(rev) });
 
+// One lane to clean up: its branch (with the tip the user saw) and/or its worktree folder.
+const cleanupItem = (v, what) => {
+  obj(v, what, { branch: optional(rev), head: optional(oid), worktree: optional(absDir), force: optional(bool) });
+  if (!v.branch && !v.worktree) fail(what, 'expected a branch or a worktree');
+  return v;
+};
+const remoteBranch = (v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); if (/\/-/.test(v)) fail(w, 'must not start with -'); return v; };
+
 // The worktree in `worktrees` (from git.getWorktrees) at `dir`, or throws. `same` compares paths
 // (git.samePath, which follows symlinks such as /tmp -> /private/tmp).
 function knownWorktree(worktrees, dir, same = (a, b) => a === b, what = 'worktree') {
@@ -167,6 +175,7 @@ const gitSchemas = {
   checkSplit: [rev],
   compare: [rev, rev],
   branchReview: [rev, optional(rev)],
+  mergeLanePlan: [rev, optional(rev)],
   status: [],
   opState: [],
   lfs: [],
@@ -215,7 +224,8 @@ const gitSchemas = {
   fetch: [],
   push: [optional((v, w) => obj(v, w, { force: optional(bool), all: optional(bool) }))],
   pushTags: [],
-  deleteRemoteBranch: [(v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); return v; }],
+  deleteRemoteBranch: [remoteBranch],
+  deleteRemoteBranches: [(v, w) => list(v, w, remoteBranch)],
   setConfig: [safeConfigKey, text],
   mergetool: [optional(repoPaths)],
   unsetConfig: [configKey],
@@ -226,6 +236,8 @@ const gitSchemas = {
   // undoable worktree operations (journal.worktreeOps)
   addWorktree: [worktreeSpec],
   removeWorktree: [worktreeDir],
+  // bulk cleanup from Lanes (journal.runCleanup); worktree paths are resolved in main.js
+  cleanupLanes: [(v, w) => list(v, w, cleanupItem)],
   // undoable working-tree operations (journal.workOps)
   discardFiles: [(v, w) => list(v, w, fileEntry)],
   discardLines: [fileEntry, lineKeys],
@@ -234,6 +246,9 @@ const gitSchemas = {
   resolveConflict: [repoPath, (v, w) => str(v, w, { max: 4 * MAX_TEXT, empty: true })],
   stashApply: [rev, optional(bool)],
   stashDrop: [rev],
+  // undoable merge and tidy of a lane (journal.runLane): branch, base, commit message; branch
+  mergeLane: [rev, rev, text],
+  tidyLane: [rev],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
   updateSubmodules: [optional(repoPaths)],
   // history

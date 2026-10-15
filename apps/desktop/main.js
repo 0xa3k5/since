@@ -6,7 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const git = require('./git');
-const { Journal, workOps, worktreeOps } = require('./journal');
+const { Journal, workOps, worktreeOps, laneOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
 const { loadConfig } = require('./licence/config');
@@ -170,6 +170,12 @@ const reads = {
   checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
   branchReview: (s, branch, base) => git.branchReview(s.repo.root, branch, base),
+  // Merge and tidy: the plan, with the squash commit message drafted from the branch's commits.
+  mergeLanePlan: async (s, branch, base) => {
+    const plan = await git.mergeLanePlan(s.repo.root, branch, base);
+    const d = github.prDraft(plan.commits);
+    return { ...plan, message: [d.title, d.body].filter(Boolean).join('\n\n') };
+  },
   status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
   lfs: (s) => git.getLfs(s.repo.root),
   submodules: (s) => git.getSubmodules(s.repo.root),
@@ -268,7 +274,7 @@ const plainMutations = {
   pushTags: (s) => r(s, ['push', '--tags']),
   deleteRemoteBranch: (s, short) => {
     const i = short.indexOf('/');
-    return r(s, ['push', short.slice(0, i), '--delete', short.slice(i + 1)]);
+    return r(s, ['push', short.slice(0, i), '--delete', '--', short.slice(i + 1)]);
   },
   setConfig: (s, key, value) => r(s, ['config', '--local', key, value]),
   unsetConfig: (s, key) => r(s, ['config', '--local', '--unset-all', key]),
@@ -277,7 +283,21 @@ const plainMutations = {
   lockWorktree: (s, dir, reason) => git.lockWorktree(s.repo.root, dir, reason),
   unlockWorktree: (s, dir) => git.unlockWorktree(s.repo.root, dir),
   pruneWorktrees: (s) => git.pruneWorktrees(s.repo.root),
+  // Not undoable: the renderer asks for an explicit confirmation that says so.
+  deleteRemoteBranches: (s, shorts) => git.deleteRemoteBranches(s.repo.root, shorts),
 };
+
+// Lanes → Clean up: one journal step for the whole batch, with progress sent to the window.
+async function cleanupLanes(s, items, label) {
+  const list = await git.getWorktrees(s.repo.root);
+  for (const i of items) {
+    if (!i.worktree) continue;
+    i.worktree = check.knownWorktree(list, i.worktree, git.samePath);
+    if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another window. Close that window first.`);
+  }
+  const onProgress = (p) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
+  return s.journal.runCleanup(label || `Clean up ${items.length} lane${items.length === 1 ? '' : 's'}`, items, { onProgress });
+}
 
 // The window showing a repository root, if any.
 const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
@@ -338,6 +358,15 @@ handle('git', async (e, method, ...args) => {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
       }
+      if (laneOps.has(method)) {
+        // Merge and tidy (git.mergeLane); tidyLane only removes the worktree and branch, after a GitHub merge.
+        const [branch, base, message] = realArgs;
+        const wt = (await git.getWorktrees(s.repo.root)).find((w) => w.branch === branch);
+        if (wt && ![undefined, s.win].includes(windowFor(wt.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        const opts = method === 'mergeLane' ? { branch, base, message } : { branch, merge: false };
+        return { ok: await s.journal.runLane(label || method, method, (done) => git.mergeLane(s.repo.root, opts, done)) };
+      }
+      if (method === 'cleanupLanes') return { ok: await cleanupLanes(s, realArgs[0], label) };
       if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
       if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method) };
@@ -596,14 +625,8 @@ async function prBranch(s, branch) {
   const line = (await r(s, ['for-each-ref', '--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:track,nobracket)', `refs/heads/${branch}`])).trim();
   if (!line) throw new git.GitError(`${branch} isn’t a local branch.`);
   const [upRemote, upRef, track] = line.split('\0');
-  const up = upRemote && upRef.startsWith('refs/heads/') ? github.parseRemote(remotes.find((x) => x.name === upRemote)) : null;
-  // Pushes go where the branch already tracks (a fork, say); a branch with no upstream goes to the
-  // GitHub remote and starts tracking it.
-  const dest = up ? { remote: up, ref: upRef.slice('refs/heads/'.length) } : { remote: target, ref: branch };
-  const head = dest.remote.owner !== target.owner ? `${dest.remote.owner}:${dest.ref}` : dest.ref;
-  const ahead = Number(/ahead (\d+)/.exec(track || '')?.[1] || 0);
-  const push = !up ? { remote: dest.remote.name, isNew: true, ahead: 0 } : ahead || /gone/.test(track) ? { remote: dest.remote.name, isNew: /gone/.test(track), ahead } : null;
-  return { enabled, remotes, target, dest, head, push };
+  const { dest, head, push, pushArgs } = github.prPushPlan({ branch, upRemote, upRef, track, remotes, target });
+  return { enabled, remotes, target, dest, head, push, pushArgs };
 }
 handle('app:pr-create-info', aiCall(async (e, branch) => {
   const s = session(e);
@@ -649,9 +672,10 @@ handle('app:pr-create', aiCall(async (e, branch, opts) => {
     if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
     s.busy++;
     try {
-      // The current branch takes the usual push path; another branch pushes to the same place.
-      if (branch === (await git.getRefs(s.repo.root)).head.branch) await plainMutations.push(s);
-      else await r(s, ['push', ...(b.push.isNew ? ['-u'] : []), '--', b.dest.remote.name, `refs/heads/${branch}:refs/heads/${b.dest.ref}`]);
+      // A current branch already tracking GitHub takes the usual push path; anything else pushes
+      // explicitly to the PR's remote, since the usual path would pick origin.
+      if (!b.push.isNew && branch === (await git.getRefs(s.repo.root)).head.branch) await plainMutations.push(s);
+      else await r(s, b.pushArgs);
     } finally {
       s.busy--;
       s.pending.refs = true;
@@ -862,7 +886,17 @@ function setKeymap(o) {
 }
 handle('app:keymap', () => keymap.getOverrides());
 // While the Keyboard Shortcuts window records new keys, the menu must not run the keys being pressed.
-handle('app:keymap-recording', (e, on) => e.sender.setIgnoreMenuShortcuts(check.bool(on, 'recording')));
+// A reload or crash mid-record must not leave the menu shortcuts off for that window.
+const recordWatched = new WeakSet();
+handle('app:keymap-recording', (e, on) => {
+  const wc = e.sender;
+  wc.setIgnoreMenuShortcuts(check.bool(on, 'recording'));
+  if (!on || recordWatched.has(wc)) return;
+  recordWatched.add(wc);
+  const off = () => { if (!wc.isDestroyed()) wc.setIgnoreMenuShortcuts(false); };
+  wc.on('did-navigate', off);
+  wc.on('render-process-gone', off);
+});
 handle('app:set-keymap', (_e, o) => {
   if (!o || typeof o !== 'object' || Array.isArray(o)) throw new check.IpcArgError('key bindings: expected an object');
   return setKeymap(o); // sanitize() drops unknown commands, reserved keys and bad bindings

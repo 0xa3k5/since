@@ -17,11 +17,11 @@ const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
 const DEBOUNCE = 400;
 
 // load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
-// onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review and
+// onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
 // progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items, the hook for
-// later row actions (review, merge, delete); none yet. onCheckout(pr) and onMergeReady(prs, remote)
-// are the Inbox's actions; `tab` picks the tab to start on.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onReview = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes' }) {
+// later row actions (review, merge, delete); none yet. onCleanup() opens Clean up. onCheckout(pr) and
+// onMergeReady(prs, remote) are the Inbox's actions; `tab` picks the tab to start on.
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes' }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last inbox load
   let inboxFailed = false;
@@ -45,12 +45,13 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const title = h('h1');
   const lede = h('p.muted');
   const hint = h('div.diff-hint.wt-hint');
+  const cleanupBtn = onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null;
   const tabBtn = (id, label) => h('button.lanes-tab', { role: 'tab', 'data-tab': id, onclick: () => setTab(id) }, label);
   const tabs = h('div.lanes-tabs', { role: 'tablist', 'aria-label': 'Lanes overview' }, tabBtn('lanes', 'Lanes'), tabBtn('inbox', 'Inbox'));
   const el = h('div.page.flush.lanes', { tabIndex: 0 },
     h('div.page-head', null,
       h('div', null, title, lede),
-      h('div.page-actions', null, count)),
+      h('div.page-actions', null, count, cleanupBtn)),
     tabs,
     h('div.lanes-bar', null, icon('search', 14), filter, agentChip, conflictChip),
     list,
@@ -119,8 +120,9 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     filter.placeholder = tab === 'inbox' ? 'Filter pull requests…' : 'Filter lanes…';
     if (tab === 'inbox') return renderInbox();
     title.textContent = 'Lanes';
+    if (cleanupBtn) cleanupBtn.hidden = false;
     lede.textContent = 'Every branch and worktree in this repository. Lanes that need you come first.';
-    hint.textContent = `↵ Open · R Review · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
+    hint.textContent = `↵ Open · R Review · M Merge and tidy · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
     if (agentsOnly && !markAgents()) agentsOnly = false;
     shown = filterLanes(lanes, filter.value, { agentsOnly, conflictsOnly });
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
@@ -174,6 +176,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
 
   function renderInbox() {
     title.textContent = 'Inbox';
+    if (cleanupBtn) cleanupBtn.hidden = true;
     lede.textContent = 'Open pull requests you can act on: ready to merge, waiting for your review, failing, and yours.';
     const bs = buckets();
     const order = bs.flatMap((b) => b.groups.flatMap((g) => g.prs));
@@ -231,7 +234,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const current = () => shown.find((x) => keyOf(x) === selKey);
 
   function toggleAgents() {
-    if (!agentsOnly && !markAgents()) return toast('Agent lanes are hidden', { detail: 'Turn on “Mark lanes that look agent-made” in Choose defaults (⌘⇧,).' });
+    if (!agentsOnly && !markAgents()) return toast('Agent lanes are hidden', { detail: 'Turn on “Mark lanes that look agent-made” in Choose defaults (⇧⌘,).' });
     agentsOnly = !agentsOnly;
     render();
   }
@@ -247,6 +250,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(l) },
       { label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => onReview(l, base) },
+      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !l.branch || l.isBase, run: () => onMerge(l, base) },
       ...(extra.length ? ['-', ...extra] : []),
     ]);
   }
@@ -260,9 +264,10 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     else if (id === 'lanes.open') { const x = current(); if (x) (tab === 'inbox' ? onCheckout : onOpen)(x); }
     else if (id === 'lanes.tab') { if (!prsOn()) return false; setTab(tab === 'inbox' ? 'lanes' : 'inbox'); }
     else if (id === 'lanes.mergeReady') { if (tab !== 'inbox' || typing) return false; mergeReady(); }
-    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.review' || id === 'lanes.conflicts')) return false; // lane-only keys
+    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.review' || id === 'lanes.merge' || id === 'lanes.conflicts')) return false; // lane-only keys
     else if (id === 'lanes.agents') toggleAgents();
     else if (id === 'lanes.review') { const l = current(); if (l) onReview(l, base); }
+    else if (id === 'lanes.merge') { const l = current(); if (l) onMerge(l, base); }
     else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.clear') {
@@ -338,5 +343,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const show = (t) => setTab(t);
   // ⌘K "Show lanes with predicted conflicts": the Lanes tab with the filter on (never off).
   const showConflicts = () => { setTab('lanes'); if (!conflictsOnly) toggleConflicts(); };
-  return { el, refresh, rerender: render, show, showConflicts, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  // ⌘K "Merge and tidy…" acts on the selected lane; on the Inbox the selection is a PR, not a lane.
+  const selected = () => (tab !== 'inbox' && current() ? { lane: current(), base } : null);
+  return { el, refresh, rerender: render, show, showConflicts, selected, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }

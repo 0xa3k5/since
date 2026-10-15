@@ -121,13 +121,13 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.equal(accelerator('view.cycleTheme', true), 'Ctrl+Cmd+T');
   assert.equal(accelerator('view.cycleTheme', false), 'Ctrl+Alt+Shift+T');
   assert.equal(accelerator('app.settings', true), 'CmdOrCtrl+,');
-  assert.deepEqual(keys('repo.prRefresh', { mac: true }), ['⌘', '⌥', '⇧', 'P']);
+  assert.deepEqual(keys('repo.prRefresh', { mac: true }), ['⌥', '⇧', '⌘', 'P']);
   assert.deepEqual(keys('repo.prRefresh', { mac: false }), ['Ctrl', '⌥', '⇧', 'P']);
   assert.deepEqual(keys('view.cycleTheme', { mac: true }), ['⌃', '⌘', 'T']);
   assert.deepEqual(keys('view.worktrees', { mac: true, index: 1 }), ['G', 'W']);
   assert.deepEqual(keys('commit.split', { mac: true }), ['⇧', 'S']);
   assert.deepEqual(keys('commit.drop', { mac: true }), ['⌫']);
-  assert.deepEqual(keys('global.setup', { mac: true }), ['⌘', '⇧', ',']);
+  assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {
@@ -162,6 +162,9 @@ test('sanitize keeps only known, non-reserved commands with valid bindings', asy
   assert.deepEqual(sanitize({ 'commit.checkout': ['x', 'x'], 'app.quit': ['Mod+Y'], nope: ['a'], 'commit.tag': ['Hyper+T'], 'commit.branch': 'b' }), { 'commit.checkout': ['x'] });
   assert.deepEqual(sanitize(null), {});
   assert.deepEqual(sanitize(['x']), {});
+  // The recorder's refusals apply too (AK-234): a bare-key menu command, a chord on a non-view.
+  assert.deepEqual(sanitize({ 'repo.fetch': ['f'], 'commit.checkout': ['g c'] }), {});
+  assert.deepEqual(sanitize({ 'repo.fetch': ['Mod+Alt+F'] }), { 'repo.fetch': ['Mod+Alt+F'] });
 });
 
 test('withBinding stores overrides only, dropping a list equal to the defaults', async () => {
@@ -218,4 +221,11 @@ test('refusal: reserved commands and keys, macOS keys, and menu keys without a m
   assert.equal(refusal('view.map', 'g x', true), null);
   assert.equal(refusal('map.head', 'x', true), null);
   assert.equal(refusal('repo.fetch', 'Mod+Alt+Shift+F', true), null);
+});
+
+test('Ctrl+Mod needs ⌘ on macOS, so plain ⌃T doesn’t match ⌃⌘T (AK-207)', async () => {
+  const { match } = await load();
+  const ev = (key, o = {}) => ({ key, code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
+  assert.equal(match('menu', ev('t', { ctrlKey: true }), null, true), null);
+  assert.equal(match('menu', ev('t', { ctrlKey: true, metaKey: true }), null, true), 'view.cycleTheme');
 });

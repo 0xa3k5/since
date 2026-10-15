@@ -25,6 +25,7 @@ export const SCOPES = {
   worktrees: 'Worktrees',
   lanes: 'Lanes',
   review: 'Review branch',
+  cleanup: 'Clean up',
   recent: 'Welcome screen',
   conflict: 'Conflict editor',
   fileHistory: 'File history',
@@ -103,6 +104,7 @@ export const COMMANDS = [
   c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
   c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
+  c('global', 'global', 'global.cleanup', 'Clean up stale branches and worktrees', 'Mod+Alt+Backspace'),
   c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
 
   // Map, with the commit list focused.
@@ -189,11 +191,19 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.mergeReady', 'Squash-merge every pull request that is ready', 'Shift+M'),
   c('lanes', null, 'lanes.conflicts', 'Lanes with predicted conflicts only', 'c'),
   c('lanes', null, 'lanes.review', 'Review the lane’s branch', 'r'),
+  c('lanes', null, 'lanes.merge', 'Merge and tidy the lane', 'm'),
   c('review', null, 'review.next', 'Next file', ['ArrowDown', 'j']),
   c('review', null, 'review.prev', 'Previous file', ['ArrowUp', 'k']),
   c('review', null, 'review.tick', 'Mark the file reviewed (or not)', 'v'),
   c('review', null, 'review.delta', 'Only what changed since you last looked', 'd'),
+  c('review', null, 'review.merge', 'Merge and tidy the branch', 'm'),
   c('review', null, 'review.close', 'Back', 'Escape'),
+  c('cleanup', null, 'cleanup.next', 'Next lane', ['ArrowDown', 'j']),
+  c('cleanup', null, 'cleanup.prev', 'Previous lane', ['ArrowUp', 'k']),
+  c('cleanup', null, 'cleanup.toggle', 'Tick or untick the lane', 'Space'),
+  c('cleanup', null, 'cleanup.remote', 'Also delete it on the remote', 'r'),
+  c('cleanup', null, 'cleanup.run', 'Clean up the ticked lanes', 'Mod+Enter'),
+  c('cleanup', null, 'cleanup.back', 'Back to Lanes', 'Escape'),
 
   // Welcome screen: recent repositories.
   c('recent', null, 'recent.next', 'Next repository', 'ArrowDown'),
@@ -265,7 +275,10 @@ export function defaults(id, mac = IS_MAC) {
 // Only changed commands are stored; a command with no override uses its defaults.
 let overrides = {};
 
-/** Valid overrides only: known, non-reserved commands with parseable bindings. Drops everything else. */
+/**
+ * Valid overrides only: known, non-reserved commands with bindings the recorder would accept (or the command's
+ * own defaults). Drops everything else, so an imported file can't set a bare-key menu accelerator, say.
+ */
 export function sanitize(o) {
   const out = {};
   if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
@@ -274,7 +287,8 @@ export function sanitize(o) {
     if (!cmd || cmd.reserved || !Array.isArray(list) || list.length > 4) continue;
     const ok = list.filter((b) => {
       if (typeof b !== 'string' || !b || b.length > 40) return false;
-      try { return parse(b).length <= 2; } catch { return false; }
+      try { if (parse(b).length > 2) return false; } catch { return false; }
+      return defaults(id).includes(b) || !refusal(id, b);
     });
     if (ok.length === list.length) out[id] = [...new Set(ok)];
   }
@@ -316,9 +330,10 @@ export function parse(binding) {
 const isLetter = (k) => /^[a-z]$/i.test(k);
 
 /** Does a keydown event press this step? `loose` lets ⇧ through for keys that aren't letters. */
-function pressed(step, e, loose) {
+function pressed(step, e, loose, mac = IS_MAC) {
   const { mods, key } = step;
-  if (mods.has('Mod') ? !(e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
+  // Mod is ⌘ or ⌃; with Ctrl also named (⌃⌘T), Mod must be ⌘ on macOS, or plain ⌃T would match.
+  if (mods.has('Mod') ? !(mac && mods.has('Ctrl') ? e.metaKey : e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
   if (mods.has('Ctrl') && !e.ctrlKey) return false;
   if (mods.has('Alt') !== !!e.altKey) return false;
   const shift = mods.has('Shift');
@@ -340,8 +355,8 @@ export function match(scope, e, pending = null, mac = IS_MAC) {
     for (const cmd of cmds) {
       for (const b of bindings(cmd.id, mac)) {
         const steps = parse(b);
-        if (pending ? steps.length === 2 && steps[0].key === pending && pressed(steps[1], e, loose)
-          : steps.length === 1 && pressed(steps[0], e, loose)) return cmd.id;
+        if (pending ? steps.length === 2 && steps[0].key === pending && pressed(steps[1], e, loose, mac)
+          : steps.length === 1 && pressed(steps[0], e, loose, mac)) return cmd.id;
       }
     }
   }
@@ -353,7 +368,7 @@ export function chordStart(scope, e, mac = IS_MAC) {
   for (const cmd of inScope(scope)) {
     for (const b of bindings(cmd.id, mac)) {
       const steps = parse(b);
-      if (steps.length === 2 && pressed(steps[0], e, false)) return steps[0].key;
+      if (steps.length === 2 && pressed(steps[0], e, false, mac)) return steps[0].key;
     }
   }
   return null;
@@ -376,7 +391,10 @@ export function keys(id, { index = 0, mac = IS_MAC } = {}) {
 /** Any binding as keycaps, like `keys`. */
 export function caps(binding, mac = IS_MAC) {
   const MOD = { Mod: mac ? '⌘' : 'Ctrl', Ctrl: mac ? '⌃' : 'Ctrl', Alt: '⌥', Shift: '⇧' };
-  return parse(binding).flatMap((s) => [...[...s.mods].map((m) => MOD[m]), keyLabel(s.key)]);
+  // macOS lists modifiers as ⌃⌥⇧⌘ (⇧⌘F, not ⌘⇧F), like its menus and the website.
+  const ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod'];
+  const order = (mods) => (mac ? [...mods].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)) : [...mods]);
+  return parse(binding).flatMap((s) => [...order(s.mods).map((m) => MOD[m]), keyLabel(s.key)]);
 }
 
 const ACCEL = { Mod: 'CmdOrCtrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' };
