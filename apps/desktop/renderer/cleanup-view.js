@@ -1,20 +1,21 @@
 import { h, icon, kbd, timeAgo, fullDate, dialog, toast } from './ui.js';
 import { laneKey } from './lanes.js';
-import { groupLanes, blocked, dirty, preselect, remoteOf, cleanupItem, summarize, plural } from './cleanup.js';
+import { groupLanes, blocked, dirty, preselect, remoteOf, reason, cleanupItem, summarize, plural } from './cleanup.js';
 import * as keymap from './keymap.js';
 
-// Lanes → Clean up: stale branches and worktrees, grouped by why they're stale (cleanup.js),
-// removed in bulk. The local part (worktrees and branches) is one undo step; deleting branches on
-// the remote is a separate opt-in tick per lane and can't be undone. Keyboard-first: J/K move,
-// Space ticks, R ticks "delete on remote", ⌘↵ cleans up, Escape goes back to Lanes.
+// Lanes → Clean up: finished branches and worktrees (merged, shipped, remote gone, folder missing),
+// grouped by why (cleanup.js), removed in bulk. The local part (worktrees and branches) is one
+// undo step; deleting branches on the remote is a separate opt-in tick per lane and can't be
+// undone. Keyboard-first: J/K move, Space ticks, A ticks everything clean, R ticks "delete on
+// remote", ⌘↵ cleans up, Escape goes back to Lanes.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 
-// load() → app:lanes-list result; run(items, label) and runRemote(names) call git; days() and
-// setDays(n) read and store the "untouched for" setting; onProgress(fn) subscribes to progress
-// and returns an unsubscribe; onDone() refreshes the app; onUndo() undoes the last step;
-// onBack() returns to Lanes. `only` (a laneKey) ticks just that lane when the list opens (a lane's Clean up button).
-export function cleanupView({ load, run, runRemote, days, setDays, onProgress, onDone, onUndo, onBack, only = null, mod = '⌘' }) {
+// load() → app:lanes-list result; run(items, label) and runRemote(names) call git; age() and
+// setAge({ on, days }) read and store the optional "untouched for N days" filter (off by default);
+// onProgress(fn) subscribes to progress and returns an unsubscribe; onDone() refreshes the app;
+// onUndo() undoes the last step; onBack() returns to Lanes. `only` (a laneKey) ticks just that lane when the list opens (a lane's Clean up button).
+export function cleanupView({ load, run, runRemote, age, setAge, onProgress, onDone, onUndo, onBack, only = null, mod = '⌘' }) {
   let lanes = [];
   let groups = [];
   let shown = [];
@@ -28,7 +29,9 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
   const remote = new Set();
   const seen = new Set(); // lanes already offered, so a refresh doesn't re-tick what the user unticked
 
-  const daysInput = h('input.input.cleanup-days', { type: 'number', min: 1, max: 3650, value: days(), 'aria-label': 'Days untouched' });
+  const days = () => (age().on ? age().days : null);
+  const ageBox = h('input', { type: 'checkbox', checked: age().on, tabIndex: -1, onchange: () => { setAge({ ...age(), on: ageBox.checked }); render(); } });
+  const daysInput = h('input.input.cleanup-days', { type: 'number', min: 1, max: 3650, value: age().days, 'aria-label': 'Days untouched' });
   const count = h('span.muted.lanes-count');
   const goBtn = h('button.btn.danger', { onclick: () => go() }, 'Clean up', kbd(mod, '↵'));
   const progress = h('div.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), h('span'));
@@ -36,20 +39,21 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
   const empty = h('div.empty');
   const el = h('div.page.flush.lanes.cleanup', { tabIndex: 0 },
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Clean up'), h('p.muted', null, `Stale branches and worktrees. ${mod}Z puts back everything removed here, in one step.`)),
+      h('div', null, h('h1', null, 'Clean up'), h('p.muted', null, `Merged and shipped lanes, gone remotes, missing folders. ${mod}Z puts back everything removed here, in one step.`)),
       h('div.page-actions', null, count, h('button.btn.ghost', { onclick: () => onBack() }, 'Back', kbd('esc')), goBtn)),
     h('div.cleanup-bar', null,
-      h('label.check', null, h('span', null, 'Untouched for'), daysInput, h('span', null, 'days counts as stale')),
+      h('label.check', null, ageBox, h('span', null, 'Also lanes untouched for'), daysInput, h('span', null, 'days')),
       progress),
     list,
     empty,
-    h('div.diff-hint.wt-hint', null, `Space Tick · R Also delete on remote · J/K Move · ${mod}↵ Clean up · Esc Back`),
+    h('div.diff-hint.wt-hint', null, `Space Tick · A Tick all · R Also delete on remote · J/K Move · ${mod}↵ Clean up · Esc Back`),
   );
 
   daysInput.addEventListener('change', () => {
     const n = Math.round(Number(daysInput.value));
-    if (!(n >= 1 && n <= 3650)) { daysInput.value = days(); return; }
-    setDays(n);
+    if (!(n >= 1 && n <= 3650)) { daysInput.value = age().days; return; }
+    setAge({ on: true, days: n });
+    ageBox.checked = true;
     render();
   });
   // Typing digits stays in the box; Escape (and Enter, which also commits the change) hands keys back to the list.
@@ -62,18 +66,17 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
     const n = dirty(l);
     return [
       n ? h('span.badge.warn', { title: 'Removing this worktree deletes these files for good' }, `${n} uncommitted`) : null,
-      l.merged ? h('span.badge', null, l.merged === 'squash' ? 'Squash-merged' : 'Merged') : null,
-      l.upstreamGone ? h('span.badge.warn', null, 'Upstream gone') : null,
       l.worktree?.locked ? h('span.badge', null, 'Locked') : null,
     ];
   }
 
   function row(l) {
     const key = laneKey(l);
+    const where = l.worktree ? tildify(l.worktree.path) + (l.branch && l.branch !== l.title ? ` · ${l.branch}` : '') : l.branch !== l.title ? l.branch || l.name : null;
     const why = blocked(l);
     const on = ticked.has(key);
     const r = remoteOf(l);
-    const box = h('input', { type: 'checkbox', checked: on, disabled: Boolean(why) || busy, tabIndex: -1, 'aria-label': `Clean up ${l.name}`, onchange: () => toggle(key) });
+    const box = h('input', { type: 'checkbox', checked: on, disabled: Boolean(why) || busy, tabIndex: -1, 'aria-label': `Clean up ${l.title || l.name}`, onchange: () => toggle(key) });
     return h('div.list-row.lanes-row' + (key === selKey ? '.active' : '') + (why ? '.blocked' : ''), {
       role: 'option', 'aria-selected': String(on), 'aria-disabled': why ? 'true' : null, 'data-key': key,
       title: why || '',
@@ -82,8 +85,8 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
       box,
       icon(l.worktree ? 'worktree' : 'branch', 14),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', null, l.name), ...badges(l)),
-        h('div.list-sub', null, why || (l.worktree ? tildify(l.worktree.path) + (l.branch ? ` · ${l.branch}` : '') : l.upstream || 'Local branch'))),
+        h('div.list-title', null, h('span.lanes-name', { title: l.name }, l.title || l.name), ...badges(l)),
+        h('div.list-sub', null, [why || reason(l, { days: days() }), where].filter(Boolean).join(' · '))),
       r && !why ? h('button.chip.cleanup-remote' + (remote.has(key) ? '.on' : ''), {
         title: `Also delete ${r} on the remote. This can’t be undone. (R)`,
         disabled: busy,
@@ -112,16 +115,16 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
       const some = open.some((l) => ticked.has(laneKey(l)));
       const box = h('input', { type: 'checkbox', checked: all, disabled: !open.length || busy, tabIndex: -1, 'aria-label': `Tick all in ${group.label}`, onchange: () => tickGroup(open, !all) });
       box.indeterminate = some && !all;
-      rows.push(h('label.lanes-group.cleanup-group', { role: 'presentation', title: group.detail },
-        box, group.id === 'old' ? `${group.label} for ${days()}+ days` : group.label, h('span.muted', null, ` · ${ls.length}`)));
+      rows.push(h('label.lanes-group.cleanup-group' + (group.warn ? '.warn' : ''), { role: 'presentation', title: group.detail },
+        box, group.warn ? icon('warning', 12) : null, group.id === 'old' ? `${group.label} for ${days()}+ days` : group.label, h('span.muted', null, ` · ${ls.length}`)));
       rows.push(...ls.map(row));
     }
     list.replaceChildren(...rows);
     const n = ticked.size;
-    count.textContent = !loaded ? 'Loading…' : shown.length ? `${n} of ${plural(shown.length, 'stale lane')} ticked` : '';
+    count.textContent = !loaded ? 'Loading…' : shown.length ? `${n} of ${plural(shown.length, 'finished lane')} ticked` : '';
     goBtn.disabled = busy || !n;
     goBtn.firstChild.textContent = n ? `Clean up ${n}` : 'Clean up';
-    empty.textContent = !loaded || shown.length ? '' : `Nothing stale. Every branch and worktree is ahead of ${base || 'the base branch'} and touched in the last ${days()} days.`;
+    empty.textContent = !loaded || shown.length ? '' : `Nothing to clean up. No lane is merged into ${base || 'the base branch'}, shipped, missing its folder or its remote${days() ? `, or untouched for ${days()} days` : ''}.`;
     empty.hidden = !empty.textContent;
   }
 
@@ -139,6 +142,16 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
   function tickGroup(ls, on) {
     if (busy) return;
     for (const l of ls) (on ? ticked.add(laneKey(l)) : ticked.delete(laneKey(l)));
+    render();
+  }
+  // Tick every lane that can go without losing work, or untick all when they already are.
+  // Dirty worktrees always need their own tick.
+  function tickAll() {
+    if (busy) return;
+    const ok = shown.filter((l) => !blocked(l) && !dirty(l));
+    const all = ok.length > 0 && ok.every((l) => ticked.has(laneKey(l)));
+    if (all) ticked.clear();
+    else for (const l of ok) ticked.add(laneKey(l));
     render();
   }
   function toggleRemote(key) {
@@ -228,6 +241,7 @@ export function cleanupView({ load, run, runRemote, days, setDays, onProgress, o
     if (id === 'cleanup.next') move(1);
     else if (id === 'cleanup.prev') move(-1);
     else if (id === 'cleanup.toggle') { if (selKey) toggle(selKey); }
+    else if (id === 'cleanup.all') tickAll();
     else if (id === 'cleanup.remote') { if (selKey) toggleRemote(selKey); }
     else if (id === 'cleanup.run') go();
     else if (id === 'cleanup.back') { if (busy) return; onBack(); }

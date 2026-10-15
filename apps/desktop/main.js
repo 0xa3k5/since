@@ -564,6 +564,7 @@ const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
 });
 handle('app:pr-merge-info', prAction((t) => github.mergeInfo(t)));
 handle('app:pr-approve', prAction((t, o) => github.approvePr({ ...t, body: check.str(o?.body ?? '', 'review comment', { empty: true }) })));
+handle('app:pr-request-changes', prAction((t, o) => github.requestChangesPr({ ...t, body: check.str(o?.body ?? '', 'review comment') })));
 handle('app:pr-merge', prAction((t, o) => github.mergePr({
   ...t,
   method: check.oneOf(...github.MERGE_METHODS)(o?.method, 'merge method'),
@@ -571,6 +572,21 @@ handle('app:pr-merge', prAction((t, o) => github.mergePr({
   admin: check.bool(o?.admin, 'merge as admin'),
 })));
 handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+
+// Review a PR in the inbox: fetch its head into FETCH_HEAD only (no ref moves, so nothing to
+// journal) and diff it locally against the base's remote-tracking branch. Plain `git fetch`, no
+// `gh`, and only while pull requests are on here.
+handle('app:pr-review-head', aiCall(async (e, remoteName, number, base) => {
+  const s = session(e);
+  const root = s.repo.root;
+  check.prNumber(number);
+  if (!(await prEnabled(root))) throw Object.assign(new Error('Pull requests are off for this repository.'), { code: 'gh-off' });
+  const remote = check.knownRemote(await git.getRemotes(root), remoteName);
+  const sha = await github.fetchPrHead((args, o) => r(s, args, o), remote.name, number);
+  const ref = base ? `refs/remotes/${remote.name}/${check.rev(base, 'base branch')}` : null;
+  const has = ref && (await r(s, ['rev-parse', '-q', '--verify', `${ref}^{commit}`], { allowCodes: [0, 1] })).trim();
+  return { sha, base: has ? `${remote.name}/${base}` : null };
+}));
 
 // Check out a PR as a branch here, or as a branch in a new worktree (a new lane). `gh` says where
 // the PR's head is; git fetches it and makes the ref changes, each one journaled so ⌘Z undoes it.
@@ -1046,6 +1062,7 @@ function buildMenu() {
         item('Check Out Pull Request in New Worktree…', acc('repo.prWorktree'), 'prWorktree'),
         item('Approve Pull Request…', acc('repo.prApprove'), 'prApprove'),
         item('Merge Pull Request…', acc('repo.prMerge'), 'prMerge'),
+        item('Request Changes on Pull Request…', acc('repo.prChanges'), 'prChanges'),
         item('Close Pull Request…', acc('repo.prClose'), 'prClose'),
         { type: 'separator' },
         item('Open in Finder', acc('repo.reveal'), 'reveal'),
