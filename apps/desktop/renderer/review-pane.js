@@ -29,7 +29,18 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   // Title, meta and actions run across the whole pane; the files and the diff sit below.
   // Labelled buttons for the actions you take most, icon buttons for the rest, GitHub on the right.
   // The pane is a size container (styles.css): narrower, Merge and Approve drop their labels, then
-  // everything but the primary button moves into the ⋯ menu.
+  // everything but the primary button moves into the ⋯ menu. Wider panes whose buttons still don't fit
+  // (long labels, a Send back button) never clip one: GitHub goes icon-only first, then Merge and Approve.
+  const ro = new ResizeObserver(() => fit());
+  ro.observe(head);
+  function fit() {
+    const bar = head.querySelector('.review-pane-actions');
+    if (!bar) return;
+    bar.classList.remove('fit-github', 'fit-shrink');
+    if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-github');
+    if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-shrink');
+  }
+
   function renderHead() {
     const { pr, lane } = row;
     const { actions: list, primary } = paneActions(row, ctx.step);
@@ -44,7 +55,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       const label = a.label.replace('…', '');
       const note = a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt for whoever made it' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`;
       const onclick = () => run(a.id, row, ctx);
-      const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github'].includes(a.id) ? '.pane-shrink' : ''));
+      const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
       const tip = `${tipFor(a.label, a.key)}\n${note}`;
       if (a.id === 'close' || a.id === 'checks') return h('button.btn.ghost.icon-btn.pane-secondary' + (a.danger ? '.danger-hover' : ''), { 'data-tip': a.id === 'close' ? `${tipFor('Close PR…', a.key)}\n${note}` : tip, 'aria-label': a.id === 'close' ? 'Close PR…' : a.label, onclick }, icon(a.icon, 15));
       return h('button.btn' + cls, { 'data-tip': tip, 'aria-label': a.label, onclick }, icon(a.id === 'github' ? 'github' : a.icon, 14), h('span.btn-label', null, a.label), kbd(...keymap.keys(a.key)));
@@ -78,6 +89,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         github ? button(github) : null,
         moreBtn) : null,
     ].filter(Boolean));
+    fit();
   }
 
   const onKey = (id) => {
@@ -118,7 +130,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     refresh: () => view?.refresh(),
     // The row changed under the pane (approved, CI finished): new header, same diff and ticks.
     update(r, c) { row = r; ctx = c; renderHead(); },
-    destroy() { alive = false; },
+    destroy() { alive = false; ro.disconnect(); },
     // The row's "Conflicts in N files" note: jump to the Conflicting group.
     showConflicts() { if (view) view.showConflicts(); else jump = true; },
     focus: () => (view?.el || el).focus({ preventScroll: true }),

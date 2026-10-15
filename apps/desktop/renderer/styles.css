@@ -741,7 +741,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row.staged > .review-row-acts { grid-row: 1; grid-column: 3; align-self: start; margin: -4px 0; }
 .review-details-btn.icon-btn { width: 28px; padding: 0; }
 .review-details-btn.icon-btn .icon { transition: transform .12s ease-out; }
-.review-row[aria-expanded="true"] .review-details-btn.icon-btn .icon { transform: rotate(90deg); }
+.review-row[aria-expanded="true"] .review-details-btn.icon-btn .icon { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .review-details-btn.icon-btn .icon { transition: none; } }
 .review-sendback { gap: 5px; }
 .review-sendback .icon { color: var(--accent-fg); }
@@ -890,6 +890,10 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
   .btn.pane-shrink { width: 32px; padding: 0; justify-content: center; }
   .pane-shrink .btn-label, .pane-shrink .kbd-group { display: none; }
 }
+/* Set by review-pane.js when the buttons don't fit, so a label goes icon-only instead of clipping. */
+.fit-github .btn.pane-github, .fit-shrink .btn.pane-shrink { width: 32px; padding: 0; justify-content: center; }
+.fit-github .pane-github .btn-label, .fit-github .pane-github .kbd-group,
+.fit-shrink .pane-shrink .btn-label, .fit-shrink .pane-shrink .kbd-group { display: none; }
 @container review-pane (max-width: 560px) {
   .review-pane-actions .pane-secondary { display: none; }
   .review-pane-actions .pane-more { display: inline-flex; }
