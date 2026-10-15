@@ -12,7 +12,7 @@ import { lanesView } from './lanes-view.js';
 import { createNav } from './nav.js';
 import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
-import { laneTarget, laneKey, laneTitle, laneActions, canRemove, ACTIONS } from './lanes.js';
+import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { loadPrReview, leavesPage } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
@@ -483,7 +483,7 @@ let lanesPlace = null; // the lanes row, filter and scroll for the next lanes pa
 const lanesOpen = () => state.view === 'lanes' && !state.cleanup && !state.review && !state.fileHistory && !state.quick && !state.split;
 // Names the place on screen; a jump that ends where it started records nothing.
 const placeKey = () => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
-  state.view === 'map' && !state.quick ? state.selected : '', lanesOpen() ? lanesPage?.location().tab : ''].join('|');
+  state.view === 'map' && !state.quick ? state.selected : '', lanesOpen() ? lanesPage?.location().all : ''].join('|');
 function place() {
   return {
     key: placeKey(), root: state.repo?.root, view: state.view, cleanup: state.cleanup, review: state.review,
@@ -525,7 +525,7 @@ async function navStep(dir) {
     state.split = null;
     state.search = to.search;
     lanesPlace = to.lanes;
-    if (to.lanes) lanesTab = to.lanes.tab;
+    if (to.lanes) lanesAll = to.lanes.all;
     renderSidebar();
     renderTopbar();
     renderView();
@@ -565,7 +565,7 @@ const VIEWS = [
   { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '5' },
   { id: 'config', label: 'Config', icon: 'config', key: '6' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '7' },
-  { id: 'lanes', label: 'Lanes', icon: 'lanes', key: '8' },
+  { id: 'lanes', label: 'Review', icon: 'lanes', key: '8' },
 ];
 
 function setView(v) {
@@ -2324,7 +2324,8 @@ function openLanes() {
     onCheckout: (pr) => checkoutPr(pr, { worktree: true }),
     onPrReview: (pr, remote) => openPrReview(pr, remote),
     onMergeReady: mergeReadyPrs,
-    tab: lanesTab,
+    onPrSetup: () => setupPrs(),
+    all: lanesAll,
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
@@ -2332,18 +2333,16 @@ function openLanes() {
     onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
   });
-  lanesTab = 'lanes';
+  lanesAll = false;
   lanesPlace = null;
   return lanesPage;
 }
-// ⌘⇧I: the lanes overview on its Inbox tab. Only while pull requests are on.
-let lanesTab = 'lanes';
-function openInbox(...args) { return go(() => openInboxNow(...args)); }
-function openInboxNow() {
+let lanesAll = false; // the next Review page starts on Show all
+// ⌘K Show all / Show what needs you: Review, in that mode.
+function showAllLanes(on) {
   if (!state.repo) return;
-  if (!state.prs?.active) return toast('Pull requests are off', { detail: `Turn them on (${keyText('global.prs')}) to see the inbox.` });
-  if (state.view === 'lanes' && lanesPage) return lanesPage.show('inbox');
-  lanesTab = 'inbox';
+  if (state.view === 'lanes' && lanesPage && lanesOpen()) return lanesPage.showAll(on);
+  lanesAll = on;
   setView('lanes');
 }
 
@@ -2403,7 +2402,7 @@ async function openPrReviewNow(pr, remote = prRemote()) {
   const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
   t.close();
   if (res.error) return prError(`Couldn’t fetch #${pr.number}`, res.error);
-  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); lanesTab = lanesPlace.tab; }
+  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); lanesAll = lanesPlace.all; }
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
@@ -2498,7 +2497,7 @@ function laneAction(id, lane, base) {
 // opens the conflict editor as usual; ⌘Z undoes the rebase.
 async function rebaseLane(lane, base) {
   if (!state.repo || !lane?.branch || lane.isBase) return;
-  if (!base) return toast('No base branch', { detail: 'Lanes couldn’t tell which branch this one is based on.' });
+  if (!base) return toast('No base branch', { detail: 'GitLanes couldn’t tell which branch this one is based on.' });
   const w = lane.worktree;
   if (w?.prunable) return toast(`${laneTitle(lane)}’s worktree folder is missing`, { kind: 'error', detail: 'Clean it up or prune it first.' });
   const label = `Rebase ${lane.branch} onto ${base}`;
@@ -3179,7 +3178,6 @@ function openPalette() {
       if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} as a lane`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree lane checkout' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
-      add('Navigation', 'Go to Pull Request Inbox', openInbox, { icon: 'merge', kbd: keymap.keys('view.inbox'), keywords: 'pr github gh inbox review ready merge failing lanes agents' });
     }
     add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
     if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
@@ -3249,15 +3247,17 @@ function openPalette() {
     if (laneSel && !state.review) {
       const l = laneSel.lane;
       const t = laneTitle(l);
-      const next = laneActions(l)[0];
-      if (next) add('Repository', `Next step on ${t}: ${ACTIONS[next].label.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'lane next step button' });
+      const next = laneSel.step;
+      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'lane review next step primary button' });
       if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'lane conflicts update base' });
       if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'lane ci failing pull request github' });
       if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} lane ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'lane remove worktree branch discard stalled abandon' });
       if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'lane merged shipped tidy remove' });
     }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
-    add('View', 'Show lanes with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'conflict forecast merge-tree overlap lanes branches worktrees' });
+    add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
+    const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
+    add('View', allOn ? 'Review: show only what needs you' : 'Review: show all branches and worktrees', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests' });
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
@@ -3566,7 +3566,6 @@ const commands = {
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
-  inbox: openInbox,
   prRefresh: () => state.repo && refreshPrs({ manual: true }),
   prCreate: () => state.repo && createPr(),
   prCheckout: () => state.repo && pickPr(false),

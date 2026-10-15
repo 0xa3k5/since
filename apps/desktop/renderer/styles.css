@@ -672,12 +672,22 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-filter { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; }
 .lanes-filter::placeholder { color: var(--text-4); }
 .lanes-list { padding: 0 16px 8px; }
-.lanes-tabs { display: flex; gap: 4px; margin: 0 16px 8px; }
-.lanes-tabs[hidden] { display: none; }
-.lanes-tab { height: 26px; padding: 0 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text-3); font-weight: 550; }
-.lanes-tab:hover { color: var(--text-2); background: var(--bg-hover); }
-.lanes-tab.on { color: var(--text); background: var(--bg-active); }
-.lanes-author { display: flex; align-items: center; gap: 6px; padding: 6px 16px 2px; font-size: 12px; font-weight: 550; color: var(--text-2); }
+.review-badge { text-transform: none; letter-spacing: 0; font-weight: 550; }
+.review-badge.ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.review-badge.busy { color: var(--accent-fg); background: var(--accent-soft); }
+.review-stage { display: block; width: 100%; border: 0; background: transparent; text-align: left; cursor: default; }
+.review-stage:hover { color: var(--text-2); }
+.review-details-btn { flex: none; height: 24px; padding: 0 8px; font-size: 12px; color: var(--text-3); }
+.review-details { display: grid; gap: 3px; margin-top: 8px; font-size: 12px; color: var(--text-2); }
+.review-detail { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
+.review-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-detail.warn { display: block; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-calm { display: flex; align-items: center; gap: 8px; padding: 20px 16px 8px; color: var(--text-3); }
+.review-calm .icon { color: var(--green); }
+.review-finished, .review-prs-off { display: flex; align-items: center; gap: 6px; width: calc(100% - 32px); margin: 12px 16px 4px; padding: 8px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text-3); font-size: 12px; text-align: left; cursor: default; }
+.review-prs-off { border-top: 0; margin-top: 0; }
+.review-finished-link, .review-prs-off:hover { color: var(--accent-fg); }
+.review-finished:hover .review-finished-link { text-decoration: underline; }
 .lanes-group { padding: 12px 16px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-4); }
 .lanes-group.needs { color: var(--accent-fg); }
 .lanes-row { gap: 12px; padding: 8px 16px; cursor: default; }

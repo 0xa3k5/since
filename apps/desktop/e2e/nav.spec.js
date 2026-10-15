@@ -1,9 +1,9 @@
 'use strict';
-// Back and forward (‹ › in the top bar, ⌘[ ⌘]): a jump from Lanes to the Map and back again.
+// Back and forward (‹ › in the top bar, ⌘[ ⌘]): a jump from Review to the Map and back again.
 
 const { test, expect } = require('./fixtures');
 
-test('Lanes → open a lane → Map → Back returns to Lanes with the same row and filter → Forward', async ({ sandbox, launch }) => {
+test('Review → open a branch → Map → Back returns to Review with the same row and filter → Forward', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('nav');
   sandbox.git(repo, 'branch', 'feature-a', 'HEAD~1');
   sandbox.git(repo, 'branch', 'feature-b', 'HEAD~2');
