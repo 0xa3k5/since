@@ -3,7 +3,6 @@ import { PRICE_LATER, PRICE_NOW, PRODUCT_NAME } from '../config';
 import Base from '../layouts/Base.astro';
 import PlanCard from '../components/commerce/PlanCard.astro';
 import Faq from '../components/commerce/Faq.astro';
-import { MACS_PER_LICENCE } from '../components/commerce/links';
 import '../components/commerce/commerce.css';
 
 const faq = [
@@ -21,7 +20,7 @@ const faq = [
   },
   {
     q: 'I got a new Mac. How do I move my licence?',
-    a: `<p>A licence can be active on up to ${MACS_PER_LICENCE} Macs at once. If you've reached the limit, remove the old Mac in the Polar customer portal, then enter your key on the new one. It works even if the old Mac is gone. <a href="/licence#devices">Step-by-step guide</a>.</p>`,
+    a: `<p>Remove the old Mac in the Polar customer portal, then enter your key on the new one. It works even if the old Mac is gone. <a href="/licence#devices">Step-by-step guide</a>.</p>`,
   },
   {
     q: 'Will the price go up?',
@@ -34,6 +33,10 @@ const faq = [
   {
     q: 'Do I need an account?',
     a: `<p>Not in ${PRODUCT_NAME}. There's no login in the app, now or later. After you buy, your licence key arrives by email. To manage your Macs or find your key again, you sign in to Polar's customer portal with a one-time code sent to your purchase email.</p>`,
+  },
+  {
+    q: 'Buying for a team?',
+    a: `<p>Each developer needs their own licence.</p>`,
   },
   {
     q: 'I lost my licence key.',
@@ -66,33 +69,15 @@ const faq = [
           <p>Every future version of {PRODUCT_NAME} for macOS is included. No renewals, no paid upgrades, no subscription, ever.</p>
         </div>
         <div>
-          <h2>One licence, up to {MACS_PER_LICENCE} Macs</h2>
-          <p>Use your licence on your laptop, your desktop and one more. Move it to a new Mac any time from the <a href="/licence#devices">customer portal</a>.</p>
+          <h2>Your licence moves with you</h2>
+          <p>Got a new Mac? Move your licence to it any time from the <a href="/licence#devices">customer portal</a>.</p>
         </div>
         <div>
           <h2>30-day money-back guarantee</h2>
-          <p>If {PRODUCT_NAME} isn't for you, email us within 30 days of purchase for a full refund. No questions asked. <a href="/refunds">Refund policy</a>.</p>
+          <p>If {PRODUCT_NAME} isn't for you, ask for a full refund within 30 days of purchase. No questions asked.</p>
         </div>
       </div>
     </div>
-
-    <section class="cm-section" aria-labelledby="more-h">
-      <h2 id="more-h">Other ways to get {PRODUCT_NAME}</h2>
-      <div class="cm-grid">
-        <div class="cm-tile">
-          <h3>For your company</h3>
-          <p>Buying for a team? Each developer needs their own licence. Need one licence for your whole company, or an invoice in your company's name? <a href="/contact">Contact us</a>.</p>
-        </div>
-        <div class="cm-tile">
-          <h3>Students: free</h3>
-          <p>{PRODUCT_NAME} is free while you study. <a href="/contact">Email us</a> from your school address and we'll send you a licence.</p>
-        </div>
-        <div class="cm-tile">
-          <h3>Open-source maintainers: free</h3>
-          <p>If you maintain an open-source project, <a href="/contact">email us</a> with a link to it and we'll send you a licence.</p>
-        </div>
-      </div>
-    </section>
 
     <div class="cm-section">
       <Faq items={faq} heading="Pricing questions" />

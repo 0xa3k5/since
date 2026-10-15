@@ -244,7 +244,7 @@ section.s { padding-block: 150px; }
 .founder-in .sig { font-size: 15px; color: var(--text-3); margin-top: 32px; }
 
 /* ---------------------------------------------------------------- Pricing: one big number */
-.price-band { background: var(--sunk); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.price-band { background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .price-c { text-align: center; }
 .price-c .eyebrow { font: 500 18px var(--font); letter-spacing: 0; text-transform: none; color: var(--text-3); margin: 0 0 18px; max-width: none; }
 .bigc { font: 500 clamp(120px, 18vw, 240px)/.85 var(--display); letter-spacing: -0.06em; color: var(--text); }
