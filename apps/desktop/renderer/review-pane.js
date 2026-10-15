@@ -1,13 +1,13 @@
-import { h, icon, kbd, loading, contextMenu, tipFor } from './ui.js';
+import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
-import { rowBadges } from './review-rows.js';
+import { rowBadges, reviewers as reviewersOf } from './review-rows.js';
 import { loadPrReview, paneActions } from './pr-review.js';
 import * as keymap from './keymap.js';
 
-// Review's right-hand pane: the selected row's header (title, CI and review state, reviewers'
-// verdicts, size, a link to the checks) and its actions over the branch review (review-view.js,
-// per-file ticks and "changed since last look"). A row with a local branch reviews that branch; a
+// Review's right-hand pane: the selected row's header (title, CI and review state, author, size,
+// draft, last update, reviewers and their states, a link to the checks) and its actions over the
+// branch review (review-view.js, per-file ticks and "changed since last look"). A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
 
@@ -15,7 +15,35 @@ import * as keymap from './keymap.js';
 // last update, so a pushed PR is fetched afresh.
 const fetched = new Map();
 
-// row: a reviewRows row; ctx: { base, remote, requested, step, prsOn, conflicts, onConflicts }
+// Reviewer states: the icon, the glyph for the narrow summary ("✓2 ✕1 ○1"), and how to say it.
+const STATE = {
+  changes: { icon: 'x', glyph: '✕', verb: 'requested changes', many: 'requested changes' },
+  approved: { icon: 'check', glyph: '✓', verb: 'approved', many: 'approved' },
+  commented: { icon: 'comment', glyph: '💬', verb: 'commented', many: 'commented' },
+  pending: { icon: 'pending', glyph: '○', verb: 'review requested', many: 'haven’t reviewed yet' },
+};
+const SHOWN_REVIEWERS = 4;
+// "2h ago", "just now", or a date for anything older than a month.
+const ago = (t) => { const a = timeAgo(t); return /^\d+[mhd]$/.test(a) ? `${a} ago` : a; };
+const reviewerTip = (r) => `${r.name}${r.login && r.login !== r.name ? ` (${r.login})` : ''}: ${STATE[r.state].verb}${r.at ? ` · ${fullDate(Date.parse(r.at) / 1000)}` : ''}`;
+
+// The line under the meta: each reviewer with a state icon, "+N" past the first few. A narrow pane
+// shows the counts instead (styles.css).
+function reviewersLine(pr) {
+  const list = reviewersOf(pr);
+  if (!list.length) return null;
+  const all = list.map(reviewerTip).join('\n');
+  const one = (r) => h('span.review-verdict.' + r.state, { title: reviewerTip(r) }, icon(STATE[r.state].icon, 11), r.name);
+  const counts = Object.keys(STATE).map((s) => [s, list.filter((r) => r.state === s).length]).filter(([, n]) => n);
+  return h('div.review-pane-reviewers', null,
+    h('span.review-reviewers-full', null,
+      ...list.slice(0, SHOWN_REVIEWERS).map(one),
+      list.length > SHOWN_REVIEWERS ? h('span.review-reviewers-more', { title: all }, `+${list.length - SHOWN_REVIEWERS}`) : null),
+    h('span.review-reviewers-short', { title: all },
+      ...counts.map(([s, n]) => h('span.review-verdict.' + s, { title: `${n} ${STATE[s].many}` }, `${STATE[s].glyph}${n}`))));
+}
+
+// row: a reviewRows row; ctx: { base, remote, requested, step, prsOn, agents, conflicts, onConflicts }
 // (conflicts: it conflicts with its base, so the files start with what conflicts, AK-305). run(id, row, ctx) runs a
 // pane action (PANE_ACTIONS); call(channel, ...args) is api.app; onBack() returns focus to the list.
 export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
@@ -34,8 +62,10 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const { pr, lane } = row;
     const { actions: list, primary } = paneActions(row, ctx.step);
     actions = list;
-    const reviewers = pr?.reviews || [];
     const size = pr?.size;
+    const updated = pr?.updatedAt ? Date.parse(pr.updatedAt) / 1000 : 0;
+    const badges = rowBadges(row, { requested: ctx.requested, agents: ctx.agents });
+    const draft = badges.find((b) => b.kind === 'draft');
     const extra = [
       pr?.url ? { id: 'checks', label: 'Checks', key: 'lanes.checks', icon: 'checks' } : null,
       row.stage === 'stuck' ? { id: 'sendBack', label: 'Send back…', key: 'lanes.sendBack', icon: 'sparkle' } : null,
@@ -63,12 +93,14 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     head.replaceChildren(...[
       h('div.review-pane-title', null,
         h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(row.landed ? 'commit' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
-        ...rowBadges(row, { requested: ctx.requested }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text))),
+        ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text))),
       h('div.quick-meta.review-pane-meta', null,
-        pr?.author ? h('span', null, pr.author) : null,
+        pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,
         pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
         size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
-        ...reviewers.map((r) => h('span.review-verdict.' + r.state, { title: r.state === 'approved' ? `${r.login} approved` : `${r.login} requested changes` }, r.state === 'approved' ? icon('check', 11) : icon('x', 11), r.login))),
+        draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
+        updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null),
+      pr ? reviewersLine(pr) : null,
       main.length || icons.length || send || github ? h('div.review-pane-actions', null,
         ...main.map(button),
         send ? button(send) : null,

@@ -9,7 +9,7 @@
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'additions', 'deletions', 'changedFiles'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -65,19 +65,35 @@ function failingChecks(rollup) {
 const text = (v, max = 1024) => (typeof v === 'string' ? v.slice(0, max) : '');
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
 
-// `latestReviews` → one verdict per reviewer: [{ login, state: 'approved' | 'changes' }]. Login and
-// state only; review bodies are dropped here and never reach the renderer. Comment-only reviews
-// aren't verdicts and are left out.
-const VERDICTS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes' };
+// A bot's login without the "app/" prefix `gh` gives it or the "[bot]" suffix GitHub gives it.
+const botLogin = (login) => login.replace(/^app\//, '').replace(/\[bot\]$/, '');
+
+// `latestReviews` → one review per reviewer: [{ login, name, state, submittedAt }], state one of
+// 'approved' | 'changes' | 'commented' | 'dismissed'. Who and what only; review bodies are dropped
+// here and never reach the renderer.
+const VERDICTS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes', COMMENTED: 'commented', DISMISSED: 'dismissed' };
 function reviewVerdicts(list) {
   if (!Array.isArray(list)) return [];
   const out = new Map();
   for (const r of list) {
     const login = text(r?.author?.login, 200);
     const state = VERDICTS[r?.state];
-    if (login && state && !out.has(login)) out.set(login, { login, state });
+    if (login && state && !out.has(login)) out.set(login, { login, name: text(r.author.name, 200), state, submittedAt: text(r.submittedAt, 64) });
   }
-  return [...out.values()];
+  return [...out.values()].slice(0, 50);
+}
+
+// `reviewRequests` → requested reviewers who haven't reviewed since: [{ login, name, team }]. A team
+// has its slug as `login` and its name as `name`.
+function reviewRequests(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const r of list) {
+    const team = r?.__typename === 'Team' || (!r?.login && !!r?.slug);
+    const login = text(team ? r?.slug || r?.name : r?.login, 200);
+    if (login && !out.some((x) => x.login === login && x.team === team)) out.push({ login, name: text(r.name, 200), team });
+  }
+  return out.slice(0, 50);
 }
 
 function normalizePr(p) {
@@ -96,11 +112,15 @@ function normalizePr(p) {
     checks: checksState(p.statusCheckRollup),
     failing: failingChecks(p.statusCheckRollup),
     author: text(p.author?.login, 200),
+    // What to show for the author: their name, else their login (a bot's without "[bot]").
+    authorName: text(p.author?.name, 200) || botLogin(text(p.author?.login, 200)),
+    bot: p.author?.is_bot === true,
     url: url.startsWith('https://') ? url : null,
     updatedAt: text(p.updatedAt, 64),
     // GitHub's own conflict check: true, false, or null while GitHub is still working it out.
     mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
     reviews: reviewVerdicts(p.latestReviews),
+    reviewRequests: reviewRequests(p.reviewRequests),
     size: { additions: count(p.additions), deletions: count(p.deletions), files: count(p.changedFiles) },
   };
 }
@@ -560,4 +580,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
