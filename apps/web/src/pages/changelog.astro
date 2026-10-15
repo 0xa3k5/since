@@ -2,7 +2,8 @@
 // Built from src/content/changelog/*.md: one file per merged change, grouped by version, newest first.
 // No dates are shown (no-dates rule); `merged` only orders entries within a group.
 import { getCollection, render } from 'astro:content';
-import { PRODUCT_NAME } from '../config';
+import { PRODUCT_NAME, SHOW_PRICING } from '../config';
+import BetaCopy from '../components/BetaCopy.astro';
 import Base from '../layouts/Base.astro';
 import PageHead from '../components/content/PageHead.astro';
 import '../components/content/content.css';
@@ -34,12 +35,12 @@ const anchor = (v: string) => v.replaceAll('.', '-');
 ---
 <Base
   title={`Changelog · ${PRODUCT_NAME}`}
-  description={`What's new in every ${PRODUCT_NAME} release. All updates are free for every licence holder.`}
+  description={`What's new in every ${PRODUCT_NAME} release.${SHOW_PRICING ? ' All updates are free for every licence holder.' : ''}`}
   ogTheme="dark"
 >
   <div class="wrap content-page">
     <PageHead eyebrow="Changelog" title="What's new">
-      Every change to {PRODUCT_NAME}, newest first. Updates are free for every licence holder, for life.
+      Every change to {PRODUCT_NAME}, newest first.{SHOW_PRICING && ' Updates are free for every licence holder, for life.'}
     </PageHead>
 
     {versions.map((v) => (
@@ -54,7 +55,7 @@ const anchor = (v: string) => v.replaceAll('.', '-');
             {k.items.map((e) => (
               <article class="cl-entry" id={e.id}>
                 <h4>{e.title}</h4>
-                <div class="prose"><e.Content /></div>
+                <div class="prose">{SHOW_PRICING ? <e.Content /> : <BetaCopy><e.Content /></BetaCopy>}</div>
               </article>
             ))}
           </div>

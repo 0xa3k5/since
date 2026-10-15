@@ -1,34 +1,40 @@
 // Every route on the site, used by the header, the footer and the 404 page.
 // Stage-2 work edits only its own page files; add a route here when adding a page.
 
+import { SHOW_PRICING } from './config';
+
 export type Route = { href: string; label: string };
 
-export const HEADER_NAV: Route[] = [
+/** Pages that exist only while SHOW_PRICING is on (see astro.config.mjs). Nav links to them are dropped otherwise. */
+const COMMERCE = new Set(['/pricing', '/licence']);
+const live = (links: Route[]) => (SHOW_PRICING ? links : links.filter((r) => !COMMERCE.has(r.href)));
+
+export const HEADER_NAV: Route[] = live([
   { href: '/features', label: 'Features' },
   { href: '/pricing', label: 'Pricing' },
   { href: '/docs', label: 'Docs' },
   { href: '/changelog', label: 'Changelog' },
-];
+]);
 
 export const FOOTER_NAV: { title: string; links: Route[] }[] = [
   {
     title: 'Product',
-    links: [
+    links: live([
       { href: '/features', label: 'Features' },
       { href: '/pricing', label: 'Pricing' },
       { href: '/download', label: 'Download' },
       { href: '/changelog', label: 'Changelog' },
       { href: '/shortcuts', label: 'Shortcuts' },
-    ],
+    ]),
   },
   {
     title: 'Resources',
-    links: [
+    links: live([
       { href: '/docs', label: 'Docs' },
       { href: '/guides', label: 'Guides' },
       { href: '/compare', label: 'Compare' },
       { href: '/licence', label: 'Licence help' },
-    ],
+    ]),
   },
 ];
 

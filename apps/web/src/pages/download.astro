@@ -1,5 +1,5 @@
 ---
-import { DOWNLOAD_URL, PRODUCT_NAME } from '../config';
+import { DOWNLOAD_URL, PRODUCT_NAME, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
 import { MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED } from '../components/commerce/links';
 import '../components/commerce/commerce.css';
@@ -12,14 +12,14 @@ const builds = [
 ---
 <Base
   title={`Download ${PRODUCT_NAME} for macOS`}
-  description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. Your 14-day trial starts on first launch, with no account.`}
+  description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. ${SHOW_PRICING ? 'Your 14-day trial starts on first launch, with no account.' : 'No account needed.'}`}
   ogTheme="light"
 >
   <div class="wrap cm-page">
     <header class="cm-head">
       <p class="eyebrow">Download</p>
       <h1>Download {PRODUCT_NAME}</h1>
-      <p class="lede">Free for 14 days. Every feature, no account, no credit card.</p>
+      <p class="lede">{SHOW_PRICING ? 'Free for 14 days. Every feature, no account, no credit card.' : 'The beta build for macOS. Every feature, no account.'}</p>
     </header>
 
     <fieldset class="arch">
@@ -67,7 +67,7 @@ const builds = [
       <ol class="cm-steps">
         <li><strong>Open the downloaded <code>.dmg</code></strong> from your Downloads folder.</li>
         <li><strong>Drag {PRODUCT_NAME} into Applications.</strong> Then eject the disk image.</li>
-        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository. Your trial starts now.</li>
+        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository.{SHOW_PRICING && ' Your trial starts now.'}</li>
       </ol>
       {NOTARIZED ? (
         <div class="cm-note">
@@ -81,7 +81,7 @@ const builds = [
       )}
     </section>
 
-    <section class="cm-section" aria-labelledby="trial-h">
+    {SHOW_PRICING && <section class="cm-section" aria-labelledby="trial-h">
       <h2 id="trial-h">What the trial includes</h2>
       <div class="cm-grid">
         <div class="cm-tile">
@@ -97,11 +97,10 @@ const builds = [
           <p>When the trial ends, you can still browse history and diffs. Changes wait until you <a href="/pricing">buy a licence</a> and <a href="/licence#enter">enter your key</a>.</p>
         </div>
       </div>
-    </section>
+    </section>}
 
     <nav class="cm-links" aria-label="Related">
-      <a href="/pricing">Pricing</a>
-      <a href="/licence">Licence help</a>
+      {SHOW_PRICING && <Fragment><a href="/pricing">Pricing</a><a href="/licence">Licence help</a></Fragment>}
       <a href="/changelog">Changelog</a>
       <a href={DOWNLOAD_URL}>All releases</a>
     </nav>

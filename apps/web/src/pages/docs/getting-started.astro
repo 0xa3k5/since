@@ -1,5 +1,5 @@
 ---
-import { PRODUCT_NAME } from '../../config';
+import { PRODUCT_NAME, SHOW_PRICING } from '../../config';
 import DocsLayout from '../../components/content/DocsLayout.astro';
 import Kbd from '../../components/content/Kbd.astro';
 import Shot from '../../components/content/Shot.astro';
@@ -13,7 +13,7 @@ import mapDark from '../../assets/features/map-dark.webp';
   <ol>
     <li><a href="/download">Download {PRODUCT_NAME}</a>. There are separate disk images for Apple silicon and Intel Macs.</li>
     <li>Open the disk image and drag <strong>{PRODUCT_NAME}</strong> into <strong>Applications</strong>.</li>
-    <li>Open {PRODUCT_NAME} from Applications. From the paid release on, your <a href="/docs/licence-and-trial">14-day trial</a> starts the first time you open it.</li>
+    <li>Open {PRODUCT_NAME} from Applications.{SHOW_PRICING && <Fragment> From the paid release on, your <a href="/docs/licence-and-trial">14-day trial</a> starts the first time you open it.</Fragment>}</li>
   </ol>
   <p><strong>Requirements:</strong> macOS 12 or later, and git. {PRODUCT_NAME} uses the git already on your Mac, with your config, hooks and credentials.
     If git isn't installed, run <code>xcode-select --install</code> in Terminal to get Apple's Command Line Tools, or install git with Homebrew.</p>
