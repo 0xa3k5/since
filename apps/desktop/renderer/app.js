@@ -2249,7 +2249,6 @@ function openLanes() {
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
-  });
     onCleanup: startCleanup,
   });
   return lanesPage;
