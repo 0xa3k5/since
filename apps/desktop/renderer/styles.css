@@ -33,6 +33,7 @@
   --on-accent: #ffffff;
   --focus-ring: #e8590c;
   --green: #1d7f53;
+  --merged: #1d7f53;
   --red: #d0284a;
   --red-text: #ffffff;
   --warn: #a35f00;
@@ -95,6 +96,7 @@
     --on-accent: #ffffff;
     --focus-ring: #eb9060;
     --green: #4cc38a;
+    --merged: #4cc38a;
     --red: #f0506e;
     --red-text: #1a0d05;
     --warn: #f5b83d;
@@ -728,6 +730,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-reason { margin-top: 2px; font-size: 12px; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lanes-row.review-row { align-items: flex-start; padding: 10px 12px; border-radius: 8px; }
 .lanes-row.review-row > .icon { margin-top: 2px; }
+.landed-merged { flex: none; display: flex; margin-top: 2px; color: var(--merged); }
 .review-row-num { flex: none; color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
 .review-row-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .review-row-meta > .badge { flex: none; }

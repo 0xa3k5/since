@@ -481,7 +481,8 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       onclick: () => select(r.key),
       ondblclick: () => onOpen(r.lane),
     },
-      icon(e.kind === 'pr' ? 'merge' : 'commit', 14),
+      // A merged PR gets the merged check; a commit pushed straight to the base keeps the commit dot.
+      e.kind === 'pr' ? h('span.landed-merged', { title: 'Merged', 'aria-label': 'Merged' }, icon('check-circle', 14)) : icon('commit', 14),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title), e.key ? h('span.badge', null, e.key) : null),
         // A PR's date is when it merged; a commit's is when it was made.
@@ -504,7 +505,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     card?.setCounts({ stuck: staged.stages.stuck.length, ready: staged.stages.ready.length });
     if (walking) {
       shown = walking;
-      rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, 'What landed ', h('span.lanes-count', null, String(walking.length))),
+      rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, `${walking[0].landed.kind === 'pr' ? 'Merged' : 'Landed'} ${card.sinceLabel()} `, h('span.lanes-count', null, `· ${walking.length}`)),
         h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Review (Esc)' }, 'Done', kbd('Esc'))));
       for (const r of walking) rows.push(landedRowEl(r));
     } else if (q) {

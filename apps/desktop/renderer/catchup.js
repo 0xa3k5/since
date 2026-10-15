@@ -83,6 +83,15 @@ export function sinceText(res, { short = (s) => s.slice(0, 7), ago = () => '' } 
   if (!cp.sha) return { text: cp.source === 'week' ? 'Since last week (no checkpoint yet)' : 'No checkpoint yet' };
   return withFallback(res, `Caught up to ${short(cp.sha)} on ${cp.base || res.base}${at ? ` · ${at}` : ''}`, short);
 }
+// The walk-through header's short "since …" (AK-304): "since a1b2c3d", "since tag v0.1.0", "since yesterday".
+export function sinceLabel(res, { short = (s) => s.slice(0, 7) } = {}) {
+  if (!res) return 'since checkpoint';
+  if (res.kind === 'tag') return `since tag ${res.tag}`;
+  if (res.kind === 'yesterday') return 'since yesterday';
+  if (res.kind === 'week') return 'since last week';
+  const sha = res.checkpoint?.sha;
+  return sha ? `since ${short(sha)}` : 'since checkpoint';
+}
 function withFallback(res, text, short) {
   if (!res.fallback) return { text };
   const what = res.kind === 'tag' ? `Tag ${res.tag}` : short(res.fallback.sha);
