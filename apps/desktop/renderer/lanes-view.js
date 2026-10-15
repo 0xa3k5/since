@@ -8,7 +8,7 @@ import * as keymap from './keymap.js';
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
 // bottom: the catch-up card (catchup-view.js: what landed since your checkpoint; ⇧↵ walks through it
 // one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
-// merge · N, then lines that open in place: In progress · N ▸, Everything else · N ▸ (every branch
+// merge · N, then lines that open in place: In progress · N ▾, Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
 // "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
 // button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
@@ -64,7 +64,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   let timer = 0;
   const loads = loadGuard();
   const opened = new Set(); // collapsed stages the user opened
-  const details = new Set(); // rows with Details ▸ open
+  const details = new Set(); // rows with Details ▾ open
   let wanted = place?.key ?? null; // the row to select once it's loaded
   let wantedScroll = place?.scroll ?? null;
   if (place) {
@@ -216,7 +216,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   // A row as a lane for the lane actions: its PR joined on, or just the PR when it isn't checked out here.
   const asLane = (r) => (r.lane ? (r.pr && !r.lane.pr ? { ...r.lane, pr: r.pr } : r.lane) : { name: r.title, title: r.title, pr: r.pr });
   const paneCtx = (r) => (r.landed ? { base: r.landed.parent, remote: null, requested: new Set(), step: null, prsOn: false } : {
-    base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(),
+    base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
     conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
   });
   // The pane read which files conflict: the row's note counts them.
@@ -262,7 +262,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     const open = details.has(r.key);
     const at = r.pr?.updatedAt ? Date.parse(r.pr.updatedAt) : r.lane?.activity || 0;
     const sub = r.pr
-      ? [r.pr.author, r.branch].filter(Boolean).join(' · ')
+      ? [r.pr.authorName || r.pr.author, r.branch].filter(Boolean).join(' · ')
       : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
@@ -277,9 +277,11 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       h('div.list-main', null,
         h('div.list-title', null, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : null, h('span.lanes-name', { title: r.title }, r.title)),
         h('div.list-sub.review-row-meta', null,
-          ...rowBadges(r, { requested: requested() }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
-          r.lane?.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${r.lane.agent.reason}: ${r.lane.agent.match})` }, 'Agent') : null,
-          sub ? h('span.review-row-sub', null, sub) : null,
+          // The review decision is an icon here; the pane's header spells it out.
+          ...rowBadges(r, { requested: requested(), agents: markAgents() }).map((b) => b.icon
+            ? h('span.review-decision' + (b.kind ? `.${b.kind}` : ''), { title: b.title, 'aria-label': b.text }, icon(b.icon, 12))
+            : h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
+          sub ? h('span.review-row-sub', { title: r.pr?.authorName && r.pr.authorName !== r.pr.author ? `${r.pr.authorName} (${r.pr.author})` : null }, sub) : null,
           at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : null),
         r.stage === 'stuck' && reason(r) ? reasonEl(r) : null,
         open ? detailsEl(r) : null),
@@ -293,7 +295,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
           'data-tip': tipFor(open ? 'Hide details' : 'Details', 'lanes.details'), 'aria-label': 'Details', 'aria-expanded': String(open),
           onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
           ondblclick: (e) => e.stopPropagation(),
-        }, icon('chevron', 13)),
+        }, icon('chevronDown', 13)),
         h('button.btn.subtle.lanes-step', {
           'data-tip': tipFor(s.label, s.keyId), 'aria-label': s.label,
           onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
@@ -312,7 +314,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       note && rest ? ' · ' : null, rest);
   }
 
-  // Details ▸: the branch, its commits, worktree and uncommitted changes, and the way into the map.
+  // Details ▾: the branch, its commits, worktree and uncommitted changes, and the way into the map.
   function detailsEl(r) {
     const l = r.lane;
     const line = (label, value, t) => h('div.review-detail', null, h('span.muted', null, label), h('span', { title: t || value }, value));
@@ -488,7 +490,10 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now() });
     if (pendingSendBack != null && staged.all.some((x) => x.pr?.number === pendingSendBack)) { const n = pendingSendBack; pendingSendBack = null; setTimeout(() => sendBack(n)); }
     if (agentsOnly && !markAgents()) agentsOnly = false;
-    const everything = filterLanes(lanes, '', { agentsOnly, conflictsOnly }).map((l) => ({ key: allKey(l), lane: l, entry: true }));
+    // A lane whose open PR a bot opened counts as agent-made too.
+    const bots = new Map(markAgents() ? staged.all.filter((r) => r.lane && !r.lane.agent && r.pr?.bot).map((r) => [r.lane, r.pr.authorName || r.pr.author]) : []);
+    const marked = bots.size ? lanes.map((l) => (bots.has(l) ? { ...l, agent: { reason: 'bot author', match: bots.get(l) } } : l)) : lanes;
+    const everything = filterLanes(marked, '', { agentsOnly, conflictsOnly }).map((l) => ({ key: allKey(l), lane: l, entry: true }));
     const rows = [];
     const q = filter.value.trim();
     card?.setCounts({ stuck: staged.stages.stuck.length, ready: staged.stages.ready.length });
@@ -509,14 +514,14 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
         if (!rs.length && (COLLAPSED.has(s.id) || (s.id === 'ready' && !prsOn()))) continue;
         const collapsed = COLLAPSED.has(s.id) && !opened.has(s.id);
         if (COLLAPSED.has(s.id)) {
-          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, s.label, ' ', h('span.lanes-count', null, String(rs.length)), ` ${collapsed ? '▸' : '▾'}`));
+          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, s.label, ' ', h('span.lanes-count', null, String(rs.length)), ` ${collapsed ? '▾' : '▴'}`));
         } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, h('span', null, s.label, ' ', h('span.lanes-count', null, String(rs.length))),
           s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
         if (collapsed) continue;
         if (!rs.length && loaded && !prsLoading) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
       }
-      rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▾' : '▸'}`));
+      rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▴' : '▾'}`));
       if (all) {
         let bucket = null;
         for (const x of everything) {

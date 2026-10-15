@@ -59,7 +59,7 @@ export function groupLanded(entries) {
   return [...groups.values()].sort((a, b) => b.entries.length - a.entries.length || b.date - a.date);
 }
 
-// How many groups the card shows before "+N more ▸".
+// How many groups the card shows before "+N more ▾".
 export const TOP = 4;
 
 // The "Since…" picker: last checkpoint, yesterday, last week, then the newest tags.
