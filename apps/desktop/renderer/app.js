@@ -9,6 +9,7 @@ import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { lanesView } from './lanes-view.js';
+import { createNav } from './nav.js';
 import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS } from './cleanup.js';
 import { laneTarget, laneKey } from './lanes.js';
@@ -469,6 +470,71 @@ function refPill(r) {
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
 let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null;
+
+// ---------------------------------------------------------------------------
+// Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
+// keys inside a list aren't jumps. Per window; a different repository starts afresh, a worktree switch is a step.
+const nav = createNav();
+let navDepth = 0; // inside a jump: the outermost one records it
+let navigating = false; // putting back a step: record nothing
+let lanesPlace = null; // the lanes row, filter and scroll for the next lanes page (see openLanes)
+
+const lanesOpen = () => state.view === 'lanes' && !state.cleanup && !state.review && !state.fileHistory && !state.quick && !state.split;
+// Names the place on screen; a jump that ends where it started records nothing.
+const placeKey = () => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
+  state.view === 'map' && !state.quick ? state.selected : '', lanesOpen() ? lanesPage?.location().tab : ''].join('|');
+function place() {
+  return {
+    key: placeKey(), root: state.repo?.root, view: state.view, cleanup: state.cleanup, review: state.review,
+    fileHistory: state.fileHistory, quick: state.quick, selected: state.selected, search: state.search,
+    lanes: lanesOpen() ? lanesPage?.location() : null,
+  };
+}
+// Runs a jump and remembers where it came from. Anything it opens later (a picker, a worktree switch) records itself.
+function go(fn) {
+  if (navDepth || navigating || !state.repo) return fn();
+  const from = place();
+  navDepth++;
+  try { return fn(); } finally {
+    navDepth--;
+    if (nav.record(from, placeKey())) renderTopbar();
+  }
+}
+const jumpTo = (sha) => go(() => { setView('map'); selectCommit(sha, 'center'); });
+
+async function navStep(dir) {
+  if (!state.repo || document.querySelector('.overlay')) return;
+  const here = place();
+  const to = dir === 'back' ? nav.back(here) : nav.forward(here);
+  if (!to) return;
+  navigating = true;
+  try {
+    // Another worktree of this repository: switch to it the usual way first.
+    if (to.root !== state.repo.root) {
+      const w = state.worktrees.find((x) => x.path === to.root);
+      if (!w || w.missing) { renderTopbar(); return toast('That worktree is gone', { detail: tildePath(to.root) }); }
+      await switchWorktree(w);
+      toast(`Switched to worktree “${w.name}”`);
+    }
+    state.view = to.view;
+    state.cleanup = to.cleanup;
+    state.review = to.review;
+    state.fileHistory = to.fileHistory;
+    state.quick = to.quick;
+    state.split = null;
+    state.search = to.search;
+    lanesPlace = to.lanes;
+    if (to.lanes) lanesTab = to.lanes.tab;
+    renderSidebar();
+    renderTopbar();
+    renderView();
+    if (to.view === 'map' && !to.quick && !to.review && !to.fileHistory && to.selected) selectCommit(to.selected, 'center');
+    if (to.view === 'reflog' || to.view === 'config' || to.view === 'stashes') refreshAux();
+    if (to.view === 'worktrees') refreshHistory();
+  } finally { navigating = false; }
+}
+const goBack = () => navStep('back');
+const goForward = () => navStep('forward');
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 
@@ -503,6 +569,9 @@ const VIEWS = [
 
 function setView(v) {
   if (!state.repo) return;
+  go(() => showView(v));
+}
+function showView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
@@ -582,7 +651,7 @@ function renderSidebar() {
 
   const refItem = (r, label = r.short) => h('div.sb-item' + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
     title: r.short,
-    onclick: () => { setView('map'); selectCommit(r.target, 'center'); },
+    onclick: () => jumpTo(r.target),
     ondblclick: () => r.kind === 'branch' ? checkout(r.short) : null,
     oncontextmenu: (e) => { e.preventDefault(); refMenu(e.clientX, e.clientY, r); },
   },
@@ -678,6 +747,9 @@ function renderTopbar() {
   if (!topbarEl) return;
   const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
+    h('div.nav-btns', null,
+      h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
+      h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
     state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
@@ -690,7 +762,7 @@ function renderTopbar() {
       oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
       onkeydown: (e) => {
         if (e.key === 'Escape') { state.search = ''; e.target.value = ''; e.target.blur(); mapView?.refresh(); }
-        else if (e.key === 'Enter') { mapView?.pickFirstResult(); e.target.blur(); }
+        else if (e.key === 'Enter') { go(() => mapView?.pickFirstResult()); e.target.blur(); }
         else if (e.key === 'ArrowDown') { e.preventDefault(); e.target.blur(); }
       } });
     right.append(
@@ -1118,7 +1190,7 @@ function commitDetail(c) {
       prop('Date', h('span', { title: fullDate(c.time) }, fullDate(c.time))),
       c.signature ? prop('Signature', signatureBadge(c.signature)) : null,
       prop('Commit', h('button.mono-link', { onclick: () => copy(c.sha, 'Copied SHA') }, c.sha.slice(0, 12), icon('copy', 12))),
-      c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => selectCommit(p, 'center') }, p.slice(0, 7))))) : null,
+      c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => go(() => selectCommit(p, 'center')) }, p.slice(0, 7))))) : null,
     ),
     h('div.files-head', null, h('span', null, `${c.files.length} file${c.files.length === 1 ? '' : 's'} changed`), h('span.stat', null, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`)),
       h('button.btn.ghost.small', { onclick: () => openQuick(c.sha) }, 'Open', kbd(...keymap.keys('map.quick')))),
@@ -1149,7 +1221,8 @@ function fileRow(f, onclick, extra) {
 // Quick view (full-height commit inspector)
 
 // `back` is the file history the commit was opened from; Esc returns to it.
-function openQuick(sha, path, back = null) {
+function openQuick(...args) { return go(() => openQuickNow(...args)); }
+function openQuickNow(sha, path, back = null) {
   if (!sha) return;
   state.fileHistory = null;
   state.review = null;
@@ -1157,7 +1230,8 @@ function openQuick(sha, path, back = null) {
   renderTopbar();
   renderView();
 }
-function closeQuick() {
+function closeQuick(...args) { return go(() => closeQuickNow(...args)); }
+function closeQuickNow() {
   const sha = state.quick?.sha;
   if (state.quick?.back) return openFileHistory(state.quick.back.path);
   state.quick = null;
@@ -2016,12 +2090,12 @@ function reflogView() {
   const rows = h('div.table');
   for (const e of state.reflog) {
     rows.append(h('div.table-row', {
-      ondblclick: () => { if (state.index.has(e.sha)) { setView('map'); selectCommit(e.sha, 'center'); } else openQuick(e.sha); },
+      ondblclick: () => { if (state.index.has(e.sha)) jumpTo(e.sha); else openQuick(e.sha); },
       oncontextmenu: (ev) => {
         ev.preventDefault();
         contextMenu(ev.clientX, ev.clientY, [
           { label: 'Quick View', icon: 'eye', run: () => openQuick(e.sha) },
-          state.index.has(e.sha) ? { label: 'Show in Map', icon: 'map', run: () => { setView('map'); selectCommit(e.sha, 'center'); } } : null,
+          state.index.has(e.sha) ? { label: 'Show in Map', icon: 'map', run: () => jumpTo(e.sha) } : null,
           { label: 'Create Branch Here…', icon: 'branch', run: () => createBranch(e.sha) },
           { label: 'Checkout (detached)', icon: 'checkout', run: () => act(`Checkout ${e.sha.slice(0, 7)}`, 'checkout', [e.sha]) },
           { label: 'Copy SHA', icon: 'copy', run: () => copy(e.sha, 'Copied SHA') },
@@ -2253,13 +2327,16 @@ function openLanes() {
     onMerge: mergeLane,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
     onCleanup: startCleanup,
+    place: lanesPlace,
   });
   lanesTab = 'lanes';
+  lanesPlace = null;
   return lanesPage;
 }
 // ⌘⇧I: the lanes overview on its Inbox tab. Only while pull requests are on.
 let lanesTab = 'lanes';
-function openInbox() {
+function openInbox(...args) { return go(() => openInboxNow(...args)); }
+function openInboxNow() {
   if (!state.repo) return;
   if (!state.prs?.active) return toast('Pull requests are off', { detail: `Turn them on (${keyText('global.prs')}) to see the inbox.` });
   if (state.view === 'lanes' && lanesPage) return lanesPage.show('inbox');
@@ -2268,7 +2345,8 @@ function openInbox() {
 }
 
 // Lanes → Clean up (cleanup-view.js): stale branches and worktrees, removed in bulk as one undo step.
-function startCleanup() {
+function startCleanup(...args) { return go(() => startCleanupNow(...args)); }
+function startCleanupNow() {
   if (!state.repo) return;
   setView('lanes');
   state.cleanup = true;
@@ -2291,7 +2369,8 @@ function openCleanup() {
   return cleanupPage;
 }
 // Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
-function openReview(lane, base = null) {
+function openReview(...args) { return go(() => openReviewNow(...args)); }
+function openReviewNow(lane, base = null) {
   if (!state.repo) return;
   if (!lane) {
     if (!state.head.oid) return toast('Nothing to review yet', { detail: 'This branch has no commits.' });
@@ -2359,7 +2438,8 @@ async function mergeLane(lane, base = null) {
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
   if (ok && state.review) closeReview();
 }
-function closeReview() {
+function closeReview(...args) { return go(() => closeReviewNow(...args)); }
+function closeReviewNow() {
   state.review = null;
   renderTopbar();
   renderView();
@@ -2604,8 +2684,7 @@ function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
   if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });
   if (!state.index.has(r.target)) return openQuick(r.target);
-  setView('map');
-  selectCommit(r.target, 'center');
+  jumpTo(r.target);
 }
 
 // Check out a PR as a branch (gh's branch name), here or in a new worktree. Undoable with ⌘Z.
@@ -3005,6 +3084,8 @@ function openPalette() {
     add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
+    if (nav.canBack) add('View', 'Back', goBack, { icon: 'chevronLeft', kbd: keymap.keys('view.back'), keywords: 'previous history return navigate' });
+    if (nav.canForward) add('View', 'Forward', goForward, { icon: 'chevron', kbd: keymap.keys('view.forward'), keywords: 'next history navigate' });
     const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
     if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: keymap.keys('snapshots.restore'), keywords: 'snapshot undo history timeline jump back restore' });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
@@ -3072,7 +3153,7 @@ function openPalette() {
     if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: keymap.keys('commit.author'), detail: sel.author, keywords: 'author profile github user person' });
     if (sel && originRemote()?.web) add('Commit', 'Copy link to selected commit', () => copyCommitLink(sel.sha), { icon: 'copy', kbd: keymap.keys('map.copyLink'), detail: sel.sha.slice(0, 7), keywords: 'copy link url share permalink github web' });
     if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: keymap.keys('commit.split'), detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
-    add('View', 'Jump to HEAD', () => { setView('map'); selectCommit(state.head.oid, 'center'); }, { icon: 'checkout' });
+    add('View', 'Jump to HEAD', () => jumpTo(state.head.oid), { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: keymap.keys('file.open') });
     add('App', 'Switch repository…', repoSwitcher, { icon: 'folder', kbd: keymap.keys('file.repoSwitch'), keywords: 'recent open project switch' });
     for (const x of recent) add('Recent repositories', `Switch to ${x.name}`, () => openRepo(x.root), { icon: 'folder', detail: tildePath(x.root), keywords: `recent repository open ${x.root}` });
@@ -3093,10 +3174,10 @@ function openPalette() {
       if (r.kind === 'branch' && r.short !== state.head.branch) add('Branches', `Checkout ${r.short}`, () => checkout(r.short), { icon: 'branch', detail: timeAgo(r.date) });
     }
     for (const r of state.refs) {
-      add('Refs', `Go to ${r.short}`, () => { setView('map'); selectCommit(r.target, 'center'); }, { icon: r.kind === 'tag' ? 'tag' : r.kind === 'remote' ? 'cloud' : 'branch' });
+      add('Refs', `Go to ${r.short}`, () => jumpTo(r.target), { icon: r.kind === 'tag' ? 'tag' : r.kind === 'remote' ? 'cloud' : 'branch' });
     }
     for (const c of state.commits.slice(0, 5000)) {
-      add('Commits', c.subject ?? c.sha.slice(0, 7), () => { setView('map'); selectCommit(c.sha, 'center'); }, { icon: 'commit', detail: c.sha.slice(0, 7), keywords: c.sha.slice(0, 10) + ' ' + c.author });
+      add('Commits', c.subject ?? c.sha.slice(0, 7), () => jumpTo(c.sha), { icon: 'commit', detail: c.sha.slice(0, 7), keywords: c.sha.slice(0, 10) + ' ' + c.author });
     }
     return items;
   });
@@ -3272,6 +3353,9 @@ async function bound(promise) {
 async function loadRepo(repo) {
   // Switching between worktrees of one repository keeps the current view.
   const sameRepo = state.repo && state.repo.commonDir === repo.commonDir;
+  // Another worktree is a step Back can undo; another repository starts a fresh history.
+  const from = sameRepo && !navigating ? place() : null;
+  if (!sameRepo) nav.clear();
   state.repo = repo;
   state.lfs = null;
   if (!sameRepo) { state.view = 'map'; state.worktrees = []; }
@@ -3289,6 +3373,7 @@ async function loadRepo(repo) {
   state.remotes = [];
   state.prs = null;
   document.title = repo.name;
+  if (from) nav.record(from, placeKey());
   renderShell();
   loadPrs();
   await refreshAll();
@@ -3335,6 +3420,8 @@ const commands = {
   search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
   view: (v) => setView(v),
+  back: goBack,
+  forward: goForward,
   sidebar: toggleSidebar,
   toggle: (k) => state.repo && toggleShow(k),
   fetch: () => state.repo && fetchAll(),
@@ -3415,7 +3502,8 @@ function fileHistoryTarget() {
 }
 
 // Opens the history of `path`, of the file on screen, or of a file picked from the tracked files.
-async function openFileHistory(path = fileHistoryTarget()) {
+function openFileHistory(...args) { return go(() => openFileHistoryNow(...args)); }
+async function openFileHistoryNow(path = fileHistoryTarget()) {
   if (!state.repo) return;
   if (!path) {
     const files = await git('trackedFiles').catch((e) => { toast('Couldn’t list files', { kind: 'error', detail: e.message }); return null; });
@@ -3430,7 +3518,8 @@ async function openFileHistory(path = fileHistoryTarget()) {
   renderTopbar();
   renderView();
 }
-function closeFileHistory() {
+function closeFileHistory(...args) { return go(() => closeFileHistoryNow(...args)); }
+function closeFileHistoryNow() {
   state.fileHistory = null;
   state.review = null;
   renderTopbar();
@@ -3438,8 +3527,10 @@ function closeFileHistory() {
 }
 // Shows a commit in the Map, or in the commit viewer when the graph doesn't have it (yet).
 function showCommit(sha) {
-  setView('map');
-  if (state.index.has(sha)) selectCommit(sha, 'center'); else openQuick(sha);
+  go(() => {
+    setView('map');
+    if (state.index.has(sha)) selectCommit(sha, 'center'); else openQuick(sha);
+  });
 }
 function withHistoryMenu(row, f) {
   row.addEventListener('contextmenu', (e) => {
@@ -3490,6 +3581,11 @@ function tip(label, ...ids) {
 }
 
 function isEditable(el) { return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable); }
+
+// Mouse buttons 4 and 5 go back and forward, as in a browser.
+window.addEventListener('mouseup', (e) => {
+  if (e.button === 3) { e.preventDefault(); goBack(); } else if (e.button === 4) { e.preventDefault(); goForward(); }
+});
 
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('.overlay')) return;

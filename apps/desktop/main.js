@@ -865,6 +865,9 @@ function createWindow(repoDir) {
   bench?.attach(win);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), repoDir ? { query: { repo: repoDir } } : undefined);
   win.once('ready-to-show', () => win.show());
+  // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
+  win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') win.webContents.send('command', 'back'); else if (cmd === 'browser-forward') win.webContents.send('command', 'forward'); });
+  win.on('swipe', (e, dir) => { if (dir === 'left' || dir === 'right') win.webContents.send('command', dir === 'left' ? 'back' : 'forward'); });
   const id = win.webContents.id;
   win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); buildMenu(); });
   return win;
@@ -971,6 +974,9 @@ function buildMenu() {
       label: 'View',
       submenu: [
         item('Command Menu', acc('view.palette'), 'palette'),
+        { type: 'separator' },
+        item('Back', acc('view.back'), 'back'),
+        item('Forward', acc('view.forward'), 'forward'),
         { type: 'separator' },
         item('Map', acc('view.map'), 'view', 'map'),
         item('Commit', acc('view.commit'), 'view', 'commit'),

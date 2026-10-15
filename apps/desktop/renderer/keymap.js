@@ -63,6 +63,8 @@ export const COMMANDS = [
   c('menu', 'views', 'view.worktrees', 'Worktrees', ['Mod+7', 'g w']),
   c('menu', 'views', 'view.lanes', 'Lanes', ['Mod+8', 'g l']),
   c('menu', 'view', 'view.inbox', 'Pull Request Inbox', 'Mod+Shift+I'),
+  c('menu', 'view', 'view.back', 'Back', 'Mod+['),
+  c('menu', 'view', 'view.forward', 'Forward', 'Mod+]'),
   c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', 'Mod+Backslash'),
   c('menu', 'view', 'view.tags', 'Show Tags', 'Mod+Alt+T'),
   c('menu', 'view', 'view.remotes', 'Show Remote Branches', 'Mod+Alt+R'),

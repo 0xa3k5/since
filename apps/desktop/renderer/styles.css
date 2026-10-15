@@ -256,6 +256,8 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-3); }
 .crumb { color: var(--text); font-weight: 550; }
 .crumb-muted { color: var(--text-3); }
+/* Back and forward (‹ ›): first in the bar, dimmed by button:disabled when there's nowhere to go. */
+.nav-btns { display: flex; gap: 2px; margin-right: 4px; flex: none; }
 .sb-toggle { color: var(--text-3); }
 /* The rail is narrower than the traffic lights. */
 .mac #app:is(.sb-rail, .sb-overlay) .crumbs { padding-left: 28px; }
