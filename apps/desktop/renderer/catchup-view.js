@@ -35,6 +35,19 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
     const groups = groupLanded(entries);
     const top = more ? groups : groups.slice(0, TOP);
     const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'lanes.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } }, 'Change ▾');
+    const ciDot = c.ci ? h('span.catchup-ci.' + c.ci.state, { title: c.ci.text }, h('span.pr-ci.' + c.ci.state, { 'aria-label': c.ci.text }, '●')) : null;
+    // Nothing landed: one line (check, where you're caught up to, CI dot, Change ▾). The full card returns once something lands.
+    if (!entries.length && !head.warn) {
+      const cp = res.checkpoint || {};
+      const at = cp.date ? ago(cp.date) : '';
+      const text = res.kind === 'checkpoint' && cp.sha ? `Caught up · ${short(cp.sha)}${at ? ` · ${at}` : ''}` : `${head.text} · nothing new`;
+      el.classList.add('compact');
+      return el.replaceChildren(h('div.catchup-head', null,
+        icon('check', 14),
+        h('span.catchup-title', { title: `${head.text}. Nothing new on ${res.base}.` }, text),
+        ciDot, sinceBtn));
+    }
+    el.classList.remove('compact');
     el.replaceChildren(...[
       h('div.catchup-head', null,
         h('span.catchup-title', { title: res.checkpoint?.at ? `Marked ${fullDate(res.checkpoint.at / 1000)}` : '' }, head.text),
@@ -89,6 +102,7 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
 
   async function markCaughtUp() {
     if (!res) return;
+    if (!entries.length && res.checkpoint?.sha === res.baseSha) return toast(`Already caught up on ${res.base}`, { kind: 'success' });
     const to = { sha: res.baseSha, base: res.base, date: res.baseDate };
     try {
       const before = await mark(to);
