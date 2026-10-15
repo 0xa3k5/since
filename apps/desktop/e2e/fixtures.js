@@ -229,7 +229,8 @@ const test = base.extend({
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
-        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), ...env },
+        // Specs start on the Map (repositories open on Review otherwise); pass env GITLANES_START_VIEW: '' for Review.
+        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), GITLANES_START_VIEW: 'map', ...env },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });

@@ -885,7 +885,10 @@ function createWindow(repoDir) {
     },
   });
   bench?.attach(win);
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'), repoDir ? { query: { repo: repoDir } } : undefined);
+  // Development only: GITLANES_START_VIEW=map opens repositories on the Map instead of Review (e2e).
+  const view = !app.isPackaged && process.env.GITLANES_START_VIEW === 'map' ? { view: 'map' } : {};
+  const query = { ...(repoDir ? { repo: repoDir } : {}), ...view };
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
   win.once('ready-to-show', () => win.show());
   // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
   win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') win.webContents.send('command', 'back'); else if (cmd === 'browser-forward') win.webContents.send('command', 'forward'); });
