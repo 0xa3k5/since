@@ -103,7 +103,7 @@ code, kbd, pre { font-family: var(--mono); font-size: 0.9em; }
 .nav { display: flex; align-items: center; gap: 28px; height: 64px; font-size: 14px; color: var(--text-3); }
 .nav-brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
 
-/* Small "Beta" tag next to the wordmark and above the landing headline. Sentence case, never uppercase. */
+/* Small "Beta" tag next to the wordmark in the header. Sentence case, never uppercase. */
 .beta-pill {
   display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
   font: 500 11px/1.4 var(--font); letter-spacing: 0; text-transform: none;
@@ -120,17 +120,21 @@ code, kbd, pre { font-family: var(--mono); font-size: 0.9em; }
 /* ---------------------------------------------------------------- Footer */
 .site-footer { margin-top: 96px; border-top: 1px solid var(--line); padding: 48px 0 64px; font-size: 13px; color: var(--text-3); }
 body:has(.lp) .site-footer { margin-top: 0; }
-.footer-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr)); gap: 32px; }
+/* Brand on the left, the link columns pushed to the right edge; on small screens the columns wrap below the brand. */
+.footer-grid { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 48px; }
+.footer-cols { display: flex; flex-wrap: wrap; gap: 48px 96px; }
 .footer-brand { display: flex; align-items: center; gap: 6px; align-self: start; }
 .footer-brand .logo { font-size: 14px; gap: 8px; }
 .site-footer h2 { margin: 0 0 10px; font: 500 13px var(--font); letter-spacing: 0; color: var(--text-2); }
-.site-footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.site-footer ul { list-style: none; margin: 0; padding: 0; }
+/* Padding on the link itself, not margins between items, so the whole row is clickable. */
+.site-footer li a { display: block; padding: 3px 0; }
 .site-footer a { color: var(--text-3); text-decoration: none; }
 .site-footer a:hover { color: var(--text); }
 .footer-legal { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--text-4); }
 .footer-legal p { margin: 0; }
 .footer-legal p:first-child { margin-right: auto; }
-@media (max-width: 860px) { .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .footer-brand { grid-column: 1 / -1; } }
+@media (max-width: 720px) { .footer-cols { gap: 48px; } }
 
 /* ---------------------------------------------------------------- Stub pages */
 .stub { padding-top: 96px; }

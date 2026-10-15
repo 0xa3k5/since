@@ -21,9 +21,8 @@ section.s { padding-block: 150px; }
 
 /* ---------------------------------------------------------------- Hero */
 .hero { padding-top: 120px; text-align: center; }
-.hero-tag { margin: 0 0 18px; }
 .hero h1 { max-width: 13ch; margin: 0 auto; }
-.lp .hero .lede { max-width: 40rem; margin: 20px auto 0; }
+.lp .hero .lede { max-width: 46rem; margin: 20px auto 0; }
 .cta-row { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 30px; flex-wrap: wrap; }
 .hero .small { margin: 14px 0 0; max-width: none; }
 .hero-shot { margin: 52px auto 0; max-width: 1100px; text-align: left; }
@@ -102,19 +101,15 @@ section.s { padding-block: 150px; }
 #catch-up .copy h2 { margin: 0 auto; max-width: 20ch; }
 #catch-up .copy p { margin: 20px auto 0; max-width: 42rem; color: var(--text-3); text-wrap: balance; }
 
-/* 2 · Review: text on the left, the app on the right, the text stays put */
+/* 2-4 · Review, Send back, Merge: the top layout. Title on the left, text and list on the right,
+   the product full width below (Merge keeps its facts row under the product). Nothing sticks. */
 #review h2, #unblock h2 { font-size: clamp(32px, 3.8vw, 48px); }
-#review .copy { position: sticky; top: 120px; }
-
-/* 3 · Send back: off-centre, the sheet floats over a dimmed Review list */
-#unblock .feat { grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 80px; align-items: center; }
-#unblock .copy p { color: var(--text-3); }
-
-/* 4 · Merge: title centred above, the two orders side by side */
-#merge .feat { grid-template-columns: 1fr; gap: 56px; }
-#merge .copy { text-align: center; }
-#merge .copy h2 { margin: 0 auto; max-width: 22ch; }
-#merge .copy p { margin: 20px auto 0; max-width: 44rem; color: var(--text-3); text-wrap: balance; }
+#review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 56px; }
+#review .copy, #unblock .copy, #merge .copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 72px; align-items: start; text-align: left; }
+#review .copy > h2, #unblock .copy > h2, #merge .copy > h2 { grid-column: 1; grid-row: 1 / span 2; max-width: 14ch; margin: 0; }
+#review .copy > p, #unblock .copy > p, #merge .copy > p { grid-column: 2; margin: 6px 0 0; max-width: none; }
+#review .copy > ul, #unblock .copy > ul { grid-column: 2; }
+#unblock .copy p, #merge .copy p { color: var(--text-3); }
 #merge .facts3 { max-width: none; }
 
 /* ---------------------------------------------------------------- Still a Git client: tabs */
@@ -161,7 +156,7 @@ section.s { padding-block: 150px; }
 .board-frame { position: relative; display: flex; justify-content: center; width: 100vw; margin-left: calc(50% - 50vw); margin-top: 24px; perspective: 1600px; perspective-origin: 50% 100%; }
 .board { position: relative; display: inline-grid; gap: 8px; padding: 22px; border-radius: 26px; border: 1px solid var(--line); user-select: none; -webkit-user-select: none;
   background: var(--sunk);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent), 0 60px 120px -50px rgba(0, 0, 0, .7);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
   zoom: var(--kz, 1); transform: rotateX(32deg); transform-origin: 50% 100%; margin-top: var(--kmt, 0px); }
 .krow { display: flex; gap: 8px; width: 836px; }
 .k { --w: 54px; width: var(--w); height: 62px; border-radius: 10px; color: var(--ghost); font: 500 13px var(--mono);
@@ -188,6 +183,8 @@ section.s { padding-block: 150px; }
 .lp .founder-in h2 { font-size: clamp(26px, 3vw, 34px); margin-bottom: 28px; }
 .founder-in p { font-size: 19px; line-height: 1.65; color: var(--text-2); margin: 0 0 20px; max-width: none; }
 .founder-in .sig { font-size: 15px; color: var(--text-3); margin-top: 32px; }
+.lp .founder-in a { color: var(--accent-fg); text-decoration: none; }
+.lp .founder-in a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---------------------------------------------------------------- Pricing: one big number */
 .price-band { background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -228,8 +225,10 @@ section.s { padding-block: 150px; }
 /* ---------------------------------------------------------------- Narrower screens */
 @media (max-width: 860px) {
   section.s, .problem { padding-block: 100px; }
-  .feat, #unblock .feat { grid-template-columns: 1fr; gap: 40px; }
-  #review .copy { position: static; }
+  .feat, #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 40px; }
+  #review .copy, #unblock .copy, #merge .copy { grid-template-columns: 1fr; }
+  #review .copy > *, #unblock .copy > *, #merge .copy > * { grid-column: 1; grid-row: auto; }
+  #review .copy > p, #unblock .copy > p, #merge .copy > p { margin-top: 20px; }
   .fit-facts, .facts3 { grid-template-columns: 1fr; }
   .fit-facts div + div, .facts3 > div + div { padding-left: 0; border-left: 0; }
   .tabbar { grid-template-columns: 1fr 1fr; }
@@ -240,8 +239,8 @@ section.s { padding-block: 150px; }
 
 /* Small screens: centred sections switch to left alignment. */
 @media (max-width: 720px) {
-  .hero, .fit-head, .tabs-h, .kb-sec, #catch-up .copy, #merge .copy, .close, .faq-sec, .price-c, .problem .statement { text-align: left; }
-  .hero h1, .lp .hero .lede, .fit-head h2, .fit-head p, .tabs-h h2, .kb-sec h2, .lp .kb-sec .lede, #catch-up .copy h2, #catch-up .copy p, #merge .copy h2, #merge .copy p,
+  .hero, .fit-head, .tabs-h, .kb-sec, #catch-up .copy, .close, .faq-sec, .price-c, .problem .statement { text-align: left; }
+  .hero h1, .lp .hero .lede, .fit-head h2, .fit-head p, .tabs-h h2, .kb-sec h2, .lp .kb-sec .lede, #catch-up .copy h2, #catch-up .copy p,
   .lp .close h2, .lp .close .lede, .faq-sec h2, .price-c .then, .statement { margin-left: 0; margin-right: 0; }
   .cta-row { justify-content: flex-start; }
   .close .small, .hero .small { text-align: left; }
