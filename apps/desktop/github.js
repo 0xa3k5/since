@@ -9,7 +9,7 @@
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -68,6 +68,8 @@ function normalizePr(p) {
     author: text(p.author?.login, 200),
     url: url.startsWith('https://') ? url : null,
     updatedAt: text(p.updatedAt, 64),
+    // GitHub's own conflict check: true, false, or null while GitHub is still working it out.
+    mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
   };
 }
 
@@ -114,6 +116,32 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
     throw coded(err.message, authProblem(err.message) ? 'gh-auth' : 'gh-failed');
   }
   return { remote, owners: remoteOwners(remotes), prs: parsePrs(out), at: Date.now() };
+}
+
+// The PR inbox (lanes overview): which open PRs ask for your review (team requests included),
+// and who you are on GitHub. Two more calls per inbox refresh, only while PRs are on; the login
+// is asked once per host and remembered for the session.
+const parseNumbers = (out) => {
+  let list;
+  try { list = JSON.parse(out); } catch { throw coded('GitHub CLI returned something that isn’t JSON.', 'gh-failed'); }
+  if (!Array.isArray(list)) throw coded('GitHub CLI returned something that isn’t a list.', 'gh-failed');
+  return list.map((p) => p?.number).filter((n) => Number.isSafeInteger(n) && n > 0);
+};
+const logins = new Map();
+async function inbox({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote, repo } = target({ enabled, remotes, dirs });
+  const login = logins.has(remote.host) ? Promise.resolve(logins.get(remote.host))
+    : ghRun(bin, ['api', 'user', '--hostname', remote.host, '--jq', '.login'], { dirs, exec }).then((out) => {
+      const me = text(String(out).trim(), 200);
+      if (!/^[\w-]+$/.test(me)) throw coded('GitHub CLI didn’t say who you are.', 'gh-failed');
+      logins.set(remote.host, me);
+      return me;
+    });
+  const [me, requested] = await Promise.all([
+    login,
+    ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'open', '--search', 'review-requested:@me', '--limit', String(LIMIT), '--json', 'number'], { dirs, exec }).then(parseNumbers),
+  ]);
+  return { me, requested };
 }
 
 // The repository as `gh --repo` wants it, or a coded error. Every action starts here, so nothing
@@ -385,4 +413,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { inbox, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
