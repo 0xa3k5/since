@@ -1,318 +1,41 @@
 ---
-// Landing page (website plan §3, hero option A). Copy follows the claim gates in §3.6:
-// only what is merged in `main` today. Gated lines and what unlocks them are listed beside each one.
+// Landing page: the Git client for landing agents' work. Sections live in components/landing/.
 import Base from '../layouts/Base.astro';
-import Shot from '../components/landing/Shot.astro';
-import PriceCard from '../components/landing/PriceCard.astro';
-import { BUY_URL, DOWNLOAD_URL, PRICE_LATER, PRICE_NOW, PRODUCT_NAME } from '../config';
-import mapLight from '../assets/landing/app-map-light.webp';
-import mapDark from '../assets/landing/app-map-dark.webp';
-import snapshotsLight from '../assets/landing/app-snapshots-light.webp';
-import snapshotsDark from '../assets/landing/app-snapshots-dark.webp';
-import keysLight from '../assets/landing/app-keys-light.webp';
-import keysDark from '../assets/landing/app-keys-dark.webp';
+import Hero from '../components/landing/Hero.astro';
+import Problem from '../components/landing/Problem.astro';
+import Lanes from '../components/landing/Lanes.astro';
+import CatchUp from '../components/landing/CatchUp.astro';
+import Review from '../components/landing/Review.astro';
+import SendBack from '../components/landing/SendBack.astro';
+import MergePlan from '../components/landing/MergePlan.astro';
+import GitClientTabs from '../components/landing/GitClientTabs.astro';
+import Keyboard from '../components/landing/Keyboard.astro';
+import Founder from '../components/landing/Founder.astro';
+import Pricing from '../components/landing/Pricing.astro';
+import Faq from '../components/landing/Faq.astro';
+import Close from '../components/landing/Close.astro';
+import { faqJsonLd } from '../components/landing/faq';
+import { PRICE_NOW, PRODUCT_NAME } from '../config';
+import '../components/landing/landing.css';
 
 const title = `${PRODUCT_NAME}: a keyboard-first Git client for Mac`;
-const description = 'Work directly on your commit graph and undo any rebase, reset, merge or discard with ⌘Z. Keyboard-first, no account, one-time purchase. Try it free for 14 days.';
-
-// Hero clip slot: the 20-second "wrong rebase → ⌘Z → back" clip (shot list in the PR).
-// Set the four encodes to switch the hero from the screenshot to the clip; the screenshot becomes its poster.
-type Clip = { light: { mp4: string; webm: string }; dark: { mp4: string; webm: string } };
-const HERO_CLIP: Clip | null = null;
-
-const features = [
-  { title: 'Line-by-line staging', body: 'Stage a file, a hunk or a single line from the Commit view.' },
-  { title: 'Rewrite from the graph', body: 'Squash, fixup, reword, split, reorder and drop commits in place.' },
-  { title: 'Conflicts, step by step', body: 'A 3-way merge editor, plus Continue and Abort for what is in progress.' },
-  { title: 'Stashes and reflog', body: 'Stash files, staged changes or single lines; see the reflog for every ref.' },
-  { title: '⌘K command palette', body: 'Find any command by name, with its shortcut beside it.' },
-  { title: 'Fetch, pull and push', body: 'Over your own remotes, with your own credentials.' },
-  { title: 'Search commits', body: 'Press / or ⌘F to find a commit by message, author, branch or SHA.' },
-  { title: 'Light and dark', body: 'Follows your system, or pick one with ⌃⌘T.' },
-];
-
-// Six questions from website plan §3.4, worded to match what ships today.
-const faq = [
-  {
-    q: 'Is it really a one-time payment?',
-    a: `Yes. You pay $${PRICE_NOW} once and get every future version of ${PRODUCT_NAME} for macOS. No renewals, no paid upgrades, no subscription. The launch price goes up to $${PRICE_LATER} later; if you buy now, you never pay again.`,
-  },
-  {
-    q: 'What does the trial include?',
-    a: 'Every feature, for 14 days. There is no account to create and no card to enter.',
-  },
-  {
-    q: 'What exactly can ⌘Z undo?',
-    a: 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash: rebase, merge, reset, cherry-pick, revert, pull, commit, squash, creating, renaming or deleting branches, creating or deleting tags, discarding files and dropping stashes. Redo with ⌘⇧Z. The history is kept in your repository, survives a restart, and has no step limit.',
-  },
-  {
-    q: 'Does it use my git config, hooks and credentials?',
-    a: `Yes. ${PRODUCT_NAME} runs the git installed on your Mac, so your config, hooks, aliases and credential helpers behave exactly as they do in the terminal.`,
-  },
-  {
-    // Gate: no "no tracking" or "only calls home for X" claim about the app until the network audit (AK-48).
-    q: 'Do I need an account?',
-    a: `No. There is nothing to sign up for. When you buy, you get a licence key by email, and ${PRODUCT_NAME} checks it with our payment provider when you activate it.`,
-  },
-  {
-    q: 'Is there a Windows or Linux version?',
-    a: `No. ${PRODUCT_NAME} is a Mac app, for macOS 12 or later on Apple silicon and Intel.`,
-  },
-];
-
-const faqJsonLd = {
-  '@context': 'https://schema.org',
-  '@type': 'FAQPage',
-  mainEntity: faq.map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
-};
+const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, send back what's stuck, and merge the rest in order. Local-first Mac app, $${PRICE_NOW} once.`;
 ---
 <Base title={title} description={description} ogImage="/og/home.png">
   <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
-
-  <section class="hero">
-    <svg class="hero-lanes" viewBox="0 0 1200 520" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M-20 420 C 260 420, 300 300, 560 300 S 900 160, 1220 160" style="stroke: var(--lane-0)" />
-      <path d="M-20 470 C 320 470, 420 380, 700 380 S 1000 300, 1220 300" style="stroke: var(--lane-1)" />
-      <path d="M-20 360 C 200 360, 260 220, 480 220 S 820 90, 1220 90" style="stroke: var(--lane-3)" />
-    </svg>
-    <div class="wrap hero-inner">
-      <h1>Rebase without fear. <span class="nowrap"><kbd>⌘Z</kbd> undoes it.</span></h1>
-      <p class="hero-sub">{PRODUCT_NAME} is a keyboard-first client for Git on the Mac. Work directly on your commit graph, and undo any rebase, reset, merge or discard with ⌘Z, even after you quit. Pay once. No account.</p>
-      <div class="cta-row">
-        <div class="cta">
-          <a class="btn btn-primary btn-lg" href={DOWNLOAD_URL}>Download free trial</a>
-          <p class="micro">14 days · every feature · no account<br>macOS 12 or later · Apple silicon &amp; Intel</p>
-        </div>
-        <div class="cta">
-          <a class="btn btn-secondary btn-lg" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
-          <p class="micro">One-time launch price<br>Goes up to ${PRICE_LATER} later</p>
-        </div>
-      </div>
-    </div>
-    <div class="wrap hero-media">
-      {HERO_CLIP ? (
-        <div class="clip">
-          {(['light', 'dark'] as const).map((t) => (
-            <video class={`only-${t}`} muted loop playsinline preload="none" data-hero-clip
-              poster={(t === 'light' ? mapLight : mapDark).src} aria-label="A rebase onto the wrong branch, undone with ⌘Z">
-              <source src={HERO_CLIP[t].webm} type="video/webm" />
-              <source src={HERO_CLIP[t].mp4} type="video/mp4" />
-            </video>
-          ))}
-        </div>
-      ) : (
-        <Shot light={mapLight} dark={mapDark} eager widths={[720, 1080, 1440, 2160]} sizes="(max-width: 1120px) 100vw, 1072px"
-          alt={`The ${PRODUCT_NAME} commit graph: branches and tags drawn as coloured lanes beside the commit list, with the selected commit's details on the right.`} />
-      )}
-    </div>
-  </section>
-
-  <section class="section idea" aria-labelledby="undo">
-    <div class="wrap stack">
-      <div class="copy">
-        <div>
-          <p class="eyebrow">Undo</p>
-          <h2 id="undo">Every branch, tag and HEAD change can be undone.</h2>
-        </div>
-        <div>
-          <p>Rebase, merge, reset, cherry-pick, delete a branch, discard a file, then press <kbd>⌘Z</kbd>. Step back through your recent operations and redo with <kbd>⌘⇧Z</kbd>.</p>
-          <p>The history is saved with your repository, so it's still there after you quit. Undo a commit and its changes come back staged.</p>
-        </div>
-      </div>
-      <Shot class="media" light={snapshotsLight} dark={snapshotsDark} widths={[720, 1080, 1600, 2160]} sizes="(max-width: 1120px) 100vw, 1072px"
-        alt="The Snapshots view listing recent operations, newest first: delete branch, rebase, create branch. Undo and Redo buttons sit at the top right." />
-    </div>
-  </section>
-
-  <section class="section idea" aria-labelledby="graph">
-    <div class="wrap split reverse">
-      <div class="copy">
-        <p class="eyebrow">Keyboard</p>
-        <h2 id="graph">Work on the graph, not around it.</h2>
-        <p>Move with <kbd>↑</kbd> and <kbd>↓</kbd>. Press <kbd>s</kbd> to squash, <kbd>f</kbd> to fixup, <kbd>e</kbd> to reword, <kbd>r</kbd> to rebase, <kbd>m</kbd> to merge, <kbd>p</kbd> to cherry-pick.</p>
-        <p>Every commit action is a single key. Commands are also in the <kbd>⌘K</kbd> palette, and the mouse works too.</p>
-      </div>
-      <Shot class="media" light={keysLight} dark={keysDark} widths={[480, 770, 1100]} sizes="(max-width: 900px) 100vw, 520px"
-        alt="A commit's menu open on the graph, with a single-key shortcut beside each action: M merge, R rebase, P cherry-pick, V revert, E edit message, S squash, F fixup." />
-    </div>
-  </section>
-
-  <section class="section idea" aria-labelledby="live">
-    <div class="wrap split">
-      <div class="copy">
-        <p class="eyebrow">Live</p>
-        <h2 id="live">It sees what your other tools do.</h2>
-        <p>Commit from the terminal, switch branches in your editor, let a script rebase. {PRODUCT_NAME} picks up the change on disk and redraws the graph on its own, with nothing to refresh.</p>
-      </div>
-      <div class="media terminal" role="img" aria-label="A terminal running git commit and git switch; the graph updates without a refresh.">
-        <div class="term-bar" aria-hidden="true"><span></span><span></span><span></span></div>
-        <pre aria-hidden="true"><span class="p">$</span> git commit -am "Debounce search input"
-[feature/search 928af37] Debounce search input
-<span class="p">$</span> git switch main
-Switched to branch 'main'
-<span class="ok">● {PRODUCT_NAME} redrew the graph · 0 clicks</span></pre>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" aria-labelledby="features">
-    <div class="wrap">
-      <h2 id="features" class="center">Everything you reach for, one key away.</h2>
-      <ul class="grid">
-        {features.map((f) => (
-          <li><h3>{f.title}</h3><p>{f.body}</p></li>
-        ))}
-      </ul>
-      <p class="center more"><a href="/features">See all features →</a></p>
-    </div>
-  </section>
-
-  <section class="section" aria-labelledby="yourgit">
-    <div class="wrap duo">
-      <div>
-        <h2 id="yourgit">Your git, your config.</h2>
-        <p>{PRODUCT_NAME} runs the git already on your Mac, so behaviour matches the command line exactly: your hooks, aliases, credential helpers and config all just work.</p>
-      </div>
-      <div>
-        <h2>No account to create.</h2>
-        <p>Download it, open a repository, start working. There's nothing to sign up for, and your code goes only where your own remotes point. <a href="/privacy">How we handle data →</a></p>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="pricing" aria-labelledby="price">
-    <div class="wrap price-wrap">
-      <div class="copy">
-        <h2 id="price">One price. Yours to keep.</h2>
-        <p>Buy once and every future version for macOS is included. No renewals, no paid upgrades, no subscription.</p>
-        <p class="muted">Try every feature free for 14 days first.</p>
-      </div>
-      <PriceCard />
-    </div>
-  </section>
-
-  <section class="section" aria-labelledby="faq">
-    <div class="wrap narrow">
-      <h2 id="faq">Questions</h2>
-      <div class="faq">
-        {faq.map(({ q, a }) => (
-          <details>
-            <summary>{q}</summary>
-            <p>{a}</p>
-          </details>
-        ))}
-      </div>
-      <p class="more">More questions? <a href="/pricing#faq">Pricing FAQ</a> · <a href="/docs">Docs</a></p>
-    </div>
-  </section>
-
-  <section class="section final" aria-labelledby="try">
-    <div class="wrap narrow center">
-      <h2 id="try">Try it on your own repository.</h2>
-      <p>14 days, every feature, nothing to sign up for. If you have a rebase coming up, it's a good time to try.</p>
-      <div class="cta-row centered">
-        <a class="btn btn-primary btn-lg" href={DOWNLOAD_URL}>Download free trial</a>
-        <a class="btn btn-secondary btn-lg" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
-      </div>
-    </div>
-  </section>
+  <div class="lp">
+    <Hero />
+    <Problem />
+    <Lanes />
+    <CatchUp />
+    <Review />
+    <SendBack />
+    <MergePlan />
+    <GitClientTabs />
+    <Keyboard />
+    <Founder />
+    <Pricing />
+    <Faq />
+    <Close />
+  </div>
 </Base>
-
-{HERO_CLIP && (
-  <script is:inline>
-    // Autoplay the visible hero clip unless the reader prefers reduced motion; then show controls instead.
-    (() => {
-      const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-      document.querySelectorAll('[data-hero-clip]').forEach((v) => {
-        if (still) { v.controls = true; return; }
-        if (v.offsetParent !== null) { v.preload = 'auto'; v.play().catch(() => { v.controls = true; }); }
-      });
-    })();
-  </script>
-)}
-
-<style>
-  /* ------------------------------------------------------------ Hero */
-  .hero { position: relative; padding-top: 88px; overflow: hidden; }
-  .hero-lanes { position: absolute; inset: 0 0 auto; width: 100%; height: 520px; opacity: 0.08; pointer-events: none; }
-  .hero-lanes path { fill: none; stroke-width: 3; }
-  .hero-inner { position: relative; text-align: center; }
-  .hero h1 { margin: 0 auto; max-width: 15ch; font-size: clamp(38px, 6.4vw, 64px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.05; }
-  .hero h1 kbd { font: inherit; letter-spacing: inherit; color: var(--accent-fg); border: 0; background: none; padding: 0; min-width: 0; }
-  .nowrap { white-space: nowrap; }
-  .hero-sub { margin: 24px auto 0; max-width: 620px; font-size: 18px; color: var(--text-2); }
-  .cta-row { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; margin-top: 36px; }
-  .cta { display: grid; justify-items: center; gap: 10px; }
-  .btn-lg { height: 44px; padding: 0 20px; font-size: 15px; }
-  .micro { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-3); }
-  .hero-media { position: relative; margin-top: 56px; }
-  .clip video { display: block; width: 100%; height: auto; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: var(--shadow); }
-
-  /* ------------------------------------------------------------ Sections */
-  .section { padding-top: 120px; }
-  .section h2 { margin: 0 0 16px; font-size: clamp(26px, 3.4vw, 36px); font-weight: 680; }
-  .section p { color: var(--text-2); max-width: 640px; }
-  .center { text-align: center; }
-  .center p, p.center { margin-left: auto; margin-right: auto; }
-  .narrow { max-width: 760px; }
-  .eyebrow { margin: 0 0 12px; font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-fg); }
-  kbd {
-    display: inline-block; min-width: 1.6em; padding: 0 5px; text-align: center;
-    border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px;
-    background: var(--bg-content); color: var(--text); font-size: 0.85em; line-height: 1.5;
-  }
-
-  .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; }
-  .split.reverse .copy { order: 2; }
-  .stack { display: grid; gap: 40px; }
-  .stack .copy { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px 56px; align-items: end; }
-  .stack .copy p:last-child { margin-bottom: 0; }
-  .stack h2 { margin-bottom: 0; }
-
-  .terminal { border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--bg-content); box-shadow: var(--shadow); overflow: hidden; }
-  .term-bar { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-  .term-bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
-  .terminal pre { margin: 0; padding: 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; color: var(--text-2); }
-  .terminal .p { color: var(--text-4); }
-  .terminal .ok { color: var(--accent-fg); }
-
-  .grid { list-style: none; margin: 40px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
-  .grid li { padding: 24px; background: var(--bg); }
-  .grid h3 { margin: 0 0 6px; font-size: 15px; font-weight: 620; letter-spacing: -0.01em; }
-  .grid p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-3); }
-  .more { margin-top: 24px; font-size: 15px; }
-
-  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
-  .duo h2 { font-size: clamp(22px, 2.6vw, 28px); }
-
-  .price-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 56px; align-items: center; }
-
-  .faq { border-top: 1px solid var(--border); }
-  .faq details { border-bottom: 1px solid var(--border); }
-  .faq summary { cursor: pointer; padding: 18px 32px 18px 0; position: relative; list-style: none; font-weight: 580; color: var(--text); }
-  .faq summary::-webkit-details-marker { display: none; }
-  .faq summary::after { content: '+'; position: absolute; right: 4px; top: 14px; font-size: 22px; font-weight: 400; color: var(--text-3); }
-  .faq details[open] summary::after { content: '−'; }
-  .faq details p { margin: 0 0 20px; }
-
-  .final .cta-row { margin-top: 28px; }
-
-  @media (max-width: 900px) {
-    .split, .duo, .price-wrap { grid-template-columns: 1fr; gap: 32px; }
-    .stack .copy { grid-template-columns: 1fr; gap: 16px; }
-    .split.reverse .copy { order: 0; }
-    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-  @media (max-width: 760px) {
-    .hero { padding-top: 56px; }
-    .section { padding-top: 72px; }
-    .hero-media { margin-top: 40px; }
-  }
-  @media (max-width: 520px) {
-    .grid { grid-template-columns: 1fr; }
-    .cta-row { flex-direction: column; align-items: stretch; }
-    .cta-row .btn { width: 100%; }
-    .cta { justify-items: stretch; text-align: center; }
-    .hero-sub { font-size: 17px; }
-  }
-</style>

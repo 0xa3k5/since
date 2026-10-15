@@ -23,5 +23,8 @@ export const DOWNLOAD_URL = 'https://github.com/0xa3k5/gitlanes-releases/release
 export const PRICE_NOW = 19;
 export const PRICE_LATER = 29;
 
+/** Length of the free trial, in days. */
+export const TRIAL_DAYS = 14;
+
 /** Off until the owner picks a provider (website plan D7). No analytics script loads while false. */
 export const ANALYTICS_ENABLED = false;

@@ -1,0 +1,89 @@
+---
+---
+<section class="s wrap rule" id="git" aria-labelledby="g-h">
+  <div class="tabs-h">
+    <h2 id="g-h">Still a fast Git client. <span class="soft">For when you step in yourself.</span></h2>
+  </div>
+  <div data-tabs>
+    <div class="tabbar" role="tablist" aria-label="Git client features">
+      <button type="button" class="tab" role="tab" id="git-tab-0" aria-controls="git-panel-0" aria-selected="true" tabindex="0"><i></i><span><kbd>⌘2</kbd></span><b>Map</b><span>Every branch and worktree on one graph</span></button>
+      <button type="button" class="tab" role="tab" id="git-tab-1" aria-controls="git-panel-1" aria-selected="false" tabindex="-1"><i></i><span><kbd>⌘3</kbd></span><b>Commit</b><span>Stage a file, a hunk or one line</span></button>
+      <button type="button" class="tab" role="tab" id="git-tab-2" aria-controls="git-panel-2" aria-selected="false" tabindex="-1"><i></i><span><kbd>⌥⌘M</kbd></span><b>Conflicts</b><span>A 3-way editor, side by side</span></button>
+      <button type="button" class="tab" role="tab" id="git-tab-3" aria-controls="git-panel-3" aria-selected="false" tabindex="-1"><i></i><span><kbd>X</kbd></span><b>Clean up</b><span>Finished branches gone, undoable</span></button>
+    </div>
+    <div class="tabpanels halo">
+      <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Map</div>
+        <svg viewBox="0 0 1000 250" class="map-svg" aria-hidden="true">
+          <g style="font:12px var(--font)">
+            <path d="M40 30 V 230" style="stroke:var(--lane-0,var(--accent));stroke-width:2.5;fill:none"/>
+            <path d="M40 190 C 40 170, 80 170, 80 150 V 70 C 80 50, 40 50, 40 30" style="stroke:var(--lane-1);stroke-width:2.5;fill:none"/>
+            <path d="M40 150 C 40 130, 120 130, 120 110 V 90" style="stroke:var(--lane-3);stroke-width:2.5;fill:none"/>
+            <g style="fill:var(--surface);stroke-width:2.5"><circle cx="40" cy="30" r="6" style="stroke:var(--accent)"/><circle cx="80" cy="70" r="6" style="stroke:var(--lane-1)"/><circle cx="80" cy="110" r="6" style="stroke:var(--lane-1)"/><circle cx="120" cy="90" r="6" style="stroke:var(--lane-3)"/><circle cx="40" cy="150" r="6" style="stroke:var(--accent)"/><circle cx="40" cy="190" r="6" style="stroke:var(--accent)"/><circle cx="40" cy="230" r="6" style="stroke:var(--accent)"/></g>
+            <g style="fill:var(--text-2)"><text x="170" y="34">Merge pull request #121 · Show reviewers on PRs</text><text x="170" y="74">Restyle review header</text><text x="170" y="94">Show conflicting files for a stuck PR</text><text x="170" y="114">Fix key bar spacing</text><text x="170" y="154">Collapse the catch-up card</text><text x="170" y="194">Medium weights, no all-caps</text><text x="170" y="234">Make Review the home view</text></g>
+            <g style="fill:var(--text-4);font:11.5px var(--mono)"><text x="960" y="34" text-anchor="end">main</text><text x="960" y="94" text-anchor="end">agent/web-305 · worktree</text><text x="960" y="74" text-anchor="end">agent/web-293</text></g>
+          </g>
+        </svg></div></div>
+      <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Commit · 2 files</div>
+        <div class="app-main"><div class="diff">
+          <div class="hd"><span>apps/web/src/pages/index.astro</span><span>2 of 3 lines staged</span></div>
+          <div class="del"><span class="chk on">✓</span>- &lt;h1&gt;Rebase without fear.&lt;/h1&gt;</div>
+          <div class="add"><span class="chk on">✓</span>+ &lt;h1&gt;21 PRs landed while you were away.&lt;/h1&gt;</div>
+          <div class="add"><span class="chk"></span>+ &lt;!-- TODO: hero clip --&gt;</div>
+        </div><div class="sheet-actions"><span class="small" style="margin-right:auto">Space stages the line</span><span class="btn btn-sm btn-primary">Commit 2 lines ⌘↵</span></div></div></div></div>
+      <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Conflict · styles.css</div>
+        <div class="app-main"><div class="three">
+          <div class="diff"><div class="hd"><span>Ours · main</span></div><div class="add">--fw-strong: 550;</div><div>--radius: 6px;</div></div>
+          <div class="diff"><div class="hd"><span>Base</span></div><div>--fw-strong: 600;</div><div>--radius: 6px;</div></div>
+          <div class="diff"><div class="hd"><span>Theirs · #121</span></div><div>--fw-strong: 600;</div><div class="add">--radius: 8px;</div></div>
+        </div><div class="sheet-actions"><span class="small" style="margin-right:auto">Take both changes · undoable</span><span class="btn btn-sm">Ours</span><span class="btn btn-sm">Theirs</span><span class="btn btn-sm btn-primary">Mark resolved</span></div></div></div></div>
+      <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><div class="app lit-shot"><div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Clean up · 15 found</div>
+        <div class="app-main"><div class="mini">
+          <div class="ln-row"><span><span class="chk on">✓</span>merged</span><span>agent/web-301 · worktree</span><span class="muted">2 days</span></div>
+          <div class="ln-row"><span><span class="chk on">✓</span>merged</span><span>agent/web-302</span><span class="muted">2 days</span></div>
+          <div class="ln-row"><span><span class="chk on">✓</span>remote gone</span><span>agent/web-288 · worktree</span><span class="muted">5 days</span></div>
+          <div class="ln-row"><span><span class="chk"></span>untouched</span><span>spike/graph-perf</span><span class="muted">31 days</span></div>
+        </div><div class="sheet-actions"><span class="small" style="margin-right:auto">Branches and worktrees · <kbd>⌘Z</kbd> brings them back</span><span class="btn btn-sm btn-primary">Delete 14</span></div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Four tabs that move on every 7 seconds while in view. Hovering pauses them; no auto-advance under reduced motion.
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll<HTMLElement>('[data-tabs]').forEach((box) => {
+    const tabs = [...box.querySelectorAll<HTMLElement>('.tab')];
+    const panels = [...box.querySelectorAll<HTMLElement>('[data-panel]')];
+    let i = 0, t0 = performance.now(), hover = false, seen = false;
+    const progress = () => parseFloat(tabs[i].style.getPropertyValue('--p')) || 0;
+    const show = (n: number) => {
+      i = n; t0 = performance.now();
+      tabs.forEach((t, j) => { t.setAttribute('aria-selected', String(j === n)); t.tabIndex = j === n ? 0 : -1; t.style.setProperty('--p', reduce ? '1' : '0'); });
+      panels.forEach((p, j) => p.classList.toggle('on', j === n));
+    };
+    tabs.forEach((t, n) => t.addEventListener('click', () => show(n)));
+    box.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      if (!(e.target as HTMLElement).closest('.tab')) return;
+      e.preventDefault();
+      const n = (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      show(n); tabs[n].focus();
+    });
+    box.addEventListener('mouseenter', () => { hover = true; });
+    box.addEventListener('mouseleave', () => { hover = false; t0 = performance.now() - progress() * 7000; });
+    new IntersectionObserver(([e]) => {
+      seen = e.isIntersecting;
+      if (seen) t0 = performance.now() - progress() * 7000;
+    }, { threshold: 0.4 }).observe(box);
+    show(0);
+    if (reduce) return;
+    const tick = (now: number) => {
+      if (seen && !hover) {
+        const p = Math.min(1, (now - t0) / 7000);
+        tabs[i].style.setProperty('--p', String(p));
+        if (p >= 1) show((i + 1) % tabs.length);
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+</script>
