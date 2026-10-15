@@ -1,8 +1,8 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Breadcrumbs from '../guides/_Breadcrumbs.astro';
-import { DOWNLOAD_URL, PRODUCT_NAME } from '../../config';
-import { CHECKED, COMPETITORS, US } from './_data';
+import { DOWNLOAD_URL, PRODUCT_NAME, SHOW_PRICING } from '../../config';
+import { CHECKED, COMPETITORS, PRICE_ROW, US } from './_data';
 import { GUIDE_LIST } from '../guides/_list';
 import '../guides/_content.css';
 
@@ -13,10 +13,10 @@ const pick = (label: string) => COMPETITORS.map((c) => {
   return { c, r };
 });
 const ROWS = [
-  { label: 'Price and model', us: US.price },
+  { label: PRICE_ROW, us: US.price },
   { label: 'Platforms', us: US.platforms },
   { label: 'Undo of branch and history changes', us: US.undo },
-].map((row) => ({ ...row, cells: pick(row.label) }));
+].filter((row) => SHOW_PRICING || row.label !== PRICE_ROW).map((row) => ({ ...row, cells: pick(row.label) }));
 
 const sources = COMPETITORS.flatMap((c) => c.sources.map((s) => ({ ...s, key: `${c.slug}-${s.id}` })));
 const num = new Map(sources.map((s, i) => [s.key, i + 1]));
@@ -24,7 +24,7 @@ const checkedLabel = new Date(CHECKED + 'T00:00:00Z').toLocaleDateString('en-GB'
 ---
 <Base
   title={`Git clients for Mac compared · ${PRODUCT_NAME}`}
-  description={`How ${PRODUCT_NAME} compares with Fork, Tower, GitKraken, Sublime Merge and Sourcetree on price, platforms and undo. Every fact sourced and dated.`}
+  description={`How ${PRODUCT_NAME} compares with Fork, Tower, GitKraken, Sublime Merge and Sourcetree on ${SHOW_PRICING ? 'price, platforms and undo' : 'platforms and undo'}. Every fact sourced and dated.`}
   ogTheme="light"
 >
   <section class="wrap page">
@@ -32,7 +32,7 @@ const checkedLabel = new Date(CHECKED + 'T00:00:00Z').toLocaleDateString('en-GB'
     <header class="page-head">
       <p class="eyebrow">Compare</p>
       <h1>Git clients for Mac compared</h1>
-      <p class="lede">Five popular Mac clients next to {PRODUCT_NAME}, on the things people ask about first: what it costs, where it runs and what you can undo. Each page goes deeper and says where the other app is the better choice.</p>
+      <p class="lede">Five popular Mac clients next to {PRODUCT_NAME}, on the things people ask about first: {SHOW_PRICING ? 'what it costs, where it runs and what you can undo' : 'where it runs and what you can undo'}. Each page goes deeper and says where the other app is the better choice.</p>
       <p class="checked">Checked on <time datetime={CHECKED}>{checkedLabel}</time>. <a href="#sources">See sources</a>.</p>
     </header>
 
@@ -63,8 +63,17 @@ const checkedLabel = new Date(CHECKED + 'T00:00:00Z').toLocaleDateString('en-GB'
 
     <section>
       <p class="cta-row">
-        <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
-        <a class="btn btn-secondary" href="/pricing">See pricing</a>
+        {SHOW_PRICING ? (
+          <Fragment>
+            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
+            <a class="btn btn-secondary" href="/pricing">See pricing</a>
+          </Fragment>
+        ) : (
+          <Fragment>
+            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download for Mac</a>
+            <a class="btn btn-secondary" href="/features">See all features</a>
+          </Fragment>
+        )}
       </p>
     </section>
 
@@ -84,7 +93,7 @@ const checkedLabel = new Date(CHECKED + 'T00:00:00Z').toLocaleDateString('en-GB'
       </div>
       <div>
         <h2>{PRODUCT_NAME}</h2>
-        <ul><li><a href="/features">Features</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/shortcuts">Keyboard shortcuts</a></li></ul>
+        <ul><li><a href="/features">Features</a></li>{SHOW_PRICING && <li><a href="/pricing">Pricing</a></li>}<li><a href="/shortcuts">Keyboard shortcuts</a></li></ul>
       </div>
     </nav>
   </section>

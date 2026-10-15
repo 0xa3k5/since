@@ -3,7 +3,7 @@
 // Recheck all of it each quarter and on publish day (website plan §7.4), then bump `checked`.
 // GitLanes cells describe only what is merged on main.
 
-import { PRICE_LATER, PRICE_NOW } from '../../config';
+import { PRICE_LATER, PRICE_NOW, SHOW_PRICING } from '../../config';
 
 export type Source = { id: string; title: string; url: string; note?: string };
 export type Row = { label: string; us: string; them: string; src: string[] };
@@ -19,11 +19,17 @@ export type Competitor = {
   chooseUs: string[];
   chooseThem: string[];
   rows: Row[];
-  differences: { title: string; body: string }[];
+  /** `commerce` marks a difference about price; it hides in the beta. */
+  differences: { title: string; body: string; commerce?: boolean }[];
   betterChoice: string[];
   switching: string[];
   sources: Source[];
+  /** Replacement copy for the beta (SHOW_PRICING off): the same page with nothing about price, buying or trials. */
+  beta?: Partial<Pick<Competitor, 'description' | 'intro' | 'chooseUs' | 'chooseThem' | 'differences' | 'betterChoice' | 'switching'>>;
 };
+
+/** The table row that holds prices. Hidden as a whole in the beta, since our cell has nothing to say. */
+export const PRICE_ROW = 'Price and model';
 
 export const CHECKED = '2026-10-13';
 
@@ -47,7 +53,7 @@ export const US = {
   tech: 'Electron, using the git installed on your Mac.',
 };
 
-export const COMPETITORS: Competitor[] = [
+const ALL: Competitor[] = [
   {
     slug: 'fork',
     name: 'Fork',
@@ -78,7 +84,7 @@ export const COMPETITORS: Competitor[] = [
     differences: [
       { title: 'Undo that goes back more than one step', body: 'Every operation you run in GitLanes is recorded before it happens. ⌘Z restores branches, tags, HEAD and any files the operation overwrote, one step at a time, and the Edit menu names the step it will undo.' },
       { title: 'History edits are single keys', body: 'Select a commit on the graph and press E to edit its message, S to squash it into its parent or F to fix it up. There is no rebase script to write and no drag target to hit.' },
-      { title: 'A lower one-time price', body: `GitLanes costs $${PRICE_NOW} at launch and $${PRICE_LATER} later, with lifetime updates. Fork is $59.99 for one user on up to three machines.` },
+      { title: 'A lower one-time price', body: `GitLanes costs $${PRICE_NOW} at launch and $${PRICE_LATER} later, with lifetime updates. Fork is $59.99 for one user on up to three machines.`, commerce: true },
     ],
     betterChoice: [
       'Fork runs on Windows as well as macOS. GitLanes is Mac-only.',
@@ -96,6 +102,14 @@ export const COMPETITORS: Competitor[] = [
       { id: 'F3', title: 'Fork release notes (2.68–2.70)', url: 'https://fork.dev/releasenotes' },
       { id: 'F4', title: 'Fork blog', url: 'https://fork.dev/blog' },
     ],
+    beta: {
+      description: 'GitLanes vs Fork: multi-step undo for every branch change and single-key history edits. Facts and sources inside.',
+      intro: 'Fork is the older, broader app. GitLanes is narrower and built around two things: a commit graph you edit with single keys, and ⌘Z for every change you make to it.',
+      chooseUs: [
+        'You want ⌘Z to step back through rebases, resets, merges and deleted branches.',
+        'You prefer editing history from the keyboard over dragging commits.',
+      ],
+    },
   },
   {
     slug: 'tower',
@@ -127,7 +141,7 @@ export const COMPETITORS: Competitor[] = [
       { label: 'Tech', us: US.tech, them: 'Native Mac app.', src: ['T1'] },
     ],
     differences: [
-      { title: 'Pay once, keep every update', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, once, with lifetime updates and no renewal. Tower Basic is $69 per user per year.` },
+      { title: 'Pay once, keep every update', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, once, with lifetime updates and no renewal. Tower Basic is $69 per user per year.`, commerce: true },
       { title: 'History edits are single keys', body: 'Select a commit and press E, S or F to edit its message, squash or fix it up. You never leave the keyboard or open a rebase editor.' },
       { title: 'Undo you can read ahead', body: 'The Edit menu names the exact step ⌘Z will undo, and the Snapshots view (⌘5) lists every recorded operation so you can restore the state before any of them.' },
     ],
@@ -148,6 +162,23 @@ export const COMPETITORS: Competitor[] = [
       { id: 'T5', title: 'Tower drag and drop; Graphite guide', url: 'https://www.git-tower.com/features/drag-and-drop', note: 'and https://www.git-tower.com/help/guides/workflows/graphite-managing/mac' },
       { id: 'T7', title: 'Tower help: committing with AI', url: 'https://www.git-tower.com/help/guides/working-copy/committing-with-ai/mac' },
     ],
+    beta: {
+      description: 'A Tower alternative for Mac with undo and keyboard-first history editing. GitLanes vs Tower, with sources.',
+      intro: 'Tower is a mature, team-oriented client. GitLanes is a smaller, Mac-only app. Both let you undo with ⌘Z. They differ most in how you edit history and in team features.',
+      chooseUs: [
+        'You want to edit history with single keys instead of drag and drop.',
+        'You work alone and don’t need pull request or team features in the client.',
+      ],
+      betterChoice: [
+        'Tower has pull requests, stacked branches, Graphite and team management. GitLanes has none of these.',
+        'Tower runs on Windows and is a native Mac app.',
+      ],
+      switching: [
+        'Both apps work on ordinary git repositories, so there is nothing to import. Open the same folder in GitLanes.',
+        'GitLanes uses the git installed on your Mac, so your config, credentials, hooks and SSH keys keep working.',
+        'You can keep both installed and use whichever suits the task.',
+      ],
+    },
   },
   {
     slug: 'gitkraken',
@@ -183,7 +214,7 @@ export const COMPETITORS: Competitor[] = [
     differences: [
       { title: 'No account', body: 'GitLanes opens your repository straight away. There is nothing to sign in to, and your licence key is the only thing you keep.' },
       { title: 'Undo that goes back further', body: 'GitKraken can undo the most recent supported action. GitLanes keeps every operation, and ⌘Z walks back through them one at a time, including resets and discarded files.' },
-      { title: 'One payment', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, once, with lifetime updates. GitKraken Pro lists at $120 a year.` },
+      { title: 'One payment', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, once, with lifetime updates. GitKraken Pro lists at $120 a year.`, commerce: true },
     ],
     betterChoice: [
       'GitKraken runs on Windows and Linux as well as macOS.',
@@ -208,6 +239,23 @@ export const COMPETITORS: Competitor[] = [
       { id: 'K12', title: 'GitKraken help: interactive rebase', url: 'https://help.gitkraken.com/gitkraken-desktop/interactive-rebase/' },
       { id: 'K13', title: 'GitKraken help: GitKraken AI', url: 'https://help.gitkraken.com/gitkraken-desktop/gkd-gitkraken-ai/' },
     ],
+    beta: {
+      description: 'A GitKraken alternative for Mac with no account, plus undo for every branch change. Facts and sources inside.',
+      intro: 'GitKraken Desktop is a cross-platform client with a large feature set, tied to an account. GitLanes is a Mac-only app with no account, focused on editing and undoing history from the keyboard.',
+      chooseUs: [
+        'You don’t want to sign in to use your Git client.',
+        'You want to undo more than the last action.',
+      ],
+      differences: [
+        { title: 'No account', body: 'GitLanes opens your repository straight away. There is nothing to sign in to.' },
+        { title: 'Undo that goes back further', body: 'GitKraken can undo the most recent supported action. GitLanes keeps every operation, and ⌘Z walks back through them one at a time, including resets and discarded files.' },
+      ],
+      betterChoice: [
+        'GitKraken runs on Windows and Linux as well as macOS.',
+        'It integrates with hosting services and issue trackers, and has agent sessions and more AI features. GitLanes has only opt-in AI commit messages.',
+        'It has workspaces across many repositories.',
+      ],
+    },
   },
   {
     slug: 'sublime-merge',
@@ -242,7 +290,7 @@ export const COMPETITORS: Competitor[] = [
     differences: [
       { title: 'Edit history where you see it', body: 'Select any commit on the current branch and press E, S or F. GitLanes rewrites the commits above it and keeps your branch where you expect.' },
       { title: 'An undo history of your own operations', body: 'GitLanes records each operation with the refs and files it changed, and saves that history inside the repository. ⌘Z after a restart still undoes the last thing you did.' },
-      { title: 'Updates for life', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, with every future update included. A Sublime Merge licence is $99 with three years of updates.` },
+      { title: 'Updates for life', body: `GitLanes is $${PRICE_NOW} at launch and $${PRICE_LATER} later, with every future update included. A Sublime Merge licence is $99 with three years of updates.`, commerce: true },
     ],
     betterChoice: [
       'Sublime Merge runs on Windows and Linux as well as macOS.',
@@ -264,6 +312,22 @@ export const COMPETITORS: Competitor[] = [
       { id: 'S6', title: 'Sublime Merge blog: creating and updating commits', url: 'https://www.sublimemerge.com/blog/sublime-merge-git-tips-creating-updating-commits' },
       { id: 'S10', title: 'Sublime Merge docs: key bindings', url: 'https://www.sublimemerge.com/docs/key_bindings' },
     ],
+    beta: {
+      description: 'GitLanes vs Sublime Merge: history editing on the graph and an undo history that survives restarts. Facts and sources inside.',
+      chooseUs: [
+        'You want to squash, fix up and reword commits straight from the graph.',
+        'You want an undo history of your own operations that survives a restart.',
+      ],
+      chooseThem: [
+        'You need Windows or Linux.',
+        'You want custom key bindings.',
+      ],
+      betterChoice: [
+        'Sublime Merge runs on Windows and Linux as well as macOS.',
+        'Its diff and merge tools have had many more years of refinement.',
+        'It has customisable key bindings today.',
+      ],
+    },
   },
   {
     slug: 'sourcetree',
@@ -314,8 +378,29 @@ export const COMPETITORS: Competitor[] = [
       { id: 'ST4', title: 'Atlassian issue SRCTREE-1462', url: 'https://jira.atlassian.com/browse/SRCTREE-1462' },
       { id: 'ST5', title: 'Atlassian issue SRCTREE-6538', url: 'https://jira.atlassian.com/browse/SRCTREE-6538' },
     ],
+    beta: {
+      intro: 'Sourcetree has been around for years. Its recent Mac releases contain fixes only. GitLanes is an actively developed Mac app built around undo and the keyboard.',
+      chooseThem: [
+        'Your team works in Bitbucket.',
+        'You need Windows.',
+      ],
+      betterChoice: [
+        'It integrates with Bitbucket accounts.',
+        'It runs on Windows as well as macOS.',
+      ],
+    },
   },
 ];
+
+/** Beta copy swapped in, the price row dropped, and sources only that row cited dropped with it. */
+const toBeta = ({ beta, ...c }: Competitor): Competitor => {
+  const rows = c.rows.filter((r) => r.label !== PRICE_ROW);
+  const cited = new Set(rows.flatMap((r) => r.src));
+  const differences = c.differences.filter((d) => !d.commerce);
+  return { ...c, differences, ...beta, rows, sources: c.sources.filter((s) => cited.has(s.id)) };
+};
+
+export const COMPETITORS: Competitor[] = SHOW_PRICING ? ALL : ALL.map(toBeta);
 
 export const bySlug = (slug: string) => {
   const c = COMPETITORS.find((x) => x.slug === slug);

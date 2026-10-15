@@ -1,7 +1,7 @@
 ---
 // Claims follow the website plan's gates (AK-34 §3.6): only what is merged in main. No speed claims,
 // undo history is unlimited (AK-51), keyboard copy says "every commit action is a single key".
-import { PRODUCT_NAME, PRICE_NOW, TRIAL_DAYS, DOWNLOAD_URL } from '../config';
+import { PRODUCT_NAME, PRICE_NOW, TRIAL_DAYS, DOWNLOAD_URL, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
 import AppShot from '../components/landing/AppShot.astro';
 import Kbd from '../components/content/Kbd.astro';
@@ -176,8 +176,17 @@ const tiles = [
     <section class="close fp-close" aria-labelledby="fp-cl-h">
       <div class="wrap">
         <h2 id="fp-cl-h">Try it on your own repositories.</h2>
-        <p class="lede">{TRIAL_DAYS} days free. Then ${PRICE_NOW} once, with lifetime updates.</p>
-        <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download free trial</a><a class="btn" href="/pricing">See pricing</a></div>
+        {SHOW_PRICING ? (
+          <Fragment>
+            <p class="lede">{TRIAL_DAYS} days free. Then ${PRICE_NOW} once, with lifetime updates.</p>
+            <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download free trial</a><a class="btn" href="/pricing">See pricing</a></div>
+          </Fragment>
+        ) : (
+          <Fragment>
+            <p class="lede">Every feature, no account. macOS 12 or later.</p>
+            <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a></div>
+          </Fragment>
+        )}
       </div>
     </section>
   </div>

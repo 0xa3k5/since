@@ -3,7 +3,7 @@
 // short "In GitLanes" box. Not a route ("_" prefix).
 import Base from '../../layouts/Base.astro';
 import Breadcrumbs from './_Breadcrumbs.astro';
-import { DOWNLOAD_URL, PRODUCT_NAME, SITE_URL } from '../../config';
+import { DOWNLOAD_URL, PRODUCT_NAME, SHOW_PRICING, SITE_URL } from '../../config';
 import { GUIDE_LIST } from './_list';
 import './_content.css';
 
@@ -50,7 +50,7 @@ const ld = {
       <h2 id="in-app-title"><slot name="app-title" /></h2>
       <div class="prose"><slot name="app" /></div>
       <p class="cta-row">
-        <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
+        <a class="btn btn-primary" href={DOWNLOAD_URL}>{SHOW_PRICING ? 'Download free trial' : 'Download for Mac'}</a>
         <a class="btn btn-secondary" href="/features">See all features</a>
       </p>
     </aside>
