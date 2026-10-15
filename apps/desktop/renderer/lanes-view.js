@@ -9,7 +9,7 @@ import * as keymap from './keymap.js';
 // one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
 // merge · N, then lines that open in place: In progress · N ▸, Everything else · N ▸ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
-// "N finished · Clean up". Keyboard-first: ↑/↓ or J/K move, Space runs the row's one primary
+// "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
 // button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
 // uncommitted changes, Show in Map), E opens In progress, S opens Everything else (A agent lanes
 // only, C predicted conflicts only), typing filters every row.
@@ -461,8 +461,8 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     empty.textContent = !loaded ? '' : prsLoading ? 'Loading pull requests…' : inboxFailed && prsOn() ? 'Couldn’t load pull requests.' : q && !shown.length ? 'Nothing matches.' : '';
     empty.hidden = !empty.textContent;
     const many = readyPrs().length;
-    if (walking) { hint.textContent = 'J/K Next and previous · ↵ Show in Map · R Read the diff · Esc Done'; return; }
-    hint.textContent = `Space Primary button · ↵ Open · R Review${pane ? ' (Esc back)' : ''} · M Merge${pane && prsOn() ? ' · ⇧A Approve · ⇧X Close · W Check out · ⇧O GitHub' : ''} · D Details · E In progress · S Everything else${all ? ` · A Agent-made only${forecastOk ? ' · C Conflicts only' : ''}` : ''} · J/K Move · / Filter${many > 1 ? ' · ⇧M Merge all ready' : ''}${many && canPlan() ? ' · ⇧P Plan merge' : ''}`;
+    if (walking) { hint.textContent = '↑/↓ Next and previous · ↵ Show in Map · R Read the diff · Esc Done'; return; }
+    hint.textContent = `Space Primary button · ↵ Open · R Review${pane ? ' (Esc back)' : ''} · M Merge${pane && prsOn() ? ' · ⇧A Approve · ⇧X Close · W Check out · ⇧O GitHub' : ''} · D Details · E In progress · S Everything else${all ? ` · A Agent-made only${forecastOk ? ' · C Conflicts only' : ''}` : ''} · ↑/↓ Move · / Filter${many > 1 ? ' · ⇧M Merge all ready' : ''}${many && canPlan() ? ' · ⇧P Plan merge' : ''}`;
   }
 
   // Ready-to-merge PRs whose primary button is Merge: ⇧M merges them all after one confirmation.

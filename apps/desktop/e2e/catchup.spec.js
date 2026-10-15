@@ -44,7 +44,7 @@ test('catch-up: since a tag, grouped, walk through, mark caught up', async ({ sa
   await expect(page.locator('.lanes-group[data-stage="landed"]')).toContainText('What landed · 4');
   await expect(page.locator('.lanes-row.active .lanes-name')).toHaveText('docs: release notes');
   await expect(page.locator('.review-pane .quick-title')).toContainText('docs: release notes');
-  await page.locator('.review-split').press('j');
+  await page.locator('.review-split').press('ArrowDown');
   await expect(page.locator('.review-pane .quick-title')).toContainText('style(web): tighten the hero');
   await shot('dark-walk');
   await page.locator('.review-split').focus();
