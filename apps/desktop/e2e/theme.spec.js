@@ -4,7 +4,7 @@
 
 const { test, expect } = require('./fixtures');
 
-const BG = { light: '#faf7f4', dark: '#0e0b09' };
+const BG = { light: '#faf7f4', dark: '#080707' };
 
 async function shot(app, testInfo, name) {
   await app.page.waitForTimeout(250); // let fades and toasts settle
