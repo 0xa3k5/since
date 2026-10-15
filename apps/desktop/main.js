@@ -14,6 +14,7 @@ const { createStore } = require('./licence/stores');
 const updater = require('./updater');
 const pkg = require('./package.json');
 const check = require('./ipc');
+const catchupStore = require('./catchup-store');
 const ai = require('./ai');
 const github = require('./github');
 
@@ -555,6 +556,52 @@ handle('app:lanes-forecast', async (e) => {
   }
 });
 
+// Review's catch-up card (AK-281): what landed on the base since the checkpoint (or since
+// yesterday, last week or a tag), from git log. With { prs: true } and pull requests on here, the
+// merged PRs (the same `gh pr list --state merged` call as app:lanes-list) are joined on by merge
+// commit, plus the base's CI (`gh run list --branch <base>`); with pull requests off, no gh calls.
+const catchupFile = () => path.join(app.getPath('userData'), 'catchup.json');
+const tipOf = async (root) => {
+  const r = await git.landed(root, {});
+  return r && { sha: r.baseSha, base: r.base, date: r.baseDate };
+};
+const SINCE = check.oneOf('checkpoint', 'yesterday', 'week', 'tag');
+handle('app:catchup', async (e, opts) => {
+  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['since', 'tag', 'prs'].includes(k)))) throw new check.IpcArgError('Invalid catch-up options');
+  const kind = opts?.since == null ? 'checkpoint' : SINCE(opts.since, 'since');
+  const tag = kind === 'tag' ? check.rev(opts.tag, 'tag') : null;
+  const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
+  const root = session(e).repo.root;
+  const cp = catchupStore.checkpoint(catchupFile(), root);
+  const DAY = 24 * 3600 * 1000;
+  const since = kind === 'checkpoint' ? { sha: cp.sha || undefined, date: cp.date }
+    : kind === 'tag' ? { ref: `refs/tags/${tag}` }
+      : { date: Date.now() - (kind === 'yesterday' ? DAY : 7 * DAY) };
+  const res = await git.landed(root, { since });
+  if (!res) return null;
+  let merged = null;
+  let ci = null;
+  let prError = null;
+  if (withPrs && (await prEnabled(root))) {
+    const remotes = await git.getRemotes(root);
+    if (github.pickRemote(remotes)) {
+      const remote = remotes.find((r) => res.base.startsWith(`${r.name}/`));
+      const branch = remote ? res.base.slice(remote.name.length + 1) : res.base;
+      const [m, c] = await Promise.allSettled([github.mergedPrs({ enabled: true, remotes }), github.baseCi({ enabled: true, remotes, branch })]);
+      if (m.status === 'fulfilled') merged = m.value; else prError = serializeError(m.reason);
+      if (c.status === 'fulfilled') ci = c.value;
+    }
+  }
+  return { ...res, kind, tag, checkpoint: cp, merged, ci, prError };
+});
+// Mark caught up: the checkpoint becomes the base tip the card showed. → the checkpoint it replaced,
+// which the renderer sends back to undo.
+handle('app:catchup-mark', (e, to) => {
+  check.obj(to, 'checkpoint', { sha: (v, w) => (v === null ? v : check.oid(v, w)), base: (v, w) => (v === null ? v : check.rev(v, w)), date: (v, w) => { if (!Number.isFinite(v)) throw new check.IpcArgError(`Invalid ${w}`); }, source: check.oneOf('mark', 'opened', 'week'), at: () => {} });
+  if (!Number.isFinite(to.date)) throw new check.IpcArgError('Invalid checkpoint.date');
+  return catchupStore.mark(catchupFile(), session(e).repo.root, to);
+});
+
 // Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
 // renderer names the PR and the remote it came from; both are checked before `gh` runs.
 const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
@@ -777,6 +824,8 @@ async function bindRepo(win, dir) {
   sessions.get(win.webContents.id)?.dispose();
   sessions.set(win.webContents.id, new RepoSession(win, repo));
   addRecent(repo);
+  // The base tip as of this open: where catch-up starts the first time (AK-281).
+  tipOf(repo.root).then((tip) => catchupStore.noteOpen(catchupFile(), repo.root, tip)).catch((err) => console.warn('could not note the base tip', err.message));
   win.setTitle(repo.name);
   win.setRepresentedFilename?.(repo.root);
   buildMenu();

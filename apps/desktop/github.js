@@ -153,7 +153,7 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
 // while PRs are on. → [{ number, title, sha, branch }].
 async function mergedPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName'], { dirs, exec });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt'], { dirs, exec });
   return parseMerged(out);
 }
 function parseMerged(out) {
@@ -161,7 +161,33 @@ function parseMerged(out) {
   try { list = JSON.parse(out); } catch { throw coded('GitHub CLI returned something that isn’t JSON.', 'gh-failed'); }
   if (!Array.isArray(list)) throw coded('GitHub CLI returned something that isn’t a list.', 'gh-failed');
   return list.filter((p) => Number.isSafeInteger(p?.number) && p.number > 0 && /^[0-9a-f]{40}$/.test(p.headRefOid))
-    .map((p) => ({ number: p.number, title: text(p.title), sha: p.headRefOid, branch: text(p.headRefName) }));
+    .map((p) => ({ number: p.number, title: text(p.title), sha: p.headRefOid, branch: text(p.headRefName),
+      // Catch-up (AK-281) joins merged PRs to the base's commits by their merge commit.
+      merge: /^[0-9a-f]{40}$/.test(p.mergeCommit?.oid || '') ? p.mergeCommit.oid : null, mergedAt: text(p.mergedAt) || null }));
+}
+
+// The base branch's CI for Review's catch-up card (AK-281): the newest workflow runs on it, summed
+// up for its newest commit. One call per catch-up load, only while PRs are on.
+// → { state: 'passing' | 'failing' | 'pending', sha, failed: [names] } or null when it has no runs.
+async function baseCi({ enabled, remotes, branch, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const out = await ghRun(bin, ['run', 'list', '--repo', repo, '--branch', branchArg(branch, 'branch'), '--limit', '20', '--json', 'headSha,status,conclusion,workflowName'], { dirs, exec });
+  return parseBaseCi(out);
+}
+const RUN_FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']); // a cancelled run was superseded
+function parseBaseCi(out) {
+  let runs;
+  try { runs = JSON.parse(out); } catch { throw coded('GitHub CLI returned something that isn’t JSON.', 'gh-failed'); }
+  if (!Array.isArray(runs)) throw coded('GitHub CLI returned something that isn’t a list.', 'gh-failed');
+  const sha = runs.find((r) => typeof r?.headSha === 'string')?.headSha;
+  if (!sha) return null;
+  // The newest run of each workflow on that commit (gh lists newest first).
+  const latest = new Map();
+  for (const r of runs) if (r.headSha === sha && !latest.has(r.workflowName)) latest.set(r.workflowName, r);
+  const list = [...latest.values()];
+  const failed = list.filter((r) => RUN_FAILED.has(r.conclusion)).map((r) => text(r.workflowName));
+  const state = failed.length ? 'failing' : list.some((r) => r.status !== 'completed') ? 'pending' : 'passing';
+  return { state, sha, failed };
 }
 
 // The PR inbox (lanes overview): which open PRs ask for your review (team requests included),
@@ -523,4 +549,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

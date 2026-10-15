@@ -30,8 +30,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     actions = list;
     const reviewers = pr?.reviews || [];
     const size = pr?.size;
-    head.replaceChildren(
-      h('div.quick-title', { title: row.title }, icon(pr ? 'merge' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', pr ? `#${pr.number} ${row.title}` : row.title),
+    head.replaceChildren(...[
+      h('div.quick-title', { title: row.title }, icon(pr ? 'merge' : row.landed ? 'commit' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', pr ? `#${pr.number} ${row.title}` : row.title),
       h('div.quick-meta.review-pane-meta', null,
         ...rowBadges(row, { requested: ctx.requested }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
         pr ? h('span', null, [pr.author ? `by ${pr.author}` : null, `${pr.branch} → ${pr.base}`].filter(Boolean).join(' · ')) : row.branch ? h('span', null, row.branch) : null,
@@ -43,7 +43,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         title: a.remote ? `${a.label.replace('…', '')} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : `${a.label.replace('…', '')} (undoable)`,
         onclick: () => run(a.id, row, ctx),
       }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))),
-    );
+    ].filter(Boolean));
   }
 
   const onKey = (id) => {

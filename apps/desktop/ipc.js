@@ -335,4 +335,4 @@ function insideRepo(root, rel) {
 
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote };
+module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote, obj };
