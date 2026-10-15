@@ -721,6 +721,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-side .quick-meta { flex-wrap: wrap; }
 .review-tools { display: flex; gap: 6px; margin-top: 8px; margin-left: -8px; }
 .review-tools .chip:disabled { opacity: 0.5; }
+.review-pr-actions { flex-wrap: wrap; gap: 4px; }
+.review-pr-actions .chip { display: inline-flex; align-items: center; gap: 5px; }
+.review-pr-actions .chip.danger:hover { color: var(--red); }
 .review-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 8px 12px; }
 .review-progress.done { color: var(--accent-fg); }
 .review-changed { color: var(--warn); }

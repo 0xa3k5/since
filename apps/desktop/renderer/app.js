@@ -14,6 +14,7 @@ import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
 import { laneTarget, laneKey, laneTitle, laneActions, canRemove, ACTIONS } from './lanes.js';
 import { reviewView } from './review-view.js';
+import { loadPrReview, leavesPage } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
@@ -939,7 +940,7 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
-  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null }); return contentEl.append(reviewPage.el); }
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -2321,6 +2322,7 @@ function openLanes() {
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
     onCheckout: (pr) => checkoutPr(pr, { worktree: true }),
+    onPrReview: (pr, remote) => openPrReview(pr, remote),
     onMergeReady: mergeReadyPrs,
     tab: lanesTab,
     onReview: (lane, base) => openReview(lane, base),
@@ -2390,6 +2392,41 @@ function openReviewNow(lane, base = null) {
   state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base, source: lane };
   renderTopbar();
   renderView();
+}
+// Review a pull request from the Inbox (pr-review.js): its head is fetched into FETCH_HEAD and
+// diffed locally, with the PR's actions on the page. Esc goes back to the Inbox row.
+function openPrReview(...args) { return go(() => openPrReviewNow(...args)); }
+async function openPrReviewNow(pr, remote = prRemote()) {
+  if (!state.repo || !pr) return;
+  if (!state.prs?.active) return setupPrs();
+  const t = toast(`Fetching #${pr.number}…`, { kind: 'busy', timeout: 0 });
+  const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
+  t.close();
+  if (res.error) return prError(`Couldn’t fetch #${pr.number}`, res.error);
+  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); lanesTab = lanesPlace.tab; }
+  state.quick = null;
+  state.split = null;
+  state.fileHistory = null;
+  state.review = res.review;
+  renderTopbar();
+  renderView();
+}
+function pickPrReview() {
+  if (!state.prs?.active) return setupPrs();
+  const prs = state.prs.data?.prs || [];
+  if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${keyText('repo.prRefresh')}) to load them.` });
+  palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'diff', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => openPrReview(p) })), { placeholder: 'Review pull request…' });
+}
+// The review page's PR buttons and keys. Merged or closed: back to where the review came from.
+function prDeskAction(id) {
+  const pr = state.review?.pr;
+  if (!pr) return;
+  const leave = () => { if (leavesPage(id) && state.review?.pr?.number === pr.number) closeReview(); };
+  if (id === 'approve') return approvePr(pr);
+  if (id === 'changes') return requestChangesPr(pr);
+  if (id === 'merge') return mergePr(pr, leave);
+  if (id === 'close') return closePr(pr, leave);
+  if (id === 'checkout') return checkoutPr(pr, { worktree: true });
 }
 // Merge and tidy (lanes overview, branch review, ⌘K): land a lane on its base as one squashed
 // commit, then remove its worktree and delete its branch, as one undo step. A lane with an open
@@ -2946,6 +2983,7 @@ const prRemote = () => state.prs?.data?.remote?.name;
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
 function withPr(pr, verb, fn) {
   if (!state.prs?.active) return setupPrs();
+  pr ||= state.review?.pr; // the PR on the review page
   if (pr) return fn(pr);
   const mine = state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null;
   if (mine) return fn(mine);
@@ -2976,8 +3014,23 @@ const approvePr = (given) => withPr(given, 'Approve', async (pr) => {
   refreshPrs();
 });
 
+const requestChangesPr = (given) => withPr(given, 'Request changes on', async (pr) => {
+  const v = await dialog({
+    title: `Request changes on #${pr.number}?`,
+    description: `${pr.title}\n${REMOTE_NOTE}`,
+    submit: 'Request changes',
+    fields: [{ name: 'body', label: 'What needs to change', multiline: true, rows: 4 }],
+  });
+  if (!v) return;
+  if (!v.body.trim()) return toast('Say what needs to change', { detail: 'GitHub needs a message to request changes.' });
+  const res = await prCall('pr-request-changes', pr, { body: v.body }, `Requesting changes on #${pr.number}…`);
+  if (res.error) return prError(`Couldn’t request changes on #${pr.number}`, res.error);
+  toast(`Requested changes on #${pr.number}`, { kind: 'success' });
+  refreshPrs();
+});
+
 const MERGE_LABELS = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
-const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
+const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
   if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
   const { gate, methods, headOid, checking } = info.ok;
@@ -3008,6 +3061,7 @@ const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
   const res = await prCall('pr-merge', pr, { method, deleteBranch: v.del, admin: Boolean(v.anyway && gate.needsAdmin) }, `Merging #${pr.number}…`);
   if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
   toast(`Merged #${pr.number}`, { kind: 'success' });
+  onDone?.();
   await fetchAll();
   if (!v.del || local?.kind !== 'branch') return;
   if (local.short === state.head.branch) return toast(`${local.short} is still checked out`, { detail: 'Switch to another branch to delete it.' });
@@ -3018,7 +3072,7 @@ const mergePr = (given) => withPr(given, 'Merge', async (pr) => {
   deleteBranch(now);
 });
 
-const closePr = (given) => withPr(given, 'Close', async (pr) => {
+const closePr = (given, onDone) => withPr(given, 'Close', async (pr) => {
   const v = await dialog({
     title: `Close #${pr.number} without merging?`,
     description: `${pr.title}\n${REMOTE_NOTE} You can reopen it on GitHub.`,
@@ -3030,6 +3084,7 @@ const closePr = (given) => withPr(given, 'Close', async (pr) => {
   const res = await prCall('pr-close', pr, { body: v.body }, `Closing #${pr.number}…`);
   if (res.error) return prError(`Couldn’t close #${pr.number}`, res.error);
   toast(`Closed #${pr.number}`, { kind: 'success' });
+  onDone?.();
   refreshPrs();
 });
 
@@ -3119,6 +3174,9 @@ function openPalette() {
     add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh lane review' });
     if (state.prs?.active) {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
+      add('Repository', 'Request changes on pull request…', () => requestChangesPr(), { icon: 'edit', kbd: keymap.keys(state.review?.pr ? 'review.changes' : 'repo.prChanges'), keywords: 'pr github gh review request changes reject' });
+      add('Repository', 'Review pull request…', pickPrReview, { icon: 'diff', keywords: 'pr github gh review diff files inbox' });
+      if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} as a lane`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree lane checkout' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
       add('Navigation', 'Go to Pull Request Inbox', openInbox, { icon: 'merge', kbd: keymap.keys('view.inbox'), keywords: 'pr github gh inbox review ready merge failing lanes agents' });
@@ -3516,6 +3574,7 @@ const commands = {
   prApprove: () => state.repo && approvePr(),
   prMerge: () => state.repo && mergePr(),
   prClose: () => state.repo && closePr(),
+  prChanges: () => state.repo && requestChangesPr(),
   licence: () => openLicence(),
   buy,
   shortcuts: () => openShortcuts(),
