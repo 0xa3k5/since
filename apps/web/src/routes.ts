@@ -32,18 +32,9 @@ export const FOOTER_NAV: { title: string; links: Route[] }[] = [
     links: live([
       { href: '/docs', label: 'Docs' },
       { href: '/guides', label: 'Guides' },
-      { href: '/compare', label: 'Compare' },
       { href: '/licence', label: 'Licence help' },
     ]),
   },
-];
-
-export const COMPARE: Route[] = [
-  { href: '/compare/fork', label: 'Fork' },
-  { href: '/compare/tower', label: 'Tower' },
-  { href: '/compare/gitkraken', label: 'GitKraken' },
-  { href: '/compare/sublime-merge', label: 'Sublime Merge' },
-  { href: '/compare/sourcetree', label: 'Sourcetree' },
 ];
 
 export const GUIDES: Route[] = [
