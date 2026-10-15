@@ -71,6 +71,7 @@ export function paneActions(row, step) {
   let primary = null;
   if (step === 'merge' && ids.includes('merge')) primary = 'merge';
   else if (step === 'review' && pr) primary = 'approve';
+  else if (step === 'sendBack') primary = 'sendBack';
   else if (pr && !lane) primary = 'checkout';
   return { actions, primary };
 }

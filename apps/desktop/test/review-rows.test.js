@@ -20,7 +20,7 @@ const stageOf = async (p, o = {}) => {
 test('stuck: failing checks, GitHub conflicts or forecast conflicts, whatever else holds', async () => {
   assert.equal(await stageOf(pr(1, { checks: 'failure' })), 'stuck');
   assert.equal(await stageOf(pr(1, { mergeable: false })), 'stuck');
-  assert.equal(await stageOf(pr(1), { conflicts: [{ with: 'other', base: false, files: ['a'] }] }), 'stuck');
+  assert.equal(await stageOf(pr(1), { conflicts: [{ with: 'other', base: false, files: ['a'] }] }), 'inProgress');
   assert.equal(await stageOf(pr(1, { checks: 'failure', draft: true })), 'stuck');
   assert.equal(await stageOf(pr(1, { checks: 'failure' }), { requested: [1] }), 'stuck');
   // The local forecast vetoes "ready".
@@ -86,7 +86,7 @@ test('forecast conflicts come from the forecast map when given', async () => {
   assert.equal(r.stages.stuck[0].conflicts[0].with, 'main');
 });
 
-test('sort: base conflicts, failing CI, other conflicts; oldest ready first; review requests first in progress', async () => {
+test('sort: base conflicts, failing CI; oldest ready first; review requests first in progress; a local-only overlap stages nothing', async () => {
   const { reviewRows } = await load();
   const forecast = new Map([['b:base', [{ with: 'main', base: true, files: ['a'] }]], ['b:pair', [{ with: 'x', base: false, files: ['a'] }]]]);
   const lanes = [lane('base', { pr: { number: 10 } }), lane('pair', { pr: { number: 11 } })];
@@ -108,11 +108,13 @@ test('sort: base conflicts, failing CI, other conflicts; oldest ready first; rev
       pr(15, { updatedAt: ago(0.1) }),
     ],
   });
-  assert.deepEqual(r.stages.stuck.map((x) => x.pr.number), [10, 12, 13, 11]);
+  assert.deepEqual(r.stages.stuck.map((x) => x.pr.number), [13, 10, 12]);
   assert.deepEqual(r.stages.ready.map((x) => x.pr.number), [3, 14]);
-  assert.deepEqual(r.stages.inProgress.map((x) => x.pr.number), [1, 2, 15]);
+  // #11 only overlaps a local branch (x): no stage change, no overlap note (AK-321).
+  assert.deepEqual(r.stages.inProgress.map((x) => x.pr.number), [1, 2, 15, 11]);
+  assert.deepEqual(r.all.find((x) => x.pr.number === 11).overlaps, []);
   // `all` lists staged rows in stage order first.
-  assert.deepEqual(r.all.map((x) => x.pr.number), [10, 12, 13, 11, 3, 14, 1, 2, 15]);
+  assert.deepEqual(r.all.map((x) => x.pr.number), [13, 10, 12, 3, 14, 1, 2, 15, 11]);
 });
 
 test('PRs off: rows from local data only, PR data ignored', async () => {
@@ -168,17 +170,18 @@ test('one primary button per stage', async () => {
   // Ready to merge: Merge.
   assert.equal(primaryAction(row('ready', { pr: pr(1, READY) })), 'merge');
   assert.equal(primaryAction(row('ready', { pr: pr(1, READY) }), { requested: new Set([1]) }), 'merge');
-  // Stuck: Rebase when it conflicts and the branch is here, else the failing checks, else Open.
+  // Stuck: Rebase when it conflicts with its base and the branch is here, else Send back.
   const conflicts = [{ with: 'main', base: true, files: ['a'] }];
   assert.equal(primaryAction(row('stuck', { lane: lane('x'), conflicts }), { base: 'main' }), 'rebase');
   assert.equal(primaryAction(row('stuck', { pr: pr(1, { mergeable: false }), lane: lane('b1') }), { base: 'main' }), 'rebase');
-  assert.equal(primaryAction(row('stuck', { pr: pr(1, { checks: 'failure', url: 'https://x/pull/1' }) }), { base: 'main' }), 'checks');
-  assert.equal(primaryAction(row('stuck', { pr: pr(1, { mergeable: false }) }), { base: 'main' }), 'open'); // not checked out here
+  assert.equal(primaryAction(row('stuck', { pr: pr(1, { checks: 'failure', url: 'https://x/pull/1' }) }), { base: 'main' }), 'sendBack');
+  assert.equal(primaryAction(row('stuck', { pr: pr(1, { mergeable: false }) }), { base: 'main' }), 'sendBack'); // not checked out here
+  assert.equal(primaryAction(row('stuck', { pr: pr(1, { mergeState: 'blocked', review: 'changes' }), lane: lane('b1') }), { base: 'main' }), 'sendBack');
   // In progress: Review when your review is requested, else Open.
   assert.equal(primaryAction(row('inProgress', { pr: pr(1) }), { requested: new Set([1]) }), 'review');
   assert.equal(primaryAction(row('inProgress', { pr: pr(1) })), 'open');
   assert.equal(primaryAction(row(null, { lane: lane('x') })), 'open');
-  for (const id of ['review', 'merge', 'rebase', 'checks', 'open']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
+  for (const id of ['review', 'merge', 'rebase', 'checks', 'open', 'sendBack']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
 });
 
 test('badges: CI and review state, conflicts and uncommitted changes', async () => {
@@ -382,4 +385,74 @@ test('Review is home: a repository opens on Review, the Map keeps its own key', 
   const keymap = await import('../renderer/keymap.js');
   assert.ok(keymap.keys('view.map').length);
   assert.ok(keymap.keys('view.lanes').length);
+});
+
+// AK-321: GitHub's merge box decides the stage; overlaps with open PRs are information only.
+test('mergeStateStatus: each state stages the way GitHub would let it merge', async () => {
+  const s = (o, prev) => load().then(({ rowStage }) => rowStage({ pr: pr(1, o), lane: null, conflicts: [] }, { now: NOW, previous: prev || null }));
+  assert.equal(await s({ mergeState: 'dirty', mergeable: false }), 'stuck');
+  assert.equal(await s({ mergeState: 'blocked', checks: 'failure' }), 'stuck');
+  assert.equal(await s({ mergeState: 'blocked', review: 'changes', checks: 'success' }), 'stuck');
+  assert.equal(await s({ mergeState: 'blocked', review: 'required', checks: 'success' }), 'inProgress');
+  assert.equal(await s({ mergeState: 'blocked', checks: 'pending' }), 'inProgress');
+  assert.equal(await s({ mergeState: 'behind', checks: 'success' }), 'ready');
+  assert.equal(await s({ mergeState: 'unstable', checks: 'failure' }), 'ready');
+  assert.equal(await s({ mergeState: 'clean', checks: 'success' }), 'ready');
+  assert.equal(await s({ mergeState: 'has_hooks', checks: 'success' }), 'ready');
+  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'success' }), 'inProgress');
+  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure' }), 'stuck');
+  // Unknown keeps the previous stage; with none, the rules for an older gh.
+  assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'ready'), 'ready');
+  assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'stuck'), 'stuck');
+  assert.equal(await s({ mergeState: 'unknown', ...READY }), 'ready');
+  assert.equal(await s({ mergeState: 'unknown', checks: 'success' }), 'inProgress');
+});
+
+test('mergeStateStatus: tags, primary action and reason follow the state', async () => {
+  const { reviewRows, rowBadges, primaryAction, stuckReason } = await load();
+  const texts = (o) => rowBadges({ pr: pr(1, o), conflicts: [], worktree: null }).map((b) => b.text);
+  assert.deepEqual(texts({ mergeState: 'unstable', checks: 'failure' }), ['CI failing']);
+  assert.deepEqual(texts({ mergeState: 'behind', checks: 'success' }), ['CI passed', 'Behind main']);
+  assert.deepEqual(texts({ mergeState: 'dirty', checks: 'success' }), ['CI passed', 'Conflicts']);
+  assert.ok(rowBadges({ pr: pr(1, { mergeState: 'unknown' }), conflicts: [] }).some((b) => b.text === 'Checking' && b.spin));
+  // A stale local forecast against the base doesn't override GitHub's clean.
+  const forecast = new Map([['b:b1', [{ with: 'main', base: true, files: ['a'] }]]]);
+  const run = (o) => reviewRows({ lanes: [lane('b1', { pr: { number: 1 } })], prs: [pr(1, o)], forecast, prsOn: true, now: NOW }).all[0];
+  const clean = run({ mergeState: 'clean', checks: 'success' });
+  assert.equal(clean.stage, 'ready');
+  assert.deepEqual(clean.conflicts, []);
+  assert.equal(primaryAction(clean, { base: 'main' }), 'merge');
+  const dirty = run({ mergeState: 'dirty', mergeable: false });
+  assert.equal(primaryAction(dirty, { base: 'main' }), 'rebase');
+  assert.equal(stuckReason(dirty), 'conflicts with main in a');
+  const failing = run({ mergeState: 'blocked', checks: 'failure', failing: ['test'] });
+  assert.equal(primaryAction(failing, { base: 'main' }), 'sendBack');
+  assert.equal(stuckReason(run({ mergeState: 'blocked', review: 'changes', checks: 'success' })), 'changes requested');
+  // Unknown: the previous call's stage holds.
+  const prev = new Map([['pr:1', 'ready']]);
+  assert.equal(reviewRows({ prs: [pr(1, { mergeState: 'unknown' })], prsOn: true, now: NOW, previous: prev }).stages.ready.length, 1);
+});
+
+test('overlaps: an open PR gets a note and no stage change; merge order names the smaller one', async () => {
+  const { reviewRows, overlapNote, mergeOrder, rowBadges } = await load();
+  const forecast = new Map([
+    ['b:b1', [{ with: 'b2', base: false, key: 'b:b2', files: ['src/lanes-view.js'] }, { with: 'wip', base: false, key: 'b:wip', files: ['x.js'] }]],
+    ['b:b2', [{ with: 'b1', base: false, key: 'b:b1', files: ['src/lanes-view.js'] }]],
+  ]);
+  const size = (a, d) => ({ additions: a, deletions: d, files: 1 });
+  const r = reviewRows({
+    lanes: [lane('b1', { pr: { number: 1 } }), lane('b2', { pr: { number: 2 } }), lane('wip')],
+    prs: [pr(1, { mergeState: 'clean', checks: 'success', size: size(28, 12) }), pr(2, { mergeState: 'clean', checks: 'success', size: size(300, 4) })],
+    forecast, prsOn: true, now: NOW,
+  });
+  const one = r.all.find((x) => x.pr?.number === 1);
+  assert.equal(one.stage, 'ready');
+  assert.deepEqual(one.overlaps.map((o) => o.number), [2]); // the local branch "wip" doesn't count
+  assert.ok(!rowBadges(one).some((b) => b.text === 'Conflicts'));
+  assert.deepEqual(overlapNote(one), { text: 'Overlaps #2', title: '#2 PR 2: src/lanes-view.js' });
+  assert.deepEqual(mergeOrder(one), [{ number: 2, files: 'lanes-view.js', smaller: { self: true, size: { additions: 28, deletions: 12 } } }]);
+  const two = r.all.find((x) => x.pr?.number === 2);
+  assert.equal(mergeOrder(two)[0].smaller.self, false);
+  assert.equal(overlapNote({ overlaps: [{ number: 2, title: 'a', files: [] }, { number: 3, title: 'b', files: [] }] }).text, 'Overlaps 2 PRs');
+  assert.equal(overlapNote({ overlaps: [] }), null);
 });

@@ -76,7 +76,7 @@ test('predicted conflicts: both lanes of a pair get them, they sort with "needs 
     { a: { name: 'left', branch: 'left', worktree: null }, b: null, files: ['a.js', 'b.js', 'c.js', 'd.js', 'e.js'] },
   ], 'main');
   assert.deepEqual(by.get('b:left').map((c) => c.with), ['main', 'right']);
-  assert.deepEqual(by.get('b:right'), [{ with: 'left', base: false, files: ['a.js'] }]);
+  assert.deepEqual(by.get('b:right'), [{ with: 'left', base: false, key: 'b:left', files: ['a.js'] }]);
   assert.equal(conflictText(by.get('b:left')[0]), 'Conflicts with main on a.js, b.js, c.js and 2 more');
   const ready = { pr: { number: 4, checks: 'success', review: 'approved', draft: false } };
   const lanes = withConflicts([lane('left', ready), lane('right'), lane('quiet')], by);

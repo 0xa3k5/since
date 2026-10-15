@@ -166,7 +166,7 @@ export function conflictsByLane(pairs = [], baseName = null, titleOf = laneTitle
   const add = (lane, other, files) => {
     const k = laneKey(lane);
     if (!out.has(k)) out.set(k, []);
-    out.get(k).push({ with: other ? titleOf(other) : baseName || 'base', base: !other, files });
+    out.get(k).push({ with: other ? titleOf(other) : baseName || 'base', base: !other, key: other ? laneKey(other) : null, files });
   };
   for (const p of pairs) {
     add(p.a, p.b, p.files);
