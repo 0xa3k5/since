@@ -5,6 +5,8 @@
   color-scheme: light dark;
   --radius: 6px;
   --radius-lg: 10px;
+  --fw-medium: 500;
+  --fw-strong: 550;
 
   --bg: #faf7f4;
   --bg-sidebar: #faf7f4;
