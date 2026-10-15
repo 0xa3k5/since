@@ -33,19 +33,22 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   const meta = h('div.quick-meta');
   const deltaBtn = h('button.chip', { title: 'Only files changed since you last looked (D)', onclick: () => toggleDelta() }, 'Changed since last look');
   const listEl = h('div.file-list.review-list', { role: 'listbox', 'aria-label': 'Files' });
+  // With a header, the progress line (reviewed count, Changed since last look) sits under it once,
+  // across the pane; the files column is just the list.
   const side = h('div.quick-side.review-side', null,
-    h('div.quick-head', null,
+    header ? null : h('div.quick-head', null,
       embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
-      header ? null : h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
+      h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
       pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
-      h('div.review-tools', null, deltaBtn, header ? null : !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
-      pr && !header ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
+      h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
+      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
     listEl,
     embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · ↑/↓ Move · Esc Back`),
   );
+  const top = header ? h('div.review-pane-top', null, header, h('div.review-progress-line', null, meta, deltaBtn)) : null;
   const main = h('div.quick-main', null, loading('Loading the branch…'));
-  const el = h('div.quick.review' + (header ? '.with-header' : ''), { tabIndex: 0 }, header, side, main);
+  const el = h('div.quick.review' + (header ? '.with-header' : ''), { tabIndex: 0 }, top, side, main);
 
   const shown = () => (review ? review.files.filter((f) => !delta || states.get(f.path)?.state === 'changed') : []);
 
@@ -55,7 +58,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     const done = s.filter((x) => x.state === 'reviewed').length;
     const changed = s.filter((x) => x.state === 'changed').length;
     meta.replaceChildren(...[
-      h('span', null, `against ${/^[0-9a-f]{40}$/.test(review.base) ? review.base.slice(0, 7) : review.base}`), ' · ',
+      ...(header && pr ? [] : [h('span', null, `against ${/^[0-9a-f]{40}$/.test(review.base) ? review.base.slice(0, 7) : review.base}`), ' · ']),
       h('span.review-progress' + (done === review.files.length && done ? '.done' : ''), null, `${done} / ${review.files.length} reviewed`),
       changed ? h('span.review-changed', null, ` · ${changed} changed since you last looked`) : null,
     ].filter(Boolean));
