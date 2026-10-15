@@ -1,35 +1,40 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
-import { inboxBuckets } from './prs.js';
+import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows } from './review-rows.js';
 import * as keymap from './keymap.js';
 
-// Lanes overview: every branch and worktree in the repository as one triage list, the lanes that
-// need you first (lanes.js has the order). Keyboard-first: ↑/↓ or J/K move, ↵ opens the lane,
-// typing filters, A shows agent lanes only, C lanes with predicted conflicts only, R reviews the
-// lane's branch, Space runs the selected lane's next step (the button on its row; lanes.js laneActions
-// has the mapping). Refreshes in place, keeping the selection. The conflict forecast runs after the
-// list shows (git merge-tree, main process) and re-sorts the list when it lands.
-// While pull requests are on, Tab switches to the Inbox: the open PRs you can act on, in buckets
-// (prs.js inboxBuckets). R reviews a PR (its diff and actions), ↵ checks it out as a new lane, ⇧M merges the whole Ready bucket.
+// Review: one row per piece of work (per pull request while PRs are on), in stages
+// (review-rows.js): Needs you and Blocked open, In progress and Handled elsewhere collapsed with
+// counts, then one "N finished · Clean up" line. Keyboard-first: ↑/↓ or J/K move, Space runs the
+// row's one primary button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits,
+// worktree, uncommitted changes, Show in Map), E opens the collapsed stages, typing filters every
+// row. S (Show all) brings back every branch and worktree as one triage list, the lanes that need
+// you first (lanes.js has the order), with A agent lanes only and C predicted conflicts only.
+// Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
+// merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
+// come from local data alone, plus one line to turn them on: no `gh` calls.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 // Row-action keys → their action (lanes.js ACTIONS); review, merge and open have their own branches.
 const LANE_KEYS = { 'lanes.rebase': 'rebase', 'lanes.checks': 'checks', 'lanes.delete': 'delete', 'lanes.cleanup': 'cleanup' };
 const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
+const COLLAPSED = new Set(['inProgress', 'elsewhere']);
 // Live refreshes after commits are debounced; the watcher can fire several times per commit.
 const DEBOUNCE = 400;
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-// load({ prs }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
+// load({ prs, inbox }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
 // onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
 // progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items.
 // onAction(id, lane, base) runs the other row actions (rebase, delete, discard, checks; ACTIONS in lanes.js).
-// onCleanup(lane?) opens Clean up, with only that lane ticked when one is given. onCheckout(pr) and
-// onMergeReady(prs, remote) are the Inbox's actions; `tab` picks the tab to start on. `place` is a `location()` to
-// return to (Back, ⌘[): its tab, row, filter and scroll, put back once the lanes load.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes', place = null }) {
+// onCleanup(lane?) opens Clean up, with only that lane ticked when one is given. onCheckout(pr), onPrReview(pr, remote) and
+// onMergeReady(prs, remote) act on pull requests; onPrSetup() turns pull requests on. `all` starts on Show all. `place` is a
+// `location()` to return to (Back, ⌘[): its mode, row, filter, open stages and scroll, put back once the rows load.
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, actions = () => [], all = false, place = null }) {
   let lanes = [];
-  let inbox = null; // { prs, remote, me, requested } from the last inbox load
+  let inbox = null; // { prs, remote, me, requested } from the last PR load
   let inboxFailed = false;
+  let staged = null; // the last reviewRows result
   let shown = [];
   let selKey = null;
   let agentsOnly = false;
@@ -40,28 +45,31 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   let base = null;
   let timer = 0;
   let seq = 0;
+  const opened = new Set(); // collapsed stages the user opened
+  const details = new Set(); // rows with Details ▸ open
   let wanted = place?.key ?? null; // the row to select once it's loaded
   let wantedScroll = place?.scroll ?? null;
-  if (place) { tab = place.tab || tab; agentsOnly = !!place.agentsOnly; conflictsOnly = !!place.conflictsOnly; }
+  if (place) {
+    all = !!place.all; agentsOnly = !!place.agentsOnly; conflictsOnly = !!place.conflictsOnly;
+    for (const id of place.opened || []) opened.add(id);
+  }
 
-  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter lanes…', spellcheck: false, 'aria-label': 'Filter lanes', value: place?.filter || '' });
-  const agentChip = h('button.chip', { title: 'Agent lanes only (A)', onclick: () => toggleAgents() }, 'Agent lanes');
-  const conflictChip = h('button.chip', { title: 'Lanes with predicted conflicts only (C)', onclick: () => toggleConflicts() }, 'Conflicts');
+  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter…', spellcheck: false, 'aria-label': 'Filter', value: place?.filter || '' });
+  const agentChip = h('button.chip', { title: 'Agent-made only (A)', onclick: () => toggleAgents() }, 'Agent-made');
+  const conflictChip = h('button.chip', { title: 'Predicted conflicts only (C)', onclick: () => toggleConflicts() }, 'Conflicts');
+  const allChip = h('button.chip.review-all', { title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})`, onclick: () => setAll(!all) }, 'Show all');
   const count = h('span.muted.lanes-count');
-  const list = h('div.lanes-list', { role: 'listbox', 'aria-label': 'Lanes' });
+  const list = h('div.lanes-list', { role: 'listbox', 'aria-label': 'Review' });
   const empty = h('div.empty');
-  const title = h('h1');
+  const title = h('h1', null, 'Review');
   const lede = h('p.muted');
   const hint = h('div.diff-hint.wt-hint');
   const cleanupBtn = onCleanup ? h('button.btn.ghost', { onclick: () => onCleanup(), title: 'Find stale branches and worktrees and remove them in bulk' }, icon('trash', 14), 'Clean up…', kbd(...keymap.keys('global.cleanup'))) : null;
-  const tabBtn = (id, label) => h('button.lanes-tab', { role: 'tab', 'data-tab': id, onclick: () => setTab(id) }, label);
-  const tabs = h('div.lanes-tabs', { role: 'tablist', 'aria-label': 'Lanes overview' }, tabBtn('lanes', 'Lanes'), tabBtn('inbox', 'Inbox'));
   const el = h('div.page.flush.lanes', { tabIndex: 0 },
     h('div.page-head', null,
       h('div', null, title, lede),
       h('div.page-actions', null, count, cleanupBtn)),
-    tabs,
-    h('div.lanes-bar', null, icon('search', 14), filter, agentChip, conflictChip),
+    h('div.lanes-bar', null, icon('search', 14), filter, allChip, agentChip, conflictChip),
     list,
     empty,
     hint,
@@ -104,6 +112,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     }, p.moved ? `${p.label} ·` : p.label, p.moved ? h('span.lanes-moved', null, ' moved') : null);
   }
 
+  // Show all: one row per branch or worktree.
   function row(l) {
     const active = laneKey(l) === selKey;
     const ab = aheadBehind(l);
@@ -159,18 +168,149 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     if (ok) run(id, l); else toast(`${ACTIONS[id].label} doesn’t apply to ${laneTitle(l)}`);
   }
 
+  // Staged rows: the PR's actions, or the lane's when it has no PR.
+  const requested = () => new Set(prsOn() ? inbox?.requested || [] : []);
+  // A row as a lane for the lane actions: its PR joined on, or just the PR when it isn't checked out here.
+  const asLane = (r) => (r.lane ? (r.pr && !r.lane.pr ? { ...r.lane, pr: r.pr } : r.lane) : { name: r.title, title: r.title, pr: r.pr });
+  function act(id, r) {
+    const { pr, lane } = r;
+    if (id === 'review') { if (pr) onPrReview(pr, inbox?.remote); else if (lane) onReview(lane, base); }
+    else if (id === 'merge') {
+      if (lane?.branch && !lane.isBase) onMerge(asLane(r), base);
+      else if (pr) onMergeReady([pr], inbox?.remote);
+      else toast(`Nothing to merge on ${r.title}`);
+    } else if (id === 'open') { if (lane) onOpen(lane); else if (pr) onPrReview(pr, inbox?.remote); }
+    else if (id === 'checkout') { if (pr) onCheckout(pr); }
+    else if (id === 'details') toggleDetails(r.key);
+    else runKey(id, asLane(r));
+  }
+  const step = (r) => primaryAction(r, { base, requested: requested() });
+
+  function stagedRow(r) {
+    const active = r.key === selKey;
+    const id = step(r);
+    const s = STEPS[id];
+    const open = details.has(r.key);
+    const at = r.pr?.updatedAt ? Date.parse(r.pr.updatedAt) : r.lane?.activity || 0;
+    const sub = r.pr
+      ? [`#${r.pr.number}`, r.pr.author, r.branch].filter(Boolean).join(' · ')
+      : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
+    return h('div.list-row.lanes-row.review-row' + (active ? '.active' : ''), {
+      role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
+      onclick: () => select(r.key),
+      ondblclick: () => act('open', r),
+      oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
+    },
+      icon(r.pr ? 'merge' : r.worktree ? 'worktree' : 'branch', 14),
+      h('div.list-main', null,
+        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title),
+          ...rowBadges(r, { requested: requested() }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
+          r.lane?.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${r.lane.agent.reason}: ${r.lane.agent.match})` }, 'Agent') : null),
+        h('div.list-sub', null, sub),
+        open ? detailsEl(r) : null),
+      h('button.btn.ghost.review-details-btn', {
+        title: `Details (${keymap.keys('lanes.details').join(' or ').toUpperCase()})`, 'aria-expanded': String(open),
+        onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
+        ondblclick: (e) => e.stopPropagation(),
+      }, open ? 'Details ▾' : 'Details ▸'),
+      h('button.btn.subtle.lanes-step', {
+        title: `${s.label} (${keymap.keys(s.keyId).join(' or ')})`,
+        onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
+        ondblclick: (e) => e.stopPropagation(),
+      }, icon(s.icon, 12), s.label),
+      h('span.lanes-time', { title: at ? fullDate(at / 1000) : '' }, at ? timeAgo(at / 1000) : ''),
+    );
+  }
+
+  // Details ▸: the branch, its commits, worktree and uncommitted changes, and the way into the map.
+  function detailsEl(r) {
+    const l = r.lane;
+    const line = (label, value, t) => h('div.review-detail', null, h('span.muted', null, label), h('span', { title: t || value }, value));
+    const ab = l ? aheadBehind(l) : '';
+    return h('div.review-details', { onclick: (e) => e.stopPropagation(), ondblclick: (e) => e.stopPropagation() },
+      line('Branch', r.branch || (l?.detached ? 'Detached HEAD' : '—')),
+      line('Commits', l ? (r.ahead != null ? `${plural(r.ahead, 'commit')} not on ${base || 'the base'}` : ab || '—') : 'Not on this Mac yet'),
+      line('Worktree', r.worktree ? tildify(r.worktree.path) : l ? 'None (branch only)' : '—', r.worktree?.path),
+      line('Uncommitted', r.worktree ? (r.worktree.changes ? plural(r.worktree.changes, 'changed file') : 'None') : '—'),
+      ...(r.conflicts || []).map((c) => h('div.review-detail.warn', { title: c.files.join('\n') }, conflictText(c))),
+      h('div.lanes-fix', null,
+        l ? h('button.btn.subtle.lanes-fix-btn', { onclick: () => onOpen(l), title: `Show in Map (${keymap.keys('lanes.open').join(' or ')})` }, icon('map', 12), l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to worktree' : 'Show in Map')
+          : r.pr ? h('button.btn.subtle.lanes-fix-btn', { onclick: () => onCheckout(r.pr), title: 'Check out in a new worktree' }, icon('worktree', 12), 'Check out') : null,
+        l && !l.isBase ? h('button.btn.subtle.lanes-fix-btn', { onclick: () => onReview(l, base), title: 'Review the branch’s changes' }, icon('check', 12), 'Review branch') : null));
+  }
+
+  function toggleDetails(key) {
+    if (!key) return;
+    if (details.has(key)) details.delete(key); else details.add(key);
+    render();
+  }
+
+  function stagedMenu(x, y, r) {
+    const l = asLane(r);
+    contextMenu(x, y, [
+      ...(r.lane ? [{ label: r.lane.worktree && !r.lane.worktree.current && !r.lane.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: r.lane.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(r.lane) }] : []),
+      ...(r.pr ? [{ label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }] : [{ label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }]),
+      ...(r.pr && !r.lane ? [{ label: 'Check Out in New Worktree…', icon: 'worktree', run: () => onCheckout(r.pr) }] : []),
+      { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), run: () => act('merge', r) },
+      ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
+      ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),
+      { label: details.has(r.key) ? 'Hide Details' : 'Details', icon: 'lanes', kbd: keymap.keys('lanes.details'), run: () => toggleDetails(r.key) },
+      ...(r.lane ? ['-', { label: r.lane.changes ? 'Discard Lane…' : 'Delete Lane…', icon: 'trash', kbd: keymap.keys('lanes.delete'), disabled: !canRemove(r.lane), run: () => act('delete', r) }] : []),
+    ]);
+  }
+
   function render() {
-    if (tab === 'inbox' && !prsOn()) tab = 'lanes';
-    tabs.hidden = !prsOn();
-    tabs.querySelectorAll('.lanes-tab').forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
-    agentChip.hidden = tab === 'inbox';
-    conflictChip.hidden = tab === 'inbox' || !forecastOk;
-    filter.placeholder = tab === 'inbox' ? 'Filter pull requests…' : 'Filter lanes…';
-    if (tab === 'inbox') return renderInbox();
-    title.textContent = 'Lanes';
-    if (cleanupBtn) cleanupBtn.hidden = false;
-    lede.textContent = 'Every branch and worktree in this repository. Lanes that need you come first.';
-    hint.textContent = `Space Next step · ↵ Open · R Review · B Rebase · M Merge and tidy · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
+    agentChip.hidden = !all;
+    conflictChip.hidden = !all || !forecastOk;
+    allChip.classList.toggle('on', all);
+    allChip.setAttribute('aria-pressed', String(all));
+    if (all) renderAll(); else renderStaged();
+  }
+
+  function renderStaged() {
+    lede.textContent = prsOn() ? 'Pull requests that need you come first. Everything else is a step away.' : 'Your branches and worktrees. What needs you comes first.';
+    const prsLoading = prsOn() && !inbox && !inboxFailed;
+    staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now() });
+    const rows = [];
+    const q = filter.value.trim();
+    if (q) {
+      shown = filterRows(staged.all, q);
+      for (const r of shown) rows.push(stagedRow(r));
+    } else {
+      shown = [];
+      const needs = staged.stages.needsYou.length + staged.stages.blocked.length;
+      if (loaded && !prsLoading && !needs) rows.push(h('div.review-calm', null, icon('check', 14), prsOn() ? 'Nothing needs you right now.' : 'Nothing needs you here right now.'));
+      for (const s of STAGES) {
+        const rs = staged.stages[s.id];
+        if (!rs.length) continue;
+        const collapsed = COLLAPSED.has(s.id) && !opened.has(s.id);
+        if (COLLAPSED.has(s.id)) {
+          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, `${collapsed ? '▸' : '▾'} ${s.label} · ${rs.length}`));
+        } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, `${s.label} · ${rs.length}`));
+        if (collapsed) continue;
+        for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
+      }
+      if (staged.finished.count) {
+        rows.push(h('button.review-finished', { onclick: () => onCleanup(), title: `Open Clean up with the finished branches and worktrees ticked (${keymap.keys('global.cleanup').join(' or ')}). ⌘Z brings them back.` },
+          `${staged.finished.count} finished · `, h('span.review-finished-link', null, 'Clean up')));
+      }
+      if (!prsOn()) rows.push(h('button.review-prs-off', { onclick: () => onPrSetup() }, icon('merge', 12), 'Turn on PR features to see your PRs here'));
+    }
+    adopt(shown.map((r) => r.key));
+    if (!shown.some((r) => r.key === selKey)) selKey = shown[0]?.key ?? null;
+    list.replaceChildren(...rows);
+    const n = staged.stages.needsYou.length;
+    const b = staged.stages.blocked.length;
+    count.textContent = !loaded || prsLoading ? 'Loading…' : [n ? `${n} need${n === 1 ? 's' : ''} you` : null, b ? `${b} blocked` : null].filter(Boolean).join(' · ');
+    empty.textContent = !loaded ? '' : prsLoading ? 'Loading pull requests…' : inboxFailed && prsOn() ? 'Couldn’t load pull requests.' : q && !shown.length ? 'Nothing matches.' : '';
+    empty.hidden = !empty.textContent;
+    const ready = readyPrs().length;
+    hint.textContent = `Space Primary button · ↵ Open · R Review · M Merge · D Details · E In progress and Handled elsewhere · S Show all · J/K Move · / Filter${ready > 1 ? ' · ⇧M Merge all ready' : ''}`;
+  }
+
+  function renderAll() {
+    lede.textContent = 'Every branch and worktree in this repository. The ones that need you come first.';
+    hint.textContent = `Space Next step · ↵ Open · R Review · B Rebase · M Merge and tidy · J/K Move · / Filter · A Agent-made only${forecastOk ? ' · C Conflicts only' : ''} · S Back to what needs you`;
     if (agentsOnly && !markAgents()) agentsOnly = false;
     shown = filterLanes(lanes, filter.value, { agentsOnly, conflictsOnly });
     adopt(shown.map(laneKey));
@@ -189,92 +329,42 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     agentChip.classList.toggle('on', agentsOnly);
     conflictChip.classList.toggle('on', conflictsOnly);
     const needs = lanes.filter((l) => BUCKET.get(l.bucket).needs).length;
-    count.textContent = loaded ? `${lanes.length} lane${lanes.length === 1 ? '' : 's'}${needs ? ` · ${needs} need${needs === 1 ? 's' : ''} you` : ''}` : 'Loading…';
-    empty.textContent = !loaded || shown.length ? '' : conflictsOnly && !filter.value ? 'No predicted conflicts between active lanes.' : lanes.length ? 'No lanes match.' : 'No branches yet.';
+    count.textContent = loaded ? `${plural(lanes.length, 'branch', 'branches')} and worktrees${needs ? ` · ${needs} need${needs === 1 ? 's' : ''} you` : ''}` : 'Loading…';
+    empty.textContent = !loaded || shown.length ? '' : conflictsOnly && !filter.value ? 'No predicted conflicts between active branches.' : lanes.length ? 'Nothing matches.' : 'No branches yet.';
     empty.hidden = !empty.textContent;
   }
 
-  // The Inbox: PR rows keyed `p:<number>`, grouped by bucket, then by author.
-  const prKey = (pr) => `p:${pr.number}`;
-  // Head branches the local forecast expects to conflict with another lane: never Ready.
-  const conflictBranches = () => new Set(lanes.filter((l) => l.conflicts && l.branch).map((l) => l.branch));
-  const agentPrs = () => (markAgents() ? lanes.filter((l) => l.agent && l.pr).map((l) => l.pr.number) : []);
-  const buckets = () => {
-    const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
-    const prs = (inbox?.prs || []).filter((p) => words.every((w) => `#${p.number} ${p.title} ${p.branch} ${p.author}`.toLowerCase().includes(w)));
-    return inboxBuckets(prs, { me: inbox?.me, requested: inbox?.requested, agents: agentPrs(), conflicts: conflictBranches() });
-  };
-  const ready = () => (inbox ? inboxBuckets(inbox.prs, { me: inbox.me, requested: inbox.requested, agents: agentPrs(), conflicts: conflictBranches() }).find((b) => b.id === 'ready')?.groups.flatMap((g) => g.prs) || [] : []);
-
-  function prRow(pr) {
-    const active = prKey(pr) === selKey;
-    return h('div.list-row.lanes-row' + (active ? '.active' : ''), {
-      role: 'option', 'aria-selected': String(active), 'data-key': prKey(pr),
-      onclick: () => select(prKey(pr)),
-      ondblclick: () => onCheckout(pr),
-      oncontextmenu: (e) => { e.preventDefault(); select(prKey(pr)); prMenu(e.clientX, e.clientY, pr); },
-    },
-      icon('merge', 14),
-      h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', null, pr.title || pr.branch), pr.mergeable === false ? h('span.badge.warn', { title: 'GitHub says it conflicts with its base branch' }, 'Conflicts') : null),
-        h('div.list-sub', null, `${pr.branch} → ${pr.base}`)),
-      prCell(pr),
-      h('span.lanes-time', { title: pr.updatedAt ? fullDate(Date.parse(pr.updatedAt) / 1000) : '' }, pr.updatedAt ? timeAgo(Date.parse(pr.updatedAt) / 1000) : ''),
-    );
-  }
-
-  function renderInbox() {
-    title.textContent = 'Inbox';
-    if (cleanupBtn) cleanupBtn.hidden = true;
-    lede.textContent = 'Open pull requests you can act on: ready to merge, waiting for your review, failing, and yours.';
-    const bs = buckets();
-    const order = bs.flatMap((b) => b.groups.flatMap((g) => g.prs));
-    shown = order;
-    adopt(order.map(prKey));
-    if (!order.some((p) => prKey(p) === selKey)) selKey = order[0] ? prKey(order[0]) : null;
-    const rows = [];
-    for (const b of bs) {
-      rows.push(h('div.lanes-group.needs', { role: 'presentation' }, `${b.label} · ${b.count}`));
-      for (const g of b.groups) {
-        rows.push(h('div.lanes-author', { role: 'presentation' }, g.author, g.agent && markAgents() ? h('span.badge.agent', { title: 'Its lanes look agent-made' }, 'Agent') : null, h('span.muted', null, g.prs.length > 1 ? `${g.prs.length} pull requests` : '')));
-        for (const pr of g.prs) rows.push(prRow(pr));
-      }
-    }
-    list.replaceChildren(...rows);
-    const n = ready().length;
-    count.textContent = !inbox ? (inboxFailed ? '' : 'Loading…') : `${order.length} pull request${order.length === 1 ? '' : 's'}${n ? ` · ${n} ready` : ''}`;
-    hint.textContent = `R Review · ↵ Check out as a lane · J/K Move · / Filter${n ? ' · ⇧M Merge all ready' : ''} · Tab Lanes`;
-    empty.textContent = !inbox ? (inboxFailed ? 'Couldn’t load pull requests.' : 'Loading pull requests…') : order.length ? '' : inbox.prs.length ? 'Nothing here needs you.' : 'No open pull requests.';
-    empty.hidden = !empty.textContent;
-  }
-
-  function prMenu(x, y, pr) {
-    contextMenu(x, y, [
-      { label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => onPrReview(pr, inbox?.remote) },
-      { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.open'), run: () => onCheckout(pr) },
-      ...(ready().some((p) => p.number === pr.number) ? [{ label: 'Merge All Ready…', icon: 'merge', kbd: keymap.keys('lanes.mergeReady'), run: mergeReady }] : []),
-    ]);
-  }
-
+  // Needs-you PRs whose primary button is Merge: ⇧M merges them all after one confirmation.
+  const readyPrs = () => (staged && !all ? staged.stages.needsYou.filter((r) => r.pr && step(r) === 'merge').map((r) => r.pr) : []);
   function mergeReady() {
-    const prs = ready();
+    const prs = readyPrs();
     if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means approved, checks passed (or none), and no conflicts.' });
-    onMergeReady(prs, inbox.remote);
+    onMergeReady(prs, inbox?.remote);
   }
 
-  function setTab(t) {
-    if (t === tab || (t === 'inbox' && !prsOn())) return;
-    tab = t;
-    selKey = null;
+  function toggleStage(id) {
+    if (opened.has(id)) opened.delete(id); else opened.add(id);
     render();
-    if (tab === 'inbox' && !inbox) fetchLanes({ prs: true }).catch(fail);
+  }
+  // E: open both collapsed stages, or close them when either is open.
+  function toggleStages() {
+    const any = [...COLLAPSED].some((id) => opened.has(id));
+    for (const id of COLLAPSED) if (any) opened.delete(id); else opened.add(id);
+    render();
+  }
+
+  function setAll(on) {
+    if (on === all) return;
+    all = on;
+    if (!all) { agentsOnly = false; conflictsOnly = false; }
+    render();
     el.focus({ preventScroll: true });
   }
 
   // Back to a saved place: select its row once the list has it, and scroll to where it was.
   function adopt(keys) {
     if (wanted && keys.includes(wanted)) selKey = wanted;
-    if (loaded && (tab !== 'inbox' || inbox)) wanted = null; // gone since: keep the usual first row
+    if (loaded && (!prsOn() || inbox || inboxFailed)) wanted = null; // gone since: keep the usual first row
     if (loaded && wantedScroll != null) { const y = wantedScroll; wantedScroll = null; setTimeout(() => { el.scrollTop = y; }); }
   }
 
@@ -288,17 +378,19 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     const i = shown.findIndex((x) => keyOf(x) === selKey);
     select(keyOf(shown[Math.max(0, Math.min(shown.length - 1, i + d))]));
   }
-  const keyOf = (x) => (tab === 'inbox' ? prKey(x) : laneKey(x));
+  const keyOf = (x) => (all ? laneKey(x) : x.key);
   const current = () => shown.find((x) => keyOf(x) === selKey);
 
   function toggleAgents() {
-    if (!agentsOnly && !markAgents()) return toast('Agent lanes are hidden', { detail: 'Turn on “Mark lanes that look agent-made” in Choose defaults (⇧⌘,).' });
+    if (!agentsOnly && !markAgents()) return toast('Agent-made marks are off', { detail: 'Turn on “Mark lanes that look agent-made” in Choose defaults (⇧⌘,).' });
+    all = true;
     agentsOnly = !agentsOnly;
     render();
   }
 
   function toggleConflicts() {
-    if (!forecastOk) return toast('Conflict forecast needs git 2.38 or later', { detail: 'Update git to see which lanes would conflict before you merge.' });
+    if (!forecastOk) return toast('Conflict forecast needs git 2.38 or later', { detail: 'Update git to see which branches would conflict before you merge.' });
+    all = true;
     conflictsOnly = !conflictsOnly;
     render();
   }
@@ -322,26 +414,35 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   function command(e, typing) {
     const id = keymap.match('lanes', e);
     if (!id || (typing && e.key.length === 1)) return false;
+    const x = current();
     if (id === 'lanes.next') move(1);
     else if (id === 'lanes.prev') move(-1);
-    else if (id === 'lanes.open') { const x = current(); if (x) (tab === 'inbox' ? onCheckout : onOpen)(x); }
-    else if (id === 'lanes.tab') { if (!prsOn()) return false; setTab(tab === 'inbox' ? 'lanes' : 'inbox'); }
-    else if (id === 'lanes.mergeReady') { if (tab !== 'inbox' || typing) return false; mergeReady(); }
-    else if (tab === 'inbox' && id === 'lanes.review') { if (typing) return false; const pr = current(); if (pr) onPrReview(pr, inbox?.remote); }
-    else if (tab === 'inbox' && (id === 'lanes.agents' || id === 'lanes.merge' || id === 'lanes.conflicts' || id === 'lanes.step' || LANE_KEYS[id])) return false; // lane-only keys
-    else if (id === 'lanes.step') { if (typing) return false; const l = current(); const [a] = l ? laneActions(l) : []; if (a) run(a, l); else if (l) toast(`Nothing needs doing on ${laneTitle(l)}`); }
-    else if (LANE_KEYS[id]) { if (typing) return false; runKey(LANE_KEYS[id], current()); }
-    else if (id === 'lanes.agents') toggleAgents();
-    else if (id === 'lanes.review') { const l = current(); if (l) onReview(l, base); }
-    else if (id === 'lanes.merge') { const l = current(); if (l) onMerge(l, base); }
-    else if (id === 'lanes.conflicts') toggleConflicts();
     else if (id === 'lanes.filter') filter.focus();
+    else if (id === 'lanes.open') { if (x) (all ? onOpen(x) : act('open', x)); }
     else if (id === 'lanes.clear') {
       if (!filter.value && !typing) return false; // let Escape through
       filter.value = '';
       render();
       el.focus({ preventScroll: true });
-    } else return false;
+    } else if (typing) return false; // the rest are letters, Space or ⌘⌫: they edit the filter
+    else if (id === 'lanes.all') setAll(!all);
+    else if (id === 'lanes.agents') toggleAgents();
+    else if (id === 'lanes.conflicts') toggleConflicts();
+    else if (!all) {
+      if (id === 'lanes.stages') toggleStages();
+      else if (id === 'lanes.mergeReady') mergeReady();
+      else if (!x) return false;
+      else if (id === 'lanes.step') act(step(x), x);
+      else if (id === 'lanes.review') act('review', x);
+      else if (id === 'lanes.merge') act('merge', x);
+      else if (id === 'lanes.details') act('details', x);
+      else if (LANE_KEYS[id]) act(LANE_KEYS[id], x);
+      else return false;
+    } else if (id === 'lanes.step') { const [a] = x ? laneActions(x) : []; if (a) run(a, x); else if (x) toast(`Nothing needs doing on ${laneTitle(x)}`); }
+    else if (LANE_KEYS[id]) runKey(LANE_KEYS[id], x);
+    else if (id === 'lanes.review') { if (x) onReview(x, base); }
+    else if (id === 'lanes.merge') { if (x) onMerge(x, base); }
+    else return false;
     e.preventDefault();
     e.stopPropagation();
     return true;
@@ -360,19 +461,20 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   filter.addEventListener('keydown', (e) => { if (!command(e, true)) e.stopPropagation(); });
   filter.addEventListener('input', render);
 
-  // Local data first, so the list shows at once; PRs (one `gh pr list`) only when asked and on.
+  // Local data first, so the list shows at once; PRs (`gh pr list` plus your review requests) only when asked and on.
   async function fetchLanes({ prs }) {
     const n = ++seq;
-    const withInbox = prs && prsOn() && tab === 'inbox';
-    const res = await load({ prs: prs && prsOn(), ...(withInbox ? { inbox: true } : {}) });
+    const withPrs = Boolean(prs && prsOn());
+    const res = await load({ prs: withPrs, ...(withPrs ? { inbox: true } : {}) });
     if (n !== seq || (loaded && !el.isConnected)) return;
     base = res.base;
-    if (withInbox) {
-      // Without the login and review requests (res.inboxError) the other buckets still show.
+    if (withPrs) {
+      // Without the login and review requests (res.inboxError) the PRs still show.
       inboxFailed = !res.prs;
       if (!inboxFailed) inbox = { prs: res.prs, remote: res.remote, ...(res.inbox || {}) };
       if (res.inboxError) toast('Could not load your review requests', { kind: 'error', detail: res.inboxError.message });
     }
+    if (!prsOn()) { inbox = null; inboxFailed = false; }
     const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes)) : res.lanes;
     lanes = sortLanes(withConflicts(next, conflicts));
     loaded = true;
@@ -391,7 +493,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
-  const fail = (e) => { loaded = true; render(); toast('Could not load lanes', { kind: 'error', detail: e.message }); };
+  const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
 
   // Called on every repo change: debounced, local only (no network), keeps the selection.
   function refresh() {
@@ -405,15 +507,26 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   render();
   fetchLanes({ prs: false }).then(() => (prsOn() ? fetchLanes({ prs: true }) : null)).catch(fail);
   setTimeout(() => el.focus({ preventScroll: true }));
-  // Show a tab from outside (⌘⇧I opens the overview on the Inbox).
-  const show = (t) => setTab(t);
-  // ⌘K "Show lanes with predicted conflicts": the Lanes tab with the filter on (never off).
-  const showConflicts = () => { setTab('lanes'); if (!conflictsOnly) toggleConflicts(); };
-  // ⌘K "Merge and tidy…" acts on the selected lane; on the Inbox the selection is a PR, not a lane.
-  const selected = () => (tab !== 'inbox' && current() ? { lane: current(), base } : null);
+  // ⌘K "Show all branches and worktrees" / "Show what needs you".
+  const showAll = (on = !all) => setAll(on);
+  // ⌘K "Show branches with predicted conflicts": Show all with the filter on (never off).
+  const showConflicts = () => { if (!conflictsOnly) toggleConflicts(); };
+  // The selected row's lane (for ⌘K "Merge and tidy…", rebase, delete) and its primary button's label.
+  const selected = () => {
+    const x = current();
+    if (!x) return null;
+    if (all) { const [a] = laneActions(x); return { lane: x, base, step: a ? ACTIONS[a].label : null }; }
+    return x.lane ? { lane: asLane(x), base, step: STEPS[step(x)].label } : null;
+  };
   // Where the user is, for Back and Forward (app.js passes it back as `place`).
-  const location = () => ({ tab, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, scroll: el.scrollTop });
-  // ⌘K "Next step on …": the selected lane's button.
-  const step = () => { const l = tab !== 'inbox' && current(); const [a] = l ? laneActions(l) : []; if (a) run(a, l); };
-  return { el, refresh, rerender: render, show, showConflicts, selected, location, step, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  const location = () => ({ all, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, opened: [...opened], scroll: el.scrollTop });
+  // ⌘K "Next step on …": the selected row's primary button.
+  const runStep = () => {
+    const x = current();
+    if (!x) return;
+    if (!all) return act(step(x), x);
+    const [a] = laneActions(x);
+    if (a) run(a, x);
+  };
+  return { el, refresh, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }
