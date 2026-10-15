@@ -101,12 +101,13 @@ section.s { padding-block: 150px; }
 #catch-up .copy h2 { margin: 0 auto; max-width: 20ch; }
 #catch-up .copy p { margin: 20px auto 0; max-width: 42rem; color: var(--text-3); text-wrap: balance; }
 
-/* 2–4 · Review, Send back, Merge: title on the left, text on the right, the app full width below */
+/* 2-4 · Review, Send back, Merge: the top layout. Title on the left, text and list on the right,
+   the product full width below (Merge keeps its facts row under the product). Nothing sticks. */
 #review h2, #unblock h2 { font-size: clamp(32px, 3.8vw, 48px); }
 #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 56px; }
-#review .copy, #unblock .copy, #merge .copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 72px; align-items: start; }
+#review .copy, #unblock .copy, #merge .copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 72px; align-items: start; text-align: left; }
 #review .copy > h2, #unblock .copy > h2, #merge .copy > h2 { grid-column: 1; grid-row: 1 / span 2; max-width: 14ch; margin: 0; }
-#review .copy > p, #unblock .copy > p, #merge .copy > p { grid-column: 2; margin-top: 6px; max-width: none; }
+#review .copy > p, #unblock .copy > p, #merge .copy > p { grid-column: 2; margin: 6px 0 0; max-width: none; }
 #review .copy > ul, #unblock .copy > ul { grid-column: 2; }
 #unblock .copy p, #merge .copy p { color: var(--text-3); }
 #merge .facts3 { max-width: none; }
@@ -182,6 +183,8 @@ section.s { padding-block: 150px; }
 .lp .founder-in h2 { font-size: clamp(26px, 3vw, 34px); margin-bottom: 28px; }
 .founder-in p { font-size: 19px; line-height: 1.65; color: var(--text-2); margin: 0 0 20px; max-width: none; }
 .founder-in .sig { font-size: 15px; color: var(--text-3); margin-top: 32px; }
+.lp .founder-in a { color: var(--accent-fg); text-decoration: none; }
+.lp .founder-in a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---------------------------------------------------------------- Pricing: one big number */
 .price-band { background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -222,7 +225,7 @@ section.s { padding-block: 150px; }
 /* ---------------------------------------------------------------- Narrower screens */
 @media (max-width: 860px) {
   section.s, .problem { padding-block: 100px; }
-  .feat, #unblock .feat { grid-template-columns: 1fr; gap: 40px; }
+  .feat, #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 40px; }
   #review .copy, #unblock .copy, #merge .copy { grid-template-columns: 1fr; }
   #review .copy > *, #unblock .copy > *, #merge .copy > * { grid-column: 1; grid-row: auto; }
   #review .copy > p, #unblock .copy > p, #merge .copy > p { margin-top: 20px; }
