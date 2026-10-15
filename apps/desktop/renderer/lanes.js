@@ -133,6 +133,31 @@ export function keepPrs(lanes, previous = []) {
   return lanes.map((l) => (l.pr || !prs.has(laneKey(l)) ? l : { ...l, pr: prs.get(laneKey(l)) }));
 }
 
+// A PR load that a newer local refresh overtook: keep the newer local lanes, take the PR data from the load.
+export function takePrs(lanes, from = []) {
+  const prs = new Map(from.map((l) => [laneKey(l), l.pr || null]));
+  return lanes.map((l) => (prs.has(laneKey(l)) ? { ...l, pr: prs.get(laneKey(l)) } : l));
+}
+
+// Which load results still count. Local refreshes and PR loads are tracked apart, so a local refresh
+// (every repo change) never throws away the slower `gh` result still in flight.
+// start(prs) → token; lanes(token): no newer load of any kind started; prs(token): no newer PR load started.
+export function loadGuard() {
+  let local = 0;
+  let pr = 0;
+  return {
+    start: (prs) => ({ local: ++local, pr: prs ? ++pr : null }),
+    lanes: (t) => t.local === local,
+    prs: (t) => t.pr != null && t.pr === pr,
+  };
+}
+
+// `promise`, or a rejection with `message` after `ms`.
+export function withTimeout(promise, ms, message = 'Timed out') {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })]).finally(() => clearTimeout(timer));
+}
+
 // The forecast (app:lanes-forecast pairs) per lane: Map(laneKey → [{ with, base, files }]), where
 // `with` names the other lane (by `titleOf`, its title), or the base branch when `base` is true. Both
 // lanes of a pair get it.
