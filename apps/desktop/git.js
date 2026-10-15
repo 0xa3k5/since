@@ -2055,6 +2055,25 @@ async function forecastConflicts(cwd, lanes, { baseSha, signal, now = Date.now()
   return { supported: true, pairs: res.filter(Boolean) };
 }
 
+// Merge plan (renderer/merge-plan.js): squash-merging `head` onto `tip`, simulated. merge-tree
+// writes the merged tree and commit-tree a commit on top of `tip` (objects only, never refs, the
+// index or a worktree), so the next PR can be simulated on top of it. The commit's identity and
+// date are fixed, so the same merge always gives the same commit. → { files, commit }: commit when
+// it merges clean, else null with the conflicting files ([] when git refuses, e.g. unrelated histories).
+const SIM_ENV = {
+  GIT_AUTHOR_NAME: 'GitLanes', GIT_AUTHOR_EMAIL: 'merge-plan@gitlanes.invalid', GIT_AUTHOR_DATE: '1700000000 +0000',
+  GIT_COMMITTER_NAME: 'GitLanes', GIT_COMMITTER_EMAIL: 'merge-plan@gitlanes.invalid', GIT_COMMITTER_DATE: '1700000000 +0000',
+};
+async function simulateSquash(cwd, tip, head) {
+  let out;
+  try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', tip, head], { allowCodes: [0, 1] }); } catch { return { files: [], commit: null }; }
+  const [tree, ...rest] = out.split('\0');
+  const files = [...new Set(rest.filter(Boolean))].sort();
+  if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { files, commit: null };
+  const commit = (await run(cwd, ['commit-tree', tree, '-p', tip, '-m', 'GitLanes merge plan'], { env: SIM_ENV })).trim();
+  return { files: [], commit };
+}
+
 // ---------------------------------------------------------------------------
 // External diff & merge tools (git difftool / mergetool), using the user's diff.tool and
 // merge.tool. GitLanes has no terminal, so terminal-only tools (vimdiff, emerge) are refused.
@@ -2188,7 +2207,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, simulateSquash, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,

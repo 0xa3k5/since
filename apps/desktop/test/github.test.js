@@ -62,7 +62,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, reviews: [], size: { additions: null, deletions: null, files: null } });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, reviews: [], size: { additions: null, deletions: null, files: null } });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
