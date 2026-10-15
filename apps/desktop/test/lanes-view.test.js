@@ -18,10 +18,13 @@ test('lanes that need you sort first, in the documented order', async () => {
     lane('review', { pr: { number: 2, checks: 'pending', review: 'changes' } }),
     lane('failing', { pr: { number: 1, checks: 'failure', review: 'approved' } }),
     lane('main', { isBase: true, activity: NOW }),
+    lane('shipped', { done: { reason: 'pr', pr: 9 }, activity: NOW }),
+    lane('other', { conflicts: [{ with: 'x', base: false, files: ['a'] }], activity: NOW }),
+    lane('rebase', { conflicts: [{ with: 'main', base: true, files: ['a'] }], activity: NOW - 2 * H }),
   ];
   const sorted = sortLanes(lanes, NOW);
-  assert.deepEqual(sorted.map((l) => l.name), ['failing', 'review', 'stalled', 'ready', 'active', 'main', 'idle']);
-  assert.deepEqual(sorted.map((l) => l.bucket), ['failing', 'review', 'stalled', 'ready', 'active', 'idle', 'idle']);
+  assert.deepEqual(sorted.map((l) => l.name), ['rebase', 'other', 'failing', 'review', 'ready', 'stalled', 'active', 'shipped', 'main', 'idle']);
+  assert.deepEqual(sorted.map((l) => l.bucket), ['conflicts', 'conflicts', 'failing', 'review', 'ready', 'stalled', 'active', 'merged', 'idle', 'idle']);
 });
 
 test('recent dirty work, drafts and merged lanes are not flagged', async () => {
@@ -81,4 +84,32 @@ test('predicted conflicts: both lanes of a pair get them, they sort with "needs 
   assert.deepEqual(sortLanes(lanes, NOW).map((l) => l.bucket), ['conflicts', 'conflicts', 'active']);
   assert.deepEqual(filterLanes(lanes, '', { conflictsOnly: true }).map((l) => l.name), ['left', 'right']);
   assert.equal(lanes[2].conflicts, null);
+});
+
+test('each state gets one next step, then its menu actions', async () => {
+  const { laneActions, sortLanes } = await load();
+  const wt = { path: '/w/x', short: '~/w/x' };
+  const next = (l) => laneActions(sortLanes([l], NOW)[0]);
+  assert.deepEqual(next(lane('x', { conflicts: [{ with: 'main', base: true, files: ['a'] }] })), ['rebase', 'review', 'delete']);
+  assert.deepEqual(next(lane('x', { conflicts: [{ with: 'y', base: false, files: ['a'] }] })), ['review', 'rebase', 'delete']);
+  assert.deepEqual(next(lane('x', { pr: { checks: 'failure', url: 'https://github.com/o/r/pull/1' } })), ['checks', 'review']);
+  assert.deepEqual(next(lane('x', { pr: { checks: 'failure' } })), ['review'], 'no PR link: no Open checks');
+  assert.deepEqual(next(lane('x', { pr: { checks: 'pending', review: 'required' } })), ['review']);
+  assert.deepEqual(next(lane('x', { pr: { checks: 'success', review: 'approved', draft: false } })), ['merge', 'review']);
+  assert.deepEqual(next(lane('x', { changes: 2, activity: NOW - 5 * H, worktree: wt })), ['open', 'discard']);
+  assert.deepEqual(next(lane('x', { done: { reason: 'subject' } })), ['cleanup']);
+  assert.deepEqual(next(lane('x', { activity: NOW - 60e3 })), [], 'active lanes need nothing');
+  // Never offer to delete what this window, or the main worktree, shows.
+  assert.deepEqual(next(lane('x', { conflicts: [{ with: 'main', base: true, files: ['a'] }], worktree: { ...wt, current: true } })), ['rebase', 'review']);
+  assert.deepEqual(next(lane('x', { changes: 2, activity: NOW - 5 * H, worktree: { ...wt, main: true } })), ['open']);
+});
+
+test('rows lead with the title; conflicts name the other lane by title', async () => {
+  const { laneTitle, conflictsByLane, conflictText } = await load();
+  assert.equal(laneTitle(lane('ak-1-x', { title: 'Fix the login' })), 'Fix the login');
+  assert.equal(laneTitle(lane('ak-1-x')), 'ak-1-x');
+  const a = lane('a', { title: 'Add search' });
+  const b = lane('b', { title: 'Speed up graph' });
+  const by = conflictsByLane([{ a, b, files: ['x.js'] }], 'main');
+  assert.equal(conflictText(by.get('b:a')[0]), 'Conflicts with Speed up graph on x.js');
 });

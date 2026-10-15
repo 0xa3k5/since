@@ -77,6 +77,9 @@ test('cleanup groups: one per stale category; base, fresh and unborn lanes never
   const of = Object.fromEntries(groups.flatMap((x) => x.lanes.map((l) => [l.name, x.group.id])));
   assert.deepEqual(of, { merged: 'merged', squashed: 'merged', 'wt-merged': 'mergedWorktree', dirty: 'mergedWorktree', missing: 'missing', gone: 'gone', empty: 'empty', old: 'old' });
   assert.equal(groupLanes(lanes, { days: 90, now }).some((x) => x.group.id === 'old'), false);
+  // Shipped without a merge git can see (a PR merge, a matching subject): offered with the merged ones.
+  const { cleanupGroup } = await load();
+  assert.equal(cleanupGroup({ name: 'pr', head: 'a'.repeat(40), done: { reason: 'pr', pr: 3 }, merged: null, worktree: null }, { now }), 'merged');
   const l = byName(groups.flatMap((x) => x.lanes));
   assert.equal(dirty(l.dirty), 1);
   assert.equal(preselect(l.dirty), false);
