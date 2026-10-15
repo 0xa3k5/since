@@ -1,7 +1,7 @@
 ---
 import { BUY_URL, PRODUCT_NAME } from '../config';
 import Base from '../layouts/Base.astro';
-import { MACS_PER_LICENCE, PORTAL_URL } from '../components/commerce/links';
+import { PORTAL_URL } from '../components/commerce/links';
 import '../components/commerce/commerce.css';
 ---
 <Base
@@ -15,7 +15,6 @@ import '../components/commerce/commerce.css';
       <h1>Your licence key</h1>
       <p class="lede">
         After you <a href={BUY_URL}>buy {PRODUCT_NAME}</a>, Polar, our reseller, emails you a licence key.
-        One key works on up to {MACS_PER_LICENCE} of your Macs at once.
       </p>
     </header>
 
@@ -47,8 +46,8 @@ import '../components/commerce/commerce.css';
     <section class="cm-section" id="devices" aria-labelledby="devices-h">
       <h2 id="devices-h">Manage your Macs</h2>
       <p class="cm-intro">
-        Your key can be active on {MACS_PER_LICENCE} Macs at once. To use it on another Mac when all {MACS_PER_LICENCE} are taken,
-        remove one in the Polar customer portal. This works even if the old Mac is lost, sold or wiped.
+        To move your key to a new Mac, remove the old one in the Polar customer portal.
+        This works even if the old Mac is lost, sold or wiped.
       </p>
       <ol class="cm-steps">
         <li><strong>Open the <a href={PORTAL_URL}>customer portal</a></strong> and enter the email address you bought {PRODUCT_NAME} with.</li>
@@ -69,7 +68,7 @@ import '../components/commerce/commerce.css';
       <div class="cm-note">
         <p>
           <strong>No code arriving?</strong> Check your spam folder for mail from Polar, and make sure you used the address you bought with.
-          Still stuck? <a href="/contact">Contact us</a> with your order details and we'll sort it out.
+          Still stuck? Polar's support can find your order from your purchase email.
         </p>
       </div>
     </section>
@@ -77,8 +76,6 @@ import '../components/commerce/commerce.css';
     <nav class="cm-links" aria-label="Related">
       <a href="/pricing">Pricing</a>
       <a href="/download">Download</a>
-      <a href="/refunds">Refunds</a>
-      <a href="/eula">EULA</a>
     </nav>
   </div>
 </Base>

@@ -30,23 +30,6 @@ export const FOOTER_NAV: { title: string; links: Route[] }[] = [
       { href: '/licence', label: 'Licence help' },
     ],
   },
-  {
-    title: 'Company',
-    links: [
-      { href: '/press', label: 'Press' },
-      { href: '/contact', label: 'Contact' },
-      { href: '/security', label: 'Security' },
-    ],
-  },
-  {
-    title: 'Legal',
-    links: [
-      { href: '/privacy', label: 'Privacy' },
-      { href: '/terms', label: 'Terms' },
-      { href: '/eula', label: 'EULA' },
-      { href: '/refunds', label: 'Refunds' },
-    ],
-  },
 ];
 
 export const COMPARE: Route[] = [
