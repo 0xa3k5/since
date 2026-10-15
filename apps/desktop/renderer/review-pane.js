@@ -24,25 +24,48 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   let actions = [];
   let alive = true;
 
+  // Name and key for an icon-only button's tooltip.
+  const tip = (label, keyId) => [label, keymap.keys(keyId).join('')].filter(Boolean).join('  ');
+
+  // Title, meta and actions run across the whole pane; the files and the diff sit below.
+  // Labelled buttons for the actions you take most, icon buttons for the rest, GitHub on the right.
   function renderHead() {
     const { pr, lane } = row;
     const { actions: list, primary } = paneActions(row, ctx.step);
     actions = list;
     const reviewers = pr?.reviews || [];
     const size = pr?.size;
+    const button = (a) => {
+      const label = a.label.replace('…', '');
+      const title = a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : `${label} (undoable)`;
+      const onclick = () => run(a.id, row, ctx);
+      if (a.id === 'close') return h('button.btn.ghost.icon-btn.danger-hover', { title: `${tip('Close PR…', a.key)}\n${title}`, 'aria-label': 'Close PR…', onclick }, icon('x', 15));
+      const cls = a.id === primary ? 'button.btn.primary' : a.id === 'github' ? 'button.btn.ghost' : 'button.btn.subtle';
+      return h(cls, { title, onclick }, icon(a.id === 'github' ? 'github' : a.icon, 14), a.label, kbd(...keymap.keys(a.key)));
+    };
+    const main = actions.filter((a) => a.id !== 'close' && a.id !== 'github').sort((a, b) => (b.id === primary) - (a.id === primary));
+    const close = actions.find((a) => a.id === 'close');
+    const github = actions.find((a) => a.id === 'github');
+    const icons = [
+      pr?.url ? h('button.btn.ghost.icon-btn', { title: tip('Checks', 'lanes.checks'), 'aria-label': 'Checks', onclick: () => run('checks', row, ctx) }, icon('checks', 15)) : null,
+      row.stage === 'stuck' ? h('button.btn.ghost.icon-btn', { title: tip('Send back…', 'lanes.sendBack'), 'aria-label': 'Send back…', onclick: () => run('sendBack', row, ctx) }, icon('sendBack', 15)) : null,
+      close ? button(close) : null,
+    ].filter(Boolean);
     head.replaceChildren(...[
-      h('div.quick-title', { title: row.title }, icon(pr ? 'merge' : row.landed ? 'commit' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', pr ? `#${pr.number} ${row.title}` : row.title),
+      h('div.review-pane-title', null,
+        h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(row.landed ? 'commit' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
+        ...rowBadges(row, { requested: ctx.requested }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text))),
       h('div.quick-meta.review-pane-meta', null,
-        ...rowBadges(row, { requested: ctx.requested }).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.text)),
-        pr ? h('span', null, [pr.author ? `by ${pr.author}` : null, `${pr.branch} → ${pr.base}`].filter(Boolean).join(' · ')) : row.branch ? h('span', null, row.branch) : null,
-        size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
-        pr?.url ? h('button.btn.ghost.small.review-pane-checks', { title: `Open the checks on GitHub (${keymap.keys('lanes.checks').join(' or ').toUpperCase()} in the list)`, onclick: () => run('checks', row, ctx) }, icon('external', 12), 'Checks') : null,
-        row.stage === 'stuck' ? h('button.btn.ghost.small.review-pane-checks', { title: `Send back with a ready-made prompt (${keymap.keys('lanes.sendBack').join(' or ').toUpperCase()} in the list)`, onclick: () => run('sendBack', row, ctx) }, icon('copy', 12), 'Send back…') : null),
-      reviewers.length ? h('div.quick-meta.review-pane-reviewers', null, ...reviewers.map((r) => h('span.review-verdict.' + r.state, { title: r.state === 'approved' ? `${r.login} approved` : `${r.login} requested changes` }, r.state === 'approved' ? icon('check', 11) : icon('x', 11), r.login))) : null,
-      h('div.review-tools.review-pr-actions', null, ...actions.map((a) => h((a.id === primary ? 'button.btn.primary.small' : 'button.chip') + (a.danger ? '.danger' : ''), {
-        title: a.remote ? `${a.label.replace('…', '')} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : `${a.label.replace('…', '')} (undoable)`,
-        onclick: () => run(a.id, row, ctx),
-      }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))),
+        pr?.author ? h('span', null, pr.author) : null,
+        pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
+        size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
+        ...reviewers.map((r) => h('span.review-verdict.' + r.state, { title: r.state === 'approved' ? `${r.login} approved` : `${r.login} requested changes` }, r.state === 'approved' ? icon('check', 11) : icon('x', 11), r.login))),
+      main.length || icons.length || github ? h('div.review-pane-actions', null,
+        ...main.map(button),
+        main.length && icons.length ? h('span.review-pane-sep') : null,
+        ...icons,
+        github ? h('span.spacer') : null,
+        github ? button(github) : null) : null,
     ].filter(Boolean));
   }
 

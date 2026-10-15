@@ -52,7 +52,7 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
         : h('div.muted.small', null, `Nothing new on ${res.base}.`),
       res.truncated ? h('div.muted.small', null, `Showing the newest ${entries.length}.`) : null,
       h('div.catchup-actions', null,
-        entries.length ? btn('Walk through what landed', 'lanes.walk', () => onWalk(), 'button.btn.primary.small') : null,
+        entries.length ? btn('Walk through', 'lanes.walk', () => onWalk(), 'button.btn.primary.small') : null,
         btn('Mark caught up', 'lanes.caughtUp', () => markCaughtUp())),
     ].filter(Boolean));
   }
