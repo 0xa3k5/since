@@ -113,3 +113,26 @@ test('rows lead with the title; conflicts name the other lane by title', async (
   const by = conflictsByLane([{ a, b, files: ['x.js'] }], 'main');
   assert.equal(conflictText(by.get('b:a')[0]), 'Conflicts with Speed up graph on x.js');
 });
+
+test('a local refresh during a PR load keeps the PR result, and a newer PR load wins', async () => {
+  const { loadGuard, takePrs } = await load();
+  const g = loadGuard();
+  const prLoad = g.start(true);
+  const local = g.start(false); // the file watcher fires while `gh` runs
+  assert.equal(g.prs(prLoad), true);
+  assert.equal(g.lanes(prLoad), false);
+  assert.equal(g.lanes(local), true);
+  assert.equal(g.prs(local), false);
+  const pr = { number: 3 };
+  const merged = takePrs([lane('a', { changes: 2 }), lane('b', { pr: { number: 1 } }), lane('new')], [lane('a', { pr }), lane('b')]);
+  assert.deepEqual(merged.map((l) => [l.name, l.pr, l.changes]), [['a', pr, 2], ['b', null, null], ['new', null, null]]);
+  const again = g.start(true);
+  assert.equal(g.prs(prLoad), false);
+  assert.equal(g.prs(again), true);
+});
+
+test('a PR load that never answers times out', async () => {
+  const { withTimeout } = await load();
+  await assert.rejects(withTimeout(new Promise(() => {}), 10, 'slow'), /slow/);
+  assert.equal(await withTimeout(Promise.resolve(4), 10), 4);
+});

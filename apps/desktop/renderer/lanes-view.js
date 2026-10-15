@@ -1,9 +1,12 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
-import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
+import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote } from './review-rows.js';
 import { catchupCard } from './catchup-view.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
+
+// "2h ago", but "just now" and "Oct 3" as they are.
+const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
 // bottom: the catch-up card (catchup-view.js: what landed since your checkpoint; ⇧↵ walks through it
@@ -31,6 +34,7 @@ const allKey = (l) => ALL + laneKey(l);
 const isLaneEntry = (x) => Boolean(x?.entry);
 // Live refreshes after commits are debounced; the watcher can fire several times per commit.
 const DEBOUNCE = 400;
+const PR_TIMEOUT = 30e3; // `gh` hung or offline: say so instead of loading forever
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // load({ prs, inbox }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
@@ -61,7 +65,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   let pendingSendBack = null; // sendBack(number) before Review listed it: opens once a refresh does
   let base = null;
   let timer = 0;
-  let seq = 0;
+  const loads = loadGuard();
   const opened = new Set(); // collapsed stages the user opened
   const details = new Set(); // rows with Details ▾ open
   let wanted = place?.key ?? null; // the row to select once it's loaded
@@ -169,7 +173,9 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
         h('div.list-title', null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
         h('div.list-sub', null,
           laneTitle(l) !== l.name ? h('span.lanes-branch', null, l.name) : null,
-          l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch'))),
+          l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
+          // The age lives on the sub line so it survives narrow lists and the split view.
+          l.activity ? h('span.lanes-ago', { title: fullDate(l.activity / 1000) }, ` · ${ago(l.activity / 1000)}`) : null),
         // The selected lane spells out who it conflicts with and where, with the fixes right there (CSS shows it on .active).
         l.conflicts ? h('div.lanes-conflicts', null,
           ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c))),
@@ -179,7 +185,6 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       h('span.lanes-changes' + (l.changes ? '.dirty' : ''), { title: l.changes == null ? '' : 'Uncommitted changes in its worktree' }, l.changes ? `${l.changes} changed` : ''),
       h('span.lanes-ab', { title: base && ab ? `Ahead/behind ${base}` : '' }, ab),
       prsOn() ? prCell(l.pr) : null,
-      h('span.lanes-time', { title: l.activity ? fullDate(l.activity / 1000) : '' }, l.activity ? timeAgo(l.activity / 1000) : ''),
     );
   }
 
@@ -479,8 +484,9 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       icon(e.kind === 'pr' ? 'merge' : 'commit', 14),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title), e.key ? h('span.badge', null, e.key) : null),
-        h('div.list-sub', null, [e.sha.slice(0, 7), e.author, e.kind === 'pr' ? e.branch : null, e.area].filter(Boolean).join(' · '))),
-      h('span.lanes-time', { title: fullDate(e.date / 1000) }, timeAgo(e.date / 1000)));
+        // A PR's date is when it merged; a commit's is when it was made.
+        h('div.list-sub', { title: e.date ? `${e.kind === 'pr' ? 'Merged' : 'Committed'} ${fullDate(e.date / 1000)}` : null },
+          [e.sha.slice(0, 7), e.author, e.date ? (e.kind === 'pr' ? 'merged ' : '') + ago(e.date / 1000) : null, e.kind === 'pr' ? e.branch : null, e.area].filter(Boolean).join(' · '))));
   }
 
   function renderStaged() {
@@ -548,8 +554,12 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     conflictChip.classList.toggle('on', conflictsOnly);
     const n = staged.stages.stuck.length;
     const ready = staged.stages.ready.length;
-    count.textContent = !loaded || prsLoading ? 'Loading…' : [`${n} stuck`, prsOn() ? `${ready} ready` : null].filter(Boolean).join(' · ');
-    empty.textContent = !loaded ? '' : prsLoading ? 'Loading pull requests…' : inboxFailed && prsOn() ? 'Couldn’t load pull requests.' : q && !shown.length ? 'Nothing matches.' : '';
+    // While PRs load, the local counts show with a spinner; "ready" needs the PRs.
+    count.replaceChildren(...(!loaded ? ['Loading…'] : prsLoading ? [`${n} stuck`, h('span.spinner.review-count-spin', { role: 'status', 'aria-label': 'Loading pull requests' })]
+      : [[`${n} stuck`, prsOn() ? `${ready} ready` : null].filter(Boolean).join(' · ')]));
+    const failed = loaded && !prsLoading && inboxFailed && prsOn();
+    empty.replaceChildren(...(failed ? ['Couldn’t load pull requests. ', h('button.btn.ghost.small', { onclick: () => fetchLanes({ prs: true }).catch(fail) }, 'Retry')]
+      : [!loaded ? '' : prsLoading ? 'Loading pull requests…' : q && !shown.length ? 'Nothing matches.' : '']));
     empty.hidden = !empty.textContent;
     const many = readyPrs().length;
     // A few keys with short labels; everything else is in ⌘K.
@@ -720,32 +730,48 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   filter.addEventListener('input', () => { walking = null; render(); });
 
   // Local data first, so the list shows at once; PRs (`gh pr list` plus your review requests) only when asked and on.
+  // A local refresh that lands while `gh` is still running doesn't discard the PRs (loadGuard); `gh` gets PR_TIMEOUT.
   async function fetchLanes({ prs }) {
-    const n = ++seq;
     const withPrs = Boolean(prs && prsOn());
+    const t = loads.start(withPrs);
     card?.reload({ prs: withPrs });
-    const res = await load({ prs: withPrs, ...(withPrs ? { inbox: true } : {}) });
-    if (n !== seq || (loaded && !el.isConnected)) return;
-    base = res.base;
-    if (withPrs) {
+    if (withPrs && inboxFailed) { inboxFailed = false; render(); } // Retry: back to "Loading pull requests…"
+    let res;
+    try {
+      const p = load({ prs: withPrs, ...(withPrs ? { inbox: true } : {}) });
+      res = await (withPrs ? withTimeout(p, PR_TIMEOUT, 'GitHub didn’t answer in time.') : p);
+    } catch (e) {
+      if (!withPrs || !loads.prs(t) || !el.isConnected) throw e;
+      inboxFailed = true;
+      loaded = true;
+      render();
+      toast('Could not load pull requests', { kind: 'error', detail: e.message });
+      return;
+    }
+    const newest = loads.lanes(t);
+    if ((!newest && !loads.prs(t)) || (loaded && !el.isConnected)) return;
+    if (withPrs && loads.prs(t)) {
       // Without the login and review requests (res.inboxError) the PRs still show.
       inboxFailed = !res.prs;
       if (!inboxFailed) inbox = { prs: res.prs, remote: res.remote, ...(res.inbox || {}) };
       if (res.inboxError) toast('Could not load your review requests', { kind: 'error', detail: res.inboxError.message });
     }
     if (!prsOn()) { inbox = null; inboxFailed = false; }
-    const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes)) : res.lanes;
-    lanes = sortLanes(withConflicts(next, conflicts));
+    if (newest) {
+      base = res.base;
+      const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes)) : res.lanes;
+      lanes = sortLanes(withConflicts(next, conflicts));
+    } else lanes = sortLanes(withConflicts(takePrs(lanes, res.lanes), conflicts)); // a newer local refresh has the lanes
     loaded = true;
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
     render();
-    runForecast(n);
+    if (newest) runForecast(t);
   }
   // Off the hot path: after the list shows. Unchanged pairs come from the main process's cache;
   // a newer list cancels this run (main resolves the cancelled one to null).
-  async function runForecast(n) {
+  async function runForecast(t) {
     const res = await forecast().catch(() => null);
-    if (!res || n !== seq || !el.isConnected) return;
+    if (!res || !loads.lanes(t) || !el.isConnected) return;
     forecastOk = res.supported;
     conflicts = conflictsByLane(res.pairs, base, (o) => laneTitle(lanes.find((x) => laneKey(x) === laneKey(o)) || o));
     if (!forecastOk) conflictsOnly = false;
