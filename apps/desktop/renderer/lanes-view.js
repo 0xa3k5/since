@@ -5,6 +5,9 @@ import { catchupCard } from './catchup-view.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
 
+// "2h ago", but "just now" and "Oct 3" as they are.
+const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
+
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
 // bottom: the catch-up card (catchup-view.js: what landed since your checkpoint; ⇧↵ walks through it
 // one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
@@ -170,7 +173,9 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
         h('div.list-title', null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
         h('div.list-sub', null,
           laneTitle(l) !== l.name ? h('span.lanes-branch', null, l.name) : null,
-          l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch'))),
+          l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
+          // The age lives on the sub line so it survives narrow lists and the split view.
+          l.activity ? h('span.lanes-ago', { title: fullDate(l.activity / 1000) }, ` · ${ago(l.activity / 1000)}`) : null),
         // The selected lane spells out who it conflicts with and where, with the fixes right there (CSS shows it on .active).
         l.conflicts ? h('div.lanes-conflicts', null,
           ...l.conflicts.map((c) => h('div', { title: c.files.join('\n') }, conflictText(c))),
@@ -180,7 +185,6 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       h('span.lanes-changes' + (l.changes ? '.dirty' : ''), { title: l.changes == null ? '' : 'Uncommitted changes in its worktree' }, l.changes ? `${l.changes} changed` : ''),
       h('span.lanes-ab', { title: base && ab ? `Ahead/behind ${base}` : '' }, ab),
       prsOn() ? prCell(l.pr) : null,
-      h('span.lanes-time', { title: l.activity ? fullDate(l.activity / 1000) : '' }, l.activity ? timeAgo(l.activity / 1000) : ''),
     );
   }
 
@@ -480,8 +484,9 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       icon(e.kind === 'pr' ? 'merge' : 'commit', 14),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title), e.key ? h('span.badge', null, e.key) : null),
-        h('div.list-sub', null, [e.sha.slice(0, 7), e.author, e.kind === 'pr' ? e.branch : null, e.area].filter(Boolean).join(' · '))),
-      h('span.lanes-time', { title: fullDate(e.date / 1000) }, timeAgo(e.date / 1000)));
+        // A PR's date is when it merged; a commit's is when it was made.
+        h('div.list-sub', { title: e.date ? `${e.kind === 'pr' ? 'Merged' : 'Committed'} ${fullDate(e.date / 1000)}` : null },
+          [e.sha.slice(0, 7), e.author, e.date ? (e.kind === 'pr' ? 'merged ' : '') + ago(e.date / 1000) : null, e.kind === 'pr' ? e.branch : null, e.area].filter(Boolean).join(' · '))));
   }
 
   function renderStaged() {

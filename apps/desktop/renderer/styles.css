@@ -796,12 +796,13 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-ab { min-width: 64px; }
 .lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 84px; }
 .lanes-time { min-width: 36px; color: var(--text-4); }
+.lanes-ago { color: var(--text-4); font-variant-numeric: tabular-nums; }
 .lanes-count { font-size: 12px; }
 .lanes-row .list-main { min-width: min(120px, 40%); }
 /* Narrow list: the title wins. The ↑↓, PR and progress columns go to the row's tooltip, then the
    row's button keeps only its icon and tags shrink to dots (each keeps its tooltip). */
 @container review-list (max-width: 640px) {
-  .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review, .lanes-row .lanes-time, .review-row-num { display: none; }
+  .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review, .review-row-num { display: none; }
   .review-sendback .btn-label { display: none; }
   .review-sendback.btn { width: 28px; padding: 0; justify-content: center; }
 }
@@ -867,7 +868,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-split > .lanes { min-width: 0; }
 .review-split:not(.split) > .review-split-handle, .review-split:not(.split) > .review-pane-host { display: none; }
 .review-split.split .page.flush .page-head { padding: 20px 20px 12px; }
-.review-split.split .lanes-time { display: none; }
 .review-split-handle { cursor: col-resize; background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat; }
 .review-split-handle:hover, .review-split-handle:active { background-image: linear-gradient(var(--accent), var(--accent)); background-size: 2px 100%; }
 .review-pane-host { display: flex; min-width: 0; min-height: 0; }
