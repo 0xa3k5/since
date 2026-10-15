@@ -10,6 +10,9 @@ export const SITE_URL: string = (globalThis.process?.env?.SITE_URL ?? 'https://e
 
 export const PRODUCT_NAME = 'GitLanes';
 
+/** Beta: false hides everything commercial (prices, buying, trial, licences) and shows Beta tags; true brings pricing back. */
+export const SHOW_PRICING = false;
+
 /**
  * Polar checkout link. Sandbox until the owner provides production credentials.
  * Sandbox checkout link from AK-61; swap for the production link when the owner provides it.

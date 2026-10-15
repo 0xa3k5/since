@@ -2,7 +2,7 @@
 // Shared template for /compare/<competitor> (website plan §7.4). Not a route ("_" prefix).
 import Base from '../../layouts/Base.astro';
 import Breadcrumbs from '../guides/_Breadcrumbs.astro';
-import { DOWNLOAD_URL, PRODUCT_NAME } from '../../config';
+import { DOWNLOAD_URL, PRODUCT_NAME, SHOW_PRICING } from '../../config';
 import { COMPETITORS, type Competitor } from './_data';
 import { GUIDE_LIST } from '../guides/_list';
 import '../guides/_content.css';
@@ -11,6 +11,7 @@ export interface Props { c: Competitor; ogTheme?: 'light' | 'dark' }
 const { c, ogTheme = 'dark' } = Astro.props;
 
 const srcIndex = new Map(c.sources.map((s, i) => [s.id, i + 1]));
+const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five'];
 const others = COMPETITORS.filter((x) => x.slug !== c.slug);
 const checkedLabel = new Date(c.checked + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 ---
@@ -61,7 +62,7 @@ const checkedLabel = new Date(c.checked + 'T00:00:00Z').toLocaleDateString('en-G
     </section>
 
     <section>
-      <h2>Three differences that matter</h2>
+      <h2>{COUNT[c.differences.length] ?? c.differences.length} differences that matter</h2>
       <div class="diffs">
         {c.differences.map((d) => (
           <div class="diff">
@@ -81,8 +82,17 @@ const checkedLabel = new Date(c.checked + 'T00:00:00Z').toLocaleDateString('en-G
       <h2>Switching from {c.name}</h2>
       <ul class="prose-list">{c.switching.map((t) => <li set:html={t.replace(/`([^`]+)`/g, '<code>$1</code>')} />)}</ul>
       <p class="cta-row">
-        <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
-        <a class="btn btn-secondary" href="/pricing">See pricing</a>
+        {SHOW_PRICING ? (
+          <Fragment>
+            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
+            <a class="btn btn-secondary" href="/pricing">See pricing</a>
+          </Fragment>
+        ) : (
+          <Fragment>
+            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download for Mac</a>
+            <a class="btn btn-secondary" href="/features">See all features</a>
+          </Fragment>
+        )}
       </p>
     </section>
 

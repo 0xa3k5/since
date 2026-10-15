@@ -1,17 +1,18 @@
 ---
 import AppShot from './AppShot.astro';
 import review from '../../assets/app/review-dark.png';
-import { PRODUCT_NAME, DOWNLOAD_URL, PRICE_NOW, TRIAL_DAYS } from '../../config';
+import { PRODUCT_NAME, DOWNLOAD_URL, PRICE_NOW, SHOW_PRICING, TRIAL_DAYS } from '../../config';
 import AppleGlyph from '../AppleGlyph.astro';
 ---
 <section class="hero wrap" aria-labelledby="hero-h">
+  {!SHOW_PRICING && <p class="hero-tag"><span class="beta-pill">Beta</span></p>}
   <h1 id="hero-h"><span class="glitch" data-glitch>21</span> PRs landed while you were away.</h1>
   <p class="lede">{PRODUCT_NAME} shows you what landed, what's stuck and what's ready to merge, so you can catch up on your agents' work at a glance. A Git client for the Mac, built for the person who merges.</p>
   <div class="cta-row">
     <a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a>
-    <a class="btn" href="#pricing">${PRICE_NOW}, once</a>
+    {SHOW_PRICING ? <a class="btn" href="#pricing">${PRICE_NOW}, once</a> : <a class="btn" href="#catch-up">How it works</a>}
   </div>
-  <p class="small">{TRIAL_DAYS} days free · No account · Local-first · macOS 12+</p>
+  <p class="small">{SHOW_PRICING && `${TRIAL_DAYS} days free · `}No account · Local-first · macOS 12+</p>
 
   <div class="hero-shot">
     <AppShot src={review} eager alt={`${PRODUCT_NAME} Review: the catch-up card with merged, stuck and ready counts, then Stuck and Ready to merge`} />

@@ -1,13 +1,23 @@
 ---
-import { BUY_URL, DOWNLOAD_URL, PRICE_NOW, TRIAL_DAYS } from '../../config';
+import { BUY_URL, DOWNLOAD_URL, PRICE_NOW, SHOW_PRICING, TRIAL_DAYS } from '../../config';
 import AppleGlyph from '../AppleGlyph.astro';
 ---
 <section class="close" aria-labelledby="cl-h">
   <div class="wrap">
     <h2 id="cl-h">Your agents keep shipping. <span class="soft">Now you can keep up.</span></h2>
-    <p class="lede">Try every feature free for {TRIAL_DAYS} days. If you keep it, it's ${PRICE_NOW}, once.</p>
-    <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a><a class="btn" href={BUY_URL}>Buy · ${PRICE_NOW}</a></div>
-    <p class="small">{TRIAL_DAYS} days free · No account · macOS 12+</p>
+    {SHOW_PRICING ? (
+      <Fragment>
+        <p class="lede">Try every feature free for {TRIAL_DAYS} days. If you keep it, it's ${PRICE_NOW}, once.</p>
+        <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a><a class="btn" href={BUY_URL}>Buy · ${PRICE_NOW}</a></div>
+        <p class="small">{TRIAL_DAYS} days free · No account · macOS 12+</p>
+      </Fragment>
+    ) : (
+      <Fragment>
+        <p class="lede">Try it on your own repositories, with every feature and no account.</p>
+        <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a></div>
+        <p class="small">Beta · macOS 12+</p>
+      </Fragment>
+    )}
   </div>
   <svg class="converge" viewBox="0 0 1200 380" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <defs>

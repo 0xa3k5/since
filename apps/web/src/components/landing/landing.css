@@ -21,6 +21,7 @@ section.s { padding-block: 150px; }
 
 /* ---------------------------------------------------------------- Hero */
 .hero { padding-top: 120px; text-align: center; }
+.hero-tag { margin: 0 0 18px; }
 .hero h1 { max-width: 13ch; margin: 0 auto; }
 .lp .hero .lede { max-width: 40rem; margin: 20px auto 0; }
 .cta-row { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 30px; flex-wrap: wrap; }
