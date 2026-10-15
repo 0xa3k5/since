@@ -61,7 +61,7 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
           h('span.badge' + (g.key ? '' : '.muted'), null, g.key || g.area),
           h('span.catchup-label', null, g.key ? g.label : `${g.entries.length} change${g.entries.length === 1 ? '' : 's'}`),
           g.entries.length > 1 && g.key ? h('span.muted', null, `· ${g.entries.length}`) : null)),
-        groups.length > TOP ? h('li', null, h('button.btn.ghost.small.catchup-more', { onclick: (e) => { e.stopPropagation(); more = !more; render(); onChange(); } }, more ? 'Show fewer ▴' : `+${groups.length - TOP} more ▸`)) : null)
+        groups.length > TOP ? h('li', null, h('button.btn.ghost.small.catchup-more', { onclick: (e) => { e.stopPropagation(); more = !more; render(); onChange(); } }, more ? 'Show fewer ▴' : `+${groups.length - TOP} more ▾`)) : null)
         : h('div.muted.small', null, `Nothing new on ${res.base}.`),
       res.truncated ? h('div.muted.small', null, `Showing the newest ${entries.length}.`) : null,
       h('div.catchup-actions', null,

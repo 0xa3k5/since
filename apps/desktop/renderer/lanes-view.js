@@ -8,7 +8,7 @@ import * as keymap from './keymap.js';
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
 // bottom: the catch-up card (catchup-view.js: what landed since your checkpoint; ⇧↵ walks through it
 // one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
-// merge · N, then lines that open in place: In progress · N ▸, Everything else · N ▸ (every branch
+// merge · N, then lines that open in place: In progress · N ▾, Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
 // "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
 // button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
@@ -63,7 +63,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   let timer = 0;
   let seq = 0;
   const opened = new Set(); // collapsed stages the user opened
-  const details = new Set(); // rows with Details ▸ open
+  const details = new Set(); // rows with Details ▾ open
   let wanted = place?.key ?? null; // the row to select once it's loaded
   let wantedScroll = place?.scroll ?? null;
   if (place) {
@@ -294,7 +294,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
           'data-tip': tipFor(open ? 'Hide details' : 'Details', 'lanes.details'), 'aria-label': 'Details', 'aria-expanded': String(open),
           onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
           ondblclick: (e) => e.stopPropagation(),
-        }, icon('chevron', 13)),
+        }, icon('chevronDown', 13)),
         h('button.btn.subtle.lanes-step', {
           'data-tip': tipFor(s.label, s.keyId), 'aria-label': s.label,
           onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
@@ -313,7 +313,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       note && rest ? ' · ' : null, rest);
   }
 
-  // Details ▸: the branch, its commits, worktree and uncommitted changes, and the way into the map.
+  // Details ▾: the branch, its commits, worktree and uncommitted changes, and the way into the map.
   function detailsEl(r) {
     const l = r.lane;
     const line = (label, value, t) => h('div.review-detail', null, h('span.muted', null, label), h('span', { title: t || value }, value));
@@ -513,14 +513,14 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
         if (!rs.length && (COLLAPSED.has(s.id) || (s.id === 'ready' && !prsOn()))) continue;
         const collapsed = COLLAPSED.has(s.id) && !opened.has(s.id);
         if (COLLAPSED.has(s.id)) {
-          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, s.label, ' ', h('span.lanes-count', null, String(rs.length)), ` ${collapsed ? '▸' : '▾'}`));
+          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, s.label, ' ', h('span.lanes-count', null, String(rs.length)), ` ${collapsed ? '▾' : '▴'}`));
         } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, h('span', null, s.label, ' ', h('span.lanes-count', null, String(rs.length))),
           s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
         if (collapsed) continue;
         if (!rs.length && loaded && !prsLoading) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
       }
-      rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▾' : '▸'}`));
+      rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▴' : '▾'}`));
       if (all) {
         let bucket = null;
         for (const x of everything) {
