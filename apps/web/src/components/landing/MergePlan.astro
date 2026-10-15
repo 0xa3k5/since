@@ -1,4 +1,6 @@
 ---
+import AppShot from './AppShot.astro';
+import plan from '../../assets/app/merge-plan-dark.png';
 import { PRODUCT_NAME } from '../../config';
 ---
 <section class="s wrap rule fs" id="merge" data-name="Merge in order" aria-labelledby="m-h">
@@ -7,27 +9,7 @@ import { PRODUCT_NAME } from '../../config';
       <h2 id="m-h">Know the merge order <span class="soft">before you merge.</span></h2>
       <p>Each PR passed on its own, but once one lands, the next might not merge cleanly. {PRODUCT_NAME} tries the ready PRs against main on your Mac, finds an order with no merge conflicts, and tells you why. Then it merges them on GitHub one by one, and stops if anything changes. Merges on GitHub can't be undone, so it tells you before it starts.</p>
     </div>
-    <div class="orders">
-      <div class="order">
-        <h3><span>Merged top to bottom</span><span>3 ready</span></h3>
-        <div class="track">
-          <div class="node main"><i></i><b>main</b></div>
-          <div class="node ok"><i>✓</i><b>#121</b><small>merges</small></div>
-          <div class="node bad"><i>✕</i><b>#119</b><small>conflicts in styles.css</small></div>
-          <div class="node dim"><i></i><b>#120</b><small>stuck behind it</small></div>
-        </div>
-      </div>
-      <div class="order good">
-        <h3><span>Merge plan</span><span style="color:var(--green)">no conflicts</span></h3>
-        <div class="track">
-          <div class="node main"><i></i><b>main</b></div>
-          <div class="node ok"><i>1</i><b>#120</b><small>clean</small></div>
-          <div class="node ok"><i>2</i><b>#119</b><small>clean</small></div>
-          <div class="node ok"><i>3</i><b>#121</b><small>clean after #119</small></div>
-        </div>
-        <div class="foot"><span class="tag warn">next</span>#118 will conflict in review.js · <u>Send back</u><span class="btn btn-sm btn-primary">Merge 3 in order</span></div>
-      </div>
-    </div>
+    <AppShot src={plan} alt="The Merge plan sheet: the ready pull requests in an order that merges with no conflicts" />
     <div class="facts3">
       <div><h4>Checked on your Mac</h4><p>With your git, before anything touches GitHub.</p></div>
       <div><h4>Warns you early</h4><p>Which open PRs will conflict once these land.</p></div>
