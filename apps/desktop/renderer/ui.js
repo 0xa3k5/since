@@ -52,6 +52,7 @@ const P = {
   x: '<path d="m4 4 8 8M12 4l-8 8"/>',
   more: '<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>',
   chevron: '<path d="m6 4 4 4-4 4"/>',
+  chevronLeft: '<path d="m10 4-4 4 4 4"/>',
   chevronDown: '<path d="m4 6 4 4 4-4"/>',
   undo: '<path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a4 4 0 0 1 0 8H7"/>',
   redo: '<path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a4 4 0 0 0 0 8H9"/>',
