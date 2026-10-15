@@ -77,7 +77,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
       statusBadge(f.status),
       h('span.fname', null, name),
       h('span.fdir', null, dir),
-      st === 'changed' ? h('span.badge.warn', { title: 'Changed since you marked it reviewed' }, 'changed') : null,
+      st === 'changed' ? h('span.badge.warn', { title: 'Changed since you marked it reviewed' }, 'Changed') : null,
       f.add || f.del ? h('span.stat.small', null, f.add ? h('span.add', null, '+' + f.add) : null, f.del ? h('span.del', null, '−' + f.del) : null) : null,
     );
   }

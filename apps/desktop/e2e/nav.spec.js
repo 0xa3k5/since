@@ -54,9 +54,9 @@ test('a repository opens on Review: Stuck, Everything else in place, then the Ma
   const app = await launch(repo, { env: { GITLANES_START_VIEW: '' } });
   const { page } = app;
   await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
-  await expect(page.locator('.lanes-group[data-stage="stuck"]')).toHaveText('Stuck · 0');
+  await expect(page.locator('.lanes-group[data-stage="stuck"]')).toHaveText('Stuck 0');
   const everything = page.locator('.review-stage[data-stage="everything"]');
-  await expect(everything).toContainText('Everything else · 2');
+  await expect(everything).toContainText('Everything else 2');
   await expect(page.locator('.lanes-row', { has: page.locator('.lanes-name', { hasText: 'feature-a' }) })).toHaveCount(0);
   await everything.click();
   const row = page.locator('.lanes-row', { has: page.locator('.lanes-name', { hasText: 'feature-a' }) });
