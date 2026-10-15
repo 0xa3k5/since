@@ -15,6 +15,7 @@ import { STALE_DAYS, cleanupItem } from './cleanup.js';
 import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
+import { openSendBack } from './send-back-view.js';
 import { loadPrReview, leavesPage, paneActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
@@ -2331,6 +2332,7 @@ function openLanes() {
     onPrReview: (pr, remote) => openPrReview(pr, remote),
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
+    onSendBack: sendBackRow,
     all: lanesAll,
     catchup: { load: (opts) => api.app('catchup', opts), mark: (to) => api.app('catchup-mark', to) },
     onReview: (lane, base) => openReview(lane, base),
@@ -2453,7 +2455,19 @@ function paneAction(id, row, ctx) {
   if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
+  if (id === 'sendBack') return sendBackRow(row, ctx);
   toast(`That doesn’t apply to ${row.title}`);
+}
+
+// Send back (send-back-view.js): the sheet for a stuck row. sendBackPr(number) opens it for that
+// PR from anywhere (Merge plan links to it), going to Review first.
+function sendBackRow(row, ctx) {
+  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: ctx?.remote || null, call: (...a) => api.app(...a), git });
+}
+function sendBackPr(number) {
+  if (!state.repo) return;
+  if (state.view !== 'lanes' || !lanesOpen()) setView('lanes');
+  return lanesPage?.sendBack(number);
 }
 
 // Merge and tidy (lanes overview, branch review, ⌘K): land a lane on its base as one squashed
@@ -3286,6 +3300,8 @@ function openPalette() {
       if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} lane ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'lane remove worktree branch discard stalled abandon' });
       if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'lane merged shipped tidy remove' });
     }
+    const stuckSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stuckSelection() : null;
+    if (stuckSel) add('Review', `Send back ${stuckSel.pr ? `#${stuckSel.pr.number}` : stuckSel.title}…`, () => lanesPage.sendBack(stuckSel.pr?.number ?? null), { icon: 'copy', kbd: keymap.keys('lanes.sendBack'), keywords: 'send back stuck prompt agent conflict ci failing copy fix' });
     const paneSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.paneSelection() : null;
     if (paneSel) {
       const t = paneSel.row.pr ? `#${paneSel.row.pr.number}` : paneSel.row.title;
