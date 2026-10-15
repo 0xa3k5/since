@@ -1,7 +1,7 @@
 ---
 // Claims follow the website plan's gates (AK-34 §3.6): only what is merged in main. No speed claims,
 // undo history is unlimited (AK-51), keyboard copy says "every commit action is a single key".
-import { PRODUCT_NAME, PRICE_NOW } from '../config';
+import { PRODUCT_NAME, PRICE_NOW, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
 import PageHead from '../components/content/PageHead.astro';
 import Shot from '../components/content/Shot.astro';
@@ -169,11 +169,17 @@ const tiles = [
     <section class="cta-band" aria-label="Get GitLanes">
       <div>
         <h2>Try it on your own repositories</h2>
-        <p>14 days free. Then ${PRICE_NOW} once, with lifetime updates.</p>
+        {SHOW_PRICING ? <p>14 days free. Then ${PRICE_NOW} once, with lifetime updates.</p> : <p>Every feature, no account. macOS 12 or later.</p>}
       </div>
       <div class="actions">
-        <a class="btn btn-primary" href="/download">Download free trial</a>
-        <a class="btn btn-secondary" href="/pricing">See pricing</a>
+        {SHOW_PRICING ? (
+          <Fragment>
+            <a class="btn btn-primary" href="/download">Download free trial</a>
+            <a class="btn btn-secondary" href="/pricing">See pricing</a>
+          </Fragment>
+        ) : (
+          <a class="btn btn-primary" href="/download">Download for Mac</a>
+        )}
       </div>
     </section>
   </div>

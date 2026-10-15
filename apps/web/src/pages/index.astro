@@ -15,11 +15,11 @@ import Pricing from '../components/landing/Pricing.astro';
 import Faq from '../components/landing/Faq.astro';
 import Close from '../components/landing/Close.astro';
 import { faqJsonLd } from '../components/landing/faq';
-import { PRICE_NOW, PRODUCT_NAME } from '../config';
+import { PRICE_NOW, PRODUCT_NAME, SHOW_PRICING } from '../config';
 import '../components/landing/landing.css';
 
 const title = `${PRODUCT_NAME}: a keyboard-first Git client for Mac`;
-const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, send back what's stuck, and merge the rest in order. Local-first Mac app, $${PRICE_NOW} once.`;
+const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, send back what's stuck, and merge the rest in order. Local-first Mac app${SHOW_PRICING ? `, $${PRICE_NOW} once` : ''}.`;
 ---
 <Base title={title} description={description} ogImage="/og/home.png">
   <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
@@ -34,7 +34,7 @@ const description = `${PRODUCT_NAME} is the Git client for the agentic era. See 
     <GitClientTabs />
     <Keyboard />
     <Founder />
-    <Pricing />
+    {SHOW_PRICING && <Pricing />}
     <Faq />
     <Close />
   </div>
