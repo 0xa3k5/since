@@ -51,6 +51,17 @@ function checksState(rollup) {
   return pending ? 'pending' : 'success';
 }
 
+// The names of the failing checks (check runs' name, commit statuses' context), at most 20.
+function failingChecks(rollup) {
+  if (!Array.isArray(rollup)) return [];
+  const out = [];
+  for (const c of rollup) {
+    const name = String(c?.name || c?.context || '').slice(0, 200);
+    if (name && FAILED.has(String(c?.conclusion || c?.state || '').toUpperCase()) && !out.includes(name)) out.push(name);
+  }
+  return out.slice(0, 20);
+}
+
 const text = (v, max = 1024) => (typeof v === 'string' ? v.slice(0, max) : '');
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
 
@@ -81,6 +92,7 @@ function normalizePr(p) {
     draft: p.isDraft === true,
     review: REVIEW[p.reviewDecision] || null,
     checks: checksState(p.statusCheckRollup),
+    failing: failingChecks(p.statusCheckRollup),
     author: text(p.author?.login, 200),
     url: url.startsWith('https://') ? url : null,
     updatedAt: text(p.updatedAt, 64),
@@ -465,4 +477,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { failingChecks, reviewVerdicts, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, closePr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
