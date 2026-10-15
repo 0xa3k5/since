@@ -504,25 +504,29 @@ handle('app:lanes-list', async (e, opts) => {
   const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
   const withInbox = opts?.inbox == null ? false : check.bool(opts.inbox, 'inbox');
   const root = session(e).repo.root;
-  const { lanes, ...rest } = await git.lanes(root, { base });
   let listed = null;
   let prError = null;
   let inbox = null;
   let inboxError = null;
+  let prHeads = [];
   if (withPrs && (await prEnabled(root))) {
     const remotes = await git.getRemotes(root);
     if (github.pickRemote(remotes)) {
-      // A failed inbox lookup (token scope, Enterprise) keeps the PR list and the lane badges.
-      const [l, i] = await Promise.allSettled([
+      // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
+      // lane badges; merged PRs only add the "shipped" check.
+      const [l, i, m] = await Promise.allSettled([
         github.listPrs({ enabled: true, remotes }),
         withInbox ? github.inbox({ enabled: true, remotes }) : null,
+        github.mergedPrs({ enabled: true, remotes }),
       ]);
       if (l.status === 'fulfilled') listed = l.value;
       else prError = serializeError(l.reason);
       if (i.status === 'fulfilled') inbox = i.value;
       else if (!prError) inboxError = serializeError(i.reason);
+      if (m.status === 'fulfilled') prHeads = m.value;
     }
   }
+  const { lanes, ...rest } = await git.lanes(root, { base, prHeads });
   const s = session(e);
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
@@ -865,6 +869,9 @@ function createWindow(repoDir) {
   bench?.attach(win);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), repoDir ? { query: { repo: repoDir } } : undefined);
   win.once('ready-to-show', () => win.show());
+  // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
+  win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') win.webContents.send('command', 'back'); else if (cmd === 'browser-forward') win.webContents.send('command', 'forward'); });
+  win.on('swipe', (e, dir) => { if (dir === 'left' || dir === 'right') win.webContents.send('command', dir === 'left' ? 'back' : 'forward'); });
   const id = win.webContents.id;
   win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); buildMenu(); });
   return win;
@@ -971,6 +978,9 @@ function buildMenu() {
       label: 'View',
       submenu: [
         item('Command Menu', acc('view.palette'), 'palette'),
+        { type: 'separator' },
+        item('Back', acc('view.back'), 'back'),
+        item('Forward', acc('view.forward'), 'forward'),
         { type: 'separator' },
         item('Map', acc('view.map'), 'view', 'map'),
         item('Commit', acc('view.commit'), 'view', 'commit'),

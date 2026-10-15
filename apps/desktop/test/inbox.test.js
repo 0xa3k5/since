@@ -43,4 +43,7 @@ test('buckets group by author in list order, mark agent batches and drop empty b
   assert.deepEqual(out[0].groups.map((g) => [g.author, g.agent, g.prs.map((p) => p.number)]), [['bot', true, [1, 3]], ['ana', false, [2]]]);
   assert.deepEqual(out[1].groups[0].prs.map((p) => p.number), [4]);
   assert.deepEqual(inboxBuckets([]), []);
+  // Your own account is never badged as an agent, even when one of its lanes looks agent-made.
+  const mine = inboxBuckets([pr(7, { ...READY, author: 'Kim' })], { me: 'kim', agents: [7] });
+  assert.equal(mine[0].groups[0].agent, false);
 });

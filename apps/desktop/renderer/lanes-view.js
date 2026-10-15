@@ -20,8 +20,9 @@ const DEBOUNCE = 400;
 // onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
 // progress(lane) → its review progress (review.js) or null. actions(lane) → extra context-menu items, the hook for
 // later row actions (review, merge, delete); none yet. onCleanup() opens Clean up. onCheckout(pr) and
-// onMergeReady(prs, remote) are the Inbox's actions; `tab` picks the tab to start on.
-export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes' }) {
+// onMergeReady(prs, remote) are the Inbox's actions; `tab` picks the tab to start on. `place` is a `location()` to
+// return to (Back, ⌘[): its tab, row, filter and scroll, put back once the lanes load.
+export function lanesView({ load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, progress = () => null, onCheckout = () => {}, onMergeReady = () => {}, actions = () => [], tab = 'lanes', place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last inbox load
   let inboxFailed = false;
@@ -35,8 +36,11 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   let base = null;
   let timer = 0;
   let seq = 0;
+  let wanted = place?.key ?? null; // the row to select once it's loaded
+  let wantedScroll = place?.scroll ?? null;
+  if (place) { tab = place.tab || tab; agentsOnly = !!place.agentsOnly; conflictsOnly = !!place.conflictsOnly; }
 
-  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter lanes…', spellcheck: false, 'aria-label': 'Filter lanes' });
+  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter lanes…', spellcheck: false, 'aria-label': 'Filter lanes', value: place?.filter || '' });
   const agentChip = h('button.chip', { title: 'Agent lanes only (A)', onclick: () => toggleAgents() }, 'Agent lanes');
   const conflictChip = h('button.chip', { title: 'Lanes with predicted conflicts only (C)', onclick: () => toggleConflicts() }, 'Conflicts');
   const count = h('span.muted.lanes-count');
@@ -59,13 +63,21 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     hint,
   );
 
+  function doneText(l) {
+    const why = l.done.reason === 'pr' ? `Pull request #${l.done.pr} was merged`
+      : l.done.reason === 'key' ? `${l.done.key} is on the base branch`
+        : l.done.reason === 'subject' ? 'A commit with its title is on the base branch'
+          : l.merged === 'ancestor' ? 'Already part of the base branch' : 'Its changes are already on the base branch';
+    return l.changes ? `${why} · ${l.changes} uncommitted file${l.changes === 1 ? '' : 's'}` : why;
+  }
+
   function badges(l) {
     return [
       l.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${l.agent.reason}: ${l.agent.match})` }, 'Agent') : null,
       l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
       l.isBase ? h('span.badge', null, 'Base') : null,
       l.worktree?.current ? h('span.badge.local', null, 'This window') : null,
-      l.merged ? h('span.badge', { title: l.merged === 'squash' ? 'Its changes are already on the base branch' : 'Already part of the base branch' }, 'Merged') : null,
+      l.done ? h('span.badge', { title: doneText(l) }, 'Merged') : null,
       l.upstreamGone ? h('span.badge.warn', { title: 'Its upstream branch was deleted' }, 'Gone') : null,
       l.worktree?.prunable ? h('span.badge.warn', { title: 'The worktree folder no longer exists' }, 'Missing') : null,
     ];
@@ -125,6 +137,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     hint.textContent = `↵ Open · R Review · M Merge and tidy · J/K Move · / Filter · A Agent lanes only${forecastOk ? ' · C Conflicts only' : ''}${prsOn() ? ' · Tab Inbox' : ''}`;
     if (agentsOnly && !markAgents()) agentsOnly = false;
     shown = filterLanes(lanes, filter.value, { agentsOnly, conflictsOnly });
+    adopt(shown.map(laneKey));
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
     const rows = [];
     let bucket = null;
@@ -181,6 +194,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     const bs = buckets();
     const order = bs.flatMap((b) => b.groups.flatMap((g) => g.prs));
     shown = order;
+    adopt(order.map(prKey));
     if (!order.some((p) => prKey(p) === selKey)) selKey = order[0] ? prKey(order[0]) : null;
     const rows = [];
     for (const b of bs) {
@@ -218,6 +232,13 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
     render();
     if (tab === 'inbox' && !inbox) fetchLanes({ prs: true }).catch(fail);
     el.focus({ preventScroll: true });
+  }
+
+  // Back to a saved place: select its row once the list has it, and scroll to where it was.
+  function adopt(keys) {
+    if (wanted && keys.includes(wanted)) selKey = wanted;
+    if (loaded && (tab !== 'inbox' || inbox)) wanted = null; // gone since: keep the usual first row
+    if (loaded && wantedScroll != null) { const y = wantedScroll; wantedScroll = null; setTimeout(() => { el.scrollTop = y; }); }
   }
 
   function select(key, scroll = true) {
@@ -345,5 +366,7 @@ export function lanesView({ load, forecast = async () => null, prsOn, markAgents
   const showConflicts = () => { setTab('lanes'); if (!conflictsOnly) toggleConflicts(); };
   // ⌘K "Merge and tidy…" acts on the selected lane; on the Inbox the selection is a PR, not a lane.
   const selected = () => (tab !== 'inbox' && current() ? { lane: current(), base } : null);
-  return { el, refresh, rerender: render, show, showConflicts, selected, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  // Where the user is, for Back and Forward (app.js passes it back as `place`).
+  const location = () => ({ tab, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, scroll: el.scrollTop });
+  return { el, refresh, rerender: render, show, showConflicts, selected, location, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }

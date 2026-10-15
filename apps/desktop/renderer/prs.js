@@ -91,7 +91,8 @@ export function inboxBuckets(prs = [], opts = {}) {
     if (!groups.has(author)) groups.set(author, { author, agent: false, prs: [] });
     const g = groups.get(author);
     g.prs.push(pr);
-    if (agents.has(pr.number)) g.agent = true;
+    // Your own login is never an agent, even when one of your lanes looks agent-made.
+    if (agents.has(pr.number) && !(o.me && author.toLowerCase() === o.me.toLowerCase())) g.agent = true;
   }
   return INBOX_BUCKETS.map((b) => {
     const groups = [...out.get(b.id).values()];
