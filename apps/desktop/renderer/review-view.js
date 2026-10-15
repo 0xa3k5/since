@@ -15,7 +15,10 @@ import { PR_ACTIONS, prActionFor } from './pr-review.js';
 // onMerge() merges and tidies the branch (null: not offered, e.g. a detached head).
 // pr: an Inbox pull request (pr-review.js): the head shows its author and checks, and
 // onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) on it.
-export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {} }) {
+// Embedded in Review's pane (review-pane.js): `header` replaces the title, PR line and buttons,
+// there's no Back button and it doesn't take focus; onKey(keyId) runs first and returns true when
+// it handled a `review` key (the pane's actions); Esc still calls onClose.
+export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -31,14 +34,14 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   const listEl = h('div.file-list.review-list', { role: 'listbox', 'aria-label': 'Files' });
   const side = h('div.quick-side.review-side', null,
     h('div.quick-head', null,
-      h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
-      h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
+      embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
+      header || h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
       pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
-      h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
-      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
+      h('div.review-tools', null, deltaBtn, header ? null : !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
+      pr && !header ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
     listEl,
-    h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
+    embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · J/K Move · Esc Back`),
   );
   const main = h('div.quick-main', null, loading('Loading the branch…'));
   const el = h('div.quick.review', { tabIndex: 0 }, side, main);
@@ -164,6 +167,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
 
   el.addEventListener('keydown', (e) => {
     const id = keymap.match('review', e);
+    if (id && onKey?.(id)) { e.preventDefault(); e.stopPropagation(); return; }
     if (!id || (!pr && prActionFor(id) && id !== 'review.merge')) return;
     e.preventDefault();
     e.stopPropagation();
@@ -182,6 +186,6 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     timer = setTimeout(() => { if (el.isConnected) load(); }, 400);
   }
 
-  setTimeout(() => { el.focus({ preventScroll: true }); load(); });
+  setTimeout(() => { if (!embedded) el.focus({ preventScroll: true }); load(); });
   return { el, refresh };
 }
