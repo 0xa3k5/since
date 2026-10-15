@@ -49,6 +49,7 @@ const P = {
   plus: '<path d="M8 3v10M3 8h10"/>',
   minus: '<path d="M3 8h10"/>',
   check: '<path d="m3 8.5 3 3 7-7"/>',
+  'check-circle': '<circle cx="8" cy="8" r="6.5"/><path d="m5.2 8.2 2 2 3.6-3.8"/>',
   x: '<path d="m4 4 8 8M12 4l-8 8"/>',
   pending: '<circle cx="8" cy="8" r="4.5"/>',
   comment: '<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/>',

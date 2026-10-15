@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { landedEntries, groupLanded, sinceOptions, sinceText, countsText, TOP } from './catchup.js';
+import { landedEntries, groupLanded, sinceOptions, sinceText, sinceLabel, countsText, TOP } from './catchup.js';
 import * as keymap from './keymap.js';
 
 // Review's catch-up card (AK-281), at the top of the list: where you're caught up to, counts for
@@ -120,5 +120,5 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
   const setCounts = (c) => { if (c.stuck === counts.stuck && c.ready === counts.ready) return; counts = c; if (res) render(); };
 
   render();
-  return { el, reload, setCounts, walkList, pickSince: () => pickSince(), markCaughtUp, base: () => res?.base || null };
+  return { el, reload, setCounts, walkList, sinceLabel: () => sinceLabel(res, { short }), pickSince: () => pickSince(), markCaughtUp, base: () => res?.base || null };
 }

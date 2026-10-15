@@ -159,3 +159,12 @@ test('base CI: the newest run per workflow on the newest commit; cancelled runs 
   assert.equal(github.parseBaseCi('[]'), null);
   assert.throws(() => github.parseBaseCi('{}'), /list/);
 });
+
+test('walk-through header: a short "since …" for every catch-up kind (AK-304)', async () => {
+  const { sinceLabel } = await load('catchup.js');
+  assert.equal(sinceLabel({ kind: 'checkpoint', checkpoint: { sha: 'a1b2c3d4e5f6' } }), 'since a1b2c3d');
+  assert.equal(sinceLabel({ kind: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
+  assert.equal(sinceLabel({ kind: 'yesterday' }), 'since yesterday');
+  assert.equal(sinceLabel({ kind: 'week' }), 'since last week');
+  assert.equal(sinceLabel({ kind: 'checkpoint', checkpoint: {} }), 'since checkpoint');
+});
