@@ -717,6 +717,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-group > .badge, .catchup-group > .muted { flex: none; white-space: nowrap; }
 .catchup-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catchup-more { height: 22px; padding: 0 6px; color: var(--accent-fg); }
+.review-catchup-card.compact { padding: 6px 8px 6px 12px; }
+.review-catchup-card.compact .catchup-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.review-catchup-card.compact .catchup-head > .icon { flex: none; color: var(--green); }
 .catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 /* A section header's own button (Done, Plan merge) sits on the header line, so rows keep their full width. */
 .lanes-group.needs { display: flex; align-items: center; gap: 8px; }
