@@ -496,22 +496,38 @@ handle('app:pr-list', aiCall(async (e) => {
 // Lanes overview: every local branch and worktree (git.lanes), with open PRs joined on by head
 // branch. Local only unless the caller asks for PRs ({ prs: true }) and pull requests are on
 // here; then it's the same single `gh pr list` as app:pr-list. A gh failure leaves `pr: null`
-// on every lane and comes back as `prError`, so the local data still shows.
+// on every lane and comes back as `prError`, so the local data still shows. The PR inbox tab
+// adds { inbox: true }: every open PR (`prs`), plus github.inbox (review requests, your login).
 handle('app:lanes-list', async (e, opts) => {
-  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['base', 'prs'].includes(k)))) throw new check.IpcArgError('Invalid lanes options');
+  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['base', 'prs', 'inbox'].includes(k)))) throw new check.IpcArgError('Invalid lanes options');
   const base = opts?.base == null ? undefined : check.rev(opts.base, 'base');
   const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
+  const withInbox = opts?.inbox == null ? false : check.bool(opts.inbox, 'inbox');
   const root = session(e).repo.root;
   const { lanes, ...rest } = await git.lanes(root, { base });
   let listed = null;
   let prError = null;
+  let inbox = null;
+  let inboxError = null;
   if (withPrs && (await prEnabled(root))) {
     const remotes = await git.getRemotes(root);
-    if (github.pickRemote(remotes)) listed = await github.listPrs({ enabled: true, remotes }).catch((err) => { prError = serializeError(err); return null; });
+    if (github.pickRemote(remotes)) {
+      // A failed inbox lookup (token scope, Enterprise) keeps the PR list and the lane badges.
+      const [l, i] = await Promise.allSettled([
+        github.listPrs({ enabled: true, remotes }),
+        withInbox ? github.inbox({ enabled: true, remotes }) : null,
+      ]);
+      if (l.status === 'fulfilled') listed = l.value;
+      else prError = serializeError(l.reason);
+      if (i.status === 'fulfilled') inbox = i.value;
+      else if (!prError) inboxError = serializeError(i.reason);
+    }
   }
   const s = session(e);
   s.lanes = { root, baseSha: rest.baseSha, lanes };
-  return { ...rest, lanes: github.joinLanes(lanes, listed), prError };
+  const joined = github.joinLanes(lanes, listed);
+  if (!withInbox) return { ...rest, lanes: joined, prError };
+  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, inbox, inboxError };
 });
 
 // Conflict forecast for the lanes app:lanes-list last returned in this window (git-only, no
@@ -964,6 +980,7 @@ function buildMenu() {
         item('Configuration', acc('view.config'), 'view', 'config'),
         item('Worktrees', acc('view.worktrees'), 'view', 'worktrees'),
         item('Lanes', acc('view.lanes'), 'view', 'lanes'),
+        item('Pull Request Inbox', acc('view.inbox'), 'inbox'),
         { type: 'separator' },
         item('Toggle Sidebar', acc('view.sidebar'), 'sidebar'),
         item('Show Tags', acc('view.tags'), 'toggle', 'tags'),

@@ -62,7 +62,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', author: 'kim', url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z' });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', author: 'kim', url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
@@ -330,6 +330,29 @@ test('joinLanes: PRs attach by upstream branch, forks only to lanes tracking the
   assert.deepEqual(out[0].pr, { number: 1, title: 'PR 1', state: 'open', draft: true, checks: 'pending', review: 'approved', url: 'https://github.com/acme/app/pull/1' });
   assert.equal(out[0].name, 'feat', 'lane fields kept');
   assert.ok(github.joinLanes(lanes, null).every((l) => l.pr === null));
+});
+
+test('normalizePr: GitHub’s mergeable state as true, false or null', () => {
+  assert.equal(github.normalizePr(PR({ mergeable: 'MERGEABLE' })).mergeable, true);
+  assert.equal(github.normalizePr(PR({ mergeable: 'CONFLICTING' })).mergeable, false);
+  assert.equal(github.normalizePr(PR({ mergeable: 'UNKNOWN' })).mergeable, null);
+  assert.ok(github.PR_FIELDS.includes('mergeable'));
+});
+
+test('inbox: nothing runs while off; review requests and the login, the login asked once per host', async () => {
+  const off = recorder('[]');
+  await assert.rejects(github.inbox({ enabled: false, remotes: [ORIGIN], dirs: [fakeGh()], exec: off.exec }), { code: 'gh-off' });
+  assert.equal(off.calls.length, 0);
+  const { calls, exec } = recorder((args) => (args[0] === 'api' ? 'kim\n' : JSON.stringify([{ number: 3 }, { number: 7 }, { number: -1 }])));
+  const dirs = [fakeGh()];
+  assert.deepEqual(await github.inbox({ enabled: true, remotes: [ORIGIN], dirs, exec }), { me: 'kim', requested: [3, 7] });
+  assert.deepEqual(calls.map((c) => c.args), [
+    ['api', 'user', '--hostname', 'github.com', '--jq', '.login'],
+    ['pr', 'list', '--repo', 'github.com/acme/app', '--state', 'open', '--search', 'review-requested:@me', '--limit', '100', '--json', 'number'],
+  ]);
+  await github.inbox({ enabled: true, remotes: [ORIGIN], dirs, exec });
+  assert.equal(calls.filter((c) => c.args[0] === 'api').length, 1);
+  assert.throws(() => github.parseNumbers('{}'), { code: 'gh-failed' });
 });
 
 test('prPushPlan pushes new PR branches to the GitHub remote and keeps a mirror upstream', () => {
