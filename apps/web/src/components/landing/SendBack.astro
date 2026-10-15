@@ -1,6 +1,7 @@
 ---
+import AppShot from './AppShot.astro';
+import sendBack from '../../assets/app/send-back-dark.png';
 import { PRODUCT_NAME } from '../../config';
-const PROMPT = "PR #118 \"Show conflicting files for a stuck PR\"\nagent/web-305 → main\n\nIt no longer merges cleanly. main changed these files\nafter you branched (in #117):\n  apps/desktop/renderer/review.js\n\nRebase on main, resolve the conflict and keep both\nchanges: the responsive panes from #117 and your\nconflict list. Run pnpm test, then push.";
 ---
 <section class="s wrap rule fs" id="unblock" data-name="Send back" aria-labelledby="u-h">
   <div class="feat">
@@ -12,24 +13,6 @@ const PROMPT = "PR #118 \"Show conflicting files for a stuck PR\"\nagent/web-305
         <li>Or post it as a PR comment, for agents that watch their PRs</li>
       </ul>
     </div>
-    <div class="layer"><div class="ghost" aria-hidden="true">
-      <p class="grp-h">Stuck · 2</p>
-      <div class="row"><span class="num">#118</span><span>Show conflicting files for a stuck PR</span><span class="tag red">conflict</span></div>
-      <div class="row"><span class="num">#115</span><span>Restyle review header</span><span class="tag red">CI ✗</span></div>
-      <p class="grp-h" style="margin-top:10px">Ready to merge · 3</p>
-      <div class="row"><span class="num">#121</span><span>Show reviewers on PRs</span><span class="tag green">approved</span></div>
-      <div class="row"><span class="num">#120</span><span>Collapse the catch-up card</span><span class="tag green">approved</span></div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="dots"><i></i><i></i><i></i></span>Send back · #118</div>
-      <div class="app-main">
-        <div><span class="tag red">conflict</span> <span style="margin-left:8px">conflicts with main in <b>review.js</b>, changed in #117</span></div>
-        <div>
-          <div class="grp-h"><span>Prompt · Conflict template ▾</span><span>editable</span></div>
-<div class="prompt">{PROMPT}</div>
-        </div>
-        <div class="sheet-actions"><span class="small" style="margin-right:auto">Post as PR comment</span><span class="btn btn-sm">Cancel</span><span class="btn btn-sm btn-primary">Copy prompt</span></div>
-      </div>
-    </div></div>
+    <AppShot src={sendBack} alt="The Send back sheet for a stuck pull request: why it is stuck and the prompt to copy for its agent" />
   </div>
 </section>
