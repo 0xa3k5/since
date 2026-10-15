@@ -201,6 +201,7 @@ const reads = {
     const wt = await git.findWorktree(s.repo.root, dir);
     return wt.missing ? null : git.worktreeChanges(wt.path);
   },
+  baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };
 
 const W = { GIT_OPTIONAL_LOCKS: '1' };
@@ -619,6 +620,24 @@ handle('app:pr-merge', prAction((t, o) => github.mergePr({
   admin: check.bool(o?.admin, 'merge as admin'),
 })));
 handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+// Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on
+// an explicit click in the sheet, and only while pull requests are on (target() checks).
+handle('app:pr-failed-log', prAction((t) => github.failedLog(t)));
+handle('app:pr-comment', prAction((t, o) => github.commentPr({ ...t, body: check.str(o?.body ?? '', 'comment') })));
+// Send back's templates (renderer/send-back.js): this repository's, the user-wide default, and
+// the built-in ones, resolved. Saving one with empty text resets it to the next level.
+const sendBack = require('./renderer/send-back.js');
+handle('app:sendback-templates', (e) => sendBack.resolveTemplates(readSettings().sendBack, session(e).repo?.root || null));
+handle('app:sendback-template-save', (e, id, text, scope) => {
+  const next = sendBack.saveTemplate(readSettings().sendBack, {
+    root: session(e).repo?.root || null,
+    id: check.oneOf(...sendBack.TEMPLATE_IDS)(id, 'template'),
+    text: check.str(text ?? '', 'template', { max: sendBack.MAX_TEMPLATE, empty: true }),
+    scope: check.oneOf('repo', 'default')(scope, 'template scope'),
+  });
+  writeSettings({ sendBack: next });
+  return sendBack.resolveTemplates(next, session(e).repo?.root || null);
+});
 
 // Review a PR in the inbox: fetch its head into FETCH_HEAD only (no ref moves, so nothing to
 // journal) and diff it locally against the base's remote-tracking branch. Plain `git fetch`, no

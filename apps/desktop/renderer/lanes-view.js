@@ -44,7 +44,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
 // catchup: { load, mark } for the catch-up card (app:catchup, app:catchup-mark); null leaves it out.
-export function lanesView({ catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, actions = () => [], all = false, place = null }) {
+export function lanesView({ catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, actions = () => [], all = false, place = null }) {
   let lanes = [];
   let inbox = null; // { prs, remote, me, requested } from the last PR load
   let inboxFailed = false;
@@ -56,6 +56,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
   let conflicts = new Map(); // laneKey → forecast entries (conflictsByLane)
   let forecastOk = true; // false on git before 2.38: no forecast, no chip
   let loaded = false;
+  let pendingSendBack = null; // sendBack(number) before Review listed it: opens once a refresh does
   let base = null;
   let timer = 0;
   let seq = 0;
@@ -224,6 +225,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
       else toast(`Nothing to merge on ${r.title}`);
     } else if (id === 'open') { if (lane) onOpen(lane); else if (pr) onPrReview(pr, inbox?.remote); }
     else if (id === 'checkout') { if (pr) onCheckout(pr); }
+    else if (id === 'sendBack') { if (r.stage === 'stuck') onSendBack(r, paneCtx(r)); else toast(`${r.title} isn’t stuck`); }
     else if (id === 'details') toggleDetails(r.key);
     else runKey(id, asLane(r));
   }
@@ -252,6 +254,11 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
         h('div.list-sub', null, sub),
         r.stage === 'stuck' && reason(r) ? h('div.review-reason', { title: reason(r, 20) }, reason(r)) : null,
         open ? detailsEl(r) : null),
+      r.stage === 'stuck' ? h('button.btn.ghost.review-details-btn', {
+        title: `Send back with a ready-made prompt (${keymap.keys('lanes.sendBack').join(' or ').toUpperCase()})`,
+        onclick: (e) => { e.stopPropagation(); select(r.key); act('sendBack', r); },
+        ondblclick: (e) => e.stopPropagation(),
+      }, 'Send back…') : null,
       h('button.btn.ghost.review-details-btn', {
         title: `Details (${keymap.keys('lanes.details').join(' or ').toUpperCase()})`, 'aria-expanded': String(open),
         onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
@@ -300,6 +307,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
       { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), run: () => act('merge', r) },
       ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
       ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),
+      ...(r.stage === 'stuck' ? [{ label: 'Send Back…', icon: 'copy', kbd: keymap.keys('lanes.sendBack'), run: () => act('sendBack', r) }] : []),
       { label: details.has(r.key) ? 'Hide Details' : 'Details', icon: 'lanes', kbd: keymap.keys('lanes.details'), run: () => toggleDetails(r.key) },
       ...(r.lane ? ['-', { label: r.lane.changes ? 'Discard Lane…' : 'Delete Lane…', icon: 'trash', kbd: keymap.keys('lanes.delete'), disabled: !canRemove(r.lane), run: () => act('delete', r) }] : []),
     ]);
@@ -391,6 +399,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     lede.textContent = prsOn() ? 'What’s stuck and what’s ready to merge come first. Everything else is a step away.' : 'Your branches and worktrees. What’s stuck comes first.';
     const prsLoading = prsOn() && !inbox && !inboxFailed;
     staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now() });
+    if (pendingSendBack != null && staged.all.some((x) => x.pr?.number === pendingSendBack)) { const n = pendingSendBack; pendingSendBack = null; setTimeout(() => sendBack(n)); }
     if (agentsOnly && !markAgents()) agentsOnly = false;
     const everything = filterLanes(lanes, '', { agentsOnly, conflictsOnly }).map((l) => ({ key: allKey(l), lane: l, entry: true }));
     const rows = [];
@@ -575,6 +584,7 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
     else if (id === 'lanes.review') act('review', x);
     else if (id === 'lanes.merge') act('merge', x);
     else if (id === 'lanes.details') act('details', x);
+    else if (id === 'lanes.sendBack') act('sendBack', x);
     else if (PANE_KEYS[id] && split()) act(PANE_KEYS[id], x);
     else if (LANE_KEYS[id]) act(LANE_KEYS[id], x);
     else return false;
@@ -669,5 +679,14 @@ export function lanesView({ catchup = null, pane = null, onPaneAction = null, pa
   };
   // The selected row and its pane context, for ⌘K's pane actions (split view only).
   const paneSelection = () => { const x = split() ? current() : null; return x && !isLaneEntry(x) && !x.landed ? { row: x, ctx: paneCtx(x) } : null; };
-  return { el, walk: () => walk(), markCaughtUp: () => card?.markCaughtUp(), pickSince: () => card?.pickSince(), refresh, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  // Send back (⌘K, and Merge plan's links): the selected row when it's stuck, or PR #number's row.
+  const stuckSelection = () => { const x = current(); return x && !isLaneEntry(x) && x.stage === 'stuck' ? x : null; };
+  function sendBack(number = null) {
+    const r = number == null ? stuckSelection() : (staged?.all || []).find((x) => x.pr?.number === number);
+    if (!r && number != null && !loaded) { pendingSendBack = number; return; }
+    if (!r) return toast(number == null ? 'Select a stuck row first' : `#${number} isn’t in Review`);
+    select(r.key);
+    act('sendBack', r);
+  }
+  return { el, walk: () => walk(), markCaughtUp: () => card?.markCaughtUp(), pickSince: () => card?.pickSince(), refresh, stuckSelection, sendBack, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
 }
