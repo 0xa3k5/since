@@ -19,7 +19,10 @@ import { PR_ACTIONS, prActionFor } from './pr-review.js';
 // runs across the full width above the files and the diff; there's no Back button and it doesn't
 // take focus; onKey(keyId) runs first and returns true when
 // it handled a `review` key (the pane's actions); Esc still calls onClose.
-export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null }) {
+// checkConflicts: the branch is known to conflict with its base (AK-305), so the files column
+// starts with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
+// shows the base side against the branch's side. onConflicts(files) reports what it found.
+export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -29,6 +32,10 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   let full = false;
   let seq = 0;
   let timer = 0;
+  let conflicts = null; // [{ path, hunks, inBase, inHead }] once read (checkConflicts)
+  let onConflict = false; // `current` is its Conflicting entry, not its Changed one
+  let jump = false; // showConflicts() before the conflicts were read
+  let conflictsAt = null;
 
   const meta = h('div.quick-meta');
   const deltaBtn = h('button.chip', { title: 'Only files changed since you last looked (D)', onclick: () => toggleDelta() }, 'Changed since last look');
@@ -51,6 +58,9 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   const el = h('div.quick.review' + (header ? '.with-header' : ''), { tabIndex: 0 }, top, side, main);
 
   const shown = () => (review ? review.files.filter((f) => !delta || states.get(f.path)?.state === 'changed') : []);
+  const conflicting = () => (delta ? [] : conflicts || []);
+  // Every row in list order: the Conflicting group first, then the changed files.
+  const entries = () => [...conflicting().map((f) => ({ path: f.path, c: true })), ...shown().map((f) => ({ path: f.path, c: false }))];
 
   function renderMeta() {
     if (!review) return;
@@ -69,8 +79,9 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   function row(f) {
     const st = states.get(f.path)?.state;
     const [name, dir] = fileName(f.path);
-    return h('div.file-row.review-row' + (f.path === current ? '.active' : '') + (st === 'reviewed' ? '.reviewed' : ''), {
-      role: 'option', 'aria-selected': String(f.path === current), 'data-path': f.path, title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path,
+    const on = f.path === current && !onConflict;
+    return h('div.file-row.review-row' + (on ? '.active' : '') + (st === 'reviewed' ? '.reviewed' : ''), {
+      role: 'option', 'aria-selected': String(on), 'data-path': f.path, title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path,
       onclick: () => select(f.path),
     },
       h('button.review-tick' + (st === 'reviewed' ? '.on' : ''), { title: st === 'reviewed' ? 'Reviewed (V to undo)' : 'Mark reviewed (V)', 'aria-pressed': String(st === 'reviewed'), onclick: (e) => { e.stopPropagation(); tick(f.path); } }, st === 'reviewed' ? icon('check', 12) : null),
@@ -82,15 +93,57 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     );
   }
 
+  function conflictRow(f) {
+    const on = f.path === current && onConflict;
+    const [name, dir] = fileName(f.path);
+    return h('div.file-row.review-row.review-conflict-row' + (on ? '.active' : ''), {
+      role: 'option', 'aria-selected': String(on), 'data-path': f.path, 'data-conflict': '1', title: `${f.path}\nConflicts with ${review?.base || 'the base'}`,
+      onclick: () => select(f.path, true, true),
+    },
+      icon('warning', 13),
+      h('span.fname', null, name),
+      h('span.fdir', null, dir),
+      f.hunks.length ? h('span.review-conflict-count', null, f.hunks.length === 1 ? '1 hunk' : `${f.hunks.length} hunks`) : null,
+    );
+  }
+
   function renderList() {
     const files = shown();
-    if (!files.some((f) => f.path === current)) current = files[0]?.path || null;
-    listEl.replaceChildren(...files.map(row));
+    const cs = conflicting();
+    const list = entries();
+    if (!list.some((e) => e.path === current && e.c === onConflict)) { current = list[0]?.path || null; onConflict = Boolean(list[0]?.c); }
+    const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
+    listEl.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictRow), group('Changed', files.length)] : []), ...files.map(row));
     if (!files.length) listEl.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     renderMeta();
   }
 
+  // A conflicting file: each hunk's base side next to the branch's side, between a few lines of
+  // context, with the markers git would write (conflict editor styles, cf-*).
+  function renderConflict(f) {
+    ++seq;
+    const baseName = review.base || 'base';
+    const headName = pr ? `#${pr.number}` : lane.rev;
+    const text = (cls) => (l) => h('div.cf-line' + cls, null, l || ' ');
+    const marker = (m) => h('div.cf-line.cf-marker', null, m);
+    const side = (cls, name, list, open, close) => h('div.cf-col' + cls, null,
+      h('div.cf-col-head', null, name), marker(open), ...(list.length ? list.map(text('')) : [h('div.cf-none', null, 'Nothing on this side')]), close ? marker(close) : null);
+    const hunk = (k, i) => h('div.cf-block', null,
+      h('div.cf-block-head', null, h('span.cf-title', null, `Conflict ${i + 1} of ${f.hunks.length}`), h('span.muted.small', null, `line ${k.line}`)),
+      ...k.before.map(text('.ctx')),
+      h('div.cf-cols', null, side('.cf-ours', baseName, k.base, `<<<<<<< ${baseName}`, '======='), side('.cf-theirs', headName, k.head, '=======', `>>>>>>> ${headName}`)),
+      ...k.after.map(text('.ctx')));
+    const why = !f.inBase ? `Deleted on ${baseName}, changed on ${headName}.` : !f.inHead ? `Deleted on ${headName}, changed on ${baseName}.` : 'Changed on both sides, with no text to compare (binary, or too big to show).';
+    main.replaceChildren(
+      h('div.diff-head', null, h('span.badge.warn', null, 'Conflict'), h('span.mono', null, f.path), h('span.spacer'),
+        h('span.muted', null, `${review.base || 'base'} ← ${headName}`)),
+      h('div.diff-scroll', null, f.hunks.length ? h('div.cf-body.review-conflict', null, ...f.hunks.map(hunk)) : h('div.empty', null, why)),
+    );
+  }
+
   async function renderFile() {
+    const c = onConflict ? conflicts?.find((x) => x.path === current) : null;
+    if (c) return renderConflict(c);
     const f = review?.files.find((x) => x.path === current);
     const n = ++seq;
     if (!f) { main.replaceChildren(h('div.empty', null, review ? 'Pick a file' : '')); return; }
@@ -110,19 +163,44 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     );
   }
 
-  function select(path, scroll = true) {
-    if (path === current) return;
+  function select(path, scroll = true, conflict = false) {
+    if (path === current && conflict === onConflict) return;
     current = path;
+    onConflict = conflict;
     full = false;
-    listEl.querySelectorAll('.review-row').forEach((r) => { const on = r.dataset.path === path; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
+    listEl.querySelectorAll('.review-row').forEach((r) => { const on = r.dataset.path === path && (r.dataset.conflict === '1') === conflict; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
     if (scroll) listEl.querySelector('.review-row.active')?.scrollIntoView({ block: 'nearest' });
     renderFile();
   }
   function move(d) {
-    const files = shown();
-    const i = files.findIndex((f) => f.path === current);
-    const f = files[Math.max(0, Math.min(files.length - 1, i + d))];
-    if (f) select(f.path);
+    const list = entries();
+    const i = list.findIndex((e) => e.path === current && e.c === onConflict);
+    const e = list[Math.max(0, Math.min(list.length - 1, i + d))];
+    if (e) select(e.path, true, e.c);
+  }
+
+  // Reads the conflicts against the base once per base and tip (AK-305).
+  async function loadConflicts() {
+    const at = `${review.baseSha} ${review.tip}`;
+    if (!checkConflicts || conflictsAt === at) return;
+    conflictsAt = at;
+    const res = await git('mergeConflicts', review.baseSha, review.tip).catch(() => null);
+    if (!el.isConnected || conflictsAt !== at) return;
+    conflicts = res?.files || [];
+    onConflicts(conflicts);
+    renderList();
+    if (jump) showConflicts();
+    else if (onConflict) renderFile();
+  }
+
+  // The row note "Conflicts in N files": select the first conflicting file, its group in view.
+  function showConflicts() {
+    if (!conflicts) { jump = true; return; }
+    jump = false;
+    if (delta) { delta = false; renderList(); renderFile(); }
+    if (!conflicts.length) return;
+    select(conflicts[0].path, false, true);
+    listEl.querySelector('.review-files-group.conflicting')?.scrollIntoView({ block: 'start' });
   }
 
   function computeStates() { states = new Map(fileStates(saved, review).map((s) => [s.path, s])); }
@@ -167,6 +245,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     if (delta && ![...states.values()].some((x) => x.state === 'changed')) delta = false;
     renderList();
     if (moved || !main.querySelector('.diff-scroll')) renderFile();
+    loadConflicts();
   }
 
   el.addEventListener('keydown', (e) => {
@@ -180,7 +259,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     else if (id === 'review.merge' && onMerge) onMerge();
     else if (id === 'review.next') move(1);
     else if (id === 'review.prev') move(-1);
-    else if (id === 'review.tick') tick(current);
+    else if (id === 'review.tick') { if (!onConflict) tick(current); }
     else if (id === 'review.delta') toggleDelta();
   });
 
@@ -191,5 +270,5 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   }
 
   setTimeout(() => { if (!embedded) el.focus({ preventScroll: true }); load(); });
-  return { el, refresh };
+  return { el, refresh, showConflicts };
 }

@@ -295,6 +295,21 @@ test('pane actions: every PR action with a primary by stage; local branches merg
   assert.ok(!ids(p, 'review').includes('changes'));
 });
 
+// AK-305: the conflict with the base gets its own note in Review, counted, and jumps to the files.
+test('conflict note: counts the files, prefers what the pane read, falls back to GitHub', async () => {
+  const { conflictNote, stuckReason } = await load();
+  const row = (o) => ({ pr: null, conflicts: [], ...o });
+  const forecast = row({ pr: pr(1, { checks: 'failure', failing: ['test'] }), conflicts: [{ with: 'main', base: true, files: ['a.js', 'b.js', 'c.js'] }, { with: 'feature', base: false, files: ['x.js'] }] });
+  assert.equal(conflictNote(forecast), 'Conflicts in 3 files');
+  assert.equal(conflictNote(forecast, { files: ['a.js'] }), 'Conflicts in 1 file');
+  assert.equal(stuckReason(forecast, { noBase: true }), 'conflicts with feature in x.js · CI ✗ test');
+  const github = row({ pr: pr(1, { mergeable: false, base: 'develop' }) });
+  assert.equal(conflictNote(github), 'Conflicts with develop');
+  assert.equal(conflictNote(github, { files: ['a.js', 'b.js'] }), 'Conflicts in 2 files');
+  assert.equal(stuckReason(github, { noBase: true }), null);
+  assert.equal(conflictNote(row({ pr: pr(1, READY), conflicts: [{ with: 'feature', base: false, files: ['x.js'] }] })), null);
+});
+
 // AK-280: why a row is stuck, in plain words from facts (Send back builds on this).
 test('stuck reason: forecast conflicts by file name, GitHub conflicts, failing checks by name', async () => {
   const { stuckReason } = await load();

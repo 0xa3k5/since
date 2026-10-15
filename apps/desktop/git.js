@@ -2074,6 +2074,71 @@ async function simulateSquash(cwd, tip, head) {
   return { files: [], commit };
 }
 
+// Review (AK-305): what conflicts when `head` merges into `base`, file by file. merge-tree writes
+// the merged tree with conflict markers in it (objects only, never refs, the index or a worktree);
+// each conflicting blob is read back and cut into hunks: the base side, the head side, and up to
+// CONFLICT_CONTEXT lines around them. A file with no markers (deleted on one side, binary, a
+// rename clash) comes back with no hunks and which sides still have it.
+// → { supported, files: [{ path, hunks: [{ line, before, base, head, after }], inBase, inHead }] }.
+const CONFLICT_CONTEXT = 3;
+const CONFLICT_FILES = 100;
+const CONFLICT_BYTES = 2 * 1024 * 1024;
+async function mergeConflictHunks(cwd, base, head) {
+  if (!(await canForecast(cwd))) return { supported: false, files: [] };
+  let out;
+  try {
+    out = await run(cwd, ['-c', 'merge.conflictStyle=merge', 'merge-tree', '--write-tree', '--no-messages', '-z', base, head], { allowCodes: [0, 1] });
+  } catch { return { supported: true, files: [] }; }
+  const [tree, ...rest] = out.split('\0');
+  const stages = new Map(); // path -> Set of stages (1 ancestor, 2 base, 3 head)
+  for (const entry of rest) {
+    const m = /^\d+ [0-9a-f]+ (\d)\t(.+)$/s.exec(entry);
+    if (!m) continue;
+    if (!stages.has(m[2])) stages.set(m[2], new Set());
+    stages.get(m[2]).add(Number(m[1]));
+  }
+  const paths = [...stages.keys()].sort().slice(0, CONFLICT_FILES);
+  const files = await mapLimit(paths, 4, async (path) => {
+    const s = stages.get(path);
+    let text = '';
+    try {
+      const size = Number((await run(cwd, ['cat-file', '-s', `${tree}:${path}`])).trim());
+      if (size <= CONFLICT_BYTES) text = await run(cwd, ['cat-file', 'blob', `${tree}:${path}`]);
+    } catch { /* not in the merged tree: deleted on a side */ }
+    return { path, hunks: conflictHunks(text), inBase: s.has(2), inHead: s.has(3) };
+  });
+  return { supported: true, files };
+}
+
+// Conflict hunks in a file with merge markers (<<<<<<< base, ======= , >>>>>>> head; a diff3
+// ||||||| ancestor section is skipped). `line` is the 1-based line of <<<<<<< in the merged file.
+function conflictHunks(text) {
+  if (!text || text.includes('\0')) return [];
+  const lines = text.split('\n');
+  if (lines[lines.length - 1] === '') lines.pop();
+  const hunks = [];
+  let cur = null;
+  let side = null;
+  let last = 0; // first line after the previous hunk, so context never repeats one
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!cur && l.startsWith('<<<<<<<')) {
+      cur = { line: i + 1, before: lines.slice(Math.max(last, i - CONFLICT_CONTEXT), i), base: [], head: [], after: [] };
+      side = 'base';
+    } else if (cur && l.startsWith('|||||||')) side = null;
+    else if (cur && l.startsWith('=======') && side !== 'head') side = 'head';
+    else if (cur && l.startsWith('>>>>>>>')) {
+      last = i + 1;
+      let j = last;
+      while (j < lines.length && j < last + CONFLICT_CONTEXT && !lines[j].startsWith('<<<<<<<')) j++;
+      cur.after = lines.slice(last, j);
+      hunks.push(cur);
+      cur = null;
+    } else if (cur && side) cur[side].push(l);
+  }
+  return hunks;
+}
+
 // ---------------------------------------------------------------------------
 // External diff & merge tools (git difftool / mergetool), using the user's diff.tool and
 // merge.tool. GitLanes has no terminal, so terminal-only tools (vimdiff, emerge) are refused.
@@ -2207,7 +2272,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, simulateSquash, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,
