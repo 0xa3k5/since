@@ -485,7 +485,7 @@ const lanesOpen = () => state.view === 'lanes' && !state.cleanup && !state.revie
 // Names the place on screen; a jump that ends where it started records nothing.
 // In Review the selected row counts too: the split view's pane shows it (AK-272).
 const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
-  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.all}:${lanes.all ? '' : lanes.key ?? ''}` : ''].join('|');
+  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.all}:${lanes.key ?? ''}` : ''].join('|');
 function place() {
   return {
     key: placeKey(), root: state.repo?.root, view: state.view, cleanup: state.cleanup, review: state.review,
@@ -559,7 +559,12 @@ function renderShell() {
   renderView();
 }
 
+// The view a newly opened repository starts on: Review. Development builds can ask for the Map
+// (GITLANES_START_VIEW=map, main.js), which the end-to-end tests do.
+let startView = 'lanes';
+
 const VIEWS = [
+  { id: 'lanes', label: 'Review', icon: 'lanes', key: '8' },
   { id: 'map', label: 'Map', icon: 'map', key: '1' },
   { id: 'commit', label: 'Commit', icon: 'commit', key: '2' },
   { id: 'stashes', label: 'Stashes', icon: 'stash', key: '3' },
@@ -567,7 +572,6 @@ const VIEWS = [
   { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '5' },
   { id: 'config', label: 'Config', icon: 'config', key: '6' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '7' },
-  { id: 'lanes', label: 'Review', icon: 'lanes', key: '8' },
 ];
 
 function setView(v) {
@@ -2345,8 +2349,8 @@ function openLanes() {
   lanesPlace = null;
   return lanesPage;
 }
-let lanesAll = false; // the next Review page starts on Show all
-// ⌘K Show all / Show what needs you: Review, in that mode.
+let lanesAll = false; // the next Review page starts with Everything else open
+// ⌘K Show / hide everything else: Review, in that mode.
 function showAllLanes(on) {
   if (!state.repo) return;
   if (state.view === 'lanes' && lanesPage && lanesOpen()) return lanesPage.showAll(on);
@@ -3291,7 +3295,7 @@ function openPalette() {
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
-    add('View', allOn ? 'Review: show only what needs you' : 'Review: show all branches and worktrees', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests' });
+    add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
@@ -3508,7 +3512,8 @@ async function loadRepo(repo) {
   if (!sameRepo) nav.clear();
   state.repo = repo;
   state.lfs = null;
-  if (!sameRepo) { state.view = 'map'; state.worktrees = []; }
+  // A repository opens on Review (home); the Map is a key (view.map) or a row's Show in Map away.
+  if (!sameRepo) { state.view = startView; state.worktrees = []; }
   state.selected = null;
   state.logKey = '';
   cancelHistory();
@@ -3528,7 +3533,7 @@ async function loadRepo(repo) {
   loadPrs();
   await refreshAll();
   if (state.head.oid) selectCommit(state.head.oid, 'center');
-  mapView?.focus();
+  if (state.view === 'map') mapView?.focus();
 }
 
 const openRepo = (dir) => bound(api.app('open', dir));
@@ -3855,6 +3860,7 @@ api.on('keymap', (o) => {
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));
   const params = new URLSearchParams(location.search);
+  if (params.get('view') === 'map') startView = 'map';
   const dir = params.get('repo');
   if (dir) await openRepo(dir);
   else renderShell();

@@ -4,15 +4,14 @@
 import { laneKey } from './lanes.js';
 
 const HOUR = 3600e3;
-// "Pushed recently": a PR updated, or a lane committed to or edited, within this long is still
-// being worked on (In progress) when nothing waits on you.
+// "Pushed recently": a lane committed to or edited within this long is still being worked on
+// (In progress) when it has no pull request.
 export const RECENT_FOR = 48 * HOUR;
 
 export const STAGES = [
-  { id: 'needsYou', label: 'Needs you' },
-  { id: 'blocked', label: 'Blocked' },
+  { id: 'stuck', label: 'Stuck' },
+  { id: 'ready', label: 'Ready to merge' },
   { id: 'inProgress', label: 'In progress' },
-  { id: 'elsewhere', label: 'Handled elsewhere' },
 ];
 
 const time = (iso) => {
@@ -23,44 +22,45 @@ const time = (iso) => {
 // The row's newest sign of life: the PR's last update or the lane's last commit or edit.
 export const rowActivity = (row) => Math.max(time(row.pr?.updatedAt), row.lane?.activity || 0);
 
+const stuck = (pr, conflicts) => pr.checks === 'failure' || pr.mergeable === false || conflicts.length > 0;
+// Approved, CI green (or no checks at all) and not a draft. GitHub still working out whether it
+// merges cleanly (mergeable null) doesn't hold it back; the merge itself checks again.
 const ready = (pr, conflicts) => !pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null)
-  && pr.mergeable === true && !conflicts.length;
+  && !stuck(pr, conflicts);
 
 // Which stage a row is in, checked in this order (the first match wins):
-//   needsYou   your review is requested, or the PR is approved, green (or has no checks), GitHub says
-//              it merges cleanly and the local forecast agrees
-//   blocked    checks failing, GitHub reports conflicts, or the forecast predicts some
-//   inProgress a draft, or activity within RECENT_FOR
-//   elsewhere  any other open PR
+//   stuck      an open PR with failing checks, GitHub reporting conflicts, or the local forecast
+//              predicting some
+//   ready      approved, CI green, not a draft
+//   inProgress any other open PR (drafts, waiting for review, changes requested, CI running)
 //   finished   a lane without an open PR whose work shipped (lane.done, AK-255)
-// A lane without a PR uses the same rules on local data only (forecast, uncommitted changes, recent
-// commits); one with none of those, and the base branch, has no stage (null): it's only in `all`.
-export function rowStage(row, { requested = new Set(), now = Date.now() } = {}) {
+// A lane without a PR uses the same rules on local data only (forecast conflicts are stuck,
+// uncommitted changes or recent commits are in progress; it's never ready, there's no review).
+// One with none of those, and the base branch, has no stage (null): it's only in Everything else.
+export function rowStage(row, { now = Date.now() } = {}) {
   const { pr, lane } = row;
   const conflicts = row.conflicts || [];
   if (pr) {
-    if (requested.has(pr.number) || ready(pr, conflicts)) return 'needsYou';
-    if (pr.checks === 'failure' || pr.mergeable === false || conflicts.length) return 'blocked';
-    if (pr.draft || now - rowActivity(row) < RECENT_FOR) return 'inProgress';
-    return 'elsewhere';
+    if (stuck(pr, conflicts)) return 'stuck';
+    if (ready(pr, conflicts)) return 'ready';
+    return 'inProgress';
   }
   if (!lane || lane.isBase) return null;
   if (lane.done) return 'finished';
-  if (conflicts.length) return 'blocked';
+  if (conflicts.length) return 'stuck';
   if (lane.changes > 0 || now - rowActivity(row) < RECENT_FOR) return 'inProgress';
   return null;
 }
 
 // Sort rank inside a stage, lowest first, so the top row is the most actionable:
-//   needsYou   review requests before ready-to-merge PRs; in each, the one waiting longest
-//              (oldest activity) first
-//   blocked    a conflict with the base (the forecast names a clear fix: rebase onto it), then
+//   stuck      a conflict with the base (the forecast names a clear fix: rebase onto it), then
 //              failing checks, then other conflicts (GitHub's, or with another lane)
-//   others     newest activity first
+//   ready      the one waiting longest (oldest activity) first
+//   inProgress your review requests first, then newest activity
 // Ties fall back to newest activity, then PR number, then title, so the order is stable.
 function rank(row, stage, requested) {
-  if (stage === 'needsYou') return requested.has(row.pr?.number) ? 0 : 1;
-  if (stage === 'blocked') {
+  if (stage === 'inProgress') return requested.has(row.pr?.number) ? 0 : 1;
+  if (stage === 'stuck') {
     if (row.conflicts?.some((c) => c.base)) return 0;
     return row.pr?.checks === 'failure' ? 1 : 2;
   }
@@ -68,7 +68,7 @@ function rank(row, stage, requested) {
 }
 
 function sortStage(rows, stage, requested) {
-  const oldestFirst = stage === 'needsYou';
+  const oldestFirst = stage === 'ready';
   return rows.sort((a, b) => rank(a, stage, requested) - rank(b, stage, requested)
     || (oldestFirst ? rowActivity(a) - rowActivity(b) : rowActivity(b) - rowActivity(a))
     || (a.pr?.number || 0) - (b.pr?.number || 0) || a.title.localeCompare(b.title));
@@ -94,9 +94,9 @@ const toRow = (pr, lane, forecast) => {
 };
 
 // One row per piece of work, sorted into stages:
-//   { stages: { needsYou, blocked, inProgress, elsewhere }, finished: { count, items }, all }
+//   { stages: { stuck, ready, inProgress }, finished: { count, items }, all }
 // With PRs on, a row is keyed by its PR and carries that PR's branch, worktree and local commits;
-// lanes without an open PR only show in `all` (Show all), unless they're finished. With PRs off
+// lanes without an open PR only show in `all` (Everything else), unless they're finished. With PRs off
 // (`prsOn` false) `prs` and `reviewRequested` are ignored and rows come from lanes alone.
 // `forecast` is conflictsByLane's Map (laneKey → conflicts); without it, lane.conflicts is used.
 // `all` lists every row, staged ones first in stage order, then the rest by newest activity.
@@ -117,8 +117,8 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
   const finished = [];
   const rest = [];
   for (const row of rows) {
-    row.stage = rowStage(row, { requested, now });
-    // With PRs on, a lane with no open PR that isn't finished is Show all only.
+    row.stage = rowStage(row, { now });
+    // With PRs on, a lane with no open PR that isn't finished is in Everything else only.
     if (prsOn && !row.pr && row.stage !== 'finished') row.stage = null;
     if (row.stage === 'finished') finished.push(row);
     else if (row.stage) stages[row.stage].push(row);
@@ -135,17 +135,19 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
 }
 
 // The row's one primary button, by stage (ids; STEPS has their labels):
-//   needsYou  merge when it's approved, green and mergeable and your review isn't requested, else review
-//   blocked   rebase when it conflicts and its branch is here, else the failing checks, else open
-//   others    open (the lane in the map, or the PR's review when it isn't checked out here)
+//   ready       merge
+//   stuck       rebase when it conflicts and its branch is here, else the failing checks, else open
+//   inProgress  review when your review is requested, else open
+//   others      open (the lane in the map, or the PR's review when it isn't checked out here)
 export function primaryAction(row, { base = null, requested = new Set() } = {}) {
   const { pr, lane } = row;
   const conflicts = row.conflicts || [];
-  if (row.stage === 'needsYou') return pr && !requested.has(pr.number) && ready(pr, conflicts) ? 'merge' : 'review';
-  if (row.stage === 'blocked') {
+  if (row.stage === 'ready') return pr && ready(pr, conflicts) ? 'merge' : 'review';
+  if (row.stage === 'stuck') {
     if (lane?.branch && !lane.isBase && base && (conflicts.length || pr?.mergeable === false)) return 'rebase';
     if (pr?.url && pr.checks === 'failure') return 'checks';
   }
+  if (pr && requested.has(pr.number)) return 'review';
   return 'open';
 }
 
@@ -185,8 +187,8 @@ export function filterRows(rows, query = '') {
 }
 
 // What an action does to the PR list until it reloads (GitHub takes a moment to show it):
-// approving marks the PR approved and drops your review request, so it re-stages (ready to merge,
-// or Handled elsewhere); merging or closing it takes the row away (its lane, if any, goes on to
+// approving marks the PR approved and drops your review request, so it re-stages (Ready to merge,
+// or In progress while CI is still running); merging or closing it takes the row away (its lane, if any, goes on to
 // the finished line once its work is on the base). Other actions change nothing here.
 export function applyAction({ prs = [], requested = [] } = {}, number, id) {
   if (number == null || !prs.some((p) => p.number === number)) return { prs, requested };
@@ -199,9 +201,9 @@ export function applyAction({ prs = [], requested = [] } = {}, number, id) {
 // The PR number of a row key from reviewRows (`pr:<n>`), or null for a lane's row.
 export const rowPrNumber = (key) => (/^pr:\d+$/.test(key || '') ? Number(key.slice(3)) : null);
 
-const NEEDS = ['needsYou', 'blocked'];
+const NEEDS = ['stuck', 'ready'];
 // Where the selection goes after an action on row `acted`: the next row that still needs you
-// (Needs you or Blocked) below where `acted` was in `before` (the keys in the order shown), else the
+// (Stuck or Ready to merge) below where `acted` was in `before` (the keys in the order shown), else the
 // first one that does, else `acted` itself while it's still listed; null lets the list pick its
 // first row. `staged` is the reviewRows result after the action.
 export function nextSelection(before, staged, acted) {
@@ -212,4 +214,26 @@ export function nextSelection(before, staged, acted) {
   if (below) return below;
   if (needs.length) return needs[0].key;
   return staged.all.some((r) => r.key === acted) ? acted : null;
+}
+
+// Why a row is stuck, in plain words built from facts, or null when it isn't:
+//   "conflicts with main in changelog.astro · CI ✗ test, lint"
+// Forecast conflicts name the other side and the files (file names, the first `max`, then "+N
+// more"); without a forecast, GitHub's own conflict check stands in. Failing checks are named when
+// GitHub reported them (pr.failing, github.normalizePr). Send back (AK-279) builds on this too.
+export function stuckReason(row, { base = null, max = 2 } = {}) {
+  const { pr } = row;
+  const conflicts = row.conflicts || [];
+  const out = [];
+  const files = (list) => {
+    const names = list.slice(0, max).map((f) => f.split('/').pop());
+    return `${names.join(', ')}${list.length > max ? ` +${list.length - max} more` : ''}`;
+  };
+  for (const c of conflicts) out.push(c.files?.length ? `conflicts with ${c.with} in ${files(c.files)}` : `conflicts with ${c.with}`);
+  if (!conflicts.length && pr?.mergeable === false) out.push(`conflicts with ${pr.base || base || 'its base'}`);
+  if (pr?.checks === 'failure') {
+    const failing = pr.failing || [];
+    out.push(failing.length ? `CI ✗ ${failing.slice(0, max).join(', ')}${failing.length > max ? ` +${failing.length - max} more` : ''}` : 'CI ✗ checks failing');
+  }
+  return out.length ? out.join(' · ') : null;
 }
