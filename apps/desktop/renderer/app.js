@@ -3930,13 +3930,10 @@ window.addEventListener('keydown', (e) => {
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
-<<<<<<< HEAD
   // ⌘S toggles the sidebar from the View menu; its other keys (⌘\) have no menu accelerator, so handle them here
   if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
-=======
   // ⌘3: Branches. The View menu doesn't list it yet, so its key is handled here.
   if (state.repo && keymap.match('menu', e) === 'view.branches') { e.preventDefault(); setView('branches'); return; }
->>>>>>> origin/dev
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }
