@@ -2,7 +2,7 @@ import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './u
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import * as keymap from './keymap.js';
-import { navPos, authorsEl, fastKeys } from './reader.js';
+import { navPos, authorsStack, fastKeys } from './reader.js';
 
 // "2h ago", but "just now" and "Oct 3" as they are.
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
@@ -223,7 +223,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
-        stuck ? reasonEl(r, authors) : line || authors.length ? h('div.list-sub.review-row-sub', null, authorsEl(authors, 14, '.review-row-authors'), authors.length && line ? h('span.review-row-sep', null, ' · ') : null, line) : null,
+        stuck ? reasonEl(r, authors) : line || authors.length ? h('div.list-sub.review-row-sub', null, authorsStack(authors, 14, '.review-row-authors'), authors.length && line ? h('span.review-row-sep', { 'aria-hidden': 'true' }, '·') : null, line ? h('span.review-row-text', null, line) : null) : null,
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
@@ -235,9 +235,10 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const note = conflictNote(r, { base, files: paneConflicts.get(r.key) });
     const rest = stuckReason(r, { base, max: 2, noBase: Boolean(note) });
     return h('div.review-reason', { title: reason(r, 20) },
-      authors.length ? [authorsEl(authors, 14, '.review-row-authors'), h('span.review-row-sep', null, ' · ')] : null,
-      note ? h('button.review-reason-link', { title: 'Show the conflicting files', onclick: (e) => { e.stopPropagation(); jumpToConflicts(r); }, ondblclick: (e) => e.stopPropagation() }, note) : null,
-      note && rest ? ' · ' : null, rest);
+      authors.length ? [authorsStack(authors, 14, '.review-row-authors'), h('span.review-row-sep', { 'aria-hidden': 'true' }, '·')] : null,
+      h('span.review-row-text', null,
+        note ? h('button.review-reason-link', { title: 'Show the conflicting files', onclick: (e) => { e.stopPropagation(); jumpToConflicts(r); }, ondblclick: (e) => e.stopPropagation() }, note) : null,
+        note && rest ? ' · ' : null, rest));
   }
 
   // Details ▾: the branch, its commits, worktree and uncommitted changes, and the way into the map.
