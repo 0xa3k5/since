@@ -1,13 +1,13 @@
 ---
-import { DOWNLOAD_URL, PRODUCT_NAME, SHOW_PRICING } from '../config';
+import { DOWNLOAD_URL, DOWNLOAD_URL_INTEL, PRODUCT_NAME, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
 import { MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED } from '../components/commerce/links';
 import '../components/commerce/commerce.css';
 
-// Both builds live on the same release page; the file name says which chip it's for.
+// One DMG per chip.
 const builds = [
-  { id: 'arm64', chip: 'Apple silicon', detail: 'M1 or later. Most Macs from late 2020 on.', file: 'arm64' },
-  { id: 'x64', chip: 'Intel', detail: 'Intel-based Macs.', file: 'x64' },
+  { id: 'arm64', chip: 'Apple silicon', detail: 'M1 or later. Most Macs from late 2020 on.', url: DOWNLOAD_URL },
+  { id: 'x64', chip: 'Intel', detail: 'Intel-based Macs.', url: DOWNLOAD_URL_INTEL },
 ];
 ---
 <Base
@@ -34,8 +34,7 @@ const builds = [
       <div class="arch-go">
         {builds.map((b) => (
           <p class={`arch-panel arch-${b.id}`}>
-            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download for {b.chip}</a>
-            <span class="muted">On the release page, pick the <code>.dmg</code> with <code>{b.file}</code> in its name.</span>
+            <a class="btn btn-primary" href={b.url}>Download for {b.chip}</a>
           </p>
         ))}
       </div>
@@ -72,7 +71,6 @@ const builds = [
       {NOTARIZED ? (
         <div class="cm-note">
           <p><strong>Signed and notarized.</strong> {PRODUCT_NAME} is signed with our Apple Developer ID and notarized by Apple, so it opens without warnings.</p>
-          <p>Each release lists a SHA-256 checksum for every file. To check your download, run <code>shasum -a 256 ~/Downloads/{PRODUCT_NAME}-*.dmg</code> in Terminal and compare the result.</p>
         </div>
       ) : (
         <div class="cm-note">
@@ -102,7 +100,6 @@ const builds = [
     <nav class="cm-links" aria-label="Related">
       {SHOW_PRICING && <Fragment><a href="/pricing">Pricing</a><a href="/licence">Licence help</a></Fragment>}
       <a href="/changelog">Changelog</a>
-      <a href={DOWNLOAD_URL}>All releases</a>
     </nav>
   </div>
 </Base>
