@@ -102,6 +102,10 @@ test('fixActions: a stuck row offers its fixes in order, with keys in both scope
   assert.deepEqual(here.map((a) => a.id), ['rebase', 'showConflicts', 'checks', 'sendBack']);
   assert.equal(here[0].label, 'Rebase onto main');
   for (const a of here) assert.ok(ids.has(a.key) && ids.has(a.listKey), a.id);
-  assert.deepEqual(fixActions({ stage: 'stuck', pr }, { base: 'main', conflicts: true }).map((a) => a.id), ['checkout', 'showConflicts', 'checks', 'sendBack']);
+  const away = fixActions({ stage: 'stuck', pr }, { base: 'main', conflicts: true });
+  assert.deepEqual(away.map((a) => a.id), ['checkout', 'updateBranch', 'showConflicts', 'checks', 'sendBack']);
+  for (const a of away) assert.ok(ids.has(a.key) && ids.has(a.listKey), a.id);
+  assert.deepEqual(fixActions({ stage: 'stuck', pr: { ...pr, mergeState: 'behind' } }, { base: 'main' }).map((a) => a.id), ['updateBranch', 'checks', 'sendBack']);
+  assert.deepEqual(fixActions({ stage: 'stuck', pr: { ...pr, mergeState: 'behind' }, lane }, { base: 'main' }).map((a) => a.id), ['checks', 'sendBack']);
   assert.deepEqual(fixActions({ stage: 'stuck', pr: { ...pr, checks: 'success' }, lane }, { base: 'main' }).map((a) => a.id), ['sendBack']);
 });
