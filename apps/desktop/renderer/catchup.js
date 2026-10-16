@@ -1,3 +1,5 @@
+import { prDescription } from './pr-review.js';
+
 // Review's catch-up card (AK-281), the pure part: what landed on the base since a checkpoint, as
 // entries (a merged PR, or a commit that came without one) and as groups to read at a glance.
 // Built from app:catchup (git log on the base's first-parent line, plus merged PRs from `gh` while
@@ -35,6 +37,8 @@ export function landedEntries(commits = [], merged = null) {
       id: pr ? `pr:${pr.number}` : `commit:${c.sha}`,
       kind: pr ? 'pr' : 'commit',
       ...(pr ? { number: pr.number, branch: pr.branch } : {}),
+      // The PR's description when GitHub sent one with the merged list (the reader falls back to the commit message).
+      ...(typeof pr?.body === 'string' ? { body: pr.body } : {}),
       title, sha: c.sha, parent: c.parent, date: c.date, author: c.author, files: c.files || [],
       key: issueKey(pr?.title, pr?.branch, c.subject),
       area: mainArea(c.files),
@@ -168,4 +172,32 @@ export function whenText(ms, { now = Date.now() } = {}) {
   const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   const day = now - ms < 6 * 24 * 3600e3 ? d.toLocaleDateString(undefined, { weekday: 'long' }) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return `${day} ${time}`;
+}
+
+// The reader (AK-372): Walk through goes over the merged PRs, or every entry when none came with a PR.
+export function walkList(entries = []) {
+  const prs = entries.filter((e) => e.kind === 'pr');
+  return prs.length ? prs : entries;
+}
+// The id `d` steps from `id` in `list` (entries), clamped to its ends; the first when `id` isn't in it.
+export function stepId(list = [], id = null, d = 1) {
+  if (!list.length) return null;
+  const i = list.findIndex((e) => e.id === id);
+  return list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + d))].id;
+}
+// A parsed file diff's added and removed lines. → { add, del }
+export function diffCounts(diff) {
+  let add = 0, del = 0;
+  for (const hunk of diff?.hunks || []) for (const l of hunk.lines) { if (l.t === '+') add++; else if (l.t === '-') del++; }
+  return { add, del };
+}
+// The first path in `paths` not in `viewed` (a Set), or null.
+export const firstUnviewed = (paths = [], viewed = new Set()) => paths.find((p) => !viewed.has(p)) ?? null;
+// What the reader shows above the files: the PR's description when GitHub sent it, else the commit
+// message without its subject line and its Co-authored-by / Signed-off-by trailers.
+// → { text, from: 'pr' | 'commit' } ('' when there's nothing to say)
+export function readerDescription(entry, message = '') {
+  if (typeof entry?.body === 'string') return { text: prDescription(entry) ?? '', from: 'pr' };
+  const rest = String(message || '').split('\n').slice(1).filter((l) => !/^(co-authored-by|signed-off-by):/i.test(l.trim())).join('\n');
+  return { text: prDescription({ body: rest }) ?? '', from: 'commit' };
 }
