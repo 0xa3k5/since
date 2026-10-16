@@ -5,10 +5,12 @@ import { rowBadges, reviewers as reviewersOf, mergeOrder, stuckReason } from './
 import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
 import * as keymap from './keymap.js';
 
-// Review's right-hand pane: the selected row's header (title, CI and review state, author, size,
-// draft, last update, reviewers and their states, a link to the checks) and its actions over the
-// branch review (review-view.js: each file a block under a sticky header with its reviewed tick, path and
-// +N −M, ticking folds it; "changed since last look"). A row with a local branch reviews that branch; a
+// Review's right-hand pane, one scroll from top to bottom (AK-379): the selected row's head (title,
+// CI and review state, author, size, draft, last update, reviewers and their states), a status strip
+// (Stuck and why / Ready to merge / In progress, the actions on the right, primary last), the
+// description box, then the branch review (review-view.js: each file a card under a sticky header
+// with its reviewed tick, path and +N −M; ticking folds it, clicking the header folds or unfolds it;
+// "changed since last look"). A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
 
@@ -58,8 +60,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   let alive = true;
   let jump = false; // showConflicts() before the review mounted
 
-  // Title, meta and actions run across the whole pane; the files and the diff sit below.
-  // Labelled buttons for the actions you take most, icon buttons for the rest, GitHub on the right.
+  // Title, meta, status strip and description run across the whole pane and scroll with the files.
+  // Labelled buttons for the actions you take most, icon buttons for the rest, the primary one last.
   // The pane is a size container (styles.css): narrower, Merge and Approve drop their labels, then
   // everything but the primary button moves into the ⋯ menu. Wider panes whose buttons still don't fit
   // (long labels, a Send back button) never clip one: GitHub goes icon-only first, then Merge and Approve.
@@ -77,15 +79,18 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     if (t) d.classList.toggle('fits', t.scrollHeight <= t.clientHeight + 1);
   }
 
-  // The PR's description under the meta: plain text, a few lines until Show more. Nothing when
-  // GitHub didn't send one; "No description" when the author left it empty.
+  // The PR's description in its own box under the status strip: a "Description" label with Show
+  // more on the right, then plain text, a few lines until Show more. Nothing when GitHub didn't send
+  // one; "No description" when the author left it empty.
   function descriptionEl(pr) {
     const text = prDescription(pr);
     if (text == null) return null;
-    if (!text) return h('div.review-pane-desc.none', null, 'No description');
+    const label = h('span.review-pane-desc-label', null, 'Description');
+    if (!text) return h('div.review-pane-desc.none', null, h('div.review-pane-desc-head', null, label), h('div.review-pane-desc-text', null, 'No description'));
     return h('div.review-pane-desc' + (descOpen ? '.open' : ''), null,
-      h('div.review-pane-desc-text', null, text),
-      h('button.review-reason-link.review-pane-desc-more', { 'aria-expanded': String(descOpen), 'data-tip': tipFor(descOpen ? 'Show less' : 'Show more', 'review.description'), onclick: toggleDescription }, descOpen ? 'Show less' : 'Show more'));
+      h('div.review-pane-desc-head', null, label,
+        h('button.review-reason-link.review-pane-desc-more', { 'aria-expanded': String(descOpen), 'data-tip': tipFor(descOpen ? 'Show less' : 'Show more', 'review.description'), onclick: toggleDescription }, descOpen ? 'Show less' : 'Show more')),
+      h('div.review-pane-desc-text', null, text));
   }
 
   function toggleDescription() {
@@ -97,74 +102,72 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
 
   function renderHead() {
     const { pr, lane } = row;
-    const { actions: list, primary } = paneActions(row, ctx.step);
+    const { actions: list, primary: paneP } = paneActions(row, ctx.step);
     actions = list;
     const size = pr?.size;
     const updated = pr?.updatedAt ? Date.parse(pr.updatedAt) / 1000 : 0;
     const badges = rowBadges(row, { requested: ctx.requested, agents: ctx.agents });
     const draft = badges.find((b) => b.kind === 'draft');
-    // A stuck row's fixes sit on their own line (stuckLine), so the bar doesn't repeat them.
+    // A stuck row's fixes lead its strip, so the actions don't repeat them.
     fixes = fixActions(row, ctx);
     const fixing = new Set(fixes.map((a) => a.id));
+    const primary = ctx.step === 'rebase' && fixing.has('rebase') ? 'rebase' : paneP;
     const extra = [
       pr?.url && !fixing.has('checks') ? { id: 'checks', label: 'Checks', key: 'lanes.checks', icon: 'checks' } : null,
     ].filter(Boolean);
     const button = (a) => {
       const label = a.label.replace('…', '');
-      const note = a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt for whoever made it' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`;
-      const onclick = () => run(a.id, row, ctx);
-      const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
+      const note = a.note || (a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt for whoever made it' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`);
+      const onclick = () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx));
+      const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github', 'rebase', 'checkout'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
       const tip = `${tipFor(a.label, a.key)}\n${note}`;
-      if (a.id === 'close' || a.id === 'checks') return h('button.btn.ghost.icon-btn.pane-secondary' + (a.danger ? '.danger-hover' : ''), { 'data-tip': a.id === 'close' ? `${tipFor('Close PR…', a.key)}\n${note}` : tip, 'aria-label': a.id === 'close' ? 'Close PR…' : a.label, onclick }, icon(a.icon, 15));
+      if (a.id === 'close' || (a.id === 'checks' && !fixing.has('checks'))) return h('button.btn.ghost.icon-btn.pane-secondary' + (a.danger ? '.danger-hover' : ''), { 'data-tip': a.id === 'close' ? `${tipFor('Close PR…', a.key)}\n${note}` : tip, 'aria-label': a.id === 'close' ? 'Close PR…' : a.label, onclick }, icon(a.icon, 15));
       return h('button.btn' + cls, { 'data-tip': tip, 'aria-label': a.label, onclick }, icon(a.id === 'github' ? 'github' : a.icon, 14), h('span.btn-label', null, a.label), kbd(...keymap.keys(a.key)));
     };
-    const main = actions.filter((a) => a.id !== 'close' && a.id !== 'github' && !fixing.has(a.id)).sort((a, b) => (b.id === primary) - (a.id === primary));
+    const main = actions.filter((a) => a.id !== 'close' && a.id !== 'github' && !fixing.has(a.id));
     const close = actions.find((a) => a.id === 'close');
     const github = actions.find((a) => a.id === 'github');
     const icons = [...extra, close].filter(Boolean);
+    const lead = [...fixes, ...main].find((a) => a.id === primary) || null;
+    const rest = [...fixes, ...main].filter((a) => a !== lead);
     // ⋯: every action but the primary one, for the narrowest panes (their keys and ⌘K still work).
-    const more = [...main, ...icons, github].filter((a) => a && a.id !== primary);
+    const more = [...rest, ...icons, github].filter(Boolean);
     const moreBtn = more.length ? h('button.btn.ghost.icon-btn.pane-more', {
       'data-tip': 'More actions', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
-      onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, run: () => run(a.id, row, ctx) }))); },
+      onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
     }, icon('more', 15)) : null;
     head.replaceChildren(...[
-      h('div.review-pane-title', null,
-        h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
-        ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text))),
-      h('div.quick-meta.review-pane-meta', null,
-        pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,
-        pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
-        size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
-        draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
-        updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null),
+      h('div.review-pane-ph', null,
+        h('div.review-pane-title', null,
+          h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
+          ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text))),
+        h('div.quick-meta.review-pane-meta', null,
+          pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,
+          pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
+          size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
+          draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
+          updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null),
+        pr ? reviewersLine(pr) : null,
+        ...(pr ? mergeOrderLines() : [])),
+      statusStrip([...rest.map(button), rest.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null, ...icons.map(button), github ? button(github) : null, moreBtn, lead ? button(lead) : null].filter(Boolean)),
       pr ? descriptionEl(pr) : null,
-      pr ? reviewersLine(pr) : null,
-      ...(pr ? mergeOrderLines() : []),
-      stuckLine(ctx.step === 'rebase' ? 'rebase' : primary),
-      main.length || icons.length || github ? h('div.review-pane-actions', null,
-        ...main.map(button),
-        main.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null,
-        ...icons.map(button),
-        github || moreBtn ? h('span.spacer') : null,
-        github ? button(github) : null,
-        moreBtn) : null,
     ].filter(Boolean));
     fit();
   }
 
-  // Stuck (AK-359): why, then a button per fix (fixActions), the row's primary step filled in.
-  // "Stuck  conflicts with main in a.js · CI ✗ lint   [Rebase onto main B] [Conflicts F] [Checks O] …"
-  function stuckLine(primaryId) {
-    if (!fixes.length) return null;
-    const why = stuckReason(row, { base: ctx.base, max: 3 });
-    return h('div.review-pane-stuck', { role: 'group', 'aria-label': 'Fix what’s stuck' },
-      h('div.review-pane-stuck-why', { title: stuckReason(row, { base: ctx.base, max: 20 }) || '' },
-        h('span.review-pane-stuck-label', null, icon('checks', 13), 'Stuck'),
-        why ? h('span.review-pane-stuck-text', null, why) : null),
-      h('div.review-pane-stuck-actions', null, ...fixes.map((a) => h('button.btn.small' + (a.id === primaryId ? '.primary' : '.subtle'), {
-        'data-tip': `${tipFor(a.label, a.key)}\n${a.note}`, 'aria-label': a.label, onclick: () => fix(a.id),
-      }, icon(a.icon, 13), h('span.btn-label', null, a.label), kbd(...keymap.keys(a.key))))));
+  // The status strip (AK-379): where the row stands on the left (Stuck and why, Ready to merge, In
+  // progress), its actions on the right with the primary one last. Tinted red when stuck, green when ready.
+  // "Stuck  conflicts with main in a.js · CI ✗ lint     [Conflicts F] [Checks O] … [Rebase onto main B]"
+  function statusStrip(buttons) {
+    const stage = row.stage;
+    const label = stage === 'stuck' ? 'Stuck' : stage === 'ready' ? 'Ready to merge' : stage === 'inProgress' ? 'In progress' : null;
+    if (!label && !buttons.length) return null;
+    const why = stage === 'stuck' ? stuckReason(row, { base: ctx.base, max: 3 }) : null;
+    return h('div.review-pane-status' + (stage === 'stuck' || stage === 'ready' ? `.${stage}` : ''), { role: 'group', 'aria-label': stage === 'stuck' ? 'Fix what’s stuck' : 'Actions' },
+      label ? h('div.review-pane-status-why', { title: stage === 'stuck' ? stuckReason(row, { base: ctx.base, max: 20 }) || '' : '' },
+        h('span.review-pane-status-label', null, icon(stage === 'stuck' ? 'warning' : stage === 'ready' ? 'check' : 'pending', 13), label),
+        why ? h('span.review-pane-status-text', null, why) : null) : null,
+      buttons.length ? h('div.review-pane-actions', null, ...buttons) : null);
   }
 
   function fix(id) {
