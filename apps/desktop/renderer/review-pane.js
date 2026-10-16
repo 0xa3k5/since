@@ -130,7 +130,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     }, icon('more', 15)) : null;
     head.replaceChildren(...[
       h('div.review-pane-title', null,
-        h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(row.landed ? 'commit' : lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
+        h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
         ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text))),
       h('div.quick-meta.review-pane-meta', null,
         pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,

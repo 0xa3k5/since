@@ -195,6 +195,34 @@ test('timeline: entries by day, newest first, Today and Yesterday, then dates (A
   assert.equal(sincePhrase({ since: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
 });
 
+test('the reader: walk list, stepping, diff counts, viewed and the description (AK-372)', async () => {
+  const { walkList, stepId, diffCounts, firstUnviewed, readerDescription, landedEntries } = await load('catchup.js');
+  const pr = (id) => ({ id, kind: 'pr' });
+  const cm = (id) => ({ id, kind: 'commit' });
+  assert.deepEqual(walkList([cm('a'), pr('b'), pr('c')]).map((e) => e.id), ['b', 'c'], 'merged PRs only');
+  assert.deepEqual(walkList([cm('a'), cm('b')]).map((e) => e.id), ['a', 'b'], 'every commit when none came with a PR');
+  const list = [pr('a'), pr('b'), pr('c')];
+  assert.equal(stepId(list, 'b', 1), 'c');
+  assert.equal(stepId(list, 'c', 1), 'c', 'stops at the end');
+  assert.equal(stepId(list, 'a', -1), 'a', 'stops at the start');
+  assert.equal(stepId(list, 'x', 1), 'a', 'not in the list: the first');
+  assert.equal(stepId([], 'a', 1), null);
+  const diff = { hunks: [{ lines: [{ t: ' ' }, { t: '+' }, { t: '+' }, { t: '-' }] }, { lines: [{ t: '-' }, { t: '+' }] }] };
+  assert.deepEqual(diffCounts(diff), { add: 3, del: 2 });
+  assert.deepEqual(diffCounts(null), { add: 0, del: 0 });
+  assert.equal(firstUnviewed(['a', 'b', 'c'], new Set(['a'])), 'b');
+  assert.equal(firstUnviewed(['a'], new Set(['a'])), null);
+  assert.deepEqual(readerDescription({ body: 'Adds a skip link.\r\n\r\n\r\n<!-- template -->Tested.' }, 'ignored'), { text: 'Adds a skip link.\n\nTested.', from: 'pr' });
+  assert.deepEqual(readerDescription({ body: '' }, 'Subject\n\nBody'), { text: '', from: 'pr' }, 'an empty PR body says so, no fallback');
+  assert.deepEqual(readerDescription({}, 'Subject (#12)\n\n* first\n* second\n\nCo-authored-by: A <a@x>\nSigned-off-by: B <b@x>'), { text: '* first\n* second', from: 'commit' });
+  assert.deepEqual(readerDescription({}, 'Just a subject'), { text: '', from: 'commit' });
+  const [withBody, without] = landedEntries(
+    [{ sha: 'm1', parent: 'p', date: 1, author: 'a', subject: 's', files: [] }, { sha: 'm2', parent: 'p', date: 1, author: 'a', subject: 's', files: [] }],
+    [{ number: 1, title: 'One', merge: 'm1', body: 'Why' }, { number: 2, title: 'Two', merge: 'm2' }]);
+  assert.equal(withBody.body, 'Why', 'the merged PR’s body when GitHub sent one');
+  assert.equal('body' in without, false);
+});
+
 test('landed reads another branch when given a base ref (AK-374)', async () => {
   const dir = await repo();
   const start = (await g(dir, ['rev-parse', 'HEAD'])).trim();
