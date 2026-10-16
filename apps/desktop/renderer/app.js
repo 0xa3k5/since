@@ -847,6 +847,13 @@ function setSidebar(next) {
   state.sidebar = next;
   applySidebar();
 }
+// True when `e` is the key the app menu owns for `id` (its first single-step binding): the menu handles that one.
+function isMenuKey(id, e) {
+  const b = keymap.bindings(id).find((x) => !x.includes(' '));
+  const k = keymap.fromEvent(e);
+  return !!b && !!k && keymap.normalize(b) === keymap.normalize(k);
+}
+
 function toggleSidebar() {
   clearTimeout(sbHideTimer);
   setSidebar(toggleSidebarState(state.sidebar, window.innerWidth));
@@ -3856,6 +3863,8 @@ window.addEventListener('keydown', (e) => {
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
+  // ⌘S toggles the sidebar from the View menu; its other keys (⌘\) have no menu accelerator, so handle them here
+  if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }

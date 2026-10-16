@@ -128,7 +128,7 @@ test('chords: G, then a view letter', async () => {
 test('menu accelerators and keycaps per platform', async () => {
   const { accelerator, keys } = await load();
   assert.equal(accelerator('repo.fetch', true), 'CmdOrCtrl+Shift+F');
-  assert.equal(accelerator('view.sidebar', true), 'CmdOrCtrl+\\');
+  assert.equal(accelerator('view.sidebar', true), 'CmdOrCtrl+S');
   assert.equal(accelerator('view.map', true), 'CmdOrCtrl+3');
   assert.equal(accelerator('view.cycleTheme', true), 'Ctrl+Cmd+T');
   assert.equal(accelerator('view.cycleTheme', false), 'Ctrl+Alt+Shift+T');
