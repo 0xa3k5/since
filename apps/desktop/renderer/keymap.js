@@ -220,6 +220,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.approve', 'Approve the pull request', 'Shift+A'),
   c('lanes', null, 'lanes.closePr', 'Close the pull request', 'Shift+X'),
   c('lanes', null, 'lanes.checkout', 'Check out the pull request as a worktree, or open the branch', 'w'),
+  c('lanes', null, 'lanes.checkoutHere', 'Check out the pull request in this window, or open the branch', 'Shift+W'),
   c('lanes', null, 'lanes.github', 'Open the pull request on GitHub', 'Shift+O'),
   c('catchup', null, 'catchup.next', 'Next merged pull request or commit in the timeline', 'ArrowDown'),
   c('catchup', null, 'catchup.prev', 'Previous merged pull request or commit', 'ArrowUp'),
