@@ -1,10 +1,11 @@
 'use strict';
-// Review's catch-up card (AK-281): what landed since a tag, grouped by issue key or folder, the
-// walk-through in the split pane, and Mark caught up (with Undo; caught up collapses it to one line). PR features stay off: git only.
+// Catch up (AK-365, was Review's catch-up card, AK-281): what landed since a tag as a timeline by day,
+// the walk-through in Review's split pane (Esc comes back), and Mark caught up (with Undo; caught up
+// shows the calm empty state). PR features stay off: git only.
 
 const { test, expect } = require('./fixtures');
 
-test('catch-up: since a tag, grouped, walk through, mark caught up', async ({ sandbox, launch }, testInfo) => {
+test('catch-up: since a tag, timeline, walk through, mark caught up', async ({ sandbox, launch }, testInfo) => {
   const repo = sandbox.init('catchup');
   sandbox.commit(repo, 'start', { 'README.md': 'start\n' });
   sandbox.git(repo, 'tag', 'v0.1');
@@ -14,17 +15,21 @@ test('catch-up: since a tag, grouped, walk through, mark caught up', async ({ sa
   sandbox.commit(repo, 'docs: release notes', { 'docs/notes.md': 'notes\n' });
   const app = await launch(repo);
   const { page } = app;
-  await app.view('lanes');
-  const card = page.locator('.review-catchup-card');
-  await expect(card.locator('.catchup-title')).toBeVisible();
+  await app.view('catchup');
+  const view = page.locator('.page.catchup');
+  await expect(view.locator('h1')).toHaveText('Catch up');
 
   // Since… → the tag.
-  await page.locator('.review-split').press('Shift+T');
+  await expect(view.locator('.catchup-empty h2')).toHaveText('You’re caught up.');
+  await view.press('Shift+T');
   await page.locator('.menu').getByRole('button', { name: 'Tag v0.1' }).click();
-  await expect(card.locator('.catchup-title')).toHaveText('Since tag v0.1');
-  await expect(card.locator('.catchup-counts')).toContainText('4 commits landed');
-  await expect(card.locator('.catchup-group').first()).toContainText('AK-281');
-  await expect(card.locator('.catchup-group').first()).toContainText('· 2');
+  await expect(view.locator('.catchup-since')).toContainText('since tag v0.1');
+  await expect(view.locator('.catchup-number')).toContainText('4 commits landed');
+  await expect(view.locator('.catchup-row')).toHaveCount(4);
+  await expect(view.locator('.catchup-row').first()).toContainText('docs: release notes');
+  await expect(view.locator('.catchup-row').nth(1).locator('.catchup-chip')).toHaveText('apps/web');
+  await expect(view.locator('.catchup-row').nth(2).locator('.catchup-chip')).toHaveText('AK-281');
+  await expect(view.locator('.catchup-bridge')).toHaveCount(0); // nothing stuck or ready: no line to Review
 
   const shot = async (name) => {
     await page.waitForTimeout(250);
@@ -38,37 +43,43 @@ test('catch-up: since a tag, grouped, walk through, mark caught up', async ({ sa
     await shot(`${theme}-catchup`);
   }
 
-  // Walk through: one row per commit (no PRs), the pane shows the first one's diff.
-  await page.locator('.review-split').focus();
-  await page.locator('.review-split').press('Shift+Enter');
+  // ↓ then ↵: Review walks through from that row; Esc comes back to Catch up.
+  await view.focus();
+  await view.press('ArrowDown');
+  await view.press('Enter');
   await expect(page.locator('.lanes-group[data-stage="landed"]')).toContainText('Landed since tag v0.1 · 4');
-  await expect(page.locator('.lanes-row.active .lanes-name')).toHaveText('docs: release notes');
-  await expect(page.locator('.review-pane .quick-title')).toContainText('docs: release notes');
-  await page.locator('.review-split').press('ArrowDown');
+  await expect(page.locator('.lanes-row.active .lanes-name')).toHaveText('style(web): tighten the hero');
   await expect(page.locator('.review-pane .quick-title')).toContainText('style(web): tighten the hero');
   await shot('dark-walk');
   await page.locator('.review-split').focus();
   await page.locator('.review-split').press('Escape');
-  await expect(page.locator('.lanes-group[data-stage="landed"]')).toHaveCount(0);
+  await expect(view).toBeVisible();
 
-  // Mark caught up: the checkpoint moves to the tip, nothing is new, so the card is one line; Undo puts it back.
-  await page.locator('.review-split').press('Shift+C');
+  // ⇧↵ walks from the newest.
+  await view.focus();
+  await view.press('Shift+Enter');
+  await expect(page.locator('.lanes-row.active .lanes-name')).toHaveText('docs: release notes');
+  await page.locator('.review-split').focus();
+  await page.locator('.review-split').press('Escape');
+  await expect(view).toBeVisible();
+
+  // Mark caught up: the checkpoint moves to the tip, nothing is new; Undo puts it back.
+  await view.focus();
+  await view.press('Shift+C');
   const t = await app.toast('Caught up to');
-  await expect(card).toHaveClass(/compact/);
-  await expect(card.locator('.catchup-title')).toContainText('Caught up ·');
-  await expect(card.locator('.catchup-counts')).toHaveCount(0);
-  await t.locator('.toast-action').click();
-  await expect(card.locator('.catchup-title')).not.toContainText('Caught up');
-
-  // Caught up again: ⇧C is a no-op with a toast.
-  await page.locator('.review-split').press('Shift+C');
-  await app.toast('Caught up to');
-  await expect(card).toHaveClass(/compact/);
-  await page.locator('.review-split').press('Shift+C');
-  await app.toast('Already caught up');
+  await expect(view.locator('.catchup-empty h2')).toHaveText('You’re caught up.');
+  await expect(page.locator('.sb-nav [data-view="catchup"] .nav-badge')).toHaveText('');
   for (const theme of ['light', 'dark']) {
     await app.palette(`Theme: ${theme === 'light' ? 'Light' : 'Dark'}`);
     await expect.poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(theme === 'dark');
     await shot(`${theme}-caught-up`);
   }
+  await t.locator('.toast-action').click();
+  await expect(view.locator('.catchup-empty')).toBeVisible(); // the checkpoint it put back was the tip when the repo opened
+
+  // Caught up again: ⇧C is a no-op with a toast.
+  await view.press('Shift+C');
+  await app.toast('Caught up to');
+  await view.press('Shift+C');
+  await app.toast('Already caught up');
 });

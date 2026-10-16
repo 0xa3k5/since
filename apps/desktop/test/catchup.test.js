@@ -168,3 +168,29 @@ test('walk-through header: a short "since …" for every catch-up kind (AK-304)'
   assert.equal(sinceLabel({ kind: 'week' }), 'since last week');
   assert.equal(sinceLabel({ kind: 'checkpoint', checkpoint: {} }), 'since checkpoint');
 });
+
+test('timeline: entries by day, newest first, Today and Yesterday, then dates (AK-365)', async () => {
+  const { byDay, firstOf, headline, sincePhrase } = await load('catchup.js');
+  const at = (d, h) => new Date(2026, 9, d, h, 0).getTime();
+  const now = at(16, 12);
+  const e = (id, date, kind = 'pr') => ({ id, date, kind });
+  const days = byDay([e('a', at(14, 9)), e('b', at(16, 8)), e('c', at(15, 23)), e('d', at(16, 11)), e('x', 0, 'commit')], { now, dateLabel: (ms) => `day ${new Date(ms).getDate()}` });
+  assert.deepEqual(days.map((d) => [d.label, d.entries.map((x) => x.id)]), [
+    ['Today', ['d', 'b']], ['Yesterday', ['c']], ['day 14', ['a']], ['Undated', ['x']],
+  ]);
+  // Just after midnight: yesterday evening is Yesterday, not Today.
+  assert.deepEqual(byDay([e('m', at(15, 23))], { now: at(16, 0) + 60e3 }).map((d) => d.label), ['Yesterday']);
+  assert.deepEqual(byDay([]), []);
+
+  // The first n rows across days, and how many are left for "+ N more".
+  const { days: top, more } = firstOf(days, 3);
+  assert.deepEqual(top.map((d) => d.entries.length), [2, 1]);
+  assert.equal(more, 2);
+  assert.equal(firstOf(days, 10).more, 0);
+
+  assert.deepEqual(headline([e('a'), e('b'), e('c', 0, 'commit')]), { count: 2, text: 'PRs merged', extra: '1 other commit' });
+  assert.deepEqual(headline([e('a', 0, 'commit')]), { count: 1, text: 'commit landed', extra: null });
+  assert.equal(headline([e('a')]).text, 'PR merged');
+  assert.equal(sincePhrase({ since: 'checkpoint' }), 'since your checkpoint');
+  assert.equal(sincePhrase({ since: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
+});
