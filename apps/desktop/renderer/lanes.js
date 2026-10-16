@@ -152,6 +152,24 @@ export function loadGuard() {
   };
 }
 
+// One load in flight at a time (AK-382): run(key, start) joins the load already running for `key`, or
+// calls start() for a new one; a run for another key replaces it. pending(key) → that load, or null.
+// The load when a repo opens and Reload share it, so a repo costs one `gh` call, not two.
+export function sharedLoad() {
+  let cur = null;
+  return {
+    run(key, start) {
+      if (cur?.key === key) return cur.p;
+      const entry = { key, p: (async () => start())() }; // start() runs now; a throw becomes a rejection
+      cur = entry;
+      const done = () => { if (cur === entry) cur = null; };
+      entry.p.then(done, done);
+      return entry.p;
+    },
+    pending: (key) => (cur?.key === key ? cur.p : null),
+  };
+}
+
 // `promise`, or a rejection with `message` after `ms`.
 export function withTimeout(promise, ms, message = 'Timed out') {
   let timer;
