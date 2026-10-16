@@ -572,3 +572,42 @@ test('previewRestore shows what Restore before would change, without changing it
   assert.deepEqual((await journal.previewRestore(branch.id)).changes, []);
   await assert.rejects(journal.previewRestore(99999), /Snapshot not found/);
 });
+
+test('remotes: add, edit URL, rename and remove are each undoable, remove keeps refs and upstreams', async () => {
+  const { dir, journal } = await repo();
+  const sha = await commit(dir, 'a.txt', 'a\n', 'base');
+  const urls = async () => Object.fromEntries((await git.getRemotes(dir)).map((r) => [r.name, r.url]));
+  await journal.runRemote('addRemote', 'Add remote origin', ['origin', 'https://example.com/a.git']);
+  await journal.runRemote('setRemoteUrl', 'Edit origin', ['origin', 'https://example.com/b.git']);
+  assert.deepEqual(await urls(), { origin: 'https://example.com/b.git' });
+  await journal.step('undo');
+  assert.deepEqual(await urls(), { origin: 'https://example.com/a.git' });
+  await journal.step('redo');
+  await journal.runRemote('renameRemote', 'Rename origin', ['origin', 'upstream']);
+  assert.deepEqual(await urls(), { upstream: 'https://example.com/b.git' });
+  await journal.step('undo');
+  assert.deepEqual(await urls(), { origin: 'https://example.com/b.git' });
+
+  // A remote-tracking branch (and its HEAD) plus a local branch tracking it.
+  await git.run(dir, ['update-ref', 'refs/remotes/origin/main', sha]);
+  await git.run(dir, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+  await git.run(dir, ['branch', '--set-upstream-to=origin/main', 'main']);
+  await journal.runRemote('removeRemote', 'Remove origin', ['origin']);
+  assert.deepEqual(await urls(), {});
+  assert.equal((await git.run(dir, ['for-each-ref', 'refs/remotes'])).trim(), '');
+  await gcNow(dir);
+  await journal.step('undo');
+  assert.deepEqual(await urls(), { origin: 'https://example.com/b.git' });
+  assert.equal((await git.run(dir, ['rev-parse', 'refs/remotes/origin/main'])).trim(), sha);
+  assert.equal((await git.run(dir, ['symbolic-ref', 'refs/remotes/origin/HEAD'])).trim(), 'refs/remotes/origin/main');
+  assert.equal((await git.run(dir, ['rev-parse', '--abbrev-ref', 'main@{upstream}'])).trim(), 'origin/main');
+  assert.equal((await git.run(dir, ['config', '--get-all', 'remote.origin.fetch'])).trim(), '+refs/heads/*:refs/remotes/origin/*');
+  await journal.step('redo');
+  assert.deepEqual(await urls(), {});
+
+  // A step whose remote changed since fails without changing anything.
+  await journal.step('undo'); // remove
+  await git.run(dir, ['remote', 'set-url', 'origin', 'https://example.com/other.git']);
+  await assert.rejects(journal.step('undo'), /URL of origin has changed/);
+  await assert.rejects(journal.runRemote('addRemote', 'Add', ['origin', 'x']), /already exists/);
+});

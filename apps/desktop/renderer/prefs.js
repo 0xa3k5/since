@@ -22,7 +22,8 @@ export const PREF_SECTIONS = [
 
 // `s` is the snapshot the app passes in:
 //   { autoUpdate, licence, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
-//     agentLanes }, sidebarExpanded, prs: { enabled, hidden, remote, gh } | null, repo, config: [{ key, value, scope }] }
+//     agentLanes }, sidebarExpanded, prs: { enabled, hidden, remote, gh } | null, repo, config: [{ key, value, scope }],
+//   remotes: [{ name, url, label }] }
 export function prefRows(s) {
   const show = s.show || {};
   const prs = s.prs || null;
@@ -56,6 +57,8 @@ export function prefRows(s) {
     { section: 'keyboard', id: 'resetShortcuts', kind: 'action', value: 'Reset All', label: 'Reset shortcuts to the defaults', keywords: 'keys keymap bindings' },
   ];
   if (s.repo) {
+    rows.push({ section: 'repository', id: 'addRemote', kind: 'action', value: 'Add remote…', label: 'Remotes', detail: s.remotes?.length ? null : 'This repository has no remotes.', keywords: 'remote origin upstream fork url add' });
+    for (const r of s.remotes || []) rows.push({ section: 'repository', id: `remote:${r.name}`, kind: 'action', value: 'Edit…', label: r.name, detail: r.label, keywords: 'remote url rename remove' });
     rows.push({ section: 'repository', id: 'addConfig', kind: 'action', value: 'Add option…', label: 'Git config', detail: 'Effective config of this repository. Local values can be edited.', keywords: 'git config option add' });
     for (const c of s.config || []) rows.push({ section: 'repository', id: `config:${c.scope}:${c.key}`, kind: 'config', value: c, label: c.key, keywords: `${c.value} ${c.scope}` });
   }

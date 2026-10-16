@@ -54,6 +54,7 @@ function pins(entry) {
   if (entry.autostash) objects.push(entry.autostash.sha);
   if (entry.worktree) objects.push(entry.worktree.head);
   for (const w of entry.cleanup || []) objects.push(w.head);
+  for (const [, oid, sym] of entry.remote?.saved?.refs || []) if (!sym) objects.push(oid);
   return { blobs: [...git.snapshotBlobs(entry.work?.before), ...git.snapshotBlobs(entry.work?.after)], objects };
 }
 
@@ -75,6 +76,9 @@ const workOps = {
   stashApply: { run: git.stashApply, paths: git.stashPaths, stash: true },
   stashDrop: { run: git.stashDrop, stash: true },
 };
+
+// Managing remotes (git.changeRemote): the git op for each journal method.
+const remoteOps = { addRemote: 'add', setRemoteUrl: 'url', renameRemote: 'rename', removeRemote: 'remove' };
 
 // Lane steps (runLane) that can also remove a worktree.
 const laneOps = new Set(['mergeLane', 'tidyLane']);
@@ -396,7 +400,18 @@ class Journal {
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, midSequence }) {
+  // Add, change the URL of, rename or remove a remote as an undoable step (see git.changeRemote).
+  runRemote(method, label, args) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      const remote = await git.changeRemote(this.root, remoteOps[method], ...args);
+      await this.finish({ id, label, method, before, remote });
+      return true;
+    });
+  }
+
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, remote, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
@@ -405,6 +420,7 @@ class Journal {
     if (cleanup) { entry.cleanup = cleanup; changed ||= cleanup.length > 0; }
     if (submodules?.length) { entry.submodules = submodules; changed = true; }
     if (autostash) { entry.autostash = autostash; changed = true; }
+    if (remote) { entry.remote = remote; changed = true; }
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path)).catch(() => null);
       if (!workAfter || git.workChanges(workBefore, workAfter).length) {
@@ -445,7 +461,7 @@ class Journal {
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
-      if (e.worktree || e.cleanup || e.submodules || e.autostash) return null;
+      if (e.worktree || e.cleanup || e.submodules || e.autostash || e.remote) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
         const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
@@ -471,6 +487,7 @@ class Journal {
     else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
     else if (entry.autostash) await this.restoreAutostash(entry, dir);
+    else if (entry.remote) await this.restoreRemote(entry, dir);
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
     from.hot.pop();
@@ -530,6 +547,15 @@ class Journal {
       await this.pin(entry.id, pins(entry));
       delete entry.pin;
       try { await git.restoreRefState(cwd, entry.after); } catch (err) { await git.stashApply(cwd, 'stash@{0}', true).catch(() => {}); throw err; }
+    }
+  }
+
+  // Undo or redo a remote change. Redoing a remove saves the remote's refs again, so pin those.
+  async restoreRemote(entry, dir) {
+    await git.revertRemote(this.root, entry.remote, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
+    if (entry.remote.op === 'remove' && dir === 'redo') {
+      await this.pin(entry.id, pins(entry));
+      delete entry.pin;
     }
   }
 
@@ -620,4 +646,4 @@ class Journal {
   }
 }
 
-module.exports = { Journal, workOps, worktreeOps, laneOps, PAGE, refChanges };
+module.exports = { Journal, workOps, worktreeOps, laneOps, remoteOps, PAGE, refChanges };
