@@ -159,7 +159,7 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ---------------------------------------------------------------- Layout */
-#app { --sb-w: 232px; --sb-rail-w: 52px; display: grid; grid-template-columns: var(--sb-w) 1fr; height: 100vh; transition: grid-template-columns 120ms ease; }
+#app { --sb-w: 232px; --sb-rail-w: 52px; position: relative; display: grid; grid-template-columns: var(--sb-w) 1fr; height: 100vh; transition: grid-template-columns 120ms ease; }
 #app.sb-rail, #app.sb-overlay { grid-template-columns: var(--sb-rail-w) 1fr; }
 .main {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
@@ -203,6 +203,17 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
   #app { transition: none; }
   #app.sb-overlay .sidebar { animation: none; }
 }
+
+/* Resizable panes (AK-454): an 8 px grab strip centred on the pane's edge; the accent line shows on hover, focus and drag. */
+.pane-handle { position: absolute; top: 0; bottom: 0; z-index: 5; width: 8px; cursor: col-resize; touch-action: none; outline: 0; }
+.pane-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 1px; background: transparent; transition: background-color 120ms ease 80ms; }
+.pane-handle:hover::after, .pane-handle:active::after { background: var(--accent); }
+.pane-handle:focus-visible::after { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pane-handle[data-pane="sidebar"] { left: calc(var(--sb-w) - 4px); }
+#app.sb-rail > .pane-handle, #app.sb-overlay > .pane-handle { display: none; }
+body.pane-resizing { cursor: col-resize; user-select: none; }
+body.pane-resizing #app { transition: none; }
+@media (prefers-reduced-motion: reduce) { .pane-handle::after { transition: none; } }
 .sb-top { display: flex; align-items: center; gap: 4px; height: 52px; padding-top: 6px; -webkit-app-region: drag; }
 /* macOS: the repo switcher sits on its own row under the traffic lights, not beside them. */
 .mac .sb-top { height: 76px; padding-top: 40px; }
@@ -631,7 +642,9 @@ kbd.inline { flex: none; }
 .sel-bar .muted { font-size: 12px; margin-right: 4px; }
 
 /* ---------------------------------------------------------------- Commit view */
-.commit-view { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
+/* The file list keeps its saved width but always leaves 360 px for the diff (floor 240 px). */
+.commit-view { --cv-col: min(var(--cv-w, 320px), max(240px, 100% - 360px)); position: relative; flex: 1; display: grid; grid-template-columns: var(--cv-col) minmax(0, 1fr); min-height: 0; }
+.commit-view > .pane-handle { left: calc(var(--cv-col) - 4px); }
 .cv-side { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
 .cv-lists { flex: 1; overflow-y: auto; padding-bottom: 8px; }
 .cv-section.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: var(--radius); }

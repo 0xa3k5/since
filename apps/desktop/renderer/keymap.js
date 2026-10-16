@@ -113,6 +113,7 @@ export const COMMANDS = [
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
   c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
   c('global', 'global', 'global.cleanup', 'Clean up finished branches and worktrees', 'Mod+Alt+Backspace'),
+  c('global', 'global', 'global.resetPanes', 'Reset pane sizes', 'Mod+Alt+Digit0'),
   c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
 
   // Map, with the commit list focused.

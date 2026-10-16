@@ -24,6 +24,7 @@ import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.j
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
+import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
@@ -45,6 +46,7 @@ const state = {
   view: 'map',
   // expanded: saved choice for wide windows; pinned/hover: the overlay on narrow ones (see sidebar.js).
   sidebar: { expanded: loadPref('sidebar', { expanded: true }).expanded, pinned: false, hover: false },
+  panes: null, // pane widths in px (pane-size.js), saved for every repository
   refs: [],
   head: { branch: null, oid: null, detached: false },
   hist: createHistory(), // the history on screen; commits/index/graph below are its parts
@@ -85,6 +87,7 @@ setSwatches(state.show.swatches);
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
 function savePref(k, v) { try { localStorage.setItem('pref:' + k, JSON.stringify(v)); } catch { /* ignore */ } }
+state.panes = loadSizes(loadPref('panes', {}));
 
 // ---------------------------------------------------------------------------
 // Git bridge
@@ -559,7 +562,8 @@ function renderShell() {
   topbarEl = h('header.topbar');
   bannerEl = h('div.banner-slot');
   contentEl = h('div.content');
-  root.append(sidebarEl, h('main.main', null, topbarEl, bannerEl, contentEl));
+  root.append(sidebarEl, paneHandle('sidebar', () => root), h('main.main', null, topbarEl, bannerEl, contentEl));
+  applyPanes();
   sidebarEl.addEventListener('mouseenter', () => sidebarHover(true));
   sidebarEl.addEventListener('mouseleave', () => sidebarHover(false));
   root.querySelector('.main').addEventListener('mousedown', () => { if (sidebarMode(sbState()) === 'overlay') setSidebar({ ...state.sidebar, pinned: false, hover: false }); });
@@ -856,6 +860,58 @@ function isMenuKey(id, e) {
   const b = keymap.bindings(id).find((x) => !x.includes(' '));
   const k = keymap.fromEvent(e);
   return !!b && !!k && keymap.normalize(b) === keymap.normalize(k);
+}
+
+// Resizable panes (AK-454): a focusable separator on the pane's edge. Drag it, or focus it and use the arrow keys
+// (⇧ for bigger steps, Home/End for the limits); double-click or Enter resets it. The limits live in pane-size.js.
+function applyPanes() {
+  root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
+  root.style.setProperty('--cv-w', `${state.panes.commit}px`);
+  root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
+}
+function setPane(id, px, save = true) {
+  state.panes = { ...state.panes, [id]: px };
+  applyPanes();
+  if (save) savePref('panes', state.panes);
+}
+function resetPanes() {
+  state.panes = defaultSizes();
+  applyPanes();
+  savePref('panes', state.panes);
+}
+// `box()` is the element the pane starts at the left edge of and shares its width with.
+function paneHandle(id, box) {
+  const p = PANES[id];
+  const el = h('div.pane-handle', { role: 'separator', tabindex: 0, 'aria-orientation': 'vertical', 'aria-label': p.label, 'aria-valuemin': p.min, 'aria-valuemax': p.max, 'aria-valuenow': state.panes[id], 'data-pane': id, title: tip('Drag to resize, double-click to reset', 'global.resetPanes') });
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    const b = box().getBoundingClientRect();
+    document.body.classList.add('pane-resizing');
+    const onMove = (m) => setPane(id, clampPane(id, m.clientX - b.left, b.width), false);
+    const onUp = () => {
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+      document.body.classList.remove('pane-resizing');
+      savePref('panes', state.panes);
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+  });
+  el.addEventListener('dblclick', () => setPane(id, p.def));
+  el.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const px = stepPane(id, state.panes[id], e.key, e.shiftKey, box().getBoundingClientRect().width);
+    // Keys that act on the list the handle sits beside (discard, stage) never reach it from here.
+    if (px == null) { if (['Backspace', 'Delete', ' '].includes(e.key)) e.stopPropagation(); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    setPane(id, px);
+  });
+  return el;
 }
 
 function toggleSidebar() {
@@ -1694,7 +1750,7 @@ function createCommitView(container) {
   const aiBtn = h('button.icon-btn.ai-btn', { title: tip('Write message with AI', 'repo.aiMessage'), hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
   const composer = h('div.composer', null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
   side.append(lists, composer);
-  el.append(side, diffPane);
+  el.append(side, paneHandle('commit', () => el), diffPane);
   container.append(el);
 
   function updateCommitBtn() {
@@ -3540,6 +3596,7 @@ function openPalette() {
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
+    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list panel pane default restore drag' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
@@ -4019,6 +4076,7 @@ window.addEventListener('keydown', (e) => {
     if (state.view === 'snapshots' && !state.fileHistory && !state.quick && !state.split && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
   if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
+  if (state.repo && id === 'global.resetPanes') { e.preventDefault(); resetPanes(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
