@@ -3383,7 +3383,6 @@ function openPalette() {
     }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
     if (state.view === 'catchup' && catchupPage) {
-      add('Catch up', 'Read from the top', () => catchupPage.walk(), { icon: 'commit', kbd: keymap.keys('catchup.walk'), keywords: 'catch up merged landed since checkpoint walk through start first read reader main' });
       add('Catch up', 'Mark caught up', () => catchupPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('catchup.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
       add('Catch up', 'Catch up since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
       add('Catch up', 'Reload merged pull requests', () => catchupPage.reload(), { icon: 'restore', kbd: keymap.keys('catchup.reload'), keywords: 'catch up refresh fetch github merged pull requests ci gh' });
