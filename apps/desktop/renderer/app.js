@@ -497,7 +497,7 @@ const lanesOpen = () => state.view === 'lanes' && !state.review && !state.fileHi
 // Names the place on screen; a jump that ends where it started records nothing.
 // In Review the selected row counts too: the split view's pane shows it (AK-272).
 const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
-  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.all}:${lanes.key ?? ''}` : ''].join('|');
+  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.tab}:${lanes.key ?? ''}` : ''].join('|');
 function place() {
   return {
     key: placeKey(), root: state.repo?.root, view: state.view, review: state.review,
@@ -538,7 +538,6 @@ async function navStep(dir) {
     state.split = null;
     state.search = to.search;
     lanesPlace = to.lanes;
-    if (to.lanes) lanesAll = to.lanes.all;
     renderSidebar();
     renderTopbar();
     renderView();
@@ -2353,7 +2352,7 @@ function openLanes() {
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
-    all: lanesAll,
+    onBranches: (tab) => showBranches(tab),
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
@@ -2367,7 +2366,6 @@ function openLanes() {
     // Moving to another row is a step for ⌘[ / ⌘] once the pane shows it.
     onSettle: (from) => { if (lanesOpen() && !navigating && !navDepth && nav.record({ ...place(), lanes: from, key: placeKey(from) }, placeKey())) renderTopbar(); },
   });
-  lanesAll = false;
   lanesPlace = null;
   return lanesPage;
 }
@@ -2450,14 +2448,6 @@ function countFinished() {
   });
   return finishedRun();
 }
-let lanesAll = false; // the next Review page starts with Everything else open
-// ⌘K Show / hide everything else: Review, in that mode.
-function showAllLanes(on) {
-  if (!state.repo) return;
-  if (state.view === 'lanes' && lanesPage && lanesOpen()) return lanesPage.showAll(on);
-  lanesAll = on;
-  setView('lanes');
-}
 
 // Clean up (cleanup-view.js) is the Finished tab of Branches (AK-396): finished branches and
 // worktrees, removed in bulk as one undo step. With a lane, just that one is ticked.
@@ -2500,7 +2490,7 @@ async function openPrReviewNow(pr, remote = prRemote()) {
   const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
   t.close();
   if (res.error) return prError(`Couldn’t fetch #${pr.number}`, res.error);
-  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); lanesAll = lanesPlace.all; }
+  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); }
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
@@ -3438,7 +3428,7 @@ function openPalette() {
       if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
       add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
     }
-    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: keymap.keys('branches.tabConflict'), keywords: 'branches predicted conflicts forecast merge-tree overlap lanes worktrees' });
+    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap lanes worktrees' });
     if (state.view === 'branches' && branchesPage && !state.review) {
       for (const t of BRANCH_TABS) add('Branches', `Show ${t.label}`, () => branchesPage.setTab(t.id), { icon: 'branch', kbd: keymap.keys(t.keyId), detail: branchesPage.tab() === t.id ? 'current' : null, keywords: 'branches tab active agent made would conflict idle finished clean up worktrees' });
       const sel = branchesPage.selected();
@@ -3454,8 +3444,10 @@ function openPalette() {
         if (can('cleanup')) add('Branches', `Clean up ${n}…`, () => branchesPage.run('cleanup'), { icon: 'trash', kbd: keymap.keys('branches.cleanup'), keywords: 'branch finished merged clean up tidy remove' });
       }
     }
-    const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
-    add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
+    if (state.view === 'lanes' && lanesOpen()) {
+      add('Review', 'Show every active branch in Branches', () => showBranches('active'), { icon: 'branch', kbd: keymap.keys('lanes.all'), keywords: 'review branches every branch worktree local active everything else' });
+      add('Review', 'Show agent-made branches in Branches', () => showBranches('agents'), { icon: 'branch', kbd: keymap.keys('lanes.agents'), keywords: 'review branches agent ai made worktrees' });
+    }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.setTab) {
       for (const [id, label, keyId] of [['needs', 'Needs you', 'lanes.tabNeeds'], ['stuck', 'Stuck', 'lanes.tabStuck'], ['ready', 'Ready', 'lanes.tabReady'], ['inProgress', 'In progress', 'lanes.tabProgress'], ['open', 'All open', 'lanes.tabAll']]) {
         add('Review', `Show ${label}`, () => lanesPage.setTab(id), { icon: 'lanes', kbd: keymap.keys(keyId), detail: lanesPage.tab() === id ? 'current' : null, keywords: 'review tab list stuck ready merge in progress open pull requests needs you' });
