@@ -84,6 +84,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   let forecastOk = true; // false on git before 2.38: no forecast, no chip
   let loaded = false;
   let pendingSendBack = null; // sendBack(number) before Review listed it: opens once a refresh does
+  let pendingPr = null; // showPr(number) before Review listed it: selected once a refresh does
   let base = null;
   let timer = 0;
   const loads = loadGuard();
@@ -483,6 +484,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const previous = staged ? new Map(staged.all.map((x) => [x.key, x.stage])) : null;
     staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now(), previous });
     if (pendingSendBack != null && staged.all.some((x) => x.pr?.number === pendingSendBack)) { const n = pendingSendBack; pendingSendBack = null; setTimeout(() => sendBack(n)); }
+    if (pendingPr != null && staged.all.some((x) => x.pr?.number === pendingPr)) { const n = pendingPr; pendingPr = null; setTimeout(() => showPr(n)); }
     if (agentsOnly && !markAgents()) agentsOnly = false;
     // A lane whose open PR a bot opened counts as agent-made too.
     const bots = new Map(markAgents() ? staged.all.filter((r) => r.lane && !r.lane.agent && r.pr?.bot).map((r) => [r.lane, r.pr.authorName || r.pr.author]) : []);
@@ -833,7 +835,17 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     select(r.key);
     act('sendBack', r);
   }
-  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  // A PR picked outside Review (the sidebar, AK-385): its row, selected, on a tab that lists it.
+  function showPr(number) {
+    const r = (staged?.all || []).find((x) => x.pr?.number === number);
+    if (!r && !loaded) { pendingPr = number; return; }
+    if (!r) return toast(`#${number} isn’t in Review`, { detail: 'Reload pull requests to list it.' });
+    if (all) setAll(false);
+    if (filter.value) { filter.value = ''; render(); }
+    if (!TAB.get(tab).stages.includes(r.stage)) setTab(TABS.find((t) => t.stages.length === 1 && t.stages[0] === r.stage)?.id || 'open');
+    select(r.key);
+  }
+  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows
