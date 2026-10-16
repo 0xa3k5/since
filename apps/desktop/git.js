@@ -931,18 +931,24 @@ async function captureRefState(cwd) {
 }
 
 async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = {}) {
-  const current = await captureRefState(cwd);
+  let current = await captureRefState(cwd);
   const env = { GIT_OPTIONAL_LOCKS: '1' };
   // Move the working copy first so a dirty tree blocks the restore before any ref changes.
   // `soft` keeps the undone commit's changes staged (undoing a commit). `refsOnly` leaves
   // the index and working tree alone; the caller restores them from a work snapshot.
   if (!refsOnly && state.headOid && state.headOid !== current.headOid) {
     await run(cwd, ['reset', soft ? '--soft' : '--keep', state.headOid], { env });
+    // The reset moved the branch HEAD is on; when HEAD goes back to another branch, that one moves back below.
+    current = await captureRefState(cwd);
   }
   const lines = [];
   for (const [n, o] of Object.entries(state.refs)) if (current.refs[n] !== o) lines.push(`update ${n} ${o}`);
   for (const n of Object.keys(current.refs)) if (!(n in state.refs)) lines.push(`delete ${n}`);
   if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo'], { input: lines.join('\n') + '\n', env });
+  // A deleted branch takes its `[branch "x"]` config (upstream) with it, as `git branch -D` does.
+  for (const n of Object.keys(current.refs)) {
+    if (!(n in state.refs) && n.startsWith('refs/heads/')) await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+  }
   if (state.head) await run(cwd, ['symbolic-ref', 'HEAD', state.head], { env });
   else if (state.headOid) await run(cwd, ['update-ref', '--no-deref', 'HEAD', state.headOid], { env });
 }
@@ -1163,7 +1169,8 @@ async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
   }
   if (paths?.length) args.push('--', ...paths.filter((p) => !gone.includes(p)));
   try {
-    await run(cwd, args, { env: W_ENV });
+    // With GIT_LITERAL_PATHSPECS, `stash -u` saves untracked files but leaves them in place; literal paths only matter with paths.
+    await run(cwd, args, { env: paths?.length ? W_ENV : { GIT_OPTIONAL_LOCKS: '1' } });
     if (gone.length) await run(cwd, ['checkout', 'HEAD', '--', ...gone]);
   } catch (e) {
     // `stash push --staged` arrived in Git 2.35; older git rejects the option with a usage dump.
@@ -1311,7 +1318,8 @@ function resolveWorktreePath(mainPath, dir) {
 
 // Add a worktree. `branch`: an existing local branch is checked out, a new name
 // is created at `base`; no branch gives a detached HEAD at `base`. Returns the path.
-async function addWorktree(cwd, { dir, branch, base } = {}) {
+// `force` moves an existing `branch` to `base` (`-B`), so the move and the new worktree are one step.
+async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
   const main = (await getWorktrees(cwd)).find((w) => w.main);
   const at = base || 'HEAD';
   dir = dir ? resolveWorktreePath(main.path, dir) : defaultWorktreePath(main.path, branch || (await run(cwd, ['rev-parse', '--short', at])).trim());
@@ -1319,6 +1327,7 @@ async function addWorktree(cwd, { dir, branch, base } = {}) {
   const local = branch && (await run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], { allowCodes: [0, 1] })).trim();
   const args = ['worktree', 'add', '-q'];
   if (!branch) args.push('--detach', dir, at);
+  else if (local && force && base) args.push('-B', branch, dir, base);
   else if (local) args.push(dir, branch);
   else args.push('-b', branch, dir, at);
   await run(cwd, args, { env: W_ENV });
@@ -1496,8 +1505,9 @@ async function squashTree(cwd, baseSha, head) {
   let out;
   try {
     out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
-  } catch {
-    throw new GitError('Merging here needs git 2.38 or later.');
+  } catch (err) {
+    if (!(await canForecast(cwd))) throw new GitError('Merging here needs git 2.38 or later.');
+    throw err;
   }
   // A clean merge prints only the tree; a conflicted one lists the conflicted paths after it.
   const [tree, ...rest] = out.split('\0');
@@ -1563,7 +1573,23 @@ const AGENT_HINTS = {
 };
 // Lane commits read for trailers and squash checks, and base commits searched for squash merges.
 const LANE_COMMITS = 5000;
+// Squash merges older than BASE_COMMITS base commits aren't detected: such a branch reads merged: null.
 const BASE_COMMITS = 2000;
+// The base side of the squash checks (its log and patch ids) only depends on the base tip: one entry
+// per repo, replaced when the base moves.
+const baseSquash = new Map();
+function baseSquashData(cwd, sha) {
+  const hit = baseSquash.get(cwd);
+  if (hit?.sha === sha) return hit.data;
+  const data = Promise.all([
+    run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', sha, '--']),
+    patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', sha, '--']).then(newestBy),
+  ]);
+  baseSquash.set(cwd, { sha, data });
+  // A failure, or patch ids cut short (size or time limit: empty), is not kept.
+  data.then(([, ids]) => { if (!ids.size && baseSquash.get(cwd)?.data === data) baseSquash.delete(cwd); }, () => { if (baseSquash.get(cwd)?.data === data) baseSquash.delete(cwd); });
+  return data;
+}
 // Lanes further ahead than this skip the per-commit (cherry) check: too much diff for too little.
 const CHERRY_MAX = 100;
 // Commits that say nothing about a lane's work: the empty commit an agent's task worktree starts
@@ -1679,9 +1705,27 @@ async function landed(cwd, { base, since = {}, limit = 300 } = {}) {
 // The key matches "(AK-12)" anywhere or "AK-12:" leading a base subject.
 // Batched: one merge-base per lane, one log, one diff-tree, one patch-id, then merge-tree only for
 // lanes still open.
-async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) {
+async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, commits = new Map() }) {
   if (!b || !lanes.length) return;
   const heads = new Map((prHeads || []).filter((p) => p && /^[0-9a-f]{40}$/.test(p.sha)).map((p) => [p.sha, p]));
+  // A merged PR's head below the tip only ships the lane when everything on top of it is
+  // bookkeeping: baselines and merges from base. A branch stacked on a merged PR, or new commits
+  // after the merge, still have work to ship.
+  const prBelow = (l) => (l.commits || []).filter((c) => c !== l.head && heads.has(c)).map((c) => heads.get(c)).find((p) => {
+    const under = new Set();
+    const stack = [p.sha];
+    while (stack.length) {
+      const sha = stack.pop();
+      const c = commits.get(sha);
+      if (under.has(sha) || !c) continue;
+      under.add(sha);
+      stack.push(...c.parents);
+    }
+    return l.commits.every((sha) => {
+      const c = commits.get(sha);
+      return under.has(sha) || !c || BASELINE.test(c.subject) || (c.parents.length > 1 && c.parents.slice(1).every((x) => !commits.has(x)));
+    });
+  });
   // Key and subject matches only count on base commits newer than the lane's merge-base (the
   // base log is newest first), so a subject the lane forked from never marks it shipped.
   const rowAt = new Map(baseRows.map((r, i) => [r.sha, i]));
@@ -1708,7 +1752,7 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
     l.mergeBase = mbs[i];
     l.netEmpty = l.mergeBase != null && mbTrees.get(l.mergeBase) === l.tree;
     if (l.netEmpty || l.noWork) return;
-    const pr = heads.get(l.head) || (l.commits || []).map((c) => heads.get(c)).find(Boolean);
+    const pr = heads.get(l.head) || prBelow(l);
     // The key in the branch name, else the one leading its newest subject ("AK-48: …").
     const key = branchKey(l.branch) || (/^([a-z][a-z0-9]{0,9}-\d+):/i.exec(l.subject || '')?.[1] || '').toUpperCase() || null;
     const subject = plainSubject(l.subject);
@@ -1785,7 +1829,6 @@ async function mapLimit(items, n, fn) {
   return out;
 }
 
-// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
 // The base commit a key or subject match points at: its sha and, for a squash-merged PR ("… (#12)"), the number.
 function squashOf(row) {
   if (!row) return {};
@@ -1796,7 +1839,8 @@ function squashOf(row) {
 // patch id → newest commit with it, from patchIds over a newest-first log.
 const newestBy = (m) => { const out = new Map(); for (const [sha, id] of m) if (!out.has(id)) out.set(id, sha); return out; };
 
-// commit → patch id for a diff-producing git command. Its output is piped straight into
+// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
+// For a diff-producing git command. Its output is piped straight into
 // `git patch-id --stable`, so a huge diff (an icon repo's SVG history runs to hundreds of MB) never
 // becomes a JS string. Past maxBytes or timeout both are killed and the result is empty: squash
 // detection degrades, the main process keeps its heap.
@@ -1933,9 +1977,8 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
     const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
     const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
     let trees;
-    [trees, baseIds, laneIds, squashIds] = await Promise.all([
-      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', b.sha, '--']),
-      patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']).then(newestBy),
+    [[trees, baseIds], laneIds, squashIds] = await Promise.all([
+      baseSquashData(cwd, b.sha),
       cherryTips.length ? patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : new Map(),
       squashLines.length ? patchIds(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : new Map(),
     ]);
@@ -1956,7 +1999,7 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
       }
     }
   }
-  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree });
+  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree, commits });
 
   const result = await Promise.all(list.map(async (l) => {
     const merged = l.merged;
@@ -2303,6 +2346,7 @@ function parseBlame(out) {
 }
 
 module.exports = {
+  clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,

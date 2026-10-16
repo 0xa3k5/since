@@ -13,7 +13,7 @@ test('every git method the main process serves has a schema, and nothing else do
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
   const { workOps, worktreeOps, laneOps } = require('../journal');
-  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'undo', 'redo', 'restoreHistory'];
+  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'autostashCheckout', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });
 
@@ -50,6 +50,7 @@ test('calls the renderer actually makes pass', () => {
     ['workingDiff', [{ path: 'new.txt', oldPath: 'old.txt', status: 'R' }, false]],
     ['checkout', ['feature/x']],
     ['checkoutTracking', ['origin/feature']],
+    ['autostashCheckout', ['feature', 'Auto-stash on main before switching to feature', true]],
     ['createBranch', ['topic', sha, true]],
     ['createTag', ['v1.0', sha, null]],
     ['createTag', ['v1.0', sha, 'Release']],
@@ -277,4 +278,7 @@ test('main.js checks the PR number and remote before any PR action reaches gh', 
   assert.match(main, /if \(!github\.pickRemote\(remotes\)\) return null;/, 'pr-list is quiet without a GitHub remote');
   assert.match(main, /handle\('app:pr-hide', async \(e, hide\) => \{\s*const v = check\.bool\(hide/, 'pr-hide checks its argument');
   assert.match(main, /handle\('app:pr-enable', async \(e, on\) => \{\s*const v = check\.bool\(on/, 'pr-enable checks its argument');
+  // The PR switch works on the welcome screen: state, enable and detect don't need a repository.
+  const prPart = main.slice(main.indexOf('async function prState('), main.indexOf("handle('app:pr-hide'"));
+  assert.ok(prPart.length > 0 && !/session\(e\)/.test(prPart), 'pr-state, pr-enable and pr-detect work without a repository');
 });
