@@ -253,7 +253,7 @@ export const COMMANDS = [
   c('review', null, 'review.approve', 'Approve the pull request', 'a'),
   c('review', null, 'review.changes', 'Request changes on the pull request', 'c'),
   c('review', null, 'review.closePr', 'Close the pull request', 'x'),
-  c('review', null, 'review.checkout', 'Check out the pull request as a lane', 'Enter'),
+  c('review', null, 'review.checkout', 'Check out the pull request in a new worktree', 'Enter'),
   c('review', null, 'review.github', 'Open the pull request on GitHub', 'Shift+O'),
   c('review', null, 'review.rebase', 'Rebase the stuck branch onto the base branch', 'b'),
   c('review', null, 'review.updateBranch', 'Update the stuck pull request’s branch with its base on GitHub', 'u'),
