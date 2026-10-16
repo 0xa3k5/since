@@ -80,6 +80,7 @@ export const COMMANDS = [
   c('menu', 'repository', 'repo.push', 'Push Current Branch', 'Mod+Shift+P'),
   c('menu', 'repository', 'repo.stash', 'Stash Changes…', 'Mod+Shift+S'),
   c('menu', 'repository', 'repo.stashStaged', 'Stash Staged Changes…', 'Mod+Alt+S'),
+  c('menu', 'repository', 'repo.branchSwitch', 'Switch Branch…', 'Mod+Shift+B'),
   c('menu', 'repository', 'repo.worktreeAdd', 'New Worktree…', 'Mod+Alt+N'),
   c('menu', 'repository', 'repo.worktreeSwitch', 'Switch Worktree…', 'Mod+Alt+W'),
   c('menu', 'repository', 'repo.submodules', 'Open Submodule…', 'Mod+Alt+B'),
