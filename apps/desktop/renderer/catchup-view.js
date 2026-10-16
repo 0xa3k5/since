@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
-import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, firstUnviewed, readerDescription } from './catchup.js';
+import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad } from './lanes.js';
 import * as keymap from './keymap.js';
 import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, readerKey, navPos, fastKeys } from './reader.js';
@@ -336,6 +336,8 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     });
   }
 
+  // "+42 −2 · 3 files" once the change is read, like Review's pane head.
+  const sizeEl = (z) => (z && z.files ? h('span.stat.small', { title: `${z.files} file${z.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${z.additions}`), ' ', h('span.del', null, `−${z.deletions}`), ` · ${z.files} file${z.files === 1 ? '' : 's'}`) : null);
   // The shared head (reader.js): "‹ 3 of 21 ›", "#313 title", then "(M) mira  agent/web-313 →
   // origin/main  WEB-142  merged Tuesday 18:40  ✓ Merged".
   function renderReaderHead() {
@@ -351,6 +353,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
       branch: pr && e.branch ? e.branch : null, base: res.base,
       meta: [
         h('span.badge.catchup-chip' + (e.key ? '' : '.muted'), null, e.key || e.area),
+        sizeEl(change?.id === e.id ? changeSize(change.diffs || []) : null),
         e.date ? h('span', { title: fullDate(e.date / 1000) }, `${pr ? 'merged' : 'committed'} ${whenText(e.date)}`) : null,
         pr ? h('span.catchup-merged', null, icon('check-circle', 12), 'Merged') : null,
       ].filter(Boolean),
