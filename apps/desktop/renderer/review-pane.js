@@ -3,14 +3,18 @@ import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
 import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
+import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey } from './reader.js';
 import * as keymap from './keymap.js';
 
-// Review's right-hand pane, one scroll from top to bottom (AK-379): the selected row's head (title,
-// CI and review state, author, size, draft, last update, reviewers and their states), a status strip
-// (Stuck and why / Ready to merge / In progress, the actions on the right, primary last), the
-// description box, then the branch review (review-view.js: each file a card under a sticky header
-// with its reviewed tick, path and +N −M; ticking folds it, clicking the header folds or unfolds it;
-// "changed since last look"). A row with a local branch reviews that branch; a
+// Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with
+// Catch up (reader.js, AK-381): the selected row's head (‹ N of M ›, #number and title, CI and review
+// state, the author's avatar, branch → base, size, draft, last update, reviewers and their states), a
+// status strip (Stuck and why / Ready to merge / In progress, the actions on the right, primary
+// last), the description (… Show more where it's cut), then the branch review (review-view.js: each
+// file a reader.js card under a sticky header; "changed since last look"). A slim bar with the
+// avatar, number, title and primary action fades in at the top once the head scrolls away.
+// Keys once focus is in the pane (↵ from the list): ↑/↓ scroll, Page Up/Down and Space by a page,
+// ←/→ the previous or next row (ctx.nav), , and . the files, Esc back to the list. A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
 
@@ -26,8 +30,6 @@ const STATE = {
   pending: { icon: 'pending', glyph: '○', verb: 'review requested', many: 'haven’t reviewed yet' },
 };
 const SHOWN_REVIEWERS = 4;
-// The description shows its first lines until Show more (I); that choice sticks across PRs.
-let descOpen = false;
 // "2h ago", "just now", or a date for anything older than a month.
 const ago = (t) => { const a = timeAgo(t); return /^\d+[mhd]$/.test(a) ? `${a} ago` : a; };
 const reviewerTip = (r) => `${r.name}${r.login && r.login !== r.name ? ` (${r.login})` : ''}: ${STATE[r.state].verb}${r.at ? ` · ${fullDate(Date.parse(r.at) / 1000)}` : ''}`;
@@ -48,12 +50,15 @@ function reviewersLine(pr) {
       ...counts.map(([s, n]) => h('span.review-verdict.' + s, { title: `${n} ${STATE[s].many}` }, `${STATE[s].glyph}${n}`))));
 }
 
-// row: a reviewRows row; ctx: { base, remote, requested, step, prsOn, agents, conflicts, onConflicts }
+// row: a reviewRows row; ctx: { base, remote, requested, step, prsOn, agents, conflicts, onConflicts, nav }
+// (nav: { at, of, onStep(±1) } for ‹ N of M › and ←/→)
 // (conflicts: it conflicts with its base, so the files start with what conflicts, AK-305). run(id, row, ctx) runs a
 // pane action (PANE_ACTIONS); call(channel, ...args) is api.app; onBack() returns focus to the list.
 export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
-  const el = h('div.review-pane');
+  const el = h('div.review-pane', { tabIndex: -1 });
   const head = h('div.review-pane-head');
+  let mini = miniHeader(el);
+  let wantFocus = false; // focus() before the review mounted
   let view = null;
   let actions = [];
   let fixes = [];
@@ -73,31 +78,13 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     bar.classList.remove('fit-github', 'fit-shrink');
     if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-github');
     if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-shrink');
-    // Show more only when the clamped description has more to show.
-    const d = head.querySelector('.review-pane-desc:not(.open)');
-    const t = d?.querySelector('.review-pane-desc-text');
-    if (t) d.classList.toggle('fits', t.scrollHeight <= t.clientHeight + 1);
-  }
-
-  // The PR's description in its own box under the status strip: a "Description" label with Show
-  // more on the right, then plain text, a few lines until Show more. Nothing when GitHub didn't send
-  // one; "No description" when the author left it empty.
-  function descriptionEl(pr) {
-    const text = prDescription(pr);
-    if (text == null) return null;
-    const label = h('span.review-pane-desc-label', null, 'Description');
-    if (!text) return h('div.review-pane-desc.none', null, h('div.review-pane-desc-head', null, label), h('div.review-pane-desc-text', null, 'No description'));
-    return h('div.review-pane-desc' + (descOpen ? '.open' : ''), null,
-      h('div.review-pane-desc-head', null, label,
-        h('button.review-reason-link.review-pane-desc-more', { 'aria-expanded': String(descOpen), 'data-tip': tipFor(descOpen ? 'Show less' : 'Show more', 'review.description'), onclick: toggleDescription }, descOpen ? 'Show less' : 'Show more')),
-      h('div.review-pane-desc-text', null, text));
-  }
-
-  function toggleDescription() {
-    if (!prDescription(row.pr)) return false;
-    descOpen = !descOpen;
-    renderHead();
-    return true;
+    // Still too wide: everything but the primary button goes into ⋯, so nothing runs off the edge.
+    const strip = bar.parentElement;
+    strip.classList.remove('fit-more', 'wrapped');
+    if (bar.scrollWidth > bar.clientWidth) strip.classList.add('fit-more');
+    // Wrapped under the label: the buttons start at the left edge.
+    const why = strip.querySelector('.review-pane-status-why');
+    if (why && bar.offsetTop > why.offsetTop + 4) strip.classList.add('wrapped');
   }
 
   function renderHead() {
@@ -136,22 +123,28 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       'data-tip': 'More actions', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
       onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
     }, icon('more', 15)) : null;
+    const author = pr?.author ? pr.authorName || pr.author : null;
+    const num = pr ? `#${pr.number}` : icon(lane?.worktree ? 'worktree' : 'branch', 14);
+    const top = readerHead({
+      num, title: row.title, nav: ctx.nav || null,
+      badges: badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text)),
+      author, authorKey: pr?.author, authorTip: pr?.bot ? `${pr.author} (a bot)` : pr?.author,
+      branch: pr ? pr.branch : row.branch || null, base: pr ? pr.base : null,
+      meta: [
+        size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
+        draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
+        updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null,
+      ].filter(Boolean),
+      below: [pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
+    });
     head.replaceChildren(...[
-      h('div.review-pane-ph', null,
-        h('div.review-pane-title', null,
-          h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
-          ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text))),
-        h('div.quick-meta.review-pane-meta', null,
-          pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,
-          pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
-          size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
-          draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
-          updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null),
-        pr ? reviewersLine(pr) : null,
-        ...(pr ? mergeOrderLines() : [])),
+      top,
       statusStrip([...rest.map(button), rest.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null, ...icons.map(button), github ? button(github) : null, moreBtn, lead ? button(lead) : null].filter(Boolean)),
-      pr ? descriptionEl(pr) : null,
+      pr ? descriptionBlock({ text: prDescription(pr) }) : null,
     ].filter(Boolean));
+    // The slim bar once the head scrolls away: avatar, number, title and the primary action.
+    mini.set(miniContent({ author, authorKey: pr?.author, num: pr ? `#${pr.number}` : null, title: row.title, action: lead ? { label: lead.label.replace('…', ''), icon: lead.icon, run: () => (fixing.has(lead.id) ? fix(lead.id) : run(lead.id, row, ctx)) } : null }));
+    mini.watch(top);
     fit();
   }
 
@@ -189,7 +182,6 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   }
 
   const onKey = (id) => {
-    if (id === 'review.description') return toggleDescription();
     const f = fixes.find((x) => x.key === id);
     if (f) { fix(f.id); return true; }
     const a = actions.find((x) => x.key === id);
@@ -200,7 +192,14 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
 
   function mount(review) {
     view = reviewView({ ...review, root, git, store, header: head, embedded: true, onKey, onClose: onBack, checkConflicts: Boolean(ctx.conflicts), onConflicts: (files) => ctx.onConflicts?.(files) });
+    const had = wantFocus || el.contains(document.activeElement);
+    // The view is the reader's scroll: the slim bar moves into it.
+    mini.destroy();
+    mini = miniHeader(view.el);
+    view.el.prepend(mini.el);
     el.replaceChildren(view.el);
+    renderHead();
+    if (had) { wantFocus = false; view.el.focus({ preventScroll: true }); }
     if (jump) view.showConflicts();
   }
 
@@ -208,8 +207,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const { pr, lane } = row;
     const rev = lane && !lane.isBase ? lane.branch || lane.head : null;
     if (rev) return mount({ lane: { key: laneKey(lane), name: lane.name, rev }, base: ctx.base });
-    if (!pr || !ctx.prsOn) return el.replaceChildren(head, h('div.empty', null, lane?.isBase ? 'This is the base branch.' : 'Nothing to review here.'));
-    el.replaceChildren(head, loading(`Fetching #${pr.number}…`));
+    if (!pr || !ctx.prsOn) return el.replaceChildren(mini.el, head, h('div.empty', null, lane?.isBase ? 'This is the base branch.' : 'Nothing to review here.'));
+    el.replaceChildren(mini.el, head, loading(`Fetching #${pr.number}…`));
     const id = `${JSON.stringify(ctx.remote ?? null)}#${pr.number}@${pr.updatedAt || ''}`;
     let res = fetched.get(id);
     if (!res) {
@@ -217,10 +216,17 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       if (!res.error) fetched.set(id, res);
     }
     if (!alive) return;
-    if (res.error) return el.replaceChildren(head, h('div.empty', null, `Couldn’t fetch #${pr.number}`, h('div.muted.small', null, res.error.message)));
+    if (res.error) return el.replaceChildren(mini.el, head, h('div.empty', null, `Couldn’t fetch #${pr.number}`, h('div.muted.small', null, res.error.message)));
     mount(res.review);
   }
 
+  // The reader's keys (reader.js), for the loaded view (its own handler lets them through) and the
+  // pane while it's still fetching.
+  el.addEventListener('keydown', (e) => {
+    readerKey(e, { scroller: view?.el || el, onStep: ctx.nav?.onStep ? (d) => ctx.nav.onStep(d) : null, onBack });
+  });
+
+  el.prepend(mini.el);
   renderHead();
   load();
   return {
@@ -229,11 +235,10 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     refresh: () => view?.refresh(),
     // The row changed under the pane (approved, CI finished): new header, same diff and ticks.
     update(r, c) { row = r; ctx = c; renderHead(); },
-    destroy() { alive = false; ro.disconnect(); },
-    // I and ⌘K: Show more or less of the description. False when there's none.
-    toggleDescription,
+    destroy() { alive = false; ro.disconnect(); mini.destroy(); },
     // The row's "Conflicts in N files" note: jump to the Conflicting group.
     showConflicts,
-    focus: () => (view?.el || el).focus({ preventScroll: true }),
+    // ↵ / R from the list: focus the reader's scroll, once it's there.
+    focus() { if (view) view.el.focus({ preventScroll: true }); else { wantFocus = true; el.focus({ preventScroll: true }); } },
   };
 }

@@ -57,6 +57,7 @@ const P = {
   chevron: '<path d="m6 4 4 4-4 4"/>',
   chevronLeft: '<path d="m10 4-4 4 4 4"/>',
   chevronDown: '<path d="m4 6 4 4 4-4"/>',
+  chevronUp: '<path d="m4 10 4-4 4 4"/>',
   undo: '<path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a4 4 0 0 1 0 8H7"/>',
   redo: '<path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a4 4 0 0 0 0 8H9"/>',
   folder: '<path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/>',
