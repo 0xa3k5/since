@@ -550,6 +550,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   el.addEventListener('keydown', (e) => {
     if (paneHost.contains(e.target)) return; // the pane's own keys (review-view.js)
     if (e.target === filter || command(e, false)) return;
+    // With an empty filter, the window's own keys (the G of the go-to chords) go through to it.
+    if (!filter.value && ['menu', 'global'].some((s) => keymap.chordStart(s, e) || keymap.match(s, e))) return;
     // Any other letter starts filtering.
     if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
@@ -675,7 +677,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (!TAB.get(tab).stages.includes(r.stage)) setTab(TABS.find((t) => t.stages.length === 1 && t.stages[0] === r.stage)?.id || 'open');
     select(r.key);
   }
-  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  // The page is being replaced: drop its window listener and timer now, not on the next focus.
+  function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
+  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

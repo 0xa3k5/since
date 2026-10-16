@@ -347,10 +347,13 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
       if (next && next.path !== current) { select(next.path); }
       return;
     }
+    const focused = el.contains(document.activeElement);
     renderList(); // may move `current` when the ticked file leaves the list
     if (next && next.path !== current) { current = null; select(next.path); }
     else if (current !== was || path === current) renderFile();
     listEl.querySelector('.review-row.active')?.scrollIntoView({ block: 'nearest' });
+    // The re-render removed the clicked tick button: keep the view's keys working.
+    if (focused && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
   }
 
   function toggleDelta() {
