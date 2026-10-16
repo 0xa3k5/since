@@ -181,7 +181,7 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
 // while PRs are on. → [{ number, title, sha, branch }].
 async function mergedPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt'], { dirs, exec });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt,body'], { dirs, exec });
   return parseMerged(out);
 }
 function parseMerged(out) {
@@ -191,7 +191,9 @@ function parseMerged(out) {
   return list.filter((p) => Number.isSafeInteger(p?.number) && p.number > 0 && /^[0-9a-f]{40}$/.test(p.headRefOid))
     .map((p) => ({ number: p.number, title: text(p.title), sha: p.headRefOid, branch: text(p.headRefName),
       // Catch-up (AK-281) joins merged PRs to the base's commits by their merge commit.
-      merge: /^[0-9a-f]{40}$/.test(p.mergeCommit?.oid || '') ? p.mergeCommit.oid : null, mergedAt: text(p.mergedAt) || null }));
+      merge: /^[0-9a-f]{40}$/.test(p.mergeCommit?.oid || '') ? p.mergeCommit.oid : null, mergedAt: text(p.mergedAt) || null,
+      // Catch up's reader (AK-372) shows the description; it falls back to the commit message without one.
+      body: typeof p.body === 'string' ? p.body : undefined }));
 }
 
 // The base branch's CI for Review's catch-up card (AK-281): the newest workflow runs on it, summed
