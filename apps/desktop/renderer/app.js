@@ -14,7 +14,6 @@ import { isFinished, BRANCH_TABS } from './branches.js';
 import { rowStage, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
-import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
 import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
 import { reviewView } from './review-view.js';
@@ -185,7 +184,7 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
-  if (state.view === 'lanes') (state.cleanup ? cleanupPage : lanesPage)?.refresh();
+  if (state.view === 'lanes') lanesPage?.refresh();
   if (state.view === 'branches') branchesPage?.refresh();
   else if (logChanged || worktreesChanged) countFinished();
   if (logChanged) { if (state.view === 'catchup' && catchupPage) catchupPage.refresh(); else countCatchup(); }
@@ -482,7 +481,7 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
+let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
 let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 
@@ -494,14 +493,14 @@ let navDepth = 0; // inside a jump: the outermost one records it
 let navigating = false; // putting back a step: record nothing
 let lanesPlace = null; // the lanes row, filter and scroll for the next lanes page (see openLanes)
 
-const lanesOpen = () => state.view === 'lanes' && !state.cleanup && !state.review && !state.fileHistory && !state.quick && !state.split;
+const lanesOpen = () => state.view === 'lanes' && !state.review && !state.fileHistory && !state.quick && !state.split;
 // Names the place on screen; a jump that ends where it started records nothing.
 // In Review the selected row counts too: the split view's pane shows it (AK-272).
-const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
+const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
   state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.all}:${lanes.key ?? ''}` : ''].join('|');
 function place() {
   return {
-    key: placeKey(), root: state.repo?.root, view: state.view, cleanup: state.cleanup, review: state.review,
+    key: placeKey(), root: state.repo?.root, view: state.view, review: state.review,
     fileHistory: state.fileHistory, quick: state.quick, selected: state.selected, search: state.search,
     lanes: lanesOpen() ? lanesPage?.location() : null,
   };
@@ -533,7 +532,6 @@ async function navStep(dir) {
       toast(`Switched to worktree “${w.name}”`);
     }
     state.view = to.view;
-    state.cleanup = to.cleanup;
     state.review = to.review;
     state.fileHistory = to.fileHistory;
     state.quick = to.quick;
@@ -597,7 +595,6 @@ function showView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
-  state.cleanup = false;
   state.review = null;
   state.view = v;
   renderSidebar();
@@ -975,7 +972,7 @@ function renderView(soft = false) {
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
-    case 'lanes': contentEl.append(state.cleanup ? openCleanup().el : openLanes().el); break;
+    case 'lanes': contentEl.append(openLanes().el); break;
     case 'catchup': contentEl.append(openCatchup().el); break;
     case 'branches': contentEl.append(openBranches().el); break;
   }
@@ -2416,14 +2413,24 @@ function openBranches() {
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
-    onCleanup: (lane) => startCleanup(lane),
     onNewWorktree: () => addWorktree(),
     onCount: setFinishedCount,
     paneWidth: () => loadPref('reviewPane', {}).width || null,
     setPaneWidth: (width) => savePref('reviewPane', { width }),
     tab: branchesTab,
+    only: cleanupOnly,
+    cleanup: {
+      run: (items, label) => git('cleanupLanes', items, { __label: label }),
+      runRemote: (names) => git('deleteRemoteBranches', names),
+      days: cleanupPrefs().days,
+      onProgress: (fn) => api.on('cleanup:progress', fn),
+      onDone: refreshAll,
+      onUndo: undo,
+      mod: MOD,
+    },
   });
   branchesTab = null;
+  cleanupOnly = null;
   return branchesPage;
 }
 // Branches on a tab (⌘K, the keys that used to open Everything else in Review).
@@ -2452,34 +2459,19 @@ function showAllLanes(on) {
   setView('lanes');
 }
 
-// Lanes → Clean up (cleanup-view.js): stale branches and worktrees, removed in bulk as one undo step.
+// Clean up (cleanup-view.js) is the Finished tab of Branches (AK-396): finished branches and
+// worktrees, removed in bulk as one undo step. With a lane, just that one is ticked.
 function startCleanup(...args) { return go(() => startCleanupNow(...args)); }
-let cleanupOnly = null; // a lane's Clean up button: the laneKey to tick, alone
+let cleanupOnly = null; // a lane's Clean up: the laneKey to tick, alone
 function startCleanupNow(lane = null) {
   if (!state.repo) return;
-  cleanupOnly = lane?.name ? laneKey(lane) : null;
-  setView('lanes');
-  state.cleanup = true;
-  renderView();
+  const key = lane?.name ? laneKey(lane) : null;
+  if (state.view === 'branches' && branchesPage && !state.review && !state.quick && !state.split && !state.fileHistory) return branchesPage.cleanup(lane?.name ? lane : null);
+  cleanupOnly = key;
+  branchesTab = 'finished';
+  setView('branches');
 }
-const cleanupPrefs = () => ({ on: false, days: STALE_DAYS, ...loadPref('cleanup', {}) });
-function openCleanup() {
-  cleanupPage = cleanupView({
-    load: () => api.app('lanes-list'),
-    run: (items, label) => git('cleanupLanes', items, { __label: label }),
-    runRemote: (names) => git('deleteRemoteBranches', names),
-    age: cleanupPrefs,
-    setAge: (v) => savePref('cleanup', { ...cleanupPrefs(), ...v }),
-    onProgress: (fn) => api.on('cleanup:progress', fn),
-    onDone: refreshAll,
-    onUndo: undo,
-    onBack: () => setView('lanes'),
-    only: cleanupOnly,
-    mod: MOD,
-  });
-  cleanupOnly = null;
-  return cleanupPage;
-}
+const cleanupPrefs = () => ({ days: STALE_DAYS, ...loadPref('cleanup', {}) });
 // Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
 function openReview(...args) { return go(() => openReviewNow(...args)); }
 function openReviewNow(lane, base = null) {
@@ -3432,7 +3424,13 @@ function openPalette() {
         add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
       }
     }
-    add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
+    add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
+    if (state.view === 'branches' && branchesPage?.tab() === 'finished' && !state.review) {
+      const n = branchesPage.panel.count();
+      if (n) add('Branches', `Clean up ${n} ticked branch${n === 1 ? '' : 'es'}…`, () => branchesPage.panel.go(), { icon: 'trash', kbd: keymap.keys('cleanup.run'), keywords: 'clean up finished remove delete merged worktrees undo' });
+      add('Branches', 'Tick everything safe to remove', () => branchesPage.panel.tickAll(), { icon: 'check', kbd: keymap.keys('cleanup.all'), keywords: 'clean up tick all select finished merged' });
+      add('Branches', 'Also delete them on GitHub (on or off)', () => branchesPage.panel.toggleRemote(), { icon: 'cloud', kbd: keymap.keys('cleanup.remote'), keywords: 'clean up remote github delete branches' });
+    }
     if (state.view === 'catchup' && catchupPage) {
       add('Catch up', 'Mark caught up', () => catchupPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('catchup.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
       add('Catch up', 'Catch up since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
