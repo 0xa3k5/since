@@ -219,21 +219,22 @@ export const STEPS = {
   sendBack: { label: 'Send back…', keyId: 'lanes.sendBack', icon: 'sparkle' },
 };
 
-// Small CI and review badges for a row: [{ text, kind, title }], kind '' | 'ok' | 'warn' | 'busy'.
-// An agent shows as an author (rowAuthors, AK-390), not as a badge.
+// Small CI and review badges for a row: [{ text, kind, title, signal }], kind '' | 'ok' | 'warn' | 'busy'.
+// An agent shows as an author (rowAuthors, AK-390), not as a badge. `signal` marks the ones Review
+// shows as glyphs instead (rowSignals).
 export function rowBadges(row, { requested = new Set() } = {}) {
   const { pr } = row;
   const out = [];
   if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
   if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed' });
-  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing' });
+  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing', signal: true });
   else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
   if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
   else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check' });
   else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes', icon: 'x' });
   else if (pr?.review === 'required') out.push({ text: 'Needs review', kind: '', title: 'Waiting for a review', icon: 'pending' });
   if (pr?.mergeState === 'unknown') out.push({ text: 'Checking', kind: 'busy', spin: true, title: 'GitHub is still checking whether it merges cleanly' });
-  if (conflicted(row)) out.push({ text: 'Conflicts', kind: 'warn', title: `Conflicts with ${pr?.base || 'its base'}` });
+  if (conflicted(row)) out.push({ text: 'Conflicts', kind: 'warn', title: `Conflicts with ${pr?.base || 'its base'}`, signal: true });
   else if (pr?.mergeState === 'behind') out.push({ text: `Behind ${pr.base || 'base'}`, kind: '', title: `${pr.base || 'Its base'} has newer commits; GitHub still allows the merge` });
   if (row.worktree?.changes) out.push({ text: `${row.worktree.changes} changed`, kind: '', title: 'Uncommitted changes in its worktree' });
   return out;
@@ -362,13 +363,32 @@ export function nextSelection(before, staged, acted) {
   return staged.all.some((r) => r.key === acted) ? acted : null;
 }
 
+// The row line's at-a-glance trouble (AK-411): failing checks as ✕ and a count, a conflict with the
+// base as a marker; { checks: { text, title } | null, conflict: { title } | null }. The count is
+// passed/total when GitHub's counts reach the renderer (pr.checkCounts), else how many are failing.
+export function rowSignals(row) {
+  const { pr } = row;
+  let checks = null;
+  if (pr?.checks === 'failure') {
+    const failing = pr.failing || [];
+    const c = pr.checkCounts;
+    const counted = c && Number.isSafeInteger(c.passed) && Number.isSafeInteger(c.total) && c.total > 0;
+    const names = failing.length ? `: ${failing.slice(0, 20).join(', ')}` : '';
+    checks = counted
+      ? { text: `${c.passed}/${c.total}`, title: `${c.passed} of ${c.total} checks passed${names}` }
+      : { text: failing.length ? String(failing.length) : '', title: `${failing.length || 'Some'} ${failing.length === 1 ? 'check is' : 'checks are'} failing${names}` };
+  }
+  return { checks, conflict: conflicted(row) ? { title: `Conflicts with ${pr?.base || 'its base'}` } : null };
+}
+
 // Why a row is stuck, in plain words built from facts, or null when it isn't:
 //   "conflicts with main in changelog.astro · CI ✗ test, lint"
 // Forecast conflicts name the other side and the files (file names, the first `max`, then "+N
 // more"); without a forecast, GitHub's own conflict check stands in. Failing checks are named when
 // GitHub reported them (pr.failing, github.normalizePr). Send back (AK-279) builds on this too.
-// noBase leaves out the conflict with the base, which Review shows as its own note (conflictNote).
-export function stuckReason(row, { base = null, max = 2, noBase = false } = {}) {
+// noBase leaves out the conflict with the base, which Review shows as its own note (conflictNote);
+// bareChecks names the failing checks without "CI ✗", which Review's row shows as a glyph (rowSignals).
+export function stuckReason(row, { base = null, max = 2, noBase = false, bareChecks = false } = {}) {
   const { pr } = row;
   const conflicts = (row.conflicts || []).filter((c) => !noBase || !c.base);
   const out = [];
@@ -380,7 +400,8 @@ export function stuckReason(row, { base = null, max = 2, noBase = false } = {}) 
   if (!noBase && !conflicts.length && conflicted(row)) out.push(`conflicts with ${pr?.base || base || 'its base'}`);
   if (pr?.checks === 'failure') {
     const failing = pr.failing || [];
-    out.push(failing.length ? `CI ✗ ${failing.slice(0, max).join(', ')}${failing.length > max ? ` +${failing.length - max} more` : ''}` : 'CI ✗ checks failing');
+    const names = `${failing.slice(0, max).join(', ')}${failing.length > max ? ` +${failing.length - max} more` : ''}`;
+    if (bareChecks) { if (failing.length) out.push(names); } else out.push(failing.length ? `CI ✗ ${names}` : 'CI ✗ checks failing');
   }
   if (pr?.mergeState === 'blocked' && pr.review === 'changes') out.push('changes requested');
   return out.length ? out.join(' · ') : null;
