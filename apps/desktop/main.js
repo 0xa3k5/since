@@ -1132,6 +1132,7 @@ function buildMenu() {
         item('Back', acc('view.back'), 'back'),
         item('Forward', acc('view.forward'), 'forward'),
         { type: 'separator' },
+        item('Catch up', acc('view.catchup'), 'view', 'catchup'),
         item('Review', acc('view.lanes'), 'view', 'lanes'),
         item('Map', acc('view.map'), 'view', 'map'),
         item('Commit', acc('view.commit'), 'view', 'commit'),
