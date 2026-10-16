@@ -3,7 +3,7 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
-import { isRowControl } from './keys.js';
+import { isRowControl, rowDoubleClick } from './keys.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -1007,7 +1007,13 @@ function selectCommit(sha, align = 'nearest') {
 function createMapView(container) {
   const wrap = h('div.map-wrap');
   const listWrap = h('div.map-list-wrap');
-  const scroller = h('div.map-list', { tabIndex: 0 });
+  // Double-click checks out a row. The list handles it: the row itself is redrawn mid-click.
+  const dbl = rowDoubleClick();
+  const scroller = h('div.map-list', {
+    tabIndex: 0,
+    onmousedown: (e) => dbl.listDown(e),
+    ondblclick: (e) => { const c = dbl.dblclick(e); if (c) checkoutSelected(c); },
+  });
   const canvas = h('canvas.graph-canvas');
   const detail = h('div.detail');
   listWrap.append(scroller, canvas);
@@ -1028,8 +1034,11 @@ function createMapView(container) {
     const pending = c.subject === null;
     if (pending) wantDetails(c.sha);
     const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
-      onmousedown: (e) => { if (e.button === 0) { if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha); } },
-      ondblclick: (e) => { if (!isRowControl(e.target)) checkoutSelected(c); },
+      onmousedown: (e) => {
+        if (e.button !== 0) return;
+        dbl.rowDown(e, c);
+        if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha);
+      },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
     },
       results ? null : h('span.graph-space', { style: { width: gw + 'px' } }),
@@ -1600,9 +1609,13 @@ function checkoutCommit(c) {
   if (b) return checkout(b.short);
   return act(`Checkout ${c.sha.slice(0, 7)}`, 'checkout', [c.sha], { success: `HEAD detached at ${c.sha.slice(0, 7)}` });
 }
-// ⌘↵ / double-click on a map row. Already at HEAD: nothing to do.
-function checkoutSelected(c) {
-  if (c.sha !== state.head.oid) return checkoutCommit(c);
+// ⌘↵ / double-click on a map row. Already at HEAD: nothing to do. Never throws: a failure is a toast.
+async function checkoutSelected(c) {
+  try {
+    if (c && c.sha !== state.head.oid) return await checkoutCommit(c);
+  } catch (e) {
+    toast('Checkout failed', { kind: 'error', detail: e?.message || String(e) });
+  }
 }
 async function createBranch(sha) {
   const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch' }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
