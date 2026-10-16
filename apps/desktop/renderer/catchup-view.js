@@ -36,10 +36,11 @@ const reads = new Map();
 // The description shows its first lines until Show more (I); that choice sticks across entries.
 let descOpen = false;
 
-export function catchupView({ repo = null, git, load, mark, prsOn, counts = async () => null, onReview = () => {}, onCount = () => {} }) {
+export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
   if (cache && !prsOn() && cache.extra) cache = { ...cache, res: null, extra: null, loadedAt: null };
   let since = cache?.since || { since: 'checkpoint' };
+  let base = cache?.base || null; // null: the default base (origin/main); else a branch ref from the select (AK-372)
   let extra = cache?.extra || null; // merged PRs and CI from the last load with PRs, kept on local refreshes
   let loadedAt = cache?.loadedAt || null;
   let res = cache?.res || null;
@@ -61,6 +62,8 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
   const el = h('div.page.flush.catchup', { tabIndex: 0, role: 'region', 'aria-label': 'Catch up' });
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
   const reloadBtn = h('button.btn.ghost.small.review-reload', { onclick: () => reload(), 'data-tip': `${tipFor('Reload', 'catchup.reload')}\nAsk GitHub for merged pull requests and the base’s CI`, 'aria-label': 'Reload' });
+  // The branch select: the default base first, then local and remote branches (AK-372, AK-374).
+  const branchSel = h('select.catchup-branch', { 'aria-label': 'Branch to catch up on', 'data-tip': tipFor('Catch up on another branch', 'catchup.branch'), onchange: () => pickBranch(branchSel.value || null) });
   const strip = h('div.catchup-strip');
   const msg = h('div.catchup-msg');
   const list = h('div.catchup-list');
@@ -72,7 +75,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
   const hint = h('div.review-hints');
   el.append(
     h('div.page-head.review-head', null,
-      h('div.review-head-row', null, h('h1', null, 'Catch up'), h('span.muted.catchup-sub', null, 'What landed on the base'), h('span.spacer'), updated, reloadBtn)),
+      h('div.review-head-row', null, h('h1', null, 'Catch up'), h('span.muted.catchup-sub', null, 'What landed on ', branchSel), h('span.spacer'), updated, reloadBtn)),
     strip, cols, msg, hint);
 
   const btn = (label, keyId, onclick, cls = 'button.btn.subtle') => h(cls, { 'data-tip': tipFor(label, keyId), onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...keymap.keys(keyId)));
@@ -85,7 +88,28 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
     updated.hidden = !prsOn();
     updated.textContent = reloading ? '' : loadedAt ? `Updated ${ago(loadedAt)}` : 'Not loaded yet';
     updated.title = loadedAt ? fullDate(loadedAt / 1000) : '';
-    el.querySelector('.catchup-sub').textContent = `What landed on ${res?.base || 'the base'}`;
+    renderBranches();
+  }
+
+  function renderBranches() {
+    const dflt = res?.defaultBase === false ? null : res?.base;
+    const label = dflt ? `${dflt} (default)` : 'Default base';
+    const seen = new Set();
+    const opts = [h('option', { value: '' }, label)];
+    for (const kind of ['remote', 'branch']) {
+      const group = (refs() || []).filter((r) => r.kind === kind && !r.name.endsWith('/HEAD') && !seen.has(r.name) && seen.add(r.name));
+      if (group.length) opts.push(h('optgroup', { label: kind === 'remote' ? 'Remote branches' : 'Local branches' }, ...group.map((r) => h('option', { value: r.name }, r.short))));
+    }
+    branchSel.replaceChildren(...opts);
+    branchSel.value = base || '';
+  }
+  // Another branch has no checkpoint: catch up from last week, and Mark caught up doesn't apply.
+  function pickBranch(ref) {
+    if ((ref || null) === base) return;
+    base = ref || null;
+    since = base ? { since: 'week' } : { since: 'checkpoint' };
+    more = false; walking = false; selId = null; readId = null; change = null;
+    fetch({ prs: Boolean(loadedAt) });
   }
 
   // Messages (failed, loading, caught up) take the whole width; no columns.
@@ -137,7 +161,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
           sinceLine, warn),
         h('div.catchup-actions', null,
           btn('Walk through', 'catchup.walk', () => walk()),
-          btn('Mark caught up', 'catchup.caughtUp', () => markCaughtUp(), 'button.btn.primary'))));
+          res.defaultBase === false ? null : btn('Mark caught up', 'catchup.caughtUp', () => markCaughtUp(), 'button.btn.primary'))));
     list.replaceChildren(...[
       h('div.catchup-timeline', { role: 'listbox', 'aria-label': 'What landed' },
         ...shown.flatMap((d) => [
@@ -193,17 +217,17 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
     const withPrs = Boolean(prs && prsOn());
     if (withPrs) { reloading = true; renderHead(); }
     try {
-      const r = await load({ ...since, prs: withPrs });
+      const r = await load({ ...since, prs: withPrs, ...(base ? { base } : {}) });
       if (n !== seq) return;
       failed = null;
       loaded = true;
       if (withPrs) { extra = r ? { merged: r.merged, ci: r.ci } : null; loadedAt = Date.now(); }
       if (!prsOn()) { extra = null; loadedAt = null; }
-      cache = { repo, since, extra, loadedAt };
+      cache = { repo, since, base, extra, loadedAt };
       res = r && { ...r, ...(withPrs || !extra ? {} : extra) };
       cache.res = res;
       entries = res ? landedEntries(res.commits, res.merged) : [];
-      if (since.since === 'checkpoint') onCount(entries.length);
+      if (since.since === 'checkpoint' && !base) onCount(entries.length);
       if (r?.prError) toast('Could not load merged pull requests', { kind: 'error', detail: r.prError.message });
     } catch (e) {
       if (n !== seq) return;
@@ -226,7 +250,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
   }
 
   async function markCaughtUp() {
-    if (!res) return;
+    if (!res || res.defaultBase === false) return toast('Mark caught up works on the default base only');
     if (!entries.length && res.checkpoint?.sha === res.baseSha) return toast(`Already caught up on ${res.base}`, { kind: 'success' });
     const to = { sha: res.baseSha, base: res.base, date: res.baseDate };
     try {
@@ -426,6 +450,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, counts = asyn
     else if (id === 'catchup.caughtUp') markCaughtUp();
     else if (id === 'catchup.since') pickSince();
     else if (id === 'catchup.reload') reload();
+    else if (id === 'catchup.branch') { branchSel.focus(); branchSel.showPicker?.(); }
     else if (id === 'catchup.more') showMore();
     else if (id === 'catchup.walkNext' && walking) walkStep(1);
     else if (id === 'catchup.walkPrev' && walking) walkStep(-1);

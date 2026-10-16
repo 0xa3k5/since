@@ -229,6 +229,7 @@ export const COMMANDS = [
   c('catchup', null, 'catchup.walkPrev', 'Walk-through: previous', 'ArrowLeft'),
   c('catchup', null, 'catchup.walkDone', 'Leave the walk-through', 'Escape'),
   c('catchup', null, 'catchup.viewed', 'Mark the next file viewed (folds it)', 'v'),
+  c('catchup', null, 'catchup.branch', 'Catch up on another branch', 'b'),
   c('catchup', null, 'catchup.description', 'Show more or less of the description', 'i'),
   c('review', null, 'review.next', 'Next file', 'ArrowDown'),
   c('review', null, 'review.prev', 'Previous file', 'ArrowUp'),
