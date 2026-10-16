@@ -364,6 +364,7 @@ kbd.inline { flex: none; }
 .sha { font-family: var(--mono); font-size: 11.5px; color: var(--text-4); }
 .when { color: var(--text-3); font-size: 12px; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; flex: none; }
 .avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--avatar-text); font-weight: var(--fw-strong); flex: none; letter-spacing: 0; }
+img.avatar { object-fit: cover; background: var(--border-strong); }
 .avatar-stack { display: inline-flex; align-items: center; flex: none; padding-left: 1.5px; }
 .avatar-stack > .avatar { box-shadow: 0 0 0 1.5px var(--row-tint, transparent), 0 0 0 1.5px var(--bg-content); }
 .avatar-stack > .avatar + .avatar { margin-left: -5px; }
@@ -780,6 +781,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .landed-merged { flex: none; display: flex; margin-top: 2px; color: var(--merged); }
 .review-row-num { flex: none; color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
 .review-row-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-row-sub .avatar { margin-right: 5px; vertical-align: -3px; }
 /* GitHub still checking whether a PR merges cleanly (AK-321). */
 .badge-spinner { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; border: 1.5px solid currentColor; border-top-color: transparent; vertical-align: -1px; animation: spin .7s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .badge-spinner { animation-duration: 2.4s; } }
@@ -971,6 +973,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-num { color: var(--text-4); font-weight: var(--fw-medium); }
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
+.review-pane-meta > span:has(> .avatar) { display: inline-flex; align-items: center; }
 .review-pane-arrow { color: var(--text-4); }
 .review-pane-desc { margin: 0 22px 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
 .review-pane-desc.none .review-pane-desc-text { color: var(--text-4); }
