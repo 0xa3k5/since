@@ -30,7 +30,7 @@ test('arrow keys step, shift steps further, Home/End/Enter jump', async () => {
 
 test('saved sizes load clamped, with defaults for missing or broken values', async () => {
   const { loadSizes, defaultSizes, PANES } = await load();
-  assert.deepEqual(defaultSizes(), { sidebar: PANES.sidebar.def, commit: PANES.commit.def });
-  assert.deepEqual(loadSizes({ sidebar: 5000, commit: 'x' }), { sidebar: PANES.sidebar.max, commit: PANES.commit.def });
+  assert.deepEqual(defaultSizes(), { sidebar: PANES.sidebar.def, commit: PANES.commit.def, stash: PANES.stash.def });
+  assert.deepEqual(loadSizes({ sidebar: 5000, commit: 'x', stash: 10 }), { sidebar: PANES.sidebar.max, commit: PANES.commit.def, stash: PANES.stash.min });
   assert.deepEqual(loadSizes(null), defaultSizes());
 });
