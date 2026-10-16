@@ -843,16 +843,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
   .lanes-row .list-title .badge, .lanes-row .list-sub .badge { flex: none; width: 8px; height: 8px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; background: currentColor; }
   .lanes-row .list-title .badge .icon { display: none; }
 }
-.cleanup-bar { display: flex; align-items: center; gap: 16px; margin: 0 16px 8px; padding: 0 16px; min-height: 32px; font-size: 12px; }
-.cleanup-days { width: 64px; height: 26px; padding: 0 6px; font-variant-numeric: tabular-nums; }
 .cleanup-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
 .cleanup-progress[hidden] { display: none; }
-.cleanup-group { display: flex; align-items: center; gap: 8px; cursor: default; }
-.cleanup-group input, .cleanup .lanes-row input { accent-color: var(--accent); margin: 0; flex: none; }
-.cleanup-group.warn { color: var(--warn); }
-.cleanup .lanes-row.blocked { opacity: 0.55; }
-.cleanup-remote { flex: none; }
-.cleanup-remote.on { color: var(--red-text); background: var(--red); }
 .lanes-review { flex: none; min-width: 92px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
 .lanes-review.done { color: var(--accent-fg); }
 .lanes-review.moved, .lanes-moved { color: var(--warn); }
@@ -1329,3 +1321,41 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .branches-explain { margin: 2px 16px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text-3); font-size: 12.5px; line-height: 1.5; }
 .branches-explain b { color: var(--text); font-weight: var(--fw-medium); }
 .branches-pane-empty { padding: 24px; }
+
+/* Branches → Finished: Clean up as cards per reason, a sticky action bar (AK-396). */
+.review-split.branches > .cleanup-panel { display: none; }
+.review-split.branches.finished { grid-template-columns: minmax(0, 1fr); }
+.review-split.branches.finished > .lanes, .review-split.branches.finished > .review-split-handle, .review-split.branches.finished > .review-pane-host { display: none; }
+.review-split.branches.finished > .cleanup-panel { display: flex; grid-column: 1 / -1; grid-row: 2; }
+.cleanup-panel { flex-direction: column; min-height: 0; overflow-y: auto; padding: 18px 24px 0; }
+.cleanup-verdict .cleanup-big { font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; color: var(--text); }
+.cleanup-verdict p { margin: 4px 0 0; }
+.cleanup-cards { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 18px; }
+.cleanup-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); overflow: hidden; }
+.cleanup-card.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.cleanup-card-head { list-style: none; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 14px; cursor: default; }
+.cleanup-card-head::-webkit-details-marker { display: none; }
+.cleanup-card-head:hover, .cleanup-item:hover { background: var(--bg-hover); }
+.cleanup-card-head.active, .cleanup-item.active { background: var(--bg-selected); }
+.cleanup-card-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.cleanup-card-text { min-width: 0; }
+.cleanup-card-text b { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-medium); color: var(--text); }
+.cleanup-card.warn .cleanup-card-text b { color: var(--warn); }
+.cleanup-card-why { display: block; font-size: 12px; color: var(--text-3); }
+.cleanup-card-n { font-weight: var(--fw-strong); font-variant-numeric: tabular-nums; color: var(--text); }
+.cleanup-card-chev { color: var(--text-4); }
+.cleanup-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 12.5px; cursor: default; }
+.cleanup-item.blocked { opacity: 0.55; }
+.cleanup-item-name { overflow: hidden; font-family: var(--mono); color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.cleanup-item-note, .cleanup-item-age { color: var(--text-4); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cleanup-item-note.warn { color: var(--warn); }
+.cleanup-more { display: block; width: 100%; padding: 7px 14px 7px 42px; border: 0; border-top: 1px solid var(--border); background: none; color: var(--text-3); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.cleanup-more:hover { color: var(--accent-fg); }
+.cleanup-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.cleanup-card input, .cleanup-actionbar input { margin: 0; accent-color: var(--accent); }
+.cleanup-actionbar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: auto -24px 0; padding: 12px 24px; border-top: 1px solid var(--border); background: var(--bg-content); }
+.cleanup-actionbar[hidden] { display: none; }
+.cleanup-counts { color: var(--text-2); }
+.cleanup-remote-all { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); }
+.cleanup-remote-all.disabled { opacity: 0.55; }
+.cleanup-undo { margin-left: auto; font-size: 12px; color: var(--text-4); }

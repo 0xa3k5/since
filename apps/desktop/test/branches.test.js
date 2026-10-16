@@ -50,3 +50,14 @@ test('filter by branch, title, worktree or PR', async () => {
   assert.deepEqual(filterBranches(lanes, '#12').map((l) => l.name), ['fix/login']);
   assert.equal(filterBranches(lanes, '').length, 2);
 });
+
+test('Finished (Clean up): cards in reading order, "Deleted on GitHub", untouched never ticked up front', async () => {
+  const { GROUPS, groupLanes, preselect } = await import('../renderer/cleanup.js');
+  assert.deepEqual(GROUPS.map((g) => g.id), ['merged', 'mergedWorktree', 'missing', 'gone', 'old', 'dirty']);
+  assert.equal(GROUPS.find((g) => g.id === 'gone').label, 'Deleted on GitHub');
+  const groups = groupLanes([lane('old', { activity: NOW - 40 * DAY }), lane('shipped', { done: { reason: 'pr', pr: 9 } })], { days: 30, now: NOW });
+  const by = Object.fromEntries(groups.flatMap((g) => g.lanes.map((l) => [l.name, l])));
+  assert.equal(by.old.group, 'old');
+  assert.equal(preselect(by.old), false);
+  assert.equal(preselect(by.shipped), true);
+});
