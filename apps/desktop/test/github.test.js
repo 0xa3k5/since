@@ -54,6 +54,14 @@ test('checks: failure wins, then pending; no checks is null', () => {
   assert.equal(github.checksState([run('COMPLETED', 'TIMED_OUT')]), 'failure');
 });
 
+test('checkCounts: skipped and neutral pass, like the merge box; null with no checks', () => {
+  const run = (status, conclusion = '') => ({ status, conclusion });
+  const ctx = (state) => ({ state });
+  assert.equal(github.checkCounts([]), null);
+  assert.equal(github.checkCounts(undefined), null);
+  assert.deepEqual(github.checkCounts([run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'SKIPPED'), run('COMPLETED', 'NEUTRAL'), run('COMPLETED', 'FAILURE'), run('IN_PROGRESS'), ctx('SUCCESS'), ctx('PENDING')]), { passed: 4, total: 7 });
+});
+
 test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', () => {
   const out = JSON.stringify([
     PR({ number: 1, updatedAt: '2026-10-01T00:00:00Z', isDraft: true, reviewDecision: '', statusCheckRollup: [{ status: 'QUEUED' }] }),
@@ -62,7 +70,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], checkCounts: { passed: 0, total: 1 }, author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);

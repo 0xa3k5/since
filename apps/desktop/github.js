@@ -63,6 +63,15 @@ function failingChecks(rollup) {
   return out.slice(0, 20);
 }
 
+// { passed, total } for the Review row's "3/5": like GitHub's merge box, a skipped or neutral check
+// counts as passed. Null with no checks.
+const PASSED = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+function checkCounts(rollup) {
+  if (!Array.isArray(rollup) || !rollup.length) return null;
+  const passed = rollup.filter((c) => PASSED.has(String(c?.conclusion || c?.state || '').toUpperCase())).length;
+  return { passed, total: rollup.length };
+}
+
 const text = (v, max = 1024) => (typeof v === 'string' ? v.slice(0, max) : '');
 const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
 
@@ -112,6 +121,7 @@ function normalizePr(p) {
     review: REVIEW[p.reviewDecision] || null,
     checks: checksState(p.statusCheckRollup),
     failing: failingChecks(p.statusCheckRollup),
+    checkCounts: checkCounts(p.statusCheckRollup),
     author: text(p.author?.login, 200),
     // What to show for the author: their name, else their login (a bot's without "[bot]").
     authorName: text(p.author?.name, 200) || botLogin(text(p.author?.login, 200)),
@@ -591,4 +601,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
