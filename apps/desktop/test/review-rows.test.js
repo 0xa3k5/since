@@ -494,3 +494,19 @@ test('authors: person + agent, a bot alone, agents only while marks are on (AK-3
   assert.deepEqual(names(authorsOf({ person: { name: 'AK' }, agent: messageAgent(msg) })), ['person:AK', 'agent:Claude Opus 5.5']);
   assert.equal(messageAgent('Fix\n\nCo-authored-by: Ana <ana@example.com>'), null);
 });
+
+// AK-411: failing checks and conflicts show as glyphs on the row line; the text drops "CI ✗".
+test('row signals: failing checks count, conflict marker, bare check names', async () => {
+  const { rowSignals, rowBadges, stuckReason } = await load();
+  const row = (o) => ({ pr: null, conflicts: [], ...o });
+  const failing = row({ pr: pr(1, { checks: 'failure', failing: ['test', 'lint'] }) });
+  assert.deepEqual(rowSignals(failing), { checks: { text: '2', title: '2 checks are failing: test, lint' }, conflict: null });
+  const counted = row({ pr: pr(1, { checks: 'failure', failing: ['test'], checkCounts: { passed: 3, total: 5 } }) });
+  assert.equal(rowSignals(counted).checks.text, '3/5');
+  assert.equal(rowSignals(row({ pr: pr(1, { checks: 'failure' }) })).checks.text, '');
+  assert.deepEqual(rowSignals(row({ pr: pr(1, { mergeable: false, base: 'develop' }) })), { checks: null, conflict: { title: 'Conflicts with develop' } });
+  assert.deepEqual(rowSignals(row({ pr: pr(1, READY) })), { checks: null, conflict: null });
+  assert.deepEqual(rowBadges(failing).filter((b) => b.signal).map((b) => b.text), ['CI failing']);
+  assert.equal(stuckReason(failing, { bareChecks: true }), 'test, lint');
+  assert.equal(stuckReason(row({ pr: pr(1, { checks: 'failure' }) }), { bareChecks: true }), null);
+});
