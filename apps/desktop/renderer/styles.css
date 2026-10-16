@@ -403,6 +403,7 @@ kbd.inline { flex: none; }
 .pr-review.changes, .pr-ci.failure { color: var(--red); }
 .pr-ci.pending { color: var(--yellow); }
 .pr-ci { font-size: 9px; }
+.review-dot.pr-dot { width: 6px; height: 6px; flex: none; }
 .pr-num { color: var(--text-3); font-variant-numeric: tabular-nums; }
 .pr-item .pr-open { margin-left: auto; opacity: 0; }
 .pr-item:hover .pr-open, .pr-item .pr-open:focus-visible { opacity: 1; }

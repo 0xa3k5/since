@@ -9,6 +9,7 @@ import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { lanesView, reviewCounts, prefetchReview } from './lanes-view.js';
+import { rowStage, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
 import { cleanupView } from './cleanup-view.js';
@@ -690,7 +691,7 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'Missing') : null,
   );
 
-  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => goToPr(pr), oncontextmenu: (e) => prMenu(e, pr) },
+  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => showPrInReview(pr), oncontextmenu: (e) => prMenu(e, pr) },
     icon('merge', 14),
     h('span.sb-label', null, h('span.pr-num', null, `#${pr.number}`), ' ', pr.title),
     prMarks(pr),
@@ -2831,12 +2832,18 @@ function showPrs() { indexPrs(); renderSidebar(); mapView?.refresh(); }
 const prFor = (r) => (state.prs?.active ? state.prs.byRef.get(refKey(r)) : null);
 const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
 
-// Draft, review and CI marks, shared by graph badges and the sidebar list.
-const prMarks = (pr) => [
-  pr.draft ? h('span.pr-draft', null, 'draft') : null,
-  pr.review === 'approved' ? h('span.pr-review.approved', null, '✓') : pr.review === 'changes' ? h('span.pr-review.changes', null, '✗') : null,
-  pr.checks ? h('span.pr-ci.' + pr.checks, null, '●') : null,
-];
+// Draft and review marks plus the PR's Review stage dot (AK-385: the same stage and colour as Review,
+// from GitHub's merge box, so a failing check GitHub doesn't require stays green), shared by graph
+// badges and the sidebar list.
+const prMarks = (pr) => {
+  const stage = rowStage({ pr });
+  const label = STAGES.find((x) => x.id === stage)?.label || 'In progress';
+  return [
+    pr.draft ? h('span.pr-draft', null, 'draft') : null,
+    pr.review === 'approved' ? h('span.pr-review.approved', null, '✓') : pr.review === 'changes' ? h('span.pr-review.changes', null, '✗') : null,
+    h('span.review-dot.pr-dot' + (stage ? `.${stage}` : ''), { role: 'img', 'aria-label': label, title: label }),
+  ];
+};
 function prBadge(pr) {
   if (!pr) return null;
   const stop = (e) => e.stopPropagation();
@@ -2861,6 +2868,13 @@ async function openPr(pr) {
   if (ok) openPrOnGitHub(pr);
 }
 
+// A sidebar PR (AK-385): its row in Review, with the pane. Go to Branch (context menu, ⌘K) still
+// jumps to it on the map.
+function showPrInReview(pr) {
+  if (!state.repo) return;
+  if (state.view !== 'lanes' || !lanesOpen()) setView('lanes');
+  lanesPage?.showPr(pr.number);
+}
 function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
   if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });
