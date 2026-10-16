@@ -222,3 +222,20 @@ test('the reader: walk list, stepping, diff counts, viewed and the description (
   assert.equal(withBody.body, 'Why', 'the merged PR’s body when GitHub sent one');
   assert.equal('body' in without, false);
 });
+
+test('landed reads another branch when given a base ref (AK-374)', async () => {
+  const dir = await repo();
+  const start = (await g(dir, ['rev-parse', 'HEAD'])).trim();
+  await g(dir, ['checkout', '-q', '-b', 'dev']);
+  await commit(dir, 'a.txt', 'on dev');
+  await g(dir, ['checkout', '-q', 'main']);
+  await commit(dir, 'b.txt', 'on main');
+  const def = await git.landed(dir, { since: { sha: start } });
+  assert.equal(def.base, 'main');
+  assert.deepEqual(def.commits.map((c) => c.subject), ['on main']);
+  const dev = await git.landed(dir, { base: 'refs/heads/dev', since: { sha: start } });
+  assert.equal(dev.base, 'dev');
+  assert.deepEqual(dev.commits.map((c) => c.subject), ['on dev']);
+  assert.equal((await git.laneBase(dir, 'refs/heads/dev')).ref, 'refs/heads/dev');
+  await assert.rejects(git.landed(dir, { base: 'refs/heads/nope' }), /Unknown base/);
+});

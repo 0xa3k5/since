@@ -8,7 +8,8 @@ import * as keymap from './keymap.js';
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), one list at
-// a time behind tabs (AK-361, review-rows.js TABS; 1–5): Needs you (Stuck · N, each row says why,
+// a time behind tabs (AK-361, review-rows.js TABS; 1–5). The head (title, counts, Reload, Clean up and
+// the tabs with Plan merge ▸) spans the view above the list and the pane (AK-373). Tabs: Needs you (Stuck · N, each row says why,
 // review-rows.js stuckReason, then Ready to merge · N), Stuck, Ready, In progress and All open; then lines that open in place: Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
 // "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
@@ -103,20 +104,25 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
   const reloadBtn = h('button.btn.ghost.small.review-reload', { onclick: () => reload(), 'data-tip': `${tipFor('Reload pull requests', 'lanes.reload')}\nAsk GitHub for the latest pull requests and review requests`, 'aria-label': 'Reload pull requests' });
   const cleanupBtn = onCleanup ? h('button.btn.ghost.icon-btn', { onclick: () => onCleanup(), 'data-tip': `${tipFor('Clean up…', 'global.cleanup')}\nFind stale branches and worktrees and remove them in bulk`, 'aria-label': 'Clean up…' }, icon('trash', 15)) : null;
-  // One line: the title, the counts and Clean up; the description under it at full width.
-  const left = h('div.page.flush.lanes', null,
+  // The head spans the whole view, above the list and the pane (AK-373): the title, the counts,
+  // Updated, Reload and Clean up on one line, the description under it, then the tabs on one line
+  // (they scroll sideways when the window is narrow) with Plan merge ▸ at the right.
+  const head = h('div.review-top', null,
     h('div.page-head.review-head', null,
       h('div.review-head-row', null, title, count, h('span.spacer'), updated, reloadBtn, cleanupBtn),
       lede),
-    tabBar,
-    h('div.lanes-bar', null, icon('search', 14), filter, allChip, agentChip, conflictChip),
+    tabBar);
+  // The list column scrolls on its own; its filter row stays at the top of it.
+  const left = h('div.page.flush.lanes', null,
+    h('div.review-filter', null, h('div.lanes-bar', null, icon('search', 14), filter, allChip, agentChip, conflictChip)),
     list,
     empty,
   );
   const paneHost = h('div.review-pane-host');
   const handle = h('div.review-split-handle', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize' });
-  // The key bar runs under both panes, across the window (the grid's last row).
-  const el = h('div.review-split', { tabIndex: 0 }, left, handle, paneHost, hint);
+  // The head is the grid's first row and the key bar its last, both across the window; the list and
+  // the pane share the row between them.
+  const el = h('div.review-split', { tabIndex: 0 }, head, left, handle, paneHost, hint);
   let paneObj = null;
   let paneTimer = 0;
   let settled = null; // the row the pane last showed, for Back and Forward

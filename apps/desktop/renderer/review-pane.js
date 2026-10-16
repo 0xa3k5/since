@@ -7,7 +7,8 @@ import * as keymap from './keymap.js';
 
 // Review's right-hand pane: the selected row's header (title, CI and review state, author, size,
 // draft, last update, reviewers and their states, a link to the checks) and its actions over the
-// branch review (review-view.js, per-file ticks and "changed since last look"). A row with a local branch reviews that branch; a
+// branch review (review-view.js: each file a block under a sticky header with its reviewed tick, path and
+// +N −M, ticking folds it; "changed since last look"). A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
 
@@ -153,7 +154,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   }
 
   // Stuck (AK-359): why, then a button per fix (fixActions), the row's primary step filled in.
-  // "Stuck  conflicts with main in a.js · CI ✗ lint   [Rebase onto main B] [Show conflicts F] …"
+  // "Stuck  conflicts with main in a.js · CI ✗ lint   [Rebase onto main B] [Conflicts F] [Checks O] …"
   function stuckLine(primaryId) {
     if (!fixes.length) return null;
     const why = stuckReason(row, { base: ctx.base, max: 3 });
