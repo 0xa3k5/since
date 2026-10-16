@@ -1502,8 +1502,9 @@ async function squashTree(cwd, baseSha, head) {
   let out;
   try {
     out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
-  } catch {
-    throw new GitError('Merging here needs git 2.38 or later.');
+  } catch (err) {
+    if (!(await canForecast(cwd))) throw new GitError('Merging here needs git 2.38 or later.');
+    throw err;
   }
   // A clean merge prints only the tree; a conflicted one lists the conflicted paths after it.
   const [tree, ...rest] = out.split('\0');
