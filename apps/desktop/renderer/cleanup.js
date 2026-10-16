@@ -14,7 +14,7 @@ export const GROUPS = [
   { id: 'missing', label: 'Worktree folder missing', detail: 'The folder is already gone; only git’s record is left.' },
   { id: 'gone', label: 'Deleted on GitHub', detail: 'The remote branch it tracked was deleted, usually after its PR merged.' },
   { id: 'old', label: 'Untouched', detail: 'Not merged anywhere. Your call; not ticked by default.' },
-  { id: 'dirty', label: 'Finished, with uncommitted changes', detail: 'Removing these worktrees deletes their uncommitted files for good.', warn: true },
+  { id: 'dirty', label: 'With uncommitted changes', detail: 'Removing these worktrees deletes their uncommitted files for good.', warn: true },
 ];
 
 // Uncommitted files that removing the lane's worktree would delete for good.
@@ -45,6 +45,7 @@ export function reason(lane, { days = null } = {}) {
   const d = lane.done;
   if (lane.worktree?.prunable) return 'Folder missing';
   if (d?.pr) return `Merged in #${d.pr}`;
+  if (d?.sha && d.reason === 'key') return `${d.key} landed in ${short(d.sha)}`;
   if (d?.sha) return d.reason === 'subject' ? `Same title as ${short(d.sha)}` : `Same change as ${short(d.sha)}`;
   if (lane.mergedAs) return `Same change as ${short(lane.mergedAs)}`;
   if (d?.reason === 'key') return `${d.key} is on the base branch`;
