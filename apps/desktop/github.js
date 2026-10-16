@@ -157,13 +157,14 @@ const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli }) => exec(bin,
 
 // The enable sheet's check, after the user chose to turn it on: is `gh` installed, and logged in
 // to this remote's host? Returns { gh: 'missing' | 'logged-out' | 'ready', remote }.
+// `remotes: null` means no repository is open: only the github.com login is checked.
 async function detect({ remotes, dirs = searchDirs(), exec } = {}) {
-  const remote = pickRemote(remotes);
-  if (!remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
+  const remote = remotes ? pickRemote(remotes) : null;
+  if (remotes && !remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
   const bin = findBinary('gh', dirs);
   if (!bin) return { gh: 'missing', remote };
   try {
-    await run(bin, ['auth', 'status', '--hostname', remote.host], { dirs, exec });
+    await run(bin, ['auth', 'status', '--hostname', remote ? remote.host : 'github.com'], { dirs, exec });
     return { gh: 'ready', remote };
   } catch {
     return { gh: 'logged-out', remote };
@@ -448,6 +449,14 @@ function branchName(head) {
   return head.cross && head.headOwner && head.branch === head.base ? `${head.headOwner}/${head.branch}` : head.branch;
 }
 
+// What `git check-ref-format --branch` accepts (so `+`, `#`, `@` and non-ASCII letters are fine),
+// minus a leading `-` so the name can't be read as an option.
+function validBranch(name) {
+  if (!name || name === '@' || name.startsWith('-')) return false;
+  if (/[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|\/\/|^\/|[./]$/.test(name)) return false;
+  return name.split('/').every((c) => c && !c.startsWith('.') && !c.endsWith('.lock'));
+}
+
 // `gh pr view --json …` output → { number, branch, sha, cross, headOwner, base, state, local }.
 // Throws on anything that couldn't be a branch name or a commit, so nothing odd reaches git.
 function parsePrHead(out, number) {
@@ -464,7 +473,7 @@ function parsePrHead(out, number) {
   };
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head.sha)) throw coded(`Pull request #${number} has no head commit.`, 'gh-failed');
   head.local = branchName(head);
-  if (!head.branch || !/^[\w./-]+$/.test(head.local) || /^[-./]|\.\.|\/\/|[./]$|\.lock$/.test(head.local)) {
+  if (!head.branch || !validBranch(head.local)) {
     throw coded(`Pull request #${number} has a branch name GitLanes can’t use: “${head.branch}”.`, 'gh-failed');
   }
   return head;
@@ -549,10 +558,11 @@ async function createPr({ enabled, remotes, base, head, title, body = '', draft 
 
 // settings.json `github`: { on, hidden: [repository roots the user hid PRs for] }. One user-wide
 // flag; `on: null` means not decided yet (a fresh install, see ghStatus). Older versions kept a
-// per-repository `repos` list: any repository on there means it was on.
+// per-repository `repos` list: any repository on there means it was on, and an empty list means
+// the user turned it off everywhere (still a decision).
 function normalize(saved = {}) {
   const hidden = Array.isArray(saved?.hidden) ? saved.hidden.filter((r) => typeof r === 'string') : [];
-  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) && saved.repos.some((r) => typeof r === 'string') ? true : null;
+  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) ? saved.repos.some((r) => typeof r === 'string') : null;
   return { on, hidden };
 }
 const isHidden = (saved, root) => normalize(saved).hidden.includes(root);
