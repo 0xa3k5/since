@@ -194,3 +194,20 @@ test('timeline: entries by day, newest first, Today and Yesterday, then dates (A
   assert.equal(sincePhrase({ since: 'checkpoint' }), 'since your checkpoint');
   assert.equal(sincePhrase({ since: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
 });
+
+test('landed reads another branch when given a base ref (AK-374)', async () => {
+  const dir = await repo();
+  const start = (await g(dir, ['rev-parse', 'HEAD'])).trim();
+  await g(dir, ['checkout', '-q', '-b', 'dev']);
+  await commit(dir, 'a.txt', 'on dev');
+  await g(dir, ['checkout', '-q', 'main']);
+  await commit(dir, 'b.txt', 'on main');
+  const def = await git.landed(dir, { since: { sha: start } });
+  assert.equal(def.base, 'main');
+  assert.deepEqual(def.commits.map((c) => c.subject), ['on main']);
+  const dev = await git.landed(dir, { base: 'refs/heads/dev', since: { sha: start } });
+  assert.equal(dev.base, 'dev');
+  assert.deepEqual(dev.commits.map((c) => c.subject), ['on dev']);
+  assert.equal((await git.laneBase(dir, 'refs/heads/dev')).ref, 'refs/heads/dev');
+  await assert.rejects(git.landed(dir, { base: 'refs/heads/nope' }), /Unknown base/);
+});
