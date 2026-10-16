@@ -9,7 +9,7 @@
 
 const { findBinary, runCli, searchDirs } = require('./ai');
 
-const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'mergeStateStatus', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles'];
+const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'mergeStateStatus', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles', 'body'];
 const LIMIT = 100;
 const TIMEOUT = 30_000;
 // Never prompt (there's no terminal), no update nags or colour codes in the output.
@@ -126,6 +126,8 @@ function normalizePr(p) {
     reviews: reviewVerdicts(p.latestReviews),
     reviewRequests: reviewRequests(p.reviewRequests),
     size: { additions: count(p.additions), deletions: count(p.deletions), files: count(p.changedFiles) },
+    // The description for the Review pane (AK-356); '' when there is none, so it can say so.
+    body: text(p.body, 20000),
   };
 }
 
