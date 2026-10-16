@@ -398,7 +398,9 @@ test('parseMergeInfo: head commit and the still-checking state', () => {
 
 test('mergedPrs: parses merged heads, drops bad SHAs; joinLanes takes the open PR title', () => {
   const sha = 'a'.repeat(40);
-  assert.deepEqual(github.parseMerged(JSON.stringify([{ number: 5, title: 'Ship it', headRefOid: sha, headRefName: 'x' }, { number: 6, headRefOid: '--evil' }])), [{ number: 5, title: 'Ship it', sha, branch: 'x', merge: null, mergedAt: null, body: undefined }]);
+  assert.deepEqual(github.parseMerged(JSON.stringify([{ number: 5, title: 'Ship it', headRefOid: sha, headRefName: 'x' }, { number: 6, headRefOid: '--evil' }])), [{ number: 5, title: 'Ship it', sha, branch: 'x', merge: null, mergedAt: null, body: undefined, author: '', authorName: '', bot: false }]);
+  assert.deepEqual((({ author, authorName, bot }) => ({ author, authorName, bot }))(github.parseMerged(JSON.stringify([{ number: 8, headRefOid: sha, author: { login: 'ada', name: 'Ada Lovelace' } }]))[0]), { author: 'ada', authorName: 'Ada Lovelace', bot: false });
+  assert.deepEqual((({ author, authorName, bot }) => ({ author, authorName, bot }))(github.parseMerged(JSON.stringify([{ number: 9, headRefOid: sha, author: { login: 'app/dependabot', is_bot: true } }]))[0]), { author: 'app/dependabot', authorName: github.botLogin('app/dependabot'), bot: true });
   assert.equal(github.parseMerged(JSON.stringify([{ number: 7, headRefOid: sha, body: 'Why it changed' }]))[0].body, 'Why it changed');
   assert.equal(github.parseMerged(JSON.stringify([{ number: 7, headRefOid: sha, body: 42 }]))[0].body, undefined);
   assert.throws(() => github.parseMerged('{}'), /list/);
