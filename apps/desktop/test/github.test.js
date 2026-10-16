@@ -398,7 +398,9 @@ test('parseMergeInfo: head commit and the still-checking state', () => {
 
 test('mergedPrs: parses merged heads, drops bad SHAs; joinLanes takes the open PR title', () => {
   const sha = 'a'.repeat(40);
-  assert.deepEqual(github.parseMerged(JSON.stringify([{ number: 5, title: 'Ship it', headRefOid: sha, headRefName: 'x' }, { number: 6, headRefOid: '--evil' }])), [{ number: 5, title: 'Ship it', sha, branch: 'x', merge: null, mergedAt: null }]);
+  assert.deepEqual(github.parseMerged(JSON.stringify([{ number: 5, title: 'Ship it', headRefOid: sha, headRefName: 'x' }, { number: 6, headRefOid: '--evil' }])), [{ number: 5, title: 'Ship it', sha, branch: 'x', merge: null, mergedAt: null, body: undefined }]);
+  assert.equal(github.parseMerged(JSON.stringify([{ number: 7, headRefOid: sha, body: 'Why it changed' }]))[0].body, 'Why it changed');
+  assert.equal(github.parseMerged(JSON.stringify([{ number: 7, headRefOid: sha, body: 42 }]))[0].body, undefined);
   assert.throws(() => github.parseMerged('{}'), /list/);
   const out = github.joinLanes([{ name: 'f', branch: 'f', title: 'commit subject' }], { owners: {}, prs: [{ number: 1, title: 'PR title', branch: 'f' }] });
   assert.equal(out[0].title, 'PR title');
