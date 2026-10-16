@@ -771,6 +771,74 @@ function remoteLabel(url) {
   return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
 }
 
+// Managing remotes (Remotes section, ⌘K): add, change the URL of, rename and remove. journal.runRemote
+// records the returned change so it can be undone; removing saves the remote's config, the upstream
+// settings of branches that track it and its remote-tracking refs, which undo writes back.
+const sub = (key) => key.slice(key.indexOf('.') + 1, key.lastIndexOf('.'));
+
+async function saveRemote(cwd, name) {
+  const cfg = await run(cwd, ['config', '--local', '-z', '--get-regexp', '^(remote|branch)\\.'], { allowCodes: [0, 1] });
+  const entries = cfg.split(SEP).filter(Boolean).map((e) => { const i = e.indexOf('\n'); return i === -1 ? [e, ''] : [e.slice(0, i), e.slice(i + 1)]; });
+  const tracking = new Set(entries.filter(([k, v]) => /^branch\..+\.(remote|pushremote)$/.test(k) && v === name).map(([k]) => sub(k)));
+  const config = entries.filter(([k]) => (k.startsWith('remote.') && sub(k) === name) || (/^branch\..+\.(remote|merge|pushremote)$/.test(k) && tracking.has(sub(k))));
+  const out = await run(cwd, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', `refs/remotes/${name}/`]);
+  const refs = out.split('\n').filter(Boolean).map((l) => l.split(SEP));
+  return { config, refs };
+}
+
+async function restoreSavedRemote(cwd, { config, refs }) {
+  for (const [k, v] of config) await run(cwd, ['config', '--local', ...(k.startsWith('branch.') ? ['--replace-all'] : ['--add']), k, v]);
+  const lines = refs.filter(([, , sym]) => !sym).map(([n, o]) => `create ${n} ${o}`);
+  if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo remove remote'], { input: lines.join('\n') + '\n' });
+  for (const [n, , sym] of refs) if (sym) await run(cwd, ['symbolic-ref', n, sym]).catch(() => {});
+}
+
+// `op` is add (name, url), url (name, url), rename (name, new name) or remove (name).
+async function changeRemote(cwd, op, name, value) {
+  const remotes = await getRemotes(cwd);
+  const has = (n) => remotes.some((r) => r.name === n);
+  if (op !== 'add' && !has(name)) throw new GitError(`There is no remote named ${name}.`);
+  const taken = op === 'add' ? name : op === 'rename' ? value : null;
+  if (taken && has(taken)) throw new GitError(`A remote named ${taken} already exists.`);
+  if (op === 'add') { await run(cwd, ['remote', 'add', '--', name, value]); return { op, name, url: value }; }
+  if (op === 'url') {
+    const from = remotes.find((r) => r.name === name).url;
+    await run(cwd, ['remote', 'set-url', '--', name, value]);
+    return { op, name, from, url: value };
+  }
+  if (op === 'rename') { await run(cwd, ['remote', 'rename', '--', name, value]); return { op, name, to: value }; }
+  if (op === 'remove') {
+    const saved = await saveRemote(cwd, name);
+    await run(cwd, ['remote', 'remove', '--', name]);
+    return { op, name, saved };
+  }
+  throw new GitError(`Unknown remote operation ${op}`);
+}
+
+// Undo or redo a changeRemote step. Redoing a remove saves the remote again (its refs may have moved).
+async function revertRemote(cwd, change, dir) {
+  const c = change, undo = dir === 'undo';
+  const remotes = await getRemotes(cwd);
+  const has = (n) => remotes.some((r) => r.name === n);
+  const fail = (why) => { throw new GitError(why); };
+  if (c.op === 'add') {
+    if (undo) { if (!has(c.name)) fail(`the remote ${c.name} no longer exists.`); await run(cwd, ['remote', 'remove', '--', c.name]); }
+    else { if (has(c.name)) fail(`a remote named ${c.name} exists again.`); await run(cwd, ['remote', 'add', '--', c.name, c.url]); }
+  } else if (c.op === 'url') {
+    const r = remotes.find((x) => x.name === c.name);
+    if (!r || r.url !== (undo ? c.url : c.from)) fail(`the URL of ${c.name} has changed since.`);
+    await run(cwd, ['remote', 'set-url', '--', c.name, undo ? c.from : c.url]);
+  } else if (c.op === 'rename') {
+    const [from, to] = undo ? [c.to, c.name] : [c.name, c.to];
+    if (!has(from)) fail(`the remote ${from} no longer exists.`);
+    if (has(to)) fail(`a remote named ${to} exists again.`);
+    await run(cwd, ['remote', 'rename', '--', from, to]);
+  } else if (c.op === 'remove') {
+    if (undo) { if (has(c.name)) fail(`a remote named ${c.name} exists again.`); await restoreSavedRemote(cwd, c.saved); }
+    else { if (!has(c.name)) fail(`the remote ${c.name} no longer exists.`); c.saved = await saveRemote(cwd, c.name); await run(cwd, ['remote', 'remove', '--', c.name]); }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // History rewriting (in-place commit editing), implemented as a
 // non-interactive `git rebase -i` with a generated todo list.
@@ -2350,7 +2418,7 @@ module.exports = {
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
-  getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
+  getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
