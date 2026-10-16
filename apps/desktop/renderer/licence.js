@@ -16,9 +16,10 @@ async function call(channel, ...args) {
 export const buy = async () => { if (!(await api.app('licence-buy'))) toast('Buying isn’t set up in this build yet', { kind: 'error' }); };
 const portal = async () => { if (!(await api.app('licence-portal'))) toast('The customer portal isn’t set up in this build yet', { kind: 'error' }); };
 
-// Small status chip for the topbar. Nothing is shown once GitLanes is licensed.
+// Small status chip for the topbar. Nothing is shown once GitLanes is licensed; beta builds show a plain label.
 export function licenceChip(s, onclick) {
   if (!s || s.mode === 'licensed') return null;
+  if (s.mode === 'beta') return h('span.licence-chip.beta', { title: 'Beta build' }, 'Beta');
   const title = `Licence (${LICENCE_KBD.join('')})`;
   if (s.mode === 'trial') return h('button.licence-chip', { onclick, title }, icon('key', 12), `Trial · ${plural(s.trialDaysLeft, 'day')} left`);
   if (s.mode === 'unverified') return h('button.licence-chip.warn', { onclick, title }, icon('warning', 12), 'Verify licence');
@@ -27,7 +28,7 @@ export function licenceChip(s, onclick) {
 }
 
 export function trialLine(s) {
-  if (!s || s.mode === 'licensed') return null;
+  if (!s || s.mode === 'licensed' || s.mode === 'beta') return null;
   if (s.mode === 'trial') return `Free trial: ${plural(s.trialDaysLeft, 'day')} left`;
   if (s.mode === 'unverified') return 'Read-only until your licence is verified';
   if (s.mode === 'revoked') return s.canMutate ? 'Licence inactive · trial still running' : 'Licence inactive · read-only';
@@ -51,6 +52,7 @@ const day = (t) => new Date(t).toLocaleDateString(undefined, { dateStyle: 'mediu
 export async function openLicence({ blocked = false } = {}) {
   if ($('.licence-overlay')) return;
   let status = await api.app('licence');
+  if (status?.mode === 'beta') return; // no licence in beta builds
   let busy = null, error = null;
   const prev = document.activeElement;
   const input = h('input.input.mono', { type: 'text', placeholder: 'Paste your licence key', spellcheck: false, autocomplete: 'off', 'aria-label': 'Licence key',

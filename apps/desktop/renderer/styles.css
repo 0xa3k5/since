@@ -1159,6 +1159,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .licence-chip:hover { color: var(--text); background: var(--bg-hover); }
 .licence-chip.expired { color: var(--accent-fg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
 .licence-chip.expired:hover { color: var(--text); }
+.licence-chip.beta, .licence-chip.beta:hover { color: var(--text-3); background: none; cursor: default; }
 .licence-chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .licence-line { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 3px 8px; border-radius: 6px; font-size: 12px; color: var(--text-3); }
 .licence-line:hover { background: var(--bg-hover); color: var(--text); }

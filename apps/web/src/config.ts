@@ -19,8 +19,10 @@ export const SHOW_PRICING = false;
  */
 export const BUY_URL = 'https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_GXfjUuuabta8yx92TtKJEfyhrxLfblsgkgPm50EjZod/redirect';
 
-/** Latest DMG. Assumes the public releases-only repo from the website plan (D6). */
-export const DOWNLOAD_URL = 'https://github.com/0xa3k5/gitlanes-releases/releases/latest';
+/** Latest beta DMGs on the release bucket (Cloudflare R2), one per chip. DOWNLOAD_URL is Apple silicon. */
+const BETA_LATEST = 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta/latest';
+export const DOWNLOAD_URL = `${BETA_LATEST}/GitLanes-arm64.dmg`;
+export const DOWNLOAD_URL_INTEL = `${BETA_LATEST}/GitLanes-x64.dmg`;
 
 /** One-time price in USD: the launch price, and the price after it goes up. */
 export const PRICE_NOW = 19;
