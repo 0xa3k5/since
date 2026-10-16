@@ -75,3 +75,11 @@ export function paneActions(row, step) {
   else if (pr && !lane) primary = 'checkout';
   return { actions, primary };
 }
+
+// The PR's description for the pane, as plain text: template comments (<!-- … -->) dropped, runs
+// of blank lines squeezed to one, trimmed. null when GitHub didn't send one (older list data);
+// '' when the author left it empty.
+export function prDescription(pr) {
+  if (typeof pr?.body !== 'string') return null;
+  return pr.body.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?(-->|$)/g, '').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}

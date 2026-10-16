@@ -81,3 +81,12 @@ test('PR actions: every action has a review key; keys map back; merge and close 
   assert.equal(prActionFor('review.close'), null, 'Esc goes back, it never closes the PR');
   assert.deepEqual(PR_ACTIONS.filter((a) => leavesPage(a.id)).map((a) => a.id), ['merge', 'close']);
 });
+
+test('prDescription: plain text without template comments, null when not sent', async () => {
+  const { prDescription } = await load();
+  assert.equal(prDescription({}), null);
+  assert.equal(prDescription(null), null);
+  assert.equal(prDescription({ body: '' }), '');
+  assert.equal(prDescription({ body: '<!-- Describe your change -->\r\n\r\n' }), '');
+  assert.equal(prDescription({ body: 'Fixes the graph.  \r\n\r\n\r\n\r\n- one\n- two\n<!-- unclosed' }), 'Fixes the graph.\n\n- one\n- two');
+});
