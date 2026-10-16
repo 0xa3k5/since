@@ -168,3 +168,78 @@ test('walk-through header: a short "since …" for every catch-up kind (AK-304)'
   assert.equal(sinceLabel({ kind: 'week' }), 'since last week');
   assert.equal(sinceLabel({ kind: 'checkpoint', checkpoint: {} }), 'since checkpoint');
 });
+
+test('timeline: entries by day, newest first, Today and Yesterday, then dates (AK-365)', async () => {
+  const { byDay, firstOf, headline, sincePhrase } = await load('catchup.js');
+  const at = (d, h) => new Date(2026, 9, d, h, 0).getTime();
+  const now = at(16, 12);
+  const e = (id, date, kind = 'pr') => ({ id, date, kind });
+  const days = byDay([e('a', at(14, 9)), e('b', at(16, 8)), e('c', at(15, 23)), e('d', at(16, 11)), e('x', 0, 'commit')], { now, dateLabel: (ms) => `day ${new Date(ms).getDate()}` });
+  assert.deepEqual(days.map((d) => [d.label, d.entries.map((x) => x.id)]), [
+    ['Today', ['d', 'b']], ['Yesterday', ['c']], ['day 14', ['a']], ['Undated', ['x']],
+  ]);
+  // Just after midnight: yesterday evening is Yesterday, not Today.
+  assert.deepEqual(byDay([e('m', at(15, 23))], { now: at(16, 0) + 60e3 }).map((d) => d.label), ['Yesterday']);
+  assert.deepEqual(byDay([]), []);
+
+  // The first n rows across days, and how many are left for "+ N more".
+  const { days: top, more } = firstOf(days, 3);
+  assert.deepEqual(top.map((d) => d.entries.length), [2, 1]);
+  assert.equal(more, 2);
+  assert.equal(firstOf(days, 10).more, 0);
+
+  assert.deepEqual(headline([e('a'), e('b'), e('c', 0, 'commit')]), { count: 2, text: 'PRs merged', extra: '1 other commit' });
+  assert.deepEqual(headline([e('a', 0, 'commit')]), { count: 1, text: 'commit landed', extra: null });
+  assert.equal(headline([e('a')]).text, 'PR merged');
+  assert.equal(sincePhrase({ since: 'checkpoint' }), 'since your checkpoint');
+  assert.equal(sincePhrase({ since: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
+});
+
+test('the reader: stepping, diff counts, viewed and the description (AK-372)', async () => {
+  const { stepId, diffCounts, firstUnviewed, readerDescription, landedEntries } = await load('catchup.js');
+  const pr = (id) => ({ id, kind: 'pr' });
+  const list = [pr('a'), pr('b'), pr('c')];
+  assert.equal(stepId(list, 'b', 1), 'c');
+  assert.equal(stepId(list, 'c', 1), 'c', 'stops at the end');
+  assert.equal(stepId(list, 'a', -1), 'a', 'stops at the start');
+  assert.equal(stepId(list, 'x', 1), 'a', 'not in the list: the first');
+  assert.equal(stepId([], 'a', 1), null);
+  const diff = { hunks: [{ lines: [{ t: ' ' }, { t: '+' }, { t: '+' }, { t: '-' }] }, { lines: [{ t: '-' }, { t: '+' }] }] };
+  assert.deepEqual(diffCounts(diff), { add: 3, del: 2 });
+  assert.deepEqual(diffCounts(null), { add: 0, del: 0 });
+  assert.equal(firstUnviewed(['a', 'b', 'c'], new Set(['a'])), 'b');
+  assert.equal(firstUnviewed(['a'], new Set(['a'])), null);
+  assert.deepEqual(readerDescription({ body: 'Adds a skip link.\r\n\r\n\r\n<!-- template -->Tested.' }, 'ignored'), { text: 'Adds a skip link.\n\nTested.', from: 'pr' });
+  assert.deepEqual(readerDescription({ body: '' }, 'Subject\n\nBody'), { text: '', from: 'pr' }, 'an empty PR body says so, no fallback');
+  assert.deepEqual(readerDescription({}, 'Subject (#12)\n\n* first\n* second\n\nCo-authored-by: A <a@x>\nSigned-off-by: B <b@x>'), { text: '* first\n* second', from: 'commit' });
+  assert.deepEqual(readerDescription({}, 'Just a subject'), { text: '', from: 'commit' });
+  const [withBody, without] = landedEntries(
+    [{ sha: 'm1', parent: 'p', date: 1, author: 'a', subject: 's', files: [] }, { sha: 'm2', parent: 'p', date: 1, author: 'a', subject: 's', files: [] }],
+    [{ number: 1, title: 'One', merge: 'm1', body: 'Why' }, { number: 2, title: 'Two', merge: 'm2' }]);
+  assert.equal(withBody.body, 'Why', 'the merged PR’s body when GitHub sent one');
+  assert.equal('body' in without, false);
+});
+
+test('landed reads another branch when given a base ref (AK-374)', async () => {
+  const dir = await repo();
+  const start = (await g(dir, ['rev-parse', 'HEAD'])).trim();
+  await g(dir, ['checkout', '-q', '-b', 'dev']);
+  await commit(dir, 'a.txt', 'on dev');
+  await g(dir, ['checkout', '-q', 'main']);
+  await commit(dir, 'b.txt', 'on main');
+  const def = await git.landed(dir, { since: { sha: start } });
+  assert.equal(def.base, 'main');
+  assert.deepEqual(def.commits.map((c) => c.subject), ['on main']);
+  const dev = await git.landed(dir, { base: 'refs/heads/dev', since: { sha: start } });
+  assert.equal(dev.base, 'dev');
+  assert.deepEqual(dev.commits.map((c) => c.subject), ['on dev']);
+  assert.equal((await git.laneBase(dir, 'refs/heads/dev')).ref, 'refs/heads/dev');
+  await assert.rejects(git.landed(dir, { base: 'refs/heads/nope' }), /Unknown base/);
+});
+
+test('changeSize sums a change\'s file diffs for the reader head', async () => {
+  const { changeSize } = await load('catchup.js');
+  const d = (adds, dels) => ({ hunks: [{ lines: [...Array(adds).fill({ t: '+' }), ...Array(dels).fill({ t: '-' }), { t: ' ' }] }] });
+  assert.deepEqual(changeSize([d(3, 1), d(0, 2)]), { additions: 3, deletions: 3, files: 2 });
+  assert.deepEqual(changeSize([]), { additions: 0, deletions: 0, files: 0 });
+});

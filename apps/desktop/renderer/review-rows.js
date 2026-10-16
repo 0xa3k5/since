@@ -14,6 +14,16 @@ export const STAGES = [
   { id: 'inProgress', label: 'In progress' },
 ];
 
+// Review's tabs (AK-361), one list at a time instead of stacked stages; 1–5 switch. Needs you is
+// Stuck and Ready to merge, each under its heading; All open is every stage.
+export const TABS = [
+  { id: 'needs', label: 'Needs you', keyId: 'lanes.tabNeeds', stages: ['stuck', 'ready'] },
+  { id: 'stuck', label: 'Stuck', keyId: 'lanes.tabStuck', stages: ['stuck'] },
+  { id: 'ready', label: 'Ready', keyId: 'lanes.tabReady', stages: ['ready'] },
+  { id: 'inProgress', label: 'In progress', keyId: 'lanes.tabProgress', stages: ['inProgress'] },
+  { id: 'open', label: 'All open', keyId: 'lanes.tabAll', stages: ['stuck', 'ready', 'inProgress'] },
+];
+
 const time = (iso) => {
   const t = Date.parse(iso || '');
   return Number.isFinite(t) ? t : 0;
@@ -209,22 +219,22 @@ export const STEPS = {
   sendBack: { label: 'Send back…', keyId: 'lanes.sendBack', icon: 'sparkle' },
 };
 
-// Small CI and review badges for a row: [{ text, kind, title }], kind '' | 'ok' | 'warn' | 'busy'.
-export function rowBadges(row, { requested = new Set(), agents = false } = {}) {
+// Small CI and review badges for a row: [{ text, kind, title, signal }], kind '' | 'ok' | 'warn' | 'busy'.
+// An agent shows as an author (rowAuthors, AK-390), not as a badge. `signal` marks the ones Review
+// shows as glyphs instead (rowSignals).
+export function rowBadges(row, { requested = new Set() } = {}) {
   const { pr } = row;
   const out = [];
-  const agent = agents ? rowAgent(row) : null;
-  if (agent) out.push({ text: 'Agent', kind: 'agent', title: agent });
   if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
   if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed' });
-  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing' });
+  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing', signal: true });
   else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
   if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
   else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check' });
   else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes', icon: 'x' });
   else if (pr?.review === 'required') out.push({ text: 'Needs review', kind: '', title: 'Waiting for a review', icon: 'pending' });
   if (pr?.mergeState === 'unknown') out.push({ text: 'Checking', kind: 'busy', spin: true, title: 'GitHub is still checking whether it merges cleanly' });
-  if (conflicted(row)) out.push({ text: 'Conflicts', kind: 'warn', title: `Conflicts with ${pr?.base || 'its base'}` });
+  if (conflicted(row)) out.push({ text: 'Conflicts', kind: 'warn', title: `Conflicts with ${pr?.base || 'its base'}`, signal: true });
   else if (pr?.mergeState === 'behind') out.push({ text: `Behind ${pr.base || 'base'}`, kind: '', title: `${pr.base || 'Its base'} has newer commits; GitHub still allows the merge` });
   if (row.worktree?.changes) out.push({ text: `${row.worktree.changes} changed`, kind: '', title: 'Uncommitted changes in its worktree' });
   return out;
@@ -239,6 +249,65 @@ export function rowAgent({ lane, pr } = {}) {
 
 // What to call a reviewer or author: the name, else the login without a bot's "[bot]".
 const who = (p) => p.name || String(p.login || '').replace(/^app\//, '').replace(/\[bot\]$/, '');
+
+// The name to show for an agent guess (AK-390; git.agentGuess, or { reason: 'bot author', match }):
+// a trailer's value without its <email> and any (note) ("Co-Authored-By: Claude Opus 5.5 (1M context)
+// <noreply@anthropic.com>" → "Claude Opus 5.5"), a bot's name without "[bot]", else the branch
+// prefix capitalised ("codex/" → "Codex", "ai/" → "AI"). null when there's nothing to go on.
+export function agentName(agent) {
+  if (!agent?.match) return null;
+  const match = String(agent.match);
+  if (agent.reason === 'trailer') {
+    const value = match.replace(/^[A-Za-z0-9-]+:\s*/, '');
+    const name = value.replace(/<[^>]*>?/g, '').replace(/\([^)]*\)?/g, '').replace(/\s+/g, ' ').trim();
+    return name || (/<([^@>]+)@/.exec(value)?.[1] ?? null);
+  }
+  if (agent.reason === 'bot author') return match.replace(/^app\//, '').replace(/\[bot\]$/i, '').trim() || null;
+  const prefix = match.replace(/\/+$/, '').trim();
+  if (!prefix) return null;
+  return prefix.length <= 2 ? prefix.toUpperCase() : prefix[0].toUpperCase() + prefix.slice(1);
+}
+
+// An agent named in a commit message's trailers (Catch up's reader, AK-390), like git.agentGuess:
+// a Co-Authored-By naming a coding agent, or a trailer only agents write. → { reason, match } or null.
+const AGENT_WORDS = ['claude', 'anthropic', 'codex', 'openai', 'copilot', 'cursor', 'devin', 'aider', 'gemini', 'jules', 'openhands', 'sweep', 'cline', 'windsurf', 'codeium'];
+const AGENT_KEYS = ['generated-by', 'generated-with', 'agent', 'ai-agent', 'assisted-by'];
+export function messageAgent(message = '') {
+  for (const line of String(message || '').split('\n')) {
+    const m = /^([A-Za-z0-9-]+):\s*(.+)$/.exec(line.trim());
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    if (AGENT_KEYS.includes(key)) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+    if (key === 'co-authored-by' && AGENT_WORDS.some((w) => m[2].toLowerCase().split(/[^a-z0-9]+/).includes(w))) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+  }
+  return null;
+}
+
+// Who made it (AK-390): [{ name, key, agent, title }], the person first, then the agent. A PR a bot
+// opened is that bot alone; a person's PR on an agent-made lane is both ("AK + Claude Opus 5.5").
+// person: { name, key } when the caller knows one without a PR (Catch up's commit author).
+// agents: whether agent-made marks are on; off, only the person shows.
+export function authorsOf({ pr = null, agent = null, person = null, agents = true } = {}) {
+  const out = [];
+  if (pr?.bot) {
+    const name = who({ name: pr.authorName, login: pr.author }) || 'Bot';
+    return [{ name, key: pr.author || name, agent: true, title: `${name} (a bot opened it)` }];
+  }
+  // A commit by a bot ("dependabot[bot]") is that bot alone, like a PR a bot opened.
+  if (!pr?.author && /\[bot\]$/i.test(person?.name || '')) {
+    const name = person.name.replace(/\[bot\]$/i, '').trim();
+    return [{ name, key: person.key || person.name, agent: true, title: `${name} (a bot)` }];
+  }
+  const p = pr?.author ? { name: pr.authorName || pr.author, key: pr.author } : person?.name ? { name: person.name, key: person.key || person.name } : null;
+  if (p) out.push({ ...p, agent: false, title: p.key && p.key !== p.name ? `${p.name} (${p.key})` : p.name });
+  const name = agents ? agentName(agent) : null;
+  if (name && !(p && p.name.toLowerCase() === name.toLowerCase())) {
+    out.push({ name, key: `agent:${name}`, agent: true, title: `${name}: looks agent-made (${agent.reason}: ${agent.match})` });
+  }
+  return out;
+}
+// A review row's authors: its PR's author and its lane's agent guess.
+export const rowAuthors = (row, { agents = false } = {}) => authorsOf({ pr: row?.pr || null, agent: row?.lane?.agent || null, agents });
 
 // A PR's reviewers for its header: one entry per person or team, [{ key, name, login, state }],
 // state 'changes' | 'approved' | 'commented' | 'pending'. A request outranks an older review (it was
@@ -294,13 +363,32 @@ export function nextSelection(before, staged, acted) {
   return staged.all.some((r) => r.key === acted) ? acted : null;
 }
 
+// The row line's at-a-glance trouble (AK-411): failing checks as ✕ and a count, a conflict with the
+// base as a marker; { checks: { text, title } | null, conflict: { title } | null }. The count is
+// passed/total when GitHub's counts reach the renderer (pr.checkCounts), else how many are failing.
+export function rowSignals(row) {
+  const { pr } = row;
+  let checks = null;
+  if (pr?.checks === 'failure') {
+    const failing = pr.failing || [];
+    const c = pr.checkCounts;
+    const counted = c && Number.isSafeInteger(c.passed) && Number.isSafeInteger(c.total) && c.total > 0;
+    const names = failing.length ? `: ${failing.slice(0, 20).join(', ')}` : '';
+    checks = counted
+      ? { text: `${c.passed}/${c.total}`, title: `${c.passed} of ${c.total} checks passed${names}` }
+      : { text: failing.length ? String(failing.length) : '', title: `${failing.length || 'Some'} ${failing.length === 1 ? 'check is' : 'checks are'} failing${names}` };
+  }
+  return { checks, conflict: conflicted(row) ? { title: `Conflicts with ${pr?.base || 'its base'}` } : null };
+}
+
 // Why a row is stuck, in plain words built from facts, or null when it isn't:
 //   "conflicts with main in changelog.astro · CI ✗ test, lint"
 // Forecast conflicts name the other side and the files (file names, the first `max`, then "+N
 // more"); without a forecast, GitHub's own conflict check stands in. Failing checks are named when
 // GitHub reported them (pr.failing, github.normalizePr). Send back (AK-279) builds on this too.
-// noBase leaves out the conflict with the base, which Review shows as its own note (conflictNote).
-export function stuckReason(row, { base = null, max = 2, noBase = false } = {}) {
+// noBase leaves out the conflict with the base, which Review shows as its own note (conflictNote);
+// bareChecks names the failing checks without "CI ✗", which Review's row shows as a glyph (rowSignals).
+export function stuckReason(row, { base = null, max = 2, noBase = false, bareChecks = false } = {}) {
   const { pr } = row;
   const conflicts = (row.conflicts || []).filter((c) => !noBase || !c.base);
   const out = [];
@@ -312,7 +400,8 @@ export function stuckReason(row, { base = null, max = 2, noBase = false } = {}) 
   if (!noBase && !conflicts.length && conflicted(row)) out.push(`conflicts with ${pr?.base || base || 'its base'}`);
   if (pr?.checks === 'failure') {
     const failing = pr.failing || [];
-    out.push(failing.length ? `CI ✗ ${failing.slice(0, max).join(', ')}${failing.length > max ? ` +${failing.length - max} more` : ''}` : 'CI ✗ checks failing');
+    const names = `${failing.slice(0, max).join(', ')}${failing.length > max ? ` +${failing.length - max} more` : ''}`;
+    if (bareChecks) { if (failing.length) out.push(names); } else out.push(failing.length ? `CI ✗ ${names}` : 'CI ✗ checks failing');
   }
   if (pr?.mergeState === 'blocked' && pr.review === 'changes') out.push('changes requested');
   return out.length ? out.join(' · ') : null;

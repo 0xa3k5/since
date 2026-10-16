@@ -1,3 +1,5 @@
+import { prDescription } from './pr-review.js';
+
 // Review's catch-up card (AK-281), the pure part: what landed on the base since a checkpoint, as
 // entries (a merged PR, or a commit that came without one) and as groups to read at a glance.
 // Built from app:catchup (git log on the base's first-parent line, plus merged PRs from `gh` while
@@ -35,6 +37,8 @@ export function landedEntries(commits = [], merged = null) {
       id: pr ? `pr:${pr.number}` : `commit:${c.sha}`,
       kind: pr ? 'pr' : 'commit',
       ...(pr ? { number: pr.number, branch: pr.branch } : {}),
+      // The PR's description when GitHub sent one with the merged list (the reader falls back to the commit message).
+      ...(typeof pr?.body === 'string' ? { body: pr.body } : {}),
       title, sha: c.sha, parent: c.parent, date: c.date, author: c.author, files: c.files || [],
       key: issueKey(pr?.title, pr?.branch, c.subject),
       area: mainArea(c.files),
@@ -108,4 +112,93 @@ export function countsText({ entries, stuck, ready, prsOn, ci, base }) {
   if (prsOn) parts.push(`${ready} ready to merge`);
   const ciText = ci ? { passing: 'CI passing', failing: `CI failing${ci.failed?.length ? `: ${ci.failed.join(', ')}` : ''}`, pending: 'CI running' }[ci.state] : null;
   return { parts, ci: ciText ? { state: ci.state, text: `${base} ${ciText}` } : null };
+}
+
+// The Catch up view's timeline (AK-365): entries by local day, newest first. "Today", "Yesterday",
+// then dateLabel(start of that day). Entries without a date go last. → [{ id, label, entries }]
+const dayStart = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const longDate = (ms) => new Date(ms).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+export function byDay(entries = [], { now = Date.now(), dateLabel = longDate } = {}) {
+  const today = dayStart(now);
+  const yesterday = dayStart(today - 1);
+  const days = new Map();
+  for (const e of [...entries].sort((a, b) => (b.date || 0) - (a.date || 0))) {
+    const d = e.date ? dayStart(e.date) : null;
+    const id = d == null ? 'undated' : String(d);
+    let g = days.get(id);
+    if (!g) { g = { id, label: d == null ? 'Undated' : d === today ? 'Today' : d === yesterday ? 'Yesterday' : dateLabel(d), entries: [] }; days.set(id, g); }
+    g.entries.push(e);
+  }
+  return [...days.values()];
+}
+
+// How many rows the timeline shows before "+ N more ▸".
+export const FIRST = 10;
+// The first n entries across the days (days left empty drop out). → { days, more: how many are hidden }
+export function firstOf(days, n = FIRST) {
+  const out = [];
+  let left = n;
+  for (const d of days) {
+    if (left <= 0) break;
+    const entries = d.entries.slice(0, left);
+    left -= entries.length;
+    out.push({ ...d, entries });
+  }
+  const total = days.reduce((s, d) => s + d.entries.length, 0);
+  return { days: out, more: Math.max(0, total - n) };
+}
+
+// The big number: merged PRs, or the commits that landed when none came with a PR.
+// → { count, text: "PRs merged" | "commits landed", extra: "· 3 other commits" | null }
+export function headline(entries = []) {
+  const prs = entries.filter((e) => e.kind === 'pr').length;
+  const loose = entries.length - prs;
+  const s = (n, one, many) => (n === 1 ? one : many);
+  if (!prs) return { count: entries.length, text: s(entries.length, 'commit landed', 'commits landed'), extra: null };
+  return { count: prs, text: s(prs, 'PR merged', 'PRs merged'), extra: loose ? `${loose} other ${s(loose, 'commit', 'commits')}` : null };
+}
+
+// The since picker's label in the view: "since your checkpoint", "since yesterday", "since tag v0.1.0".
+export function sincePhrase(since = { since: 'checkpoint' }) {
+  if (since.since === 'tag') return `since tag ${since.tag}`;
+  if (since.since === 'yesterday') return 'since yesterday';
+  if (since.since === 'week') return 'since last week';
+  return 'since your checkpoint';
+}
+// When a checkpoint was: "Tuesday 18:40" within the week, "Oct 3 18:40" before that.
+export function whenText(ms, { now = Date.now() } = {}) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const day = now - ms < 6 * 24 * 3600e3 ? d.toLocaleDateString(undefined, { weekday: 'long' }) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${day} ${time}`;
+}
+
+// The reader (AK-372, AK-381): ←/→ step the timeline. The id `d` steps from `id` in `list` (entries), clamped to its ends; the first when `id` isn't in it.
+export function stepId(list = [], id = null, d = 1) {
+  if (!list.length) return null;
+  const i = list.findIndex((e) => e.id === id);
+  return list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + d))].id;
+}
+// A parsed file diff's added and removed lines. → { add, del }
+export function diffCounts(diff) {
+  let add = 0, del = 0;
+  for (const hunk of diff?.hunks || []) for (const l of hunk.lines) { if (l.t === '+') add++; else if (l.t === '-') del++; }
+  return { add, del };
+}
+// The whole change's size for the reader head: { additions, deletions, files } over its file diffs.
+export function changeSize(diffs = []) {
+  let additions = 0, deletions = 0;
+  for (const d of diffs) { const c = diffCounts(d); additions += c.add; deletions += c.del; }
+  return { additions, deletions, files: diffs.length };
+}
+// The first path in `paths` not in `viewed` (a Set), or null.
+export const firstUnviewed = (paths = [], viewed = new Set()) => paths.find((p) => !viewed.has(p)) ?? null;
+// What the reader shows above the files: the PR's description when GitHub sent it, else the commit
+// message without its subject line and its Co-authored-by / Signed-off-by trailers.
+// → { text, from: 'pr' | 'commit' } ('' when there's nothing to say)
+export function readerDescription(entry, message = '') {
+  if (typeof entry?.body === 'string') return { text: prDescription(entry) ?? '', from: 'pr' };
+  const rest = String(message || '').split('\n').slice(1).filter((l) => !/^(co-authored-by|signed-off-by):/i.test(l.trim())).join('\n');
+  return { text: prDescription({ body: rest }) ?? '', from: 'commit' };
 }

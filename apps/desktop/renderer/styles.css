@@ -277,7 +277,7 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .head-chip .icon { color: var(--accent-fg); }
 .head-chip.detached { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .head-chip.wt-chip { margin-left: 0; }
-.head-chip.wt-chip:hover { background: var(--bg-hover); color: var(--text); }
+.head-chip.wt-chip:hover, .head-chip.branch-chip:hover { background: var(--bg-hover); color: var(--text); }
 .top-right { display: flex; align-items: center; gap: 6px; }
 .toggle-group { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; }
 .chip { height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; color: var(--text-3); font-weight: var(--fw-medium); }
@@ -403,6 +403,7 @@ kbd.inline { flex: none; }
 .pr-review.changes, .pr-ci.failure { color: var(--red); }
 .pr-ci.pending { color: var(--yellow); }
 .pr-ci { font-size: 9px; }
+.review-dot.pr-dot { width: 6px; height: 6px; flex: none; }
 .pr-num { color: var(--text-3); font-variant-numeric: tabular-nums; }
 .pr-item .pr-open { margin-left: auto; opacity: 0; }
 .pr-item:hover .pr-open, .pr-item .pr-open:focus-visible { opacity: 1; }
@@ -423,7 +424,29 @@ kbd.inline { flex: none; }
 .detail-head { padding: 12px 20px 16px; border-bottom: 1px solid var(--border); }
 .detail-actions { display: flex; align-items: center; gap: 6px; margin: 0 -8px 12px 0; }
 .detail-title { margin: 0; font-size: 17px; font-weight: var(--fw-strong); line-height: 1.35; letter-spacing: -0.012em; user-select: text; }
-.detail-body { margin: 12px 0 0; white-space: pre-wrap; font: 13px/1.6 var(--font); color: var(--text-2); user-select: text; }
+.detail-body { margin: 12px 0 0; font: 13px/1.6 var(--font); color: var(--text-2); user-select: text; }
+/* Markdown in commit messages and PR descriptions (markdown.js, AK-399): prose at the text's own size. */
+.md { overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md .md-list, .md .md-quote, .md .md-pre { margin: 0 0 0.6em; }
+.md .md-h { margin: 0.9em 0 0.35em; font-weight: var(--fw-strong); color: var(--text); line-height: 1.35; }
+.md .md-h1 { font-size: 1.12em; }
+.md .md-h2 { font-size: 1.05em; }
+.md .md-h3 { font-size: 1em; }
+.md strong { font-weight: var(--fw-strong); color: var(--text); }
+.md .md-list { padding-left: 1.4em; }
+.md .md-list li { margin: 0.15em 0; }
+.md .md-list li::marker { color: var(--text-4); }
+.md .md-task { list-style: none; margin-left: -1.3em; }
+.md .md-check { margin: 0 0.45em 0 0; vertical-align: -0.1em; accent-color: var(--accent); }
+.md .md-quote { padding-left: 0.8em; border-left: 2px solid var(--border-strong); color: var(--text-3); }
+.md .md-code { padding: 0.1em 0.35em; border-radius: 4px; background: var(--bg-active); font: 0.9em var(--mono); }
+.md .md-pre { padding: 8px 10px; border-radius: 6px; background: var(--bg-active); overflow-x: auto; white-space: pre; font: 0.9em/1.5 var(--mono); color: var(--text-2); }
+.md .md-hr { margin: 0.9em 0; border: 0; border-top: 1px solid var(--border); }
+.md .md-link { color: var(--accent-fg); text-decoration: none; }
+.md .md-link:hover { text-decoration: underline; }
+.md .md-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
 .props { padding: 12px 20px; display: grid; gap: 4px; border-bottom: 1px solid var(--border); }
 .prop { display: grid; grid-template-columns: 84px 1fr; align-items: center; min-height: 28px; }
 .prop-label { color: var(--text-3); font-size: 12.5px; }
@@ -695,71 +718,93 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-badge { font-weight: var(--fw-strong); }
 .review-badge.ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .review-badge.busy { color: var(--accent-fg); background: var(--accent-soft); }
-.review-stage { display: block; width: 100%; border: 0; background: transparent; text-align: left; cursor: default; }
-.review-stage:hover { color: var(--text-2); }
-.review-details-btn { flex: none; height: 28px; padding: 0 8px; font-size: 12px; color: var(--text-3); }
 .review-details { display: grid; gap: 3px; margin-top: 8px; font-size: 12px; color: var(--text-2); }
 .review-detail { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
 .review-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-detail.warn { display: block; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-catchup:empty { display: none; }
-.review-catchup-card { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 6px; margin: 4px 0 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-sm); font-size: 12px; color: var(--text-2); }
-.review-catchup-card:empty { display: none; }
-.catchup-head { display: flex; align-items: center; gap: 8px; }
-.catchup-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-strong); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.catchup-warn { display: flex; align-items: center; gap: 6px; color: var(--warn); }
-.catchup-counts { display: flex; flex-wrap: wrap; gap: 2px 14px; min-width: 0; color: var(--text-2); }
-.catchup-counts > span { flex: none; white-space: nowrap; }
-.catchup-since { flex: none; height: 22px; padding: 0 6px; color: var(--text-3); }
-.catchup-ci { display: inline-flex; align-items: center; gap: 4px; }
-.catchup-ci.passing .pr-ci { color: var(--green); }
+/* Catch up (catchup-view.js): the big number and actions across the top, then the timeline by day (with the
+   line to Review) on the left and the reader on the right (AK-372), the key bar. */
+.page.catchup { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; outline: 0; }
+.catchup-sub { font-size: 13px; }
+/* The branch picker reads like the "since your checkpoint ▾" picker: a quiet text button, no border (AK-390). */
+.catchup-branch { flex: none; height: 22px; padding: 0 6px; margin-left: -4px; color: var(--text-2); vertical-align: baseline; }
+.catchup-headrow { align-items: center; }
+.catchup > .review-head { margin-bottom: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.catchup-sentence { margin: 0; font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; line-height: 1.3; min-width: 0; }
+.catchup-sentence .catchup-branch, .catchup-sentence .catchup-since { font: inherit; height: auto; padding: 0 4px; margin: 0 -2px; color: var(--text); vertical-align: baseline; }
+.catchup-sentence .catchup-branch { font-family: var(--mono); font-size: 0.92em; }
+.catchup-subline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
+.catchup-subline .catchup-dot { color: var(--text-4); }
+.catchup-subline .review-updated { color: var(--text-4); }
+.catchup-subline .catchup-warn { flex-basis: 100%; }
+.catchup-strip { flex: none; padding: 0 32px; border-bottom: 1px solid var(--border); }
+.catchup-msg { flex: 1; min-height: 0; overflow-y: auto; padding: 0 32px 24px; }
+.catchup-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; padding: 4px 0 20px; }
+.catchup-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 380px minmax(0, 1fr); }
+.catchup-list { min-height: 0; overflow-y: auto; padding: 0 12px 24px 20px; border-right: 1px solid var(--border); }
+.catchup-reader { position: relative; min-width: 0; min-height: 0; overflow: auto; outline: 0; }
+.catchup-reader:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.catchup-strip[hidden], .catchup-cols[hidden], .catchup-msg[hidden] { display: none; }
+@media (max-width: 960px) { .catchup-cols { grid-template-columns: 300px minmax(0, 1fr); } }
+.catchup-total { display: grid; gap: 6px; min-width: 0; }
+.catchup-number { font-size: 15px; color: var(--text-2); }
+.catchup-number strong { font-size: 32px; line-height: 1; font-weight: var(--fw-strong); letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
+.catchup-sinceline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: 12px; color: var(--text-3); }
+.catchup-since { flex: none; height: 22px; padding: 0 6px; margin-left: -6px; color: var(--text-2); }
+.catchup-warn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--warn); }
+.catchup-ci.passing { color: var(--green); }
 .catchup-ci.failing { color: var(--red); }
-.catchup-ci.failing .pr-ci { color: var(--red); }
-.catchup-ci.pending .pr-ci { color: var(--yellow); }
-.catchup-groups { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
-.catchup-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.catchup-group > .badge, .catchup-group > .muted { flex: none; white-space: nowrap; }
-.catchup-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.catchup-more { height: 22px; padding: 0 6px; color: var(--accent-fg); }
-/* Same inset on every side, whichever range the picker is set to. */
-.review-catchup-card.compact { padding: 8px; }
-.review-catchup-card.compact .catchup-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
-.review-catchup-card.compact .catchup-head > .icon { flex: none; color: var(--green); }
-.catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.catchup-ci.pending { color: var(--yellow); }
+.catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.catchup-timeline { display: grid; padding-top: 8px; }
+.catchup-day { padding: 16px 8px 6px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-3); }
+.catchup-row { display: grid; grid-template-columns: max-content auto minmax(0, 1fr) auto; align-items: center; gap: 12px; height: 32px; padding: 0 8px; border-radius: var(--radius); cursor: default; }
+.catchup-row:hover { background: var(--bg-hover); }
+.catchup-row.active { background: var(--bg-selected); }
+.page.catchup:focus-visible .catchup-row.active { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.catchup-time { min-width: 5.5em; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.catchup-num { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.catchup-title { min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catchup-chip { max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catchup-chip.muted { background: transparent; border: 1px solid var(--border); }
+.catchup-more { justify-self: start; height: 24px; margin: 6px 0 0 2px; padding: 0 6px; color: var(--accent-fg); }
+.catchup-note { padding: 8px; }
+.catchup-bridge { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; padding: 10px 14px; border: 1px dashed var(--border-strong); border-radius: 10px; font-size: 12px; color: var(--text-2); }
+.catchup-bridge strong { color: var(--text); font-weight: var(--fw-strong); }
+.catchup-merged { display: inline-flex; align-items: center; gap: 4px; color: var(--merged); font-weight: var(--fw-medium); }
+.catchup-files { min-width: 0; padding-bottom: 24px; }
+.catchup-files > .loading-state, .catchup-files > .empty { padding: 24px 22px; }
+.catchup-empty { display: grid; justify-items: center; gap: 8px; padding: 64px 16px 24px; text-align: center; }
+.catchup-empty > .icon { color: var(--green); }
+.catchup-empty h2 { margin: 0; font-size: 16px; font-weight: var(--fw-strong); color: var(--text); }
+.catchup-empty p { margin: 0 0 8px; }
+.nav-badge.accent:not(:empty) { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; line-height: 16px; text-align: center; color: var(--on-accent); background: var(--accent-solid); font-weight: var(--fw-medium); }
 /* A section header's own button (Done, Plan merge) sits on the header line, so rows keep their full width. */
 .lanes-group.needs { display: flex; align-items: center; gap: 8px; }
 .lanes-group-act { margin-left: auto; height: 20px; padding: 0 6px; font-weight: var(--fw-medium); }
 .review-none { padding: 4px 16px 8px; font-size: 12px; color: var(--text-4); }
-.review-reason { margin-top: 2px; font-size: 12px; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lanes-row.review-row { align-items: flex-start; padding: 10px 12px; border-radius: 8px; }
 .lanes-row.review-row > .icon { margin-top: 2px; }
 .landed-merged { flex: none; display: flex; margin-top: 2px; color: var(--merged); }
 .review-row-num { flex: none; color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
-.review-row-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-.review-row-meta > .badge { flex: none; }
 .review-row-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-row-overlap { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-3); white-space: nowrap; }
 /* GitHub still checking whether a PR merges cleanly (AK-321). */
 .badge-spinner { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; border: 1.5px solid currentColor; border-top-color: transparent; vertical-align: -1px; animation: spin .7s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .badge-spinner { animation-duration: 2.4s; } }
 .review-row-age { flex: none; color: var(--text-4); font-variant-numeric: tabular-nums; }
-.review-row-acts { display: flex; align-items: center; gap: 4px; align-self: center; }
-/* Staged rows: a grid, so the actions stay pinned to the title line (top right) whether the row's
-   details are open or not, and the title keeps a share of the width and truncates. */
-.lanes-row.review-row.staged { display: grid; grid-template-columns: auto minmax(min(140px, 45%), 1fr) auto; column-gap: 12px; align-items: start; }
-.review-row.staged > .list-main { display: contents; }
-.lanes-row.review-row.staged > .icon { grid-row: 1; grid-column: 1; align-self: center; margin-top: 0; }
-.review-row.staged .list-title { grid-row: 1; grid-column: 2; align-self: center; }
-.review-row.staged .list-main > :not(.list-title) { grid-column: 2 / -1; }
-.review-row.staged > .review-row-acts { grid-row: 1; grid-column: 3; align-self: start; margin: -4px 0; }
-.review-details-btn.icon-btn { width: 28px; padding: 0; }
-.review-details-btn.icon-btn .icon { transition: transform .12s ease-out; }
-.review-row[aria-expanded="true"] .review-details-btn.icon-btn .icon { transform: rotate(180deg); }
-@media (prefers-reduced-motion: reduce) { .review-details-btn.icon-btn .icon { transition: none; } }
-.review-sendback { gap: 5px; }
-.review-sendback .icon { color: var(--accent-fg); }
+/* Staged rows (AK-379): status dot · #number · title over one quiet line · age, no buttons; the
+   reason line is red when stuck. Details (D) open under the title. */
+.lanes-row.review-row.staged { display: grid; grid-template-columns: 8px 3.4em minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 14px; border-radius: 0; border-bottom: 1px solid var(--border); }
+.review-row.staged .list-title { font-weight: var(--fw-medium); }
+.review-row.staged .review-row-num { display: inline-flex; align-items: center; font-size: 12px; color: var(--text-3); }
+.review-row.staged .review-row-num > .icon { color: var(--text-4); }
+.review-row.staged .list-sub, .review-row.staged .review-reason { margin-top: 1px; font-size: 12px; color: var(--text-3); }
+.review-row.staged .review-reason { color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-row.staged > .review-row-age { font-size: 12px; }
+.review-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); }
+.review-dot.stuck { background: var(--red); }
+.review-dot.ready { background: var(--green); }
 .lanes-fix { flex-wrap: wrap; }
-.lanes-row.review-row:not(.active) .review-row-acts, .lanes-row.review-row:not(.active) .review-reason { display: none; }
 .sendback .sendback-reason { white-space: normal; }
 .sendback-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sendback-template { display: flex; align-items: center; gap: 8px; }
@@ -776,12 +821,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan-row.warn .mergeplan-status { white-space: normal; }
 .mergeplan-note { padding-left: 24px; font-size: 12px; color: var(--text-3); }
 .mergeplan-wrap { white-space: normal; }
-.lanes-subgroup { padding: 8px 16px 2px 28px; font-size: 11px; color: var(--text-4); }
-.lanes-subgroup.needs { color: var(--accent-fg); }
-.review-finished, .review-prs-off { display: flex; align-items: center; gap: 6px; width: calc(100% - 32px); margin: 12px 16px 4px; padding: 8px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text-3); font-size: 12px; text-align: left; cursor: default; }
+.review-prs-off { display: flex; align-items: center; gap: 6px; width: calc(100% - 32px); margin: 12px 16px 4px; padding: 8px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text-3); font-size: 12px; text-align: left; cursor: default; }
 .review-prs-off { border-top: 0; margin-top: 0; }
-.review-finished-link, .review-prs-off:hover { color: var(--accent-fg); }
-.review-finished:hover .review-finished-link { text-decoration: underline; }
+.review-prs-off:hover { color: var(--accent-fg); }
 .lanes-group { padding: 12px 16px 4px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-3); }
 .lanes-count { margin-left: 2px; font-weight: var(--fw-medium); color: var(--text-4); font-variant-numeric: tabular-nums; }
 .lanes-group.needs { color: var(--accent-fg); }
@@ -799,7 +841,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-step-none { flex: none; }
 .lanes-row.active .lanes-step { background: var(--accent-solid); border-color: transparent; color: var(--on-accent); box-shadow: var(--btn-highlight), var(--shadow-sm); }
 .lanes-row.active .lanes-step .icon { color: var(--on-accent); }
-.badge.agent { color: var(--accent-fg); background: var(--accent-soft); }
 .lanes-changes, .lanes-ab, .lanes-pr, .lanes-time { flex: none; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
 .lanes-changes { min-width: 72px; }
 .lanes-changes.dirty { color: var(--warn); }
@@ -814,25 +855,15 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
    shrink to dots (each keeps its tooltip). */
 @container review-list (max-width: 640px) {
   .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review { display: none; }
-  .review-sendback .btn-label { display: none; }
-  .review-sendback.btn { width: 28px; padding: 0; justify-content: center; }
 }
 @container review-list (max-width: 480px) {
-  .lanes-row .lanes-changes, .lanes-row > .lanes-step .btn-label, .review-row-acts .lanes-step .btn-label { display: none; }
-  .lanes-row > .lanes-step, .review-row-acts .lanes-step { width: 28px; padding: 0; justify-content: center; }
+  .lanes-row .lanes-changes, .lanes-row > .lanes-step .btn-label { display: none; }
+  .lanes-row > .lanes-step { width: 28px; padding: 0; justify-content: center; }
   .lanes-row .list-title .badge, .lanes-row .list-sub .badge { flex: none; width: 8px; height: 8px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; background: currentColor; }
   .lanes-row .list-title .badge .icon { display: none; }
 }
-.cleanup-bar { display: flex; align-items: center; gap: 16px; margin: 0 16px 8px; padding: 0 16px; min-height: 32px; font-size: 12px; }
-.cleanup-days { width: 64px; height: 26px; padding: 0 6px; font-variant-numeric: tabular-nums; }
 .cleanup-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
 .cleanup-progress[hidden] { display: none; }
-.cleanup-group { display: flex; align-items: center; gap: 8px; cursor: default; }
-.cleanup-group input, .cleanup .lanes-row input { accent-color: var(--accent); margin: 0; flex: none; }
-.cleanup-group.warn { color: var(--warn); }
-.cleanup .lanes-row.blocked { opacity: 0.55; }
-.cleanup-remote { flex: none; }
-.cleanup-remote.on { color: var(--red-text); background: var(--red); }
 .lanes-review { flex: none; min-width: 92px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
 .lanes-review.done { color: var(--accent-fg); }
 .lanes-review.moved, .lanes-moved { color: var(--warn); }
@@ -864,8 +895,19 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tick.on { background: var(--accent); border-color: var(--accent); }
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Review split view (lanes-view.js + review-pane.js): the list on the left, the selected row's review on the right */
-.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; outline: 0; }
-.review-split > .review-hints { grid-column: 1 / -1; }
+/* Review (AK-373): the head across the view, then the list and the pane, then the key bar. */
+.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; outline: 0; }
+.review-split > .review-top { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+.review-split > .lanes, .review-split > .review-split-handle, .review-split > .review-pane-host { grid-row: 2; }
+.review-split > .review-hints { grid-column: 1 / -1; grid-row: 3; }
+.review-top > .page-head { margin: 0; padding: 20px 24px 12px; }
+.review-top > .review-tabs { margin: 0; padding: 0 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.review-top > .review-tabs::-webkit-scrollbar { display: none; }
+.review-top .review-tab { flex: none; margin-bottom: 0; white-space: nowrap; }
+.review-top .review-tabs > .spacer { flex: 1 0 12px; }
+.review-top .review-tabs .lanes-group-act { flex: none; white-space: nowrap; }
+.review-filter { position: sticky; top: 0; z-index: 2; padding: 10px 0 8px; background: var(--bg-content); }
+.review-filter > .lanes-bar { margin: 0 16px; }
 /* Each pane is a size container: dragging the divider and resizing the window behave the same. */
 .review-split > .lanes { container: review-list / inline-size; }
 .review-pane-host { container: review-pane / inline-size; }
@@ -880,42 +922,67 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-split.split { grid-template-columns: minmax(320px, 1fr) 6px var(--pane-w, 62%); }
 .review-split > .lanes { min-width: 0; }
 .review-split:not(.split) > .review-split-handle, .review-split:not(.split) > .review-pane-host { display: none; }
-.review-split.split .page.flush .page-head { padding: 20px 20px 12px; }
 .review-split-handle { cursor: col-resize; background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat; }
 .review-split-handle:hover, .review-split-handle:active { background-image: linear-gradient(var(--accent), var(--accent)); background-size: 2px 100%; }
 .review-pane-host { display: flex; min-width: 0; min-height: 0; }
 .review-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.review-pane:not(.branch-preview) { overflow-y: auto; }
 .review-pane > .quick.review { grid-template-columns: minmax(200px, 248px) 1fr; }
 .quick.review.with-header { grid-template-rows: auto minmax(0, 1fr); }
+/* One scroll (AK-379): head, status strip, description and files all scroll together in the view. */
+.review-pane > .quick.review.stacked { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The pane's files as blocks in one scroll (review-view.js stacked, AK-373): a sticky header per file
+   with the reviewed tick, the path and +N −M; a reviewed file folds to its header. */
+.review-stack { min-width: 0; padding-bottom: 24px; }
+.review-stack > .review-files-group { padding: 4px 22px 6px; }
+.review-file { margin: 0 22px 12px; border: 1px solid var(--border); border-radius: 8px; overflow: clip; scroll-margin-top: 40px; }
+.review-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); font-size: 12px; cursor: pointer; }
+.review-file.folded > .review-file-head { border-bottom: 0; }
+.review-file-head:hover { background: color-mix(in srgb, var(--text) 3%, var(--bg-elevated)); }
+.review-file.active > .review-file-head { box-shadow: inset 2px 0 0 var(--accent); }
+.review-file-head > .icon { flex: none; color: var(--warn); }
+.review-file-fold { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: -4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-3); cursor: pointer; }
+.review-file-fold:hover { color: var(--text); }
+.review-file-fold:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.review-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.review-file.reviewed .review-file-path { color: var(--text-3); }
+.review-file.reviewed.folded > .review-file-head { color: var(--text-4); }
+.review-file-head .stat, .review-file-head .badge, .review-file-head .muted { flex: none; }
+.review-file-head .stat { font-family: var(--mono); gap: 6px; }
+.review-file-body { overflow-x: auto; }
+.review-file-body > .empty, .review-file-body > .loading-state { padding: 16px; }
 .review-pane-head { padding: 18px 20px 14px; }
-.review-pane-top { grid-column: 1 / -1; min-width: 0; border-bottom: 1px solid var(--border); }
-.review-pane-top > .review-pane-head { padding-bottom: 10px; }
-.review-progress-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 20px 12px; }
+.review-pane-top { min-width: 0; }
+/* The pane's head (AK-379): title and meta, the status strip, then the description box. */
+.review-pane-head:has(> .reader-head) { padding: 0; }
+.review-progress-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 22px 10px; }
 .review-progress-line .quick-meta { margin-top: 0; }
 .review-progress-line .chip:disabled { opacity: 0.5; }
 .review-pane-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; min-width: 0; }
 .review-pane-title .quick-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; margin-top: 0; min-width: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.3; overflow: hidden; overflow-wrap: anywhere; }
 .review-pane-title .badge { flex: none; }
-.review-pane-num { color: var(--text-4); font-weight: var(--fw-medium); }
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
-.review-pane-arrow { color: var(--text-4); }
-.review-pane-desc { margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
-.review-pane-desc.none { color: var(--text-4); }
-.review-pane-desc-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: pre-wrap; overflow: hidden; overflow-wrap: anywhere; }
-.review-pane-desc.open .review-pane-desc-text { display: block; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
-.review-pane-desc-more { margin-top: 2px; color: var(--text-3); }
-.review-pane-desc-more:hover { color: var(--text); }
-.review-pane-desc.fits .review-pane-desc-more { display: none; }
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }
-.review-pane-stuck { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 7%, transparent); font-size: 12.5px; line-height: 1.45; }
-.review-pane-stuck-why { display: flex; align-items: baseline; gap: 8px; flex: 1 1 220px; min-width: 0; color: var(--text-2); }
-.review-pane-stuck-label { display: inline-flex; align-items: center; gap: 5px; flex: none; align-self: center; color: var(--warn); font-weight: var(--fw-medium); }
-.review-pane-stuck-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-pane-stuck-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.review-pane-stuck-actions > .btn { flex: none; }
+/* Status strip (review-pane.js statusStrip, AK-379): where it stands on the left, the actions on the
+   right with the primary one last; tinted red when stuck, green when ready to merge. */
+.review-pane-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 22px 12px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.45; }
+.review-pane-status.stuck { border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 6%, transparent); }
+.review-pane-status.ready { border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 6%, transparent); }
+.review-pane-status-why { display: flex; align-items: baseline; gap: 8px; flex: 1 1 200px; min-width: 0; color: var(--text-2); }
+.review-pane-status-label { display: inline-flex; align-items: center; gap: 5px; flex: none; align-self: center; font-weight: var(--fw-medium); color: var(--text-2); }
+.review-pane-status.stuck .review-pane-status-label { color: var(--red); }
+.review-pane-status.ready .review-pane-status-label { color: var(--green); }
+.review-pane-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Right-aligned on the bar itself, not via the first child's margin: that child may be a hidden
+   secondary (fit-more), which left the stuck strip's buttons floating mid-row. `safe` falls back to
+   start on overflow, so fit() still sees scrollWidth grow. */
+.review-pane-status > .review-pane-actions { flex: 1 1 auto; justify-content: safe flex-end; gap: 6px; margin-top: 0; }
+.review-pane-status.wrapped > .review-pane-actions { justify-content: flex-start; }
+.review-pane-status.fit-more .pane-secondary { display: none; }
+.review-pane-status.fit-more .pane-more { display: inline-flex; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
@@ -957,10 +1024,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
   .review-reviewers-full { display: none; }
   .review-reviewers-short { display: inline-flex; }
 }
-/* A row's review decision, as an icon next to its tags. */
-.review-decision { display: inline-flex; flex: none; align-items: center; color: var(--text-3); }
-.review-decision.ok { color: var(--green); }
-.review-decision.warn { color: var(--warn); }
 .review-pr-actions .btn.primary.small { gap: 5px; }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
 .wt-hint { border-top: 0; padding: 4px 32px 24px; }
@@ -1199,3 +1262,132 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .setup .tour-foot .btn { gap: 6px; }
 .overlay .setup { width: 460px; padding: 20px; border-radius: var(--radius-lg); background: var(--bg-elevated); box-shadow: var(--shadow); }
 @media (prefers-reduced-motion: reduce) { .switch, .switch-knob { transition: none; } }
+
+/* Review's tabs (AK-361): one list at a time; the selected tab has the accent underline. */
+.review-tabs { display: flex; align-items: center; gap: 2px; margin: 0 16px 10px; border-bottom: 1px solid var(--border); }
+.review-tabs[hidden] { display: none; }
+.review-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-3); font: inherit; font-size: 13px; cursor: pointer; }
+.review-tab:hover { color: var(--text-2); }
+.review-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--fw-medium); }
+.review-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--radius); }
+.review-tab-n { font-size: 11px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.review-tab.stuck .review-tab-n { color: var(--red); }
+.review-tabs .lanes-group-act { margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) { .review-tab { transition: color 120ms ease, border-color 120ms ease; } }
+
+/* The reader (reader.js, AK-381): one head, description and file cards for Review's pane and Catch up.
+   The head's sticky file cards are .review-file (above); overflow: clip on the card squares a stuck
+   header's corners, so no code shows behind them. */
+.reader-head { padding: 16px 22px 12px; min-width: 0; }
+.reader-title-row { display: flex; align-items: flex-start; gap: 6px 10px; min-width: 0; }
+.reader-title { flex: 1 1 auto; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; margin: 0; overflow: hidden; font-size: 17px; font-weight: var(--fw-strong); line-height: 1.3; letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.reader-title-row > .badge { flex: none; margin-top: 3px; }
+.reader-num { color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.reader-num > .icon { vertical-align: -2px; color: var(--text-3); }
+.reader-nav { flex: none; display: inline-flex; align-items: center; gap: 2px; margin: -2px -6px 0 auto; font-size: 12px; color: var(--text-3); }
+.reader-nav-btn.btn.icon-btn { width: 24px; height: 24px; }
+.reader-nav-pos { min-width: 4.5em; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.reader-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.reader-meta .mono { font-size: 11.5px; color: var(--text-2); }
+.reader-author { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+/* Who made it (AK-390): "(AK) AK + (CO) Claude Opus 5.5". */
+.reader-authors { display: inline-flex; align-items: center; gap: 6px; min-width: 0; vertical-align: middle; }
+.reader-authors-plus { color: var(--text-4); }
+.reader-authors .reader-author { min-width: 0; }
+.reader-author-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-arrow { color: var(--text-4); }
+/* Rows (AK-400): who made it is one avatar group at the start of the line under the title, then "·" and
+   the rest; everything on the line shares one centre, and only the text after the group truncates. */
+.review-row-sub, .review-row.staged .review-reason { display: flex; align-items: center; gap: 5px; }
+.review-row-sep { flex: none; color: var(--text-4); }
+.review-row.staged .review-reason .review-row-sep { color: var(--text-3); }
+.review-row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Failing checks and conflicts at a glance (AK-411): a red ✕ and an underlined count, then a marker. */
+.review-signals { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--red); }
+.review-signal { display: inline-flex; align-items: center; gap: 2px; }
+.review-signal .icon { flex: none; }
+.review-signal-count { font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+/* The slim bar keeps the avatars; the names stay in their tooltips. */
+.reader-mini-authors { flex: none; gap: 4px; }
+.reader-mini-authors .reader-author-name { display: none; }
+/* The description: clamped to four lines with "… Show more" over the cut; Show less after the text. */
+.reader-desc { --reader-bg: var(--bg-content); margin: 0 22px 14px; padding: 10px 14px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.reader-desc-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
+.reader-desc-head .muted { font-weight: normal; color: var(--text-4); }
+.reader-desc-text { position: relative; overflow-wrap: anywhere; user-select: text; }
+.reader-desc-text.clamped { max-height: 6em; overflow: hidden; }
+.reader-desc-text.none { color: var(--text-4); }
+.reader-desc-cut { position: absolute; right: 0; bottom: 0; padding-left: 2.5em; background: linear-gradient(to right, transparent, var(--reader-bg) 2em); color: var(--text-3); }
+.reader-desc.fits .reader-desc-cut { display: none; }
+.reader-desc-text > .md + .reader-desc-more { display: inline-block; margin-top: 2px; }
+.reader-desc-more { font-size: 12px; font-weight: normal; color: var(--accent-fg); text-decoration: none; }
+.reader-desc-more:hover { text-decoration: underline; }
+.reader-desc-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+/* The slim bar: takes no room; fades in at the top of the reader once the head scrolls away. File
+   headers stick under it while it shows. */
+.reader-mini { position: sticky; top: 0; z-index: 4; height: 0; opacity: 0; visibility: hidden; }
+.reader-mini.on { opacity: 1; visibility: visible; }
+.reader-mini-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 22px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.reader-mini-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); color: var(--text); }
+.reader-mini-act.btn.small { flex: none; gap: 5px; }
+.mini-on .review-file-head { top: 36px; }
+@media (prefers-reduced-motion: no-preference) { .reader-mini { transition: opacity 140ms ease, visibility 140ms; } }
+/* Both readers show where focus is the same way once ↵ moves it in. */
+.review-pane:focus-visible, .review-pane > .quick.review.stacked:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+/* Branches (AK-396): every branch and worktree behind tabs, Review's layout. */
+.nav-badge.quiet:not(:empty) { height: 16px; padding: 0 6px; border-radius: 8px; line-height: 16px; background: var(--bg-active); color: var(--text-3); white-space: nowrap; }
+.review-dot.warn { background: var(--warn); }
+.review-dot.red { background: var(--red); }
+.review-dot.green { background: var(--green); }
+.review-tab-n.warn { color: var(--warn); }
+.lanes-row.review-row.branches-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 14px; border-radius: 0; border-bottom: 1px solid var(--border); }
+.branches-row .branches-name { font-family: var(--mono); font-size: 12.5px; font-weight: var(--fw-medium); }
+.branches-row .list-sub { margin-top: 1px; font-size: 12px; color: var(--text-3); }
+.branches-row .list-sub.warn { color: var(--warn); }
+.branches-row > .review-row-age { font-size: 12px; }
+.branches-explain { margin: 2px 16px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text-3); font-size: 12.5px; line-height: 1.5; }
+.branches-explain b { color: var(--text); font-weight: var(--fw-medium); }
+.branches-pane-empty { padding: 24px; }
+
+/* Branches → Finished: Clean up as cards per reason, a sticky action bar (AK-396). */
+.review-split.branches > .cleanup-panel { display: none; }
+.review-split.branches.finished { grid-template-columns: minmax(0, 1fr); }
+.review-split.branches.finished > .lanes, .review-split.branches.finished > .review-split-handle, .review-split.branches.finished > .review-pane-host { display: none; }
+.review-split.branches.finished > .cleanup-panel { display: flex; grid-column: 1 / -1; grid-row: 2; }
+.cleanup-panel { flex-direction: column; min-height: 0; overflow-y: auto; padding: 18px 24px 0; }
+.cleanup-verdict .cleanup-big { font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; color: var(--text); }
+.cleanup-verdict p { margin: 4px 0 0; }
+.cleanup-cards { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 18px; }
+.cleanup-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); overflow: hidden; }
+.cleanup-card.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.cleanup-card-head { list-style: none; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 14px; cursor: default; }
+.cleanup-card-head::-webkit-details-marker { display: none; }
+.cleanup-card-head:hover, .cleanup-item:hover { background: var(--bg-hover); }
+.cleanup-card-head.active, .cleanup-item.active { background: var(--bg-selected); }
+.cleanup-card-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.cleanup-card-text { min-width: 0; }
+.cleanup-card-text b { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-medium); color: var(--text); }
+.cleanup-card.warn .cleanup-card-text b { color: var(--warn); }
+.cleanup-card-why { display: block; font-size: 12px; color: var(--text-3); }
+.cleanup-card-n { font-weight: var(--fw-strong); font-variant-numeric: tabular-nums; color: var(--text); }
+.cleanup-card-chev { color: var(--text-4); }
+.cleanup-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 12.5px; cursor: default; }
+.cleanup-item.blocked { opacity: 0.55; }
+.cleanup-item-name { overflow: hidden; font-family: var(--mono); color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.cleanup-item-note, .cleanup-item-age { color: var(--text-4); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cleanup-item-note.warn { color: var(--warn); }
+.cleanup-more { display: block; width: 100%; padding: 7px 14px 7px 42px; border: 0; border-top: 1px solid var(--border); background: none; color: var(--text-3); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.cleanup-more:hover { color: var(--accent-fg); }
+.cleanup-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.cleanup-card input, .cleanup-actionbar input { margin: 0; accent-color: var(--accent); }
+.cleanup-actionbar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: auto -24px 0; padding: 12px 24px; border-top: 1px solid var(--border); background: var(--bg-content); }
+.cleanup-actionbar[hidden] { display: none; }
+.cleanup-counts { color: var(--text-2); }
+.cleanup-remote-all { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); }
+.cleanup-remote-all.disabled { opacity: 0.55; }
+.cleanup-undo { margin-left: auto; font-size: 12px; color: var(--text-4); }
+
+/* Review: one calm line under a short Needs you list (AK-396). */
+.review-calm { padding: 20px 16px 8px; font-size: 12.5px; color: var(--text-3); }
+.review-calm b { display: block; margin-bottom: 2px; font-weight: var(--fw-medium); color: var(--text); }

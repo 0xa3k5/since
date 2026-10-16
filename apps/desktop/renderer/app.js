@@ -8,16 +8,19 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
-import { lanesView } from './lanes-view.js';
+import { lanesView, reviewCounts, prefetchReview, cachedPrs } from './lanes-view.js';
+import { branchesView } from './branches-view.js';
+import { isFinished, BRANCH_TABS } from './branches.js';
+import { rowStage, STAGES } from './review-rows.js';
+import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
-import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
 import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';
-import { loadPrReview, leavesPage, paneActions, fixActions, prDescription } from './pr-review.js';
+import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
@@ -27,6 +30,7 @@ import { tourView } from './tour-view.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
+import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -181,7 +185,10 @@ const refreshHistory = coalesce(async () => {
   renderTopbar();
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
-  if (state.view === 'lanes') (state.cleanup ? cleanupPage : lanesPage)?.refresh();
+  if (state.view === 'lanes') lanesPage?.refresh();
+  if (state.view === 'branches') branchesPage?.refresh();
+  else if (logChanged || worktreesChanged) countFinished();
+  if (logChanged) { if (state.view === 'catchup' && catchupPage) catchupPage.refresh(); else countCatchup(); }
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
@@ -475,7 +482,9 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null;
+let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
+let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
+let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 
 // ---------------------------------------------------------------------------
 // Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
@@ -485,14 +494,14 @@ let navDepth = 0; // inside a jump: the outermost one records it
 let navigating = false; // putting back a step: record nothing
 let lanesPlace = null; // the lanes row, filter and scroll for the next lanes page (see openLanes)
 
-const lanesOpen = () => state.view === 'lanes' && !state.cleanup && !state.review && !state.fileHistory && !state.quick && !state.split;
+const lanesOpen = () => state.view === 'lanes' && !state.review && !state.fileHistory && !state.quick && !state.split;
 // Names the place on screen; a jump that ends where it started records nothing.
 // In Review the selected row counts too: the split view's pane shows it (AK-272).
-const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.cleanup, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
-  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.all}:${lanes.key ?? ''}` : ''].join('|');
+const placeKey = (lanes = lanesOpen() ? lanesPage?.location() : null) => [state.repo?.root, state.view, state.review?.lane.key, state.fileHistory?.path, state.quick?.sha,
+  state.view === 'map' && !state.quick ? state.selected : '', lanes ? `${lanes.tab}:${lanes.key ?? ''}` : ''].join('|');
 function place() {
   return {
-    key: placeKey(), root: state.repo?.root, view: state.view, cleanup: state.cleanup, review: state.review,
+    key: placeKey(), root: state.repo?.root, view: state.view, review: state.review,
     fileHistory: state.fileHistory, quick: state.quick, selected: state.selected, search: state.search,
     lanes: lanesOpen() ? lanesPage?.location() : null,
   };
@@ -524,14 +533,12 @@ async function navStep(dir) {
       toast(`Switched to worktree “${w.name}”`);
     }
     state.view = to.view;
-    state.cleanup = to.cleanup;
     state.review = to.review;
     state.fileHistory = to.fileHistory;
     state.quick = to.quick;
     state.split = null;
     state.search = to.search;
     lanesPlace = to.lanes;
-    if (to.lanes) lanesAll = to.lanes.all;
     renderSidebar();
     renderTopbar();
     renderView();
@@ -568,14 +575,16 @@ function renderShell() {
 let startView = 'lanes';
 
 const VIEWS = [
-  { id: 'lanes', label: 'Review', icon: 'lanes', key: '1' },
-  { id: 'map', label: 'Map', icon: 'map', key: '2' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '3' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '4' },
-  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '5' },
-  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '6' },
-  { id: 'config', label: 'Config', icon: 'config', key: '7' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '8' },
+  { id: 'catchup', label: 'Catch up', icon: 'catchup', key: '1' },
+  { id: 'lanes', label: 'Review', icon: 'lanes', key: '2' },
+  { id: 'branches', label: 'Branches', icon: 'branch', key: '3' },
+  { id: 'map', label: 'Map', icon: 'map', key: '4' },
+  { id: 'commit', label: 'Commit', icon: 'commit', key: '5' },
+  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '6' },
+  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '7' },
+  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '8' },
+  { id: 'config', label: 'Config', icon: 'config', key: '9' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '0' },
 ];
 
 function setView(v) {
@@ -586,7 +595,6 @@ function showView(v) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
-  state.cleanup = false;
   state.review = null;
   state.view = v;
   renderSidebar();
@@ -686,7 +694,7 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'Missing') : null,
   );
 
-  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => goToPr(pr), oncontextmenu: (e) => prMenu(e, pr) },
+  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => showPrInReview(pr), oncontextmenu: (e) => prMenu(e, pr) },
     icon('merge', 14),
     h('span.sb-label', null, h('span.pr-num', null, `#${pr.number}`), ' ', pr.title),
     prMarks(pr),
@@ -752,6 +760,8 @@ function renderNavCounts() {
   const set = (id, v, cls) => { const b = sidebarEl.querySelector(`[data-view="${id}"] .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
   set('stashes', state.stashes.length);
+  set('catchup', catchupCount, 'accent');
+  set('branches', finishedCount ? `${finishedCount} to clean` : '', 'quiet');
 }
 
 function renderTopbar() {
@@ -762,7 +772,7 @@ function renderTopbar() {
       h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
       h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
-    state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
+    state.head.branch ? h('button.head-chip.branch-chip', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, icon('branch', 12), state.head.branch) : state.head.oid ? h('button.head-chip.branch-chip.detached', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
@@ -818,7 +828,7 @@ function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
   if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
-  if (key === 'agentLanes') { lanesPage?.rerender(); return; }
+  if (key === 'agentLanes') { lanesPage?.rerender(); branchesPage?.rerender(); return; }
   refreshHistory();
   renderTopbar();
 }
@@ -841,6 +851,13 @@ function setSidebar(next) {
   state.sidebar = next;
   applySidebar();
 }
+// True when `e` is the key the app menu owns for `id` (its first single-step binding): the menu handles that one.
+function isMenuKey(id, e) {
+  const b = keymap.bindings(id).find((x) => !x.includes(' '));
+  const k = keymap.fromEvent(e);
+  return !!b && !!k && keymap.normalize(b) === keymap.normalize(k);
+}
+
 function toggleSidebar() {
   clearTimeout(sbHideTimer);
   setSidebar(toggleSidebarState(state.sidebar, window.innerWidth));
@@ -947,6 +964,8 @@ function renderView(soft = false) {
   conflictEd = null;
   contentEl.replaceChildren();
   contentEl.dataset.view = state.view;
+  catchupPage = null;
+  branchesPage = null;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
@@ -960,7 +979,9 @@ function renderView(soft = false) {
     case 'reflog': contentEl.append(reflogView()); break;
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
-    case 'lanes': contentEl.append(state.cleanup ? openCleanup().el : openLanes().el); break;
+    case 'lanes': contentEl.append(openLanes().el); break;
+    case 'catchup': contentEl.append(openCatchup().el); break;
+    case 'branches': contentEl.append(openBranches().el); break;
   }
 }
 
@@ -1192,7 +1213,7 @@ function commitDetail(c) {
       ),
       h('h2.detail-title', null, subject),
       refs.length ? h('div.pills.wrap', null, refs.map(refPill)) : null,
-      body ? h('pre.detail-body', null, body) : null,
+      body ? markdown(body, '.detail-body') : null,
     ),
     h('div.props', null,
       prop('Author', personLink(c.author, c.email)),
@@ -2284,7 +2305,7 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs() }); }
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs().then(prefetchOnOpen) }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
@@ -2379,8 +2400,7 @@ function openLanes() {
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
-    all: lanesAll,
-    catchup: { load: (opts) => api.app('catchup', opts), mark: (to) => api.app('catchup-mark', to) },
+    onBranches: (tab) => showBranches(tab),
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
@@ -2394,47 +2414,102 @@ function openLanes() {
     // Moving to another row is a step for ⌘[ / ⌘] once the pane shows it.
     onSettle: (from) => { if (lanesOpen() && !navigating && !navDepth && nav.record({ ...place(), lanes: from, key: placeKey(from) }, placeKey())) renderTopbar(); },
   });
-  lanesAll = false;
   lanesPlace = null;
   return lanesPage;
 }
-let lanesAll = false; // the next Review page starts with Everything else open
-// ⌘K Show / hide everything else: Review, in that mode.
-function showAllLanes(on) {
+
+// Catch up (catchup-view.js): what landed on the base since your checkpoint, read in its own
+// reader (AK-372). Git alone until Reload.
+function openCatchup() {
+  catchupPage = catchupView({
+    repo: state.repo.root,
+    git,
+    load: (opts) => api.app('catchup', opts),
+    mark: (to) => api.app('catchup-mark', to),
+    prsOn: () => Boolean(state.prs?.active),
+    refs: () => state.refs,
+    counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
+    onReview: () => setView('lanes'),
+    onCount: setCatchupCount,
+  });
+  return catchupPage;
+}
+// The sidebar badge on Catch up: what landed since the checkpoint (git alone); none once caught up.
+function setCatchupCount(n) { if (n === catchupCount) return; catchupCount = n; renderNavCounts(); }
+function countCatchup() {
+  countRun ??= coalesce(async () => {
+    if (!state.repo) return;
+    const r = await api.app('catchup', { since: 'checkpoint' }).catch(() => null);
+    setCatchupCount(r?.commits?.length || 0);
+  });
+  return countRun();
+}
+// Branches (branches-view.js, AK-396): every local branch and worktree behind tabs, with the
+// branch preview beside the list. Local data; pull requests from Review's last load.
+let branchesTab = null; // the tab the next Branches page opens on (null: the last one)
+function openBranches() {
+  branchesPage = branchesView({
+    repo: state.repo.root,
+    git,
+    load: (opts) => api.app('lanes-list', opts),
+    forecast: () => api.app('lanes-forecast'),
+    prs: () => (state.prs?.active ? cachedPrs(state.repo.root) : []),
+    markAgents: () => state.show.agentLanes !== false,
+    onOpen: openLane,
+    onReview: (lane, base) => openReview(lane, base),
+    onMerge: mergeLane,
+    onAction: laneAction,
+    onNewWorktree: () => addWorktree(),
+    onCount: setFinishedCount,
+    paneWidth: () => loadPref('reviewPane', {}).width || null,
+    setPaneWidth: (width) => savePref('reviewPane', { width }),
+    tab: branchesTab,
+    only: cleanupOnly,
+    cleanup: {
+      run: (items, label) => git('cleanupLanes', items, { __label: label }),
+      runRemote: (names) => git('deleteRemoteBranches', names),
+      days: cleanupPrefs().days,
+      onProgress: (fn) => api.on('cleanup:progress', fn),
+      onDone: refreshAll,
+      onUndo: undo,
+      mod: MOD,
+    },
+  });
+  branchesTab = null;
+  cleanupOnly = null;
+  return branchesPage;
+}
+// Branches on a tab (⌘K, the keys that used to open Everything else in Review).
+function showBranches(tab = null) {
   if (!state.repo) return;
-  if (state.view === 'lanes' && lanesPage && lanesOpen()) return lanesPage.showAll(on);
-  lanesAll = on;
-  setView('lanes');
+  if (state.view === 'branches' && branchesPage && !state.review && !state.quick && !state.split && !state.fileHistory) return tab && branchesPage.setTab(tab);
+  branchesTab = tab;
+  setView('branches');
+}
+// The sidebar badge on Branches: finished branches waiting for Clean up, quiet (not the accent).
+function setFinishedCount(n) { if (n === finishedCount) return; finishedCount = n; renderNavCounts(); }
+function countFinished() {
+  finishedRun ??= coalesce(async () => {
+    if (!state.repo) return;
+    const r = await api.app('lanes-list', { prs: false }).catch(() => null);
+    if (r?.lanes) setFinishedCount(r.lanes.filter(isFinished).length);
+  });
+  return finishedRun();
 }
 
-// Lanes → Clean up (cleanup-view.js): stale branches and worktrees, removed in bulk as one undo step.
+// Clean up (cleanup-view.js) is the Finished tab of Branches (AK-396): finished branches and
+// worktrees, removed in bulk as one undo step. With a lane, just that one is ticked.
 function startCleanup(...args) { return go(() => startCleanupNow(...args)); }
-let cleanupOnly = null; // a lane's Clean up button: the laneKey to tick, alone
+let cleanupOnly = null; // a lane's Clean up: the laneKey to tick, alone
 function startCleanupNow(lane = null) {
   if (!state.repo) return;
-  cleanupOnly = lane?.name ? laneKey(lane) : null;
-  setView('lanes');
-  state.cleanup = true;
-  renderView();
+  const key = lane?.name ? laneKey(lane) : null;
+  if (state.view === 'branches' && branchesPage && !state.review && !state.quick && !state.split && !state.fileHistory) return branchesPage.cleanup(lane?.name ? lane : null);
+  cleanupOnly = key;
+  branchesTab = 'finished';
+  setView('branches');
 }
-const cleanupPrefs = () => ({ on: false, days: STALE_DAYS, ...loadPref('cleanup', {}) });
-function openCleanup() {
-  cleanupPage = cleanupView({
-    load: () => api.app('lanes-list'),
-    run: (items, label) => git('cleanupLanes', items, { __label: label }),
-    runRemote: (names) => git('deleteRemoteBranches', names),
-    age: cleanupPrefs,
-    setAge: (v) => savePref('cleanup', { ...cleanupPrefs(), ...v }),
-    onProgress: (fn) => api.on('cleanup:progress', fn),
-    onDone: refreshAll,
-    onUndo: undo,
-    onBack: () => setView('lanes'),
-    only: cleanupOnly,
-    mod: MOD,
-  });
-  cleanupOnly = null;
-  return cleanupPage;
-}
+const cleanupPrefs = () => ({ days: STALE_DAYS, ...loadPref('cleanup', {}) });
 // Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
 function openReview(...args) { return go(() => openReviewNow(...args)); }
 function openReviewNow(lane, base = null) {
@@ -2463,7 +2538,7 @@ async function openPrReviewNow(pr, remote = prRemote()) {
   const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
   t.close();
   if (res.error) return prError(`Couldn’t fetch #${pr.number}`, res.error);
-  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); lanesAll = lanesPlace.all; }
+  if (state.view === 'lanes' && lanesPage && lanesOpen()) { lanesPlace = lanesPage.location(); }
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
@@ -2701,6 +2776,24 @@ function openWorktreeWindow(w) {
   api.app('open-window', w.path);
 }
 
+// The header branch pill and ⌘⇧B: local branches first (current on top), then
+// remote branches that have no local branch yet, which check out as tracking branches.
+function branchSwitcher() {
+  if (!state.repo || !state.head.oid) return;
+  const locals = state.refs.filter((r) => r.kind === 'branch').sort((a, b) => (a.short === state.head.branch ? -1 : b.short === state.head.branch ? 1 : a.short.localeCompare(b.short)));
+  const tracked = new Set(locals.map((r) => r.upstream).filter(Boolean));
+  const names = new Set(locals.map((r) => r.short));
+  const remotes = state.refs.filter((r) => r.kind === 'remote' && !r.short.endsWith('/HEAD') && !tracked.has(r.short) && !names.has(r.short.slice(r.short.indexOf('/') + 1)));
+  palette(() => [
+    ...locals.map((r) => {
+      const cur = r.short === state.head.branch, wt = worktreeOf(r.short);
+      return { group: 'Branches', label: r.short, icon: 'branch', detail: cur ? 'current' : wt ? `in worktree ${wt.name}` : r.upstream || '', keywords: r.upstream || '', run: () => cur ? null : wt ? switchWorktree(wt) : checkout(r.short) };
+    }),
+    ...remotes.map((r) => ({ group: 'Remote branches', label: r.short, icon: 'cloud', detail: 'check out as local branch', run: () => act(`Checkout ${r.short}`, 'checkoutTracking', [r.short]) })),
+    { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('commit.branch'), run: () => createBranch(state.head.oid) },
+  ], { placeholder: 'Switch to branch…' });
+}
+
 function worktreeSwitcher() {
   if (!state.repo) return;
   palette(() => [
@@ -2821,17 +2914,35 @@ async function loadPrs() {
   state.prs = { ...st, data, stale: Boolean(data), error: null, busy: false, byRef: new Map() };
   showPrs();
 }
+// Review's and Catch up's pull requests load when a repo opens (AK-382) and after each Fetch (AK-401), with
+// pull requests on, and on Reload (⇧R): not on view changes or window focus. The same loads Reload runs, shared, so
+// an open Review or Catch up shows "Reloading…" and then the PRs; a closed one finds them in its cache.
+function prefetchOnOpen() {
+  const root = state.repo?.root;
+  if (!root || !state.prs?.active) return;
+  const prsOn = () => Boolean(state.prs?.active) && state.repo?.root === root;
+  prefetchReview({ repo: root, load: (opts) => api.app('lanes-list', opts), prsOn });
+  prefetchCatchup({ repo: root, load: (opts) => api.app('catchup', opts), prsOn, onCount: (n) => { if (state.repo?.root === root) setCatchupCount(n); } });
+  if (lanesPage?.el.isConnected && lanesPage.canReload()) lanesPage.reload(); // joins the load above
+  if (catchupPage?.el.isConnected) catchupPage.reload();
+}
 function indexPrs() { if (state.prs) state.prs.byRef = prsByRef(state.prs.data, state.refs); }
 function showPrs() { indexPrs(); renderSidebar(); mapView?.refresh(); }
 const prFor = (r) => (state.prs?.active ? state.prs.byRef.get(refKey(r)) : null);
 const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
 
-// Draft, review and CI marks, shared by graph badges and the sidebar list.
-const prMarks = (pr) => [
-  pr.draft ? h('span.pr-draft', null, 'draft') : null,
-  pr.review === 'approved' ? h('span.pr-review.approved', null, '✓') : pr.review === 'changes' ? h('span.pr-review.changes', null, '✗') : null,
-  pr.checks ? h('span.pr-ci.' + pr.checks, null, '●') : null,
-];
+// Draft and review marks plus the PR's Review stage dot (AK-385: the same stage and colour as Review,
+// from GitHub's merge box, so a failing check GitHub doesn't require stays green), shared by graph
+// badges and the sidebar list.
+const prMarks = (pr) => {
+  const stage = rowStage({ pr });
+  const label = STAGES.find((x) => x.id === stage)?.label || 'In progress';
+  return [
+    pr.draft ? h('span.pr-draft', null, 'draft') : null,
+    pr.review === 'approved' ? h('span.pr-review.approved', null, '✓') : pr.review === 'changes' ? h('span.pr-review.changes', null, '✗') : null,
+    h('span.review-dot.pr-dot' + (stage ? `.${stage}` : ''), { role: 'img', 'aria-label': label, title: label }),
+  ];
+};
 function prBadge(pr) {
   if (!pr) return null;
   const stop = (e) => e.stopPropagation();
@@ -2856,6 +2967,13 @@ async function openPr(pr) {
   if (ok) openPrOnGitHub(pr);
 }
 
+// A sidebar PR (AK-385): its row in Review, with the pane. Go to Branch (context menu, ⌘K) still
+// jumps to it on the map.
+function showPrInReview(pr) {
+  if (!state.repo) return;
+  if (state.view !== 'lanes' || !lanesOpen()) setView('lanes');
+  lanesPage?.showPr(pr.number);
+}
 function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
   if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });
@@ -3310,6 +3428,7 @@ function openPalette() {
       c('Mark file resolved', a.resolve, [MOD, 'S']);
     }
     add('Repository', 'Open conflicts in mergetool', () => openMergetool(), { icon: 'merge', kbd: keymap.keys('repo.mergetool'), detail: state.status.conflicts.length ? `${state.status.conflicts.length} conflicted` : 'no conflicts', keywords: 'mergetool external merge tool conflict resolve' });
+    if (state.head.oid) add('Repository', 'Switch branch…', branchSwitcher, { icon: 'branch', kbd: keymap.keys('repo.branchSwitch'), keywords: 'checkout branch switch change' });
     add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: keymap.keys('repo.worktreeAdd') });
     add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: keymap.keys('repo.worktreeSwitch') });
     if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
@@ -3361,17 +3480,46 @@ function openPalette() {
       for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
         add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
       }
-      if (prDescription(paneSel.row.pr)) add('Review', `Expand or collapse ${t}’s description`, () => lanesPage.toggleDescription(), { icon: 'lanes', kbd: keymap.keys('lanes.description'), keywords: 'review pane pull request description body summary expand collapse' });
     }
-    add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
-    if (state.view === 'lanes' && lanesOpen() && lanesPage) {
-      add('Review', 'Walk through what landed', () => lanesPage.walk(), { icon: 'commit', kbd: keymap.keys('lanes.walk'), keywords: 'catch up merged landed since checkpoint walk step through main' });
-      add('Review', 'Mark caught up', () => lanesPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('lanes.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
-      add('Review', 'Catch up since…', () => lanesPage.pickSince(), { icon: 'history', kbd: keymap.keys('lanes.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
+    add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
+    if (state.view === 'branches' && branchesPage?.tab() === 'finished' && !state.review) {
+      const n = branchesPage.panel.count();
+      if (n) add('Branches', `Clean up ${n} ticked branch${n === 1 ? '' : 'es'}…`, () => branchesPage.panel.go(), { icon: 'trash', kbd: keymap.keys('cleanup.run'), keywords: 'clean up finished remove delete merged worktrees undo' });
+      add('Branches', 'Tick everything safe to remove', () => branchesPage.panel.tickAll(), { icon: 'check', kbd: keymap.keys('cleanup.all'), keywords: 'clean up tick all select finished merged' });
+      add('Branches', 'Also delete them on GitHub (on or off)', () => branchesPage.panel.toggleRemote(), { icon: 'cloud', kbd: keymap.keys('cleanup.remote'), keywords: 'clean up remote github delete branches' });
     }
-    add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
-    const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
-    add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
+    if (state.view === 'catchup' && catchupPage) {
+      add('Catch up', 'Mark caught up', () => catchupPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('catchup.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
+      add('Catch up', 'Catch up since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
+      add('Catch up', 'Reload merged pull requests', () => catchupPage.reload(), { icon: 'restore', kbd: keymap.keys('catchup.reload'), keywords: 'catch up refresh fetch github merged pull requests ci gh' });
+      if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
+      add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
+    }
+    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap lanes worktrees' });
+    if (state.view === 'branches' && branchesPage && !state.review) {
+      for (const t of BRANCH_TABS) add('Branches', `Show ${t.label}`, () => branchesPage.setTab(t.id), { icon: 'branch', kbd: keymap.keys(t.keyId), detail: branchesPage.tab() === t.id ? 'current' : null, keywords: 'branches tab active agent made would conflict idle finished clean up worktrees' });
+      const sel = branchesPage.selected();
+      if (sel) {
+        const n = sel.lane.name;
+        const can = (id) => branchesPage.can(id);
+        add('Branches', `Show ${n} in the Map`, () => branchesPage.run('open'), { icon: 'map', kbd: keymap.keys('branches.open'), keywords: 'branch open worktree switch map' });
+        if (can('review')) add('Branches', `Review ${n}`, () => branchesPage.run('review'), { icon: 'check', kbd: keymap.keys('branches.review'), keywords: 'branch review diff changes' });
+        if (can('merge')) add('Branches', `Merge and tidy ${n}…`, () => branchesPage.run('merge'), { icon: 'merge', kbd: keymap.keys('branches.merge'), keywords: 'branch squash merge tidy land' });
+        if (can('rebase')) add('Branches', `Rebase ${n} onto ${sel.base}`, () => branchesPage.run('rebase'), { icon: 'rebase', kbd: keymap.keys('branches.rebase'), keywords: 'branch rebase update base conflicts' });
+        if (can('checks')) add('Branches', `Open checks of ${n}`, () => branchesPage.run('checks'), { icon: 'external', kbd: keymap.keys('branches.checks'), keywords: 'branch ci checks pull request github' });
+        if (can('delete')) add('Branches', `${sel.lane.changes ? 'Discard' : 'Delete'} ${n}…`, () => branchesPage.run('delete'), { icon: 'trash', kbd: keymap.keys('branches.delete'), keywords: 'branch delete remove worktree undo' });
+        if (can('cleanup')) add('Branches', `Clean up ${n}…`, () => branchesPage.run('cleanup'), { icon: 'trash', kbd: keymap.keys('branches.cleanup'), keywords: 'branch finished merged clean up tidy remove' });
+      }
+    }
+    if (state.view === 'lanes' && lanesOpen()) {
+      add('Review', 'Show every active branch in Branches', () => showBranches('active'), { icon: 'branch', kbd: keymap.keys('lanes.all'), keywords: 'review branches every branch worktree local active everything else' });
+      add('Review', 'Show agent-made branches in Branches', () => showBranches('agents'), { icon: 'branch', kbd: keymap.keys('lanes.agents'), keywords: 'review branches agent ai made worktrees' });
+    }
+    if (state.view === 'lanes' && lanesOpen() && lanesPage?.setTab) {
+      for (const [id, label, keyId] of [['needs', 'Needs you', 'lanes.tabNeeds'], ['stuck', 'Stuck', 'lanes.tabStuck'], ['ready', 'Ready', 'lanes.tabReady'], ['inProgress', 'In progress', 'lanes.tabProgress'], ['open', 'All open', 'lanes.tabAll']]) {
+        add('Review', `Show ${label}`, () => lanesPage.setTab(id), { icon: 'lanes', kbd: keymap.keys(keyId), detail: lanesPage.tab() === id ? 'current' : null, keywords: 'review tab list stuck ready merge in progress open pull requests needs you' });
+      }
+    }
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
@@ -3503,7 +3651,7 @@ function shortcutsScope() {
   if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
-  return ['commit', 'stashes', 'snapshots', 'worktrees'].includes(state.view) ? state.view : 'map';
+  return ['commit', 'stashes', 'snapshots', 'worktrees', 'catchup', 'branches'].includes(state.view) ? state.view : 'map';
 }
 function openShortcuts() {
   if (shortcuts) return shortcuts.close();
@@ -3606,7 +3754,8 @@ async function loadRepo(repo) {
   document.title = repo.name;
   if (from) nav.record(from, placeKey());
   renderShell();
-  loadPrs();
+  loadPrs().then(prefetchOnOpen);
+  if (!sameRepo) { finishedCount = 0; countFinished(); }
   await refreshAll();
   if (state.head.oid) selectCommit(state.head.oid, 'center');
   if (state.view === 'map') mapView?.focus();
@@ -3667,6 +3816,7 @@ const commands = {
   origin: () => state.repo && openOrigin(),
   hosting: () => state.repo && openHosting(),
   worktreeAdd: () => state.repo && addWorktree(),
+  branchSwitch: () => state.repo && branchSwitcher(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
   repoSwitch: () => repoSwitcher(),
   lfs: () => openLfs(),
@@ -3831,6 +3981,10 @@ window.addEventListener('keydown', (e) => {
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
+  // ⌘S toggles the sidebar from the View menu; its other keys (⌘\) have no menu accelerator, so handle them here
+  if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
+  // ⌘3: Branches. The View menu doesn't list it yet, so its key is handled here.
+  if (state.repo && keymap.match('menu', e) === 'view.branches') { e.preventDefault(); setView('branches'); return; }
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }

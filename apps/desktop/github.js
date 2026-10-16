@@ -178,10 +178,10 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
 
 // Recently merged PRs, for the lanes list's "shipped" check (git.lanes `prHeads`): a lane whose
 // tip or one of whose commits is a merged PR's head is done. One call per lanes refresh, only
-// while PRs are on. → [{ number, title, sha, branch }].
+// while PRs are on. → [{ number, title, sha, branch, merge, mergedAt, body, author, authorName, bot }].
 async function mergedPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt'], { dirs, exec });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt,body,author'], { dirs, exec });
   return parseMerged(out);
 }
 function parseMerged(out) {
@@ -191,7 +191,12 @@ function parseMerged(out) {
   return list.filter((p) => Number.isSafeInteger(p?.number) && p.number > 0 && /^[0-9a-f]{40}$/.test(p.headRefOid))
     .map((p) => ({ number: p.number, title: text(p.title), sha: p.headRefOid, branch: text(p.headRefName),
       // Catch-up (AK-281) joins merged PRs to the base's commits by their merge commit.
-      merge: /^[0-9a-f]{40}$/.test(p.mergeCommit?.oid || '') ? p.mergeCommit.oid : null, mergedAt: text(p.mergedAt) || null }));
+      merge: /^[0-9a-f]{40}$/.test(p.mergeCommit?.oid || '') ? p.mergeCommit.oid : null, mergedAt: text(p.mergedAt) || null,
+      // Catch up's reader (AK-372) shows the description; it falls back to the commit message without one.
+      body: typeof p.body === 'string' ? p.body : undefined,
+      // Catch up's timeline rows (AK-391) show who made each PR, the same fields as open PRs.
+      author: text(p.author?.login, 200), authorName: text(p.author?.name, 200) || botLogin(text(p.author?.login, 200)),
+      bot: p.author?.is_bot === true }));
 }
 
 // The base branch's CI for Review's catch-up card (AK-281): the newest workflow runs on it, summed
