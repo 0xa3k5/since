@@ -15,7 +15,8 @@
     "web:build": "pnpm --filter @gitlanes/web build",
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm --filter @gitlanes/desktop test:e2e",
-    "bench": "pnpm --filter @gitlanes/desktop bench"
+    "bench": "pnpm --filter @gitlanes/desktop bench",
+    "release:beta": "node apps/desktop/scripts/release-beta.js"
   },
   "repository": {
     "type": "git",
