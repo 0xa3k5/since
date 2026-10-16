@@ -118,9 +118,7 @@ export function timeAgo(t) {
 export const fullDate = (t) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 function hash(s) { let x = 0; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return Math.abs(x); }
-// `img`: a data: URL (a PR author's GitHub avatar, pr-avatars.js); initials without one.
-export function avatar(name, email, size = 18, img = null) {
-  if (img) return h('img.avatar', { src: img, alt: '', title: email ? `${name} <${email}>` : name, width: size, height: size, style: { width: size + 'px', height: size + 'px' } });
+export function avatar(name, email, size = 18) {
   const initials = (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   return h('span.avatar', { title: `${name} <${email}>`, style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px', background: `var(--lane-${hash(email || name) % 10})` } }, initials);
 }

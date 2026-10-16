@@ -1,5 +1,4 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
-import { prAvatar } from './pr-avatars.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
@@ -129,7 +128,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const top = readerHead({
       num, title: row.title, nav: ctx.nav || null,
       badges: badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text)),
-      author, authorKey: pr?.author, authorTip: pr?.bot ? `${pr.author} (a bot)` : pr?.author, photo: prAvatar(pr?.author),
+      author, authorKey: pr?.author, authorTip: pr?.bot ? `${pr.author} (a bot)` : pr?.author,
       branch: pr ? pr.branch : row.branch || null, base: pr ? pr.base : null,
       meta: [
         size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
@@ -144,7 +143,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       pr ? descriptionBlock({ text: prDescription(pr) }) : null,
     ].filter(Boolean));
     // The slim bar once the head scrolls away: avatar, number, title and the primary action.
-    mini.set(miniContent({ author, authorKey: pr?.author, photo: prAvatar(pr?.author), num: pr ? `#${pr.number}` : null, title: row.title, action: lead ? { label: lead.label.replace('…', ''), icon: lead.icon, run: () => (fixing.has(lead.id) ? fix(lead.id) : run(lead.id, row, ctx)) } : null }));
+    mini.set(miniContent({ author, authorKey: pr?.author, num: pr ? `#${pr.number}` : null, title: row.title, action: lead ? { label: lead.label.replace('…', ''), icon: lead.icon, run: () => (fixing.has(lead.id) ? fix(lead.id) : run(lead.id, row, ctx)) } : null }));
     mini.watch(top);
     fit();
   }

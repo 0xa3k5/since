@@ -2336,7 +2336,6 @@ function openLanes() {
     repo: state.repo.root,
     git,
     load: (opts) => api.app('lanes-list', opts),
-    avatars: (logins) => api.app('pr-avatars', logins),
     forecast: () => api.app('lanes-forecast'),
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,

@@ -101,8 +101,7 @@ function findBinary(name, dirs = searchDirs()) {
   return null;
 }
 
-// `binary`: resolve stdout as a Buffer (an image) instead of text.
-function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env = {}, binary = false } = {}) {
+function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env = {} } = {}) {
   return new Promise((resolve, reject) => {
     // An empty folder, so the CLI never reads or edits the repository on its own.
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-ai-'));
@@ -111,16 +110,15 @@ function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env 
     // Own process group, so a timeout stops the CLI and anything it started.
     const child = spawn(bin, args, { cwd, env: { ...process.env, ...env, PATH: dirs.join(path.delimiter) }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     let out = '', err = '';
-    const chunks = [];
     // Decode as a stream, so a character split across two chunks stays whole.
-    if (!binary) child.stdout.setEncoding('utf8');
+    child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (d) => { if (binary) chunks.push(d); else out += d; });
+    child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
     const timer = setTimeout(() => { try { process.kill(-child.pid); } catch { child.kill(); } done(reject, new Error(`${path.basename(bin)} didn’t answer within ${timeout / 1000} s`)); }, timeout);
     child.on('error', (e) => done(reject, e));
     child.on('close', (code) => {
-      if (code === 0) done(resolve, binary ? Buffer.concat(chunks) : out);
+      if (code === 0) done(resolve, out);
       else done(reject, new Error((err || out).trim().split('\n').slice(-4).join('\n') || `${path.basename(bin)} exited with code ${code}`));
     });
     child.stdin.on('error', () => {});

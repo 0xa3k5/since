@@ -57,10 +57,9 @@ export function readerKey(e, { scroller, onStep = null, onFile = null, onBack = 
   return id;
 }
 
-// An avatar whose tooltip is just the name (ui.js avatar wants an email for its colour and tooltip): the
-// author's GitHub photo when `photo` (a data: URL, pr-avatars.js) is given, initials otherwise.
-export function personAvatar(name, key = name, size = 18, photo = null) {
-  const a = avatar(name || '?', key || name || '?', size, photo);
+// An initials avatar whose tooltip is just the name (ui.js avatar wants an email for its colour and tooltip).
+export function personAvatar(name, key = name, size = 18) {
+  const a = avatar(name || '?', key || name || '?', size);
   a.title = name || '';
   return a;
 }
@@ -77,14 +76,14 @@ function navEl({ at, of, onStep }) {
 // The head. num: "#12", a short sha or an icon; author: the name shown (authorKey picks its colour);
 // branch/base: "branch → base" (base alone: "on base"); badges sit after the title; meta after the
 // branch; below: extra lines under the meta. nav: { at, of, onStep } or null.
-export function readerHead({ num = null, numTip = '', title, badges = [], author = null, authorKey = null, authorTip = null, photo = null, branch = null, base = null, meta = [], below = [], nav = null }) {
+export function readerHead({ num = null, numTip = '', title, badges = [], author = null, authorKey = null, authorTip = null, branch = null, base = null, meta = [], below = [], nav = null }) {
   return h('header.reader-head', null,
     h('div.reader-title-row', null,
       h('h2.reader-title', { title }, num ? h('span.reader-num', { title: numTip || null }, num) : null, num ? ' ' : null, title),
       ...badges,
       nav ? navEl(nav) : null),
     h('div.reader-meta', null,
-      author ? h('span.reader-author', { title: authorTip || author }, personAvatar(author, authorKey || author, 16, photo), h('span', null, author)) : null,
+      author ? h('span.reader-author', { title: authorTip || author }, personAvatar(author, authorKey || author, 16), h('span', null, author)) : null,
       branch ? h('span.reader-branch', null, h('span.mono', null, branch), base ? [h('span.reader-arrow', null, ' → '), h('span.mono', null, base)] : null)
         : base ? h('span.reader-branch', null, 'on ', h('span.mono', null, base)) : null,
       ...meta),
@@ -173,9 +172,9 @@ export function miniHeader(scroller) {
 
 // The bar's contents: avatar, #number, the title (truncated), then the primary action, if any
 // ({ label, icon, run }).
-export function miniContent({ author = null, authorKey = null, photo = null, num = null, title, action = null }) {
+export function miniContent({ author = null, authorKey = null, num = null, title, action = null }) {
   return [
-    author ? personAvatar(author, authorKey || author, 16, photo) : null,
+    author ? personAvatar(author, authorKey || author, 16) : null,
     num ? h('span.reader-num', null, num) : null,
     h('span.reader-mini-title', { title }, title),
     action ? h('button.btn.primary.small.reader-mini-act', { onclick: () => action.run() }, action.icon ? icon(action.icon, 13) : null, action.label) : null,
