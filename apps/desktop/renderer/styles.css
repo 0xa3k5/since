@@ -277,7 +277,7 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .head-chip .icon { color: var(--accent-fg); }
 .head-chip.detached { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .head-chip.wt-chip { margin-left: 0; }
-.head-chip.wt-chip:hover { background: var(--bg-hover); color: var(--text); }
+.head-chip.wt-chip:hover, .head-chip.branch-chip:hover { background: var(--bg-hover); color: var(--text); }
 .top-right { display: flex; align-items: center; gap: 6px; }
 .toggle-group { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; }
 .chip { height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; color: var(--text-3); font-weight: var(--fw-medium); }
