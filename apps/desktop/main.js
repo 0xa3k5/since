@@ -612,7 +612,7 @@ handle('app:catchup-mark', (e, to) => {
   return catchupStore.mark(catchupFile(), session(e).repo.root, to);
 });
 
-// Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
+// Approve, merge, close and update branch: remote actions on GitHub, not journaled (⌘Z can't undo them). The
 // renderer names the PR and the remote it came from; both are checked before `gh` runs.
 const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
   const root = session(e).repo.root;
@@ -630,6 +630,7 @@ handle('app:pr-merge', prAction((t, o) => github.mergePr({
   admin: check.bool(o?.admin, 'merge as admin'),
 })));
 handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, rebase: check.bool(o?.rebase ?? false, 'rebase') })));
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on
 // an explicit click in the sheet, and only while pull requests are on (target() checks).
 handle('app:pr-failed-log', prAction((t) => github.failedLog(t)));

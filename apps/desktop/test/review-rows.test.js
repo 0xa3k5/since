@@ -408,6 +408,18 @@ test('mergeStateStatus: each state stages the way GitHub would let it merge', as
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }), 'inProgress');
 });
 
+test('stageMemory: the sidebar dot keeps a PR\'s last stage while GitHub is checking it (AK-388)', async () => {
+  const { stageMemory } = await load();
+  const dot = stageMemory();
+  const checking = { mergeState: 'unknown', checks: 'failure' };
+  assert.equal(dot(pr(1, { mergeState: 'unstable', checks: 'failure' })), 'ready');
+  assert.equal(dot(pr(1, checking)), 'ready');
+  assert.equal(dot(pr(2, checking)), 'stuck'); // no stage yet: the older rules
+  assert.equal(stageMemory()(pr(1, checking)), 'stuck'); // a new repository starts empty
+  assert.equal(dot(pr(1, { mergeState: 'dirty', mergeable: false, checks: 'success' })), 'stuck');
+  assert.equal(dot(pr(1, checking)), 'stuck');
+});
+
 test('mergeStateStatus: tags, primary action and reason follow the state', async () => {
   const { reviewRows, rowBadges, primaryAction, stuckReason } = await load();
   const texts = (o) => rowBadges({ pr: pr(1, o), conflicts: [], worktree: null }).map((b) => b.text);

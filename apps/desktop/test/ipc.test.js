@@ -257,6 +257,8 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
   rejects(() => check.knownRemote(remotes, 'upstream'), /not a remote/);
   rejects(() => check.knownRemote(remotes, 'git@github.com:evil/app.git'), /not a remote/);
   rejects(() => check.knownRemote(remotes, 7));
+  // AK-446: a missing remote is still refused, not defaulted.
+  for (const v of [undefined, null, '']) rejects(() => check.knownRemote(remotes, v), /remote: (expected a string|empty)/);
   rejects(() => check.knownRemote([], 'origin'), /not a remote/);
   const method = check.oneOf(...require('../github').MERGE_METHODS);
   for (const m of ['squash', 'merge', 'rebase']) assert.strictEqual(method(m, 'merge method'), m);
@@ -270,7 +272,7 @@ test('main.js checks the PR number and remote before any PR action reaches gh', 
   const action = main.slice(main.indexOf('const prAction'), main.indexOf("handle('app:pr-merge-info'"));
   assert.ok(action.indexOf('check.prNumber(number)') > 0 && action.indexOf('check.knownRemote(') > action.indexOf('check.prNumber'), 'prAction checks the number, then the remote');
   assert.ok(action.indexOf('fn({') > action.indexOf('check.knownRemote('), 'checks run before gh');
-  for (const ch of ['pr-merge-info', 'pr-approve', 'pr-merge', 'pr-close']) assert.match(main, new RegExp(`handle\\('app:${ch}', prAction\\(`), ch);
+  for (const ch of ['pr-merge-info', 'pr-approve', 'pr-merge', 'pr-close', 'pr-update-branch']) assert.match(main, new RegExp(`handle\\('app:${ch}', prAction\\(`), ch);
   assert.match(main, /handle\('app:pr-list'[\s\S]{0,200}if \(!\(await prEnabled\(root\)\)\) return null;/, 'pr-list returns before gh while off or hidden');
   assert.match(main, /if \(!github\.pickRemote\(remotes\)\) return null;/, 'pr-list is quiet without a GitHub remote');
   assert.match(main, /handle\('app:pr-hide', async \(e, hide\) => \{\s*const v = check\.bool\(hide/, 'pr-hide checks its argument');
