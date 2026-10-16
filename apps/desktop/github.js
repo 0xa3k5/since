@@ -143,7 +143,7 @@ function parsePrs(out) {
 
 const authProblem = (msg) => /auth login|not logged in|authenticat|HTTP 401|bad credentials/i.test(msg || '');
 
-const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli, binary = false }) => exec(bin, args, '', { dirs, timeout, env: GH_ENV, ...(binary ? { binary } : {}) });
+const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli }) => exec(bin, args, '', { dirs, timeout, env: GH_ENV });
 
 // The enable sheet's check, after the user chose to turn it on: is `gh` installed, and logged in
 // to this remote's host? Returns { gh: 'missing' | 'logged-out' | 'ready', remote }.
@@ -259,15 +259,6 @@ function target({ enabled, remotes, dirs }) {
 
 async function ghRun(bin, args, opts) {
   try { return await run(bin, args, opts); } catch (err) { throw coded(err.message, authProblem(err.message) ? 'gh-auth' : 'gh-failed'); }
-}
-
-// One avatar image (avatars.avatarUrl) as a Buffer. `gh api` with a full URL is a plain GET; it
-// sends no token to the avatar host.
-async function avatarImage(url, { dirs = searchDirs(), exec = runCli } = {}) {
-  if (!/^https:\/\/avatars\.githubusercontent\.com\/[A-Za-z0-9-]+\?s=64$/.test(url)) throw coded('Invalid avatar URL.', 'gh-failed');
-  const bin = findBinary('gh', dirs);
-  if (!bin) throw coded('Couldn’t find the `gh` command. Install GitHub CLI.', 'gh-missing');
-  return ghRun(bin, ['api', url], { dirs, exec, binary: true });
 }
 
 const prNumber = (n) => {
@@ -597,4 +588,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { avatarImage, baseCi, parseBaseCi, failingChecks, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

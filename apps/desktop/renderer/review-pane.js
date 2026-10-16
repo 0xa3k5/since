@@ -1,5 +1,4 @@
-import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate, avatar } from './ui.js';
-import { prAvatar } from './pr-avatars.js';
+import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
@@ -143,7 +142,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
           h('div.quick-title', { title: row.title }, pr ? h('span.review-pane-num', null, `#${pr.number}`) : icon(lane?.worktree ? 'worktree' : 'branch', 14), ' ', row.title),
           ...badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text))),
         h('div.quick-meta.review-pane-meta', null,
-          pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, avatar(pr.authorName || pr.author, pr.author, 16, prAvatar(pr.author)), pr.authorName || pr.author) : null,
+          pr?.author ? h('span', { title: pr.bot ? `${pr.author} (a bot)` : pr.author }, pr.authorName || pr.author) : null,
           pr ? h('span', null, h('span.mono', null, pr.branch), h('span.review-pane-arrow', null, ' → '), h('span.mono', null, pr.base)) : row.branch ? h('span.mono', null, row.branch) : null,
           size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
           draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
