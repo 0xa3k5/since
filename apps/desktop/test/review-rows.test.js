@@ -198,7 +198,7 @@ test('agent-made: lane guesses and bot authors, only while marks are on', async 
   const texts = (r, o) => rowBadges({ conflicts: [], worktree: null, ...r }, o).map((b) => b.text);
   const botPr = pr(1, { checks: null, bot: true, author: 'app/renovate', authorName: 'renovate' });
   assert.deepEqual(texts({ pr: botPr }), []);
-  assert.deepEqual(texts({ pr: botPr }, { agents: true }), ['Agent']);
+  assert.deepEqual(texts({ pr: botPr }, { agents: true }), [], 'no Agent badge: agents show as authors (AK-390)');
   assert.equal(rowAgent({ pr: botPr }), 'Opened by a bot (renovate)');
   assert.match(rowAgent({ lane: { agent: { reason: 'branch', match: 'claude/' } }, pr: pr(2) }), /Looks agent-made/);
   assert.equal(rowAgent({ pr: pr(3) }), null);
@@ -455,4 +455,58 @@ test('overlaps: an open PR gets a note and no stage change; merge order names th
   assert.equal(mergeOrder(two)[0].smaller.self, false);
   assert.equal(overlapNote({ overlaps: [{ number: 2, title: 'a', files: [] }, { number: 3, title: 'b', files: [] }] }).text, 'Overlaps 2 PRs');
   assert.equal(overlapNote({ overlaps: [] }), null);
+});
+
+test('Review tabs: Needs you is stuck then ready, All open is every stage, 1–5 each have a key', async () => {
+  const { TABS, STAGES } = await load();
+  const keymap = await import('../renderer/keymap.js');
+  assert.deepEqual(TABS.map((t) => t.id), ['needs', 'stuck', 'ready', 'inProgress', 'open']);
+  assert.deepEqual(TABS[0].stages, ['stuck', 'ready']);
+  assert.deepEqual(TABS.at(-1).stages, STAGES.map((s) => s.id));
+  assert.deepEqual(TABS.map((t) => keymap.keys(t.keyId).join()), ['1', '2', '3', '4', '5']);
+});
+
+test('agent names: trailers without email or notes, bots without [bot], branch prefixes capitalised (AK-390)', async () => {
+  const { agentName } = await load();
+  assert.equal(agentName({ reason: 'trailer', match: 'Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>' }), 'Claude Opus 5.5');
+  assert.equal(agentName({ reason: 'trailer', match: 'Generated-with: Codex' }), 'Codex');
+  assert.equal(agentName({ reason: 'trailer', match: 'Co-authored-by: <copilot@github.com>' }), 'copilot');
+  assert.equal(agentName({ reason: 'bot author', match: 'renovate[bot]' }), 'renovate');
+  assert.equal(agentName({ reason: 'bot author', match: 'app/dependabot' }), 'dependabot');
+  assert.equal(agentName({ reason: 'branch prefix', match: 'codex/' }), 'Codex');
+  assert.equal(agentName({ reason: 'branch prefix', match: 'ai/' }), 'AI');
+  assert.equal(agentName(null), null);
+  assert.equal(agentName({ reason: 'branch prefix', match: '' }), null);
+});
+
+test('authors: person + agent, a bot alone, agents only while marks are on (AK-390)', async () => {
+  const { authorsOf, rowAuthors, messageAgent } = await load();
+  const names = (list) => list.map((a) => `${a.agent ? 'agent' : 'person'}:${a.name}`);
+  const trailer = { reason: 'trailer', match: 'Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>' };
+  assert.deepEqual(names(rowAuthors({ pr: pr(1, { authorName: 'AK' }), lane: { agent: trailer } }, { agents: true })), ['person:AK', 'agent:Claude Opus 5.5']);
+  assert.deepEqual(names(rowAuthors({ pr: pr(1, { authorName: 'AK' }), lane: { agent: trailer } })), ['person:AK'], 'marks off: the person alone');
+  assert.deepEqual(names(rowAuthors({ pr: pr(2, { bot: true, author: 'app/renovate', authorName: 'renovate' }), lane: null }, { agents: true })), ['agent:renovate']);
+  assert.deepEqual(names(rowAuthors({ pr: null, lane: { agent: { reason: 'branch prefix', match: 'codex/' } } }, { agents: true })), ['agent:Codex']);
+  assert.deepEqual(names(rowAuthors({ pr: pr(3), lane: null }, { agents: true })), ['person:kim']);
+  assert.deepEqual(names(authorsOf({ person: { name: 'dependabot[bot]' } })), ['agent:dependabot']);
+  assert.deepEqual(names(authorsOf({ person: { name: 'Codex' }, agent: { reason: 'branch prefix', match: 'codex/' } })), ['person:Codex'], 'the same name once');
+  const msg = 'Fix it\n\nBody\n\nCo-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>';
+  assert.deepEqual(names(authorsOf({ person: { name: 'AK' }, agent: messageAgent(msg) })), ['person:AK', 'agent:Claude Opus 5.5']);
+  assert.equal(messageAgent('Fix\n\nCo-authored-by: Ana <ana@example.com>'), null);
+});
+
+// AK-411: failing checks and conflicts show as glyphs on the row line; the text drops "CI ✗".
+test('row signals: failing checks count, conflict marker, bare check names', async () => {
+  const { rowSignals, rowBadges, stuckReason } = await load();
+  const row = (o) => ({ pr: null, conflicts: [], ...o });
+  const failing = row({ pr: pr(1, { checks: 'failure', failing: ['test', 'lint'] }) });
+  assert.deepEqual(rowSignals(failing), { checks: { text: '2', title: '2 checks are failing: test, lint' }, conflict: null });
+  const counted = row({ pr: pr(1, { checks: 'failure', failing: ['test'], checkCounts: { passed: 3, total: 5 } }) });
+  assert.equal(rowSignals(counted).checks.text, '3/5');
+  assert.equal(rowSignals(row({ pr: pr(1, { checks: 'failure' }) })).checks.text, '');
+  assert.deepEqual(rowSignals(row({ pr: pr(1, { mergeable: false, base: 'develop' }) })), { checks: null, conflict: { title: 'Conflicts with develop' } });
+  assert.deepEqual(rowSignals(row({ pr: pr(1, READY) })), { checks: null, conflict: null });
+  assert.deepEqual(rowBadges(failing).filter((b) => b.signal).map((b) => b.text), ['CI failing']);
+  assert.equal(stuckReason(failing, { bareChecks: true }), 'test, lint');
+  assert.equal(stuckReason(row({ pr: pr(1, { checks: 'failure' }) }), { bareChecks: true }), null);
 });
