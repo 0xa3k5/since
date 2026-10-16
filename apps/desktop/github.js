@@ -374,6 +374,14 @@ async function closePr({ enabled, remotes, number, body, dirs = searchDirs(), ex
   return { number };
 }
 
+// Brings a conflicted or behind PR's branch up to date with its base on GitHub (AK-364), for a PR
+// that isn't checked out here: a merge commit by default, or a rebase. Remote, like close.
+async function updatePrBranch({ enabled, remotes, number, rebase = false, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  await ghRun(bin, ['pr', 'update-branch', prNumber(number), '--repo', repo, ...(rebase ? ['--rebase'] : [])], { dirs, exec });
+  return { number, rebase };
+}
+
 // Merge plan: the squash commit a merged PR left on its base, so the next merge can check the
 // base moved only by that. null while GitHub hasn't recorded one.
 async function mergedCommit({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
@@ -601,4 +609,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, updatePrBranch, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
