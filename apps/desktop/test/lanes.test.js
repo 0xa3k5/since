@@ -279,3 +279,21 @@ test('branchKey, plainSubject, shortPath; the forecast skips done lanes', () => 
   const lane = (head, done) => ({ head, ahead: 1, isBase: false, merged: null, done, activity: now });
   assert.deepEqual(git.forecastLanes([lane('a', { reason: 'pr', pr: 1 }), lane('b', null)], now).map((l) => l.head), ['b']);
 });
+
+test('patchIds: pipes the diff into patch-id; a diff past the cap degrades to no ids', async () => {
+  const { dir } = await repo();
+  await commit(dir, 'big.svg', `${'<path d="M0 0"/>\n'.repeat(20000)}`, 'icons');
+  const head = (await g(dir, ['rev-parse', 'HEAD'])).trim();
+  const args = ['log', '-p', '--no-color', '--no-ext-diff', '--format=commit %H', 'HEAD', '--'];
+  const ids = await git.patchIds(dir, args);
+  assert.equal(ids.size, 2);
+  const expected = (await git.run(dir, ['patch-id', '--stable'], { input: await g(dir, ['show', '--format=commit %H', head]) })).split(' ')[0];
+  assert.equal(ids.get(head), expected, 'same id as patch-id over the buffered diff');
+  const warn = console.warn; const warned = [];
+  console.warn = (m) => warned.push(m);
+  try {
+    assert.equal((await git.patchIds(dir, args, { maxBytes: 4096 })).size, 0, 'capped: no ids, no throw');
+  } finally { console.warn = warn; }
+  assert.match(warned[0], /squash detection skipped/);
+  await assert.rejects(git.patchIds(dir, ['log', '-p', 'no-such-ref', '--']), git.GitError);
+});

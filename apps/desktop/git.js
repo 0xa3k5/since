@@ -1725,7 +1725,7 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
   // Net patch: the lane's whole change since its merge-base (merges of base and the empty baseline
   // drop out) is a base commit's patch, or merging the lane into base changes nothing.
   const lines = [...new Set(open.map((l) => `${l.head} ${l.mergeBase}`))];
-  const ids = await patchIds(cwd, await run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${lines.join('\n')}\n` }));
+  const ids = await patchIds(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${lines.join('\n')}\n` });
   const rest = open.filter((l) => {
     if (!baseIds.has(ids.get(l.head))) return true;
     l.done = { reason: 'net-patch', sha: baseIds.get(ids.get(l.head)) };
@@ -1796,10 +1796,46 @@ function squashOf(row) {
 // patch id → newest commit with it, from patchIds over a newest-first log.
 const newestBy = (m) => { const out = new Map(); for (const [sha, id] of m) if (!out.has(id)) out.set(id, sha); return out; };
 
-async function patchIds(cwd, diff) {
-  if (!diff.trim()) return new Map();
-  const out = await run(cwd, ['patch-id', '--stable'], { input: diff });
-  return new Map(out.split('\n').filter(Boolean).map((l) => l.split(' ').reverse()));
+// commit → patch id for a diff-producing git command. Its output is piped straight into
+// `git patch-id --stable`, so a huge diff (an icon repo's SVG history runs to hundreds of MB) never
+// becomes a JS string. Past maxBytes or timeout both are killed and the result is empty: squash
+// detection degrades, the main process keeps its heap.
+const PATCH_MAX_BYTES = 1024 * 1024 * 1024;
+const PATCH_TIMEOUT = 30000;
+function patchIds(cwd, args, { input, maxBytes = PATCH_MAX_BYTES, timeout = PATCH_TIMEOUT } = {}) {
+  return new Promise((resolve, reject) => {
+    const opts = { cwd, env: BASE_ENV, detached: process.platform !== 'win32' };
+    const src = spawn('git', args, opts);
+    const ids = spawn('git', ['patch-id', '--stable'], opts);
+    let bytes = 0; let out = ''; let err = ''; let capped = null; let failed = null; let open = 2;
+    const codes = {};
+    const stop = (why) => { if (capped) return; capped = why; src.kill(); ids.kill(); };
+    const timer = setTimeout(() => stop(`took over ${timeout / 1000}s`), timeout);
+    const finish = () => {
+      clearTimeout(timer);
+      if (capped) {
+        console.warn(`lanes: squash detection skipped, git ${args[0]} ${capped}`);
+        resolve(new Map());
+      } else if (failed || codes.src !== 0 || codes.ids !== 0) {
+        const msg = (err || failed?.message || '').trim().split('\n').slice(-6).join('\n');
+        reject(new GitError(msg || `git ${args[0]} failed`, { code: codes.src || codes.ids || 1, stderr: err, args }));
+      } else {
+        resolve(new Map(out.split('\n').filter(Boolean).map((l) => l.split(' ').reverse())));
+      }
+    };
+    src.stdout.on('data', (d) => { bytes += d.length; if (bytes > maxBytes) stop(`passed ${maxBytes} bytes`); });
+    src.stdout.pipe(ids.stdin);
+    src.stdin.on('error', () => {});
+    ids.stdin.on('error', () => {}); // EPIPE once a cap kills patch-id
+    for (const c of [src, ids]) {
+      c.stderr.setEncoding('utf8'); c.stderr.on('data', (d) => { err += d; });
+      c.on('error', (e) => { failed = failed || e; });
+    }
+    ids.stdout.setEncoding('utf8'); ids.stdout.on('data', (d) => { out += d; });
+    src.on('close', (code) => { codes.src = code; if (!--open) finish(); });
+    ids.on('close', (code) => { codes.ids = code; if (!--open) finish(); });
+    src.stdin.end(input ?? undefined);
+  });
 }
 
 // Newest mtime among a worktree's dirty files (capped), or 0.
@@ -1896,17 +1932,17 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
     // lane descends from the base tip (any freshly branched lane).
     const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
     const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
-    const [trees, baseDiff, laneDiff, squashDiff] = await Promise.all([
+    let trees;
+    [trees, baseIds, laneIds, squashIds] = await Promise.all([
       run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', b.sha, '--']),
-      run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']),
-      cherryTips.length ? run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : '',
-      squashLines.length ? run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : '',
+      patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']).then(newestBy),
+      cherryTips.length ? patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : new Map(),
+      squashLines.length ? patchIds(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : new Map(),
     ]);
     const rows = trees.split('\n').filter(Boolean).map((r) => r.split('\0'));
     baseTrees = new Set(rows.map((r) => r[1]));
     baseTree = rows[0]?.[1] || null;
     baseRows = rows.map((r) => ({ sha: r[0], subject: r[2] || '' }));
-    [baseIds, laneIds, squashIds] = await Promise.all([patchIds(cwd, baseDiff).then(newestBy), patchIds(cwd, laneDiff), patchIds(cwd, squashDiff)]);
   }
 
   for (const l of list) {
@@ -2276,7 +2312,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,
