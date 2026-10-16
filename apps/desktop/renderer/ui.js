@@ -220,7 +220,8 @@ export const prompt = (title, { label, value, placeholder, submit = 'Create', de
 
 // --- Context menu ---------------------------------------------------------------
 let openMenu = null;
-export function contextMenu(x, y, items) {
+// `focus`: index of the actionable item highlighted on open, so Enter picks it (a popover's default).
+export function contextMenu(x, y, items, { focus = -1 } = {}) {
   closeMenu();
   const flat = items.filter(Boolean);
   const menu = h('div.menu', { role: 'menu' });
@@ -242,6 +243,7 @@ export function contextMenu(x, y, items) {
   menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
   let idx = -1;
   function focusItem(i) { actionable.forEach((a) => a.classList.remove('active')); idx = i; if (actionable[i]) actionable[i].classList.add('active'); }
+  if (focus >= 0) focusItem(focus);
   const onKey = (e) => {
     const id = keymap.match('dialog', e);
     if (id === 'dialog.cancel') { e.preventDefault(); e.stopPropagation(); closeMenu(); }

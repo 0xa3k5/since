@@ -4,6 +4,7 @@ import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { isRowControl, rowDoubleClick } from './keys.js';
+import { checkoutPlan } from './checkout-plan.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -1070,7 +1071,7 @@ function createMapView(container) {
   const scroller = h('div.map-list', {
     tabIndex: 0,
     onmousedown: (e) => dbl.listDown(e),
-    ondblclick: (e) => { const c = dbl.dblclick(e); if (c) checkoutSelected(c); },
+    ondblclick: (e) => { const c = dbl.dblclick(e); if (c) checkoutSelected(c, [e.clientX, e.clientY]); },
   });
   const canvas = h('canvas.graph-canvas');
   const detail = h('div.detail');
@@ -1723,10 +1724,22 @@ function checkoutCommit(c) {
   if (b) return checkout(b.short);
   return act(`Checkout ${c.sha.slice(0, 7)}`, 'checkout', [c.sha], { success: `HEAD detached at ${c.sha.slice(0, 7)}` });
 }
-// ⌘↵ / double-click on a map row. Already at HEAD: nothing to do. Never throws: a failure is a toast.
-async function checkoutSelected(c) {
+// ⌘↵ / double-click on a map row (see checkoutPlan): a branch tip switches to it; a remote-only
+// branch or a plain commit opens a small popover at `at` (or the selected row), Enter = default,
+// Esc = cancel. Every choice is an undoable act. Never throws: a failure is a toast.
+async function checkoutSelected(c, at) {
   try {
-    if (c && c.sha !== state.head.oid) return await checkoutCommit(c);
+    const plan = checkoutPlan(c, state.refs, state.head);
+    if (!plan) return;
+    if (plan.kind === 'switch') return await checkout(plan.branch);
+    const short = c.sha.slice(0, 7);
+    const detached = { label: 'Check out detached', icon: 'checkout', run: () => act(`Checkout ${short}`, 'checkout', [c.sha], { success: `HEAD detached at ${short}` }) };
+    const first = plan.kind === 'remote'
+      ? { label: `Create local branch ${plan.local} tracking ${plan.remote}`, icon: 'branch', kbd: '↵', run: () => act(`Checkout ${plan.remote}`, 'checkoutTracking', [plan.remote], { success: `Switched to ${plan.local} tracking ${plan.remote}` }) }
+      : { label: 'New branch here…', icon: 'branch', kbd: '↵', run: () => createBranch(c.sha) };
+    const row = document.querySelector('.map-list .row.selected')?.getBoundingClientRect();
+    const [x, y] = at || (row ? [row.left + 48, row.bottom + 2] : [innerWidth / 3, innerHeight / 3]);
+    contextMenu(x, y, [{ section: plan.kind === 'remote' ? `Check out ${plan.remote}` : `Check out ${short}` }, first, detached], { focus: 0 });
   } catch (e) {
     toast('Checkout failed', { kind: 'error', detail: e?.message || String(e) });
   }
