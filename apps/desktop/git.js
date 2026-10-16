@@ -1685,9 +1685,27 @@ async function landed(cwd, { base, since = {}, limit = 300 } = {}) {
 // The key matches "(AK-12)" anywhere or "AK-12:" leading a base subject.
 // Batched: one merge-base per lane, one log, one diff-tree, one patch-id, then merge-tree only for
 // lanes still open.
-async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) {
+async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, commits = new Map() }) {
   if (!b || !lanes.length) return;
   const heads = new Map((prHeads || []).filter((p) => p && /^[0-9a-f]{40}$/.test(p.sha)).map((p) => [p.sha, p]));
+  // A merged PR's head below the tip only ships the lane when everything on top of it is
+  // bookkeeping: baselines and merges from base. A branch stacked on a merged PR, or new commits
+  // after the merge, still have work to ship.
+  const prBelow = (l) => (l.commits || []).filter((c) => c !== l.head && heads.has(c)).map((c) => heads.get(c)).find((p) => {
+    const under = new Set();
+    const stack = [p.sha];
+    while (stack.length) {
+      const sha = stack.pop();
+      const c = commits.get(sha);
+      if (under.has(sha) || !c) continue;
+      under.add(sha);
+      stack.push(...c.parents);
+    }
+    return l.commits.every((sha) => {
+      const c = commits.get(sha);
+      return under.has(sha) || !c || BASELINE.test(c.subject) || (c.parents.length > 1 && c.parents.slice(1).every((x) => !commits.has(x)));
+    });
+  });
   // Key and subject matches only count on base commits newer than the lane's merge-base (the
   // base log is newest first), so a subject the lane forked from never marks it shipped.
   const rowAt = new Map(baseRows.map((r, i) => [r.sha, i]));
@@ -1714,7 +1732,7 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
     l.mergeBase = mbs[i];
     l.netEmpty = l.mergeBase != null && mbTrees.get(l.mergeBase) === l.tree;
     if (l.netEmpty || l.noWork) return;
-    const pr = heads.get(l.head) || (l.commits || []).map((c) => heads.get(c)).find(Boolean);
+    const pr = heads.get(l.head) || prBelow(l);
     // The key in the branch name, else the one leading its newest subject ("AK-48: …").
     const key = branchKey(l.branch) || (/^([a-z][a-z0-9]{0,9}-\d+):/i.exec(l.subject || '')?.[1] || '').toUpperCase() || null;
     const subject = plainSubject(l.subject);
@@ -1962,7 +1980,7 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
       }
     }
   }
-  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree });
+  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree, commits });
 
   const result = await Promise.all(list.map(async (l) => {
     const merged = l.merged;

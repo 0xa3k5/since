@@ -238,6 +238,9 @@ test('lanes: shipped (net patch, key, PR head), titles, unmerged and baseline-on
   // PR head match (mocked merged PR list), nothing of it on base.
   await g(dir, ['switch', '-q', '-c', 'feat-pr']); await commit(dir, 'p.txt', 'p\n', 'p work');
   const prHead = (await g(dir, ['rev-parse', 'HEAD'])).trim();
+  // Stacked on the merged PR with work of its own (not shipped), and the PR head plus only a baseline (shipped).
+  await g(dir, ['switch', '-q', '-c', 'stacked']); await commit(dir, 'q.txt', 'q\n', 'q work on top');
+  await g(dir, ['switch', '-q', '-c', 'pr-plus-baseline', 'feat-pr']); await baseline(dir);
   // Genuinely unmerged, and a fresh agent lane with only its baseline commit.
   await g(dir, ['switch', '-q', '-c', 'agent/eng/ak-99', 'main']); await baseline(dir); await commit(dir, 'o.txt', 'o\n', 'feat: open work');
   await g(dir, ['switch', '-q', '-c', 'agent/eng/fresh', 'main']); await baseline(dir);
@@ -257,6 +260,8 @@ test('lanes: shipped (net patch, key, PR head), titles, unmerged and baseline-on
   assert.equal(l['agent/eng/ak-12'].done.pr, 4, 'the PR number from the squash subject');
   assert.deepEqual(l['feat-pr'].done, { reason: 'pr', pr: 9 });
   assert.equal(l['feat-pr'].title, 'Add the p file');
+  assert.equal(l.stacked.done, null, 'own commits above a merged PR head still need shipping');
+  assert.deepEqual(l['pr-plus-baseline'].done, { reason: 'pr', pr: 9 });
   assert.equal(l['agent/eng/ak-99'].done, null);
   assert.equal(l['agent/eng/ak-99'].title, 'feat: open work');
   assert.equal(l['agent/eng/fresh'].done, null, 'nothing to ship is not shipped');
