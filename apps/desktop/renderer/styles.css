@@ -707,6 +707,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 /* The branch picker reads like the "since your checkpoint ▾" picker: a quiet text button, no border (AK-390). */
 .catchup-branch { flex: none; height: 22px; padding: 0 6px; margin-left: -4px; color: var(--text-2); vertical-align: baseline; }
 .catchup-headrow { align-items: center; }
+.catchup > .review-head { margin-bottom: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .catchup-sentence { margin: 0; font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; line-height: 1.3; min-width: 0; }
 .catchup-sentence .catchup-branch, .catchup-sentence .catchup-since { font: inherit; height: auto; padding: 0 4px; margin: 0 -2px; color: var(--text); vertical-align: baseline; }
 .catchup-sentence .catchup-branch { font-family: var(--mono); font-size: 0.92em; }
