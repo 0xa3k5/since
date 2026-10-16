@@ -54,3 +54,39 @@ links to the download page instead.
 It reads these repository secrets: `MAC_CERTIFICATE_P12_BASE64`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`. Without them, the draft holds unsigned DMGs and is marked as unsigned.
 Pull requests that touch packaging, and manual runs, do an unsigned dry run and attach the DMGs as a workflow artifact.
+
+### Releasing a beta from your Mac
+
+Betas have no licence or trial (`GITLANES_STORE=beta`) and are published to the `gitlanes-beta` Cloudflare R2 bucket.
+They are built locally, not by GitHub Actions: pushing a `v*-beta.*` tag does **not** start `release.yml`.
+
+One-time setup, in the login keychain (nothing goes into env files or the repo):
+
+```sh
+# 1. The "Developer ID Application" certificate: import the .p12 in Keychain Access, then check it shows up
+security find-identity -v -p codesigning
+# 2. Notarization: a notarytool profile (asks for an app-specific password from appleid.apple.com)
+xcrun notarytool store-credentials gitlanes-notary --apple-id <apple-id> --team-id YCL3UNGMGC
+# 3. The R2 token (Object Read & Write on gitlanes-beta only); each command asks for the value
+security add-generic-password -a "$USER" -s gitlanes-r2-account-id -w
+security add-generic-password -a "$USER" -s gitlanes-r2-access-key-id -w
+security add-generic-password -a "$USER" -s gitlanes-r2-secret-access-key -w
+```
+
+Then, on an up-to-date, clean `main`:
+
+```sh
+pnpm release:beta                 # next 0.1.0-beta.N after the existing tags
+pnpm release:beta 0.1.0-beta.7    # a specific version
+pnpm release:beta --skip-e2e      # skip the end-to-end suite (prints a warning)
+```
+
+`apps/desktop/scripts/release-beta.js` checks the setup above (each missing piece fails with the command that
+fixes it), runs `pnpm test` and `pnpm test:e2e`, builds and notarizes through the `gitlanes-notary` profile, and checks
+every app and the app inside each DMG with `codesign`, `spctl` and `stapler`. Then
+`apps/desktop/scripts/beta-publish.js` writes the update feeds and uploads to R2 with `curl --aws-sigv4`: `beta/<version>/`
+first, then `beta/latest/GitLanes-<arch>.dmg` (the website's download links), then the `beta/update-mac-<arch>.json`
+feeds, and keeps the newest 5 versions. The `v<version>` tag is pushed only after the upload succeeds.
+The R2 keys are read from the keychain at run time and handed to curl on stdin, never on the command line.
+`release.yml` uses the same `beta-publish.js` when it's run manually on a beta tag
+(`gh workflow run release.yml --ref v0.1.0-beta.N`, with the `R2_*` repository secrets).
