@@ -14,7 +14,7 @@ import * as keymap from './keymap.js';
 const short = (s) => (s || '').slice(0, 7);
 const ago = (ms) => timeAgo(ms / 1000);
 
-export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = () => {} }) {
+export function catchupCard({ load, mark, prsOn, seed = null, onWalk = () => {}, onChange = () => {} }) {
   const el = h('section.review-catchup-card', { 'aria-label': 'Catch up' });
   let res = null;
   let entries = [];
@@ -23,7 +23,7 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
   let more = false;
   let failed = null;
   let seq = 0;
-  let extra = null; // { merged, ci } from the last load with PRs, kept on local-only refreshes
+  let extra = seed; // { merged, ci } from the last load with PRs (or Review's last visit), kept on local-only refreshes
 
   const btn = (label, keyId, onclick, cls = 'button.btn.subtle.small') => h(cls, { title: `${label.replace(/[ ↵▸…]+$/, '')} (${keymap.keys(keyId).join(' or ')})`, onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...keymap.keys(keyId)));
 
@@ -123,5 +123,7 @@ export function catchupCard({ load, mark, prsOn, onWalk = () => {}, onChange = (
   const setCounts = (c) => { if (c.stuck === counts.stuck && c.ready === counts.ready) return; counts = c; if (res) render(); };
 
   render();
-  return { el, reload, setCounts, walkList, sinceLabel: () => sinceLabel(res, { short }), pickSince: () => pickSince(), markCaughtUp, base: () => res?.base || null };
+  // The PR part for Review's cache (lanes-view.js prCache): only the default checkpoint's, which a new card starts on.
+  const prData = () => (since.since === 'checkpoint' ? extra : null);
+  return { el, reload, prData, setCounts, walkList, sinceLabel: () => sinceLabel(res, { short }), pickSince: () => pickSince(), markCaughtUp, base: () => res?.base || null };
 }

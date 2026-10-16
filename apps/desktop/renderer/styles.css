@@ -872,6 +872,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .page-head .review-head-row h1 { flex: none; margin: 0; }
 .review-head-row .lanes-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-head-row .review-count-spin { display: inline-block; width: 10px; height: 10px; margin: 0 0 0 6px; vertical-align: -1px; border-width: 1.5px; }
+.review-updated { flex: none; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.review-head-row .review-reload { flex: none; gap: 6px; }
 .review-head > p { margin-top: 4px; }
 .review-split.split { grid-template-columns: minmax(320px, 1fr) 6px var(--pane-w, 62%); }
 .review-split > .lanes { min-width: 0; }
