@@ -69,7 +69,7 @@ export const COMMANDS = [
   c('menu', 'views', 'view.worktrees', 'Worktrees', ['Mod+0', 'g w']),
   c('menu', 'view', 'view.back', 'Back', 'Mod+['),
   c('menu', 'view', 'view.forward', 'Forward', 'Mod+]'),
-  c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', 'Mod+Backslash'),
+  c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', ['Mod+S', 'Mod+Backslash']),
   c('menu', 'view', 'view.tags', 'Show Tags', 'Mod+Alt+T'),
   c('menu', 'view', 'view.remotes', 'Show Remote Branches', 'Mod+Alt+R'),
   c('menu', 'view', 'view.swatches', 'Show Colour Swatches in Diffs', 'Mod+Alt+C'),
