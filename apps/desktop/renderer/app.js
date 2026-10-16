@@ -2347,7 +2347,6 @@ function openLanes() {
     onSendBack: sendBackRow,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
     all: lanesAll,
-    walk: lanesWalk,
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
@@ -2363,20 +2362,19 @@ function openLanes() {
   });
   lanesAll = false;
   lanesPlace = null;
-  lanesWalk = null;
   return lanesPage;
 }
-let lanesWalk = null; // the next Review page walks through these landed entries (Catch up's ⇧↵ and ↵)
 
-// Catch up (catchup-view.js): what landed on the base since your checkpoint. Git alone until Reload.
+// Catch up (catchup-view.js): what landed on the base since your checkpoint, read in its own
+// reader (AK-372). Git alone until Reload.
 function openCatchup() {
   catchupPage = catchupView({
     repo: state.repo.root,
+    git,
     load: (opts) => api.app('catchup', opts),
     mark: (to) => api.app('catchup-mark', to),
     prsOn: () => Boolean(state.prs?.active),
     counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
-    onWalk: (entries, start, label) => go(() => { lanesWalk = { entries, start, label, onDone: () => setView('catchup') }; showView('lanes'); }),
     onReview: () => setView('lanes'),
     onCount: setCatchupCount,
   });
@@ -3364,6 +3362,9 @@ function openPalette() {
       add('Catch up', 'Catch up since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
       add('Catch up', 'Reload merged pull requests', () => catchupPage.reload(), { icon: 'restore', kbd: keymap.keys('catchup.reload'), keywords: 'catch up refresh fetch github merged pull requests ci gh' });
       if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
+      add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
+      add('Catch up', 'Show more or less of the description', () => catchupPage.toggleDescription(), { icon: 'diff', kbd: keymap.keys('catchup.description'), keywords: 'catch up reader description body pull request commit message expand' });
+      if (catchupPage.walking()) add('Catch up', 'Leave the walk-through', () => catchupPage.stopWalk(), { icon: 'x', kbd: keymap.keys('catchup.walkDone'), keywords: 'catch up walk through done stop exit' });
     }
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
