@@ -1,5 +1,6 @@
 import { h, icon, avatar, tipFor } from './ui.js';
 import * as keymap from './keymap.js';
+import { markdown } from './markdown.js';
 
 // The reader (AK-381): one set of building blocks for Review's right-hand pane (review-pane.js +
 // review-view.js) and Catch up's reader (catchup-view.js), so both read the same way.
@@ -114,7 +115,8 @@ export function readerHead({ num = null, numTip = '', title, badges = [], author
 }
 
 // The description box: `label` ("Description", "Commit message") and a `note` beside it, then the
-// text clamped to a few lines with "… Show more" where it's cut (hidden when it all fits). text ''
+// text, its markdown shown as prose (markdown.js), clamped to a few lines with "… Show more" where
+// it's cut (hidden when it all fits). text ''
 // says `empty`; null (GitHub sent none) shows nothing.
 export function descriptionBlock({ label = 'Description', note = null, text, empty = 'No description' }) {
   if (text == null) return null;
@@ -131,8 +133,8 @@ export function descriptionBlock({ label = 'Description', note = null, text, emp
   };
   const more = h('button.review-reason-link.reader-desc-more', { 'aria-expanded': String(descOpen), onclick: toggle }, descOpen ? 'Show less' : 'Show more');
   const body = descOpen
-    ? h('div.reader-desc-text', null, text, ' ', more)
-    : h('div.reader-desc-text.clamped', null, text, h('span.reader-desc-cut', null, '… ', more));
+    ? h('div.reader-desc-text', null, markdown(text), more)
+    : h('div.reader-desc-text.clamped', null, markdown(text), h('span.reader-desc-cut', null, '… ', more));
   const box = h('section.reader-desc' + (descOpen ? '.open' : ''), { 'aria-label': label }, head, body);
   // Show more only when the clamped text has more to show; re-checked as the reader resizes.
   if (!descOpen && typeof ResizeObserver === 'function') {

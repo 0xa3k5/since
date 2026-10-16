@@ -424,7 +424,29 @@ kbd.inline { flex: none; }
 .detail-head { padding: 12px 20px 16px; border-bottom: 1px solid var(--border); }
 .detail-actions { display: flex; align-items: center; gap: 6px; margin: 0 -8px 12px 0; }
 .detail-title { margin: 0; font-size: 17px; font-weight: var(--fw-strong); line-height: 1.35; letter-spacing: -0.012em; user-select: text; }
-.detail-body { margin: 12px 0 0; white-space: pre-wrap; font: 13px/1.6 var(--font); color: var(--text-2); user-select: text; }
+.detail-body { margin: 12px 0 0; font: 13px/1.6 var(--font); color: var(--text-2); user-select: text; }
+/* Markdown in commit messages and PR descriptions (markdown.js, AK-399): prose at the text's own size. */
+.md { overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md .md-list, .md .md-quote, .md .md-pre { margin: 0 0 0.6em; }
+.md .md-h { margin: 0.9em 0 0.35em; font-weight: var(--fw-strong); color: var(--text); line-height: 1.35; }
+.md .md-h1 { font-size: 1.12em; }
+.md .md-h2 { font-size: 1.05em; }
+.md .md-h3 { font-size: 1em; }
+.md strong { font-weight: var(--fw-strong); color: var(--text); }
+.md .md-list { padding-left: 1.4em; }
+.md .md-list li { margin: 0.15em 0; }
+.md .md-list li::marker { color: var(--text-4); }
+.md .md-task { list-style: none; margin-left: -1.3em; }
+.md .md-check { margin: 0 0.45em 0 0; vertical-align: -0.1em; accent-color: var(--accent); }
+.md .md-quote { padding-left: 0.8em; border-left: 2px solid var(--border-strong); color: var(--text-3); }
+.md .md-code { padding: 0.1em 0.35em; border-radius: 4px; background: var(--bg-active); font: 0.9em var(--mono); }
+.md .md-pre { padding: 8px 10px; border-radius: 6px; background: var(--bg-active); overflow-x: auto; white-space: pre; font: 0.9em/1.5 var(--mono); color: var(--text-2); }
+.md .md-hr { margin: 0.9em 0; border: 0; border-top: 1px solid var(--border); }
+.md .md-link { color: var(--accent-fg); text-decoration: none; }
+.md .md-link:hover { text-decoration: underline; }
+.md .md-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
 .props { padding: 12px 20px; display: grid; gap: 4px; border-bottom: 1px solid var(--border); }
 .prop { display: grid; grid-template-columns: 84px 1fr; align-items: center; min-height: 28px; }
 .prop-label { color: var(--text-3); font-size: 12.5px; }
@@ -1282,11 +1304,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .reader-desc { --reader-bg: var(--bg-content); margin: 0 22px 14px; padding: 10px 14px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
 .reader-desc-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
 .reader-desc-head .muted { font-weight: normal; color: var(--text-4); }
-.reader-desc-text { position: relative; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.reader-desc-text { position: relative; overflow-wrap: anywhere; user-select: text; }
 .reader-desc-text.clamped { max-height: 6em; overflow: hidden; }
 .reader-desc-text.none { color: var(--text-4); }
 .reader-desc-cut { position: absolute; right: 0; bottom: 0; padding-left: 2.5em; background: linear-gradient(to right, transparent, var(--reader-bg) 2em); color: var(--text-3); }
 .reader-desc.fits .reader-desc-cut { display: none; }
+.reader-desc-text > .md + .reader-desc-more { display: inline-block; margin-top: 2px; }
 .reader-desc-more { font-size: 12px; font-weight: normal; color: var(--accent-fg); text-decoration: none; }
 .reader-desc-more:hover { text-decoration: underline; }
 .reader-desc-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
