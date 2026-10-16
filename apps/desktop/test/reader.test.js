@@ -49,8 +49,22 @@ test('readerKey: arrows scroll and never step, ←/→ step, , and . jump files,
   assert.equal(readerKey(ev('v'), opts), null);
 });
 
-test('the description keys are gone and the walk-through mode with them (AK-381)', async () => {
+test('the description keys are gone and the walk-through mode with them (AK-381, AK-390)', async () => {
   const { command } = await import('../renderer/keymap.js');
-  for (const id of ['review.description', 'catchup.description', 'lanes.description', 'catchup.walkNext', 'catchup.walkPrev', 'catchup.walkDone']) assert.equal(command(id), undefined, id);
-  assert.ok(command('catchup.walk'), '⇧↵ still starts from the top');
+  for (const id of ['review.description', 'catchup.description', 'lanes.description', 'catchup.walkNext', 'catchup.walkPrev', 'catchup.walkDone', 'catchup.walk']) assert.equal(command(id), undefined, id);
+});
+
+test('⇧↑/⇧↓ scroll the reader four times as far (AK-390)', async () => {
+  const { scrollDelta, readerKey, fastKeys, LINE } = await import('../renderer/reader.js');
+  const keymap = await import('../renderer/keymap.js');
+  assert.ok(keymap.command('reader.downFast') && keymap.command('reader.upFast'));
+  assert.equal(scrollDelta('reader.downFast', 600), 4 * scrollDelta('reader.down', 600));
+  assert.equal(scrollDelta('reader.upFast', 600), -12 * LINE);
+  const calls = [];
+  const scroller = { clientHeight: 600, scrollBy: ({ top }) => calls.push(top) };
+  const ev = (key, o = {}) => ({ key, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, preventDefault() {}, stopPropagation() {}, target: null, ...o });
+  assert.equal(readerKey(ev('ArrowDown', { shiftKey: true }), { scroller }), 'reader.downFast');
+  assert.equal(readerKey(ev('ArrowUp', { shiftKey: true }), { scroller }), 'reader.upFast');
+  assert.deepEqual(calls, [12 * LINE, -12 * LINE]);
+  assert.equal(fastKeys().length, 3, 'one ⇧, then both arrows');
 });
