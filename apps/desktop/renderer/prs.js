@@ -36,7 +36,7 @@ export function prsByRef(data, refs = []) {
 
 // Where "go to PR" lands: its local branch if there is one, else its remote-tracking branch.
 export function prRef(pr, refs, byRef) {
-  const mine = refs.filter((r) => byRef.get(refKey(r)) === pr);
+  const mine = refs.filter((r) => byRef.get(refKey(r))?.number === pr.number);
   return mine.find((r) => r.kind === 'branch') || mine.find((r) => r.kind === 'remote') || null;
 }
 
@@ -98,4 +98,22 @@ export function inboxBuckets(prs = [], opts = {}) {
     const groups = [...out.get(b.id).values()];
     return { ...b, count: groups.reduce((n, g) => n + g.prs.length, 0), groups };
   }).filter((b) => b.count);
+}
+
+// The remote a pull request action runs against (app:pr-approve, -merge, -close, …), resolved in
+// one place: the PR's own remote (set on the review page), else the caller's (the Inbox's), else
+// the PR list's, else the GitHub remote app:pr-state picked (origin if it's on GitHub, else the
+// first remote that is). null when the repository has no GitHub remote.
+export function prActionRemote(pr, prs, fallback = null) {
+  return pr?.remote || fallback || prs?.data?.remote?.name || prs?.remote?.name || null;
+}
+
+export const NO_GITHUB_REMOTE = { code: 'no-remote', message: 'This repository has no GitHub remote. Add one (for example origin pointing at github.com), then try again.' };
+
+// Runs a pull request action through `call` (api.app) with the resolved remote. Without one it
+// doesn't call at all and returns a readable error instead of the IPC guard's.
+export async function prActionCall(call, channel, pr, opts, { prs = null, remote = null } = {}) {
+  const name = prActionRemote(pr, prs, remote);
+  if (!name) return { error: NO_GITHUB_REMOTE };
+  return call(channel, name, pr.number, opts).catch((e) => ({ error: { message: e.message } }));
 }
