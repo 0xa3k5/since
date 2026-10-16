@@ -13,7 +13,7 @@ test('every git method the main process serves has a schema, and nothing else do
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
   const { workOps, worktreeOps, laneOps } = require('../journal');
-  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'undo', 'redo', 'restoreHistory'];
+  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'autostashCheckout', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });
 
@@ -50,6 +50,7 @@ test('calls the renderer actually makes pass', () => {
     ['workingDiff', [{ path: 'new.txt', oldPath: 'old.txt', status: 'R' }, false]],
     ['checkout', ['feature/x']],
     ['checkoutTracking', ['origin/feature']],
+    ['autostashCheckout', ['feature', 'Auto-stash on main before switching to feature', true]],
     ['createBranch', ['topic', sha, true]],
     ['createTag', ['v1.0', sha, null]],
     ['createTag', ['v1.0', sha, 'Release']],
