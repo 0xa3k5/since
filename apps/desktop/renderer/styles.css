@@ -700,30 +700,41 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-detail { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
 .review-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-detail.warn { display: block; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-catchup:empty { display: none; }
-.review-catchup-card { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 6px; margin: 4px 0 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); box-shadow: var(--shadow-sm); font-size: 12px; color: var(--text-2); }
-.review-catchup-card:empty { display: none; }
-.catchup-head { display: flex; align-items: center; gap: 8px; }
-.catchup-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-strong); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.catchup-warn { display: flex; align-items: center; gap: 6px; color: var(--warn); }
-.catchup-counts { display: flex; flex-wrap: wrap; gap: 2px 14px; min-width: 0; color: var(--text-2); }
-.catchup-counts > span { flex: none; white-space: nowrap; }
-.catchup-since { flex: none; height: 22px; padding: 0 6px; color: var(--text-3); }
-.catchup-ci { display: inline-flex; align-items: center; gap: 4px; }
-.catchup-ci.passing .pr-ci { color: var(--green); }
+/* Catch up (catchup-view.js): the big number and actions, the timeline by day, the line to Review, the key bar. */
+.page.catchup { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; outline: 0; }
+.catchup-sub { font-size: 13px; }
+.catchup-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 32px 24px; }
+.catchup-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; padding: 4px 0 20px; border-bottom: 1px solid var(--border); }
+.catchup-total { display: grid; gap: 6px; min-width: 0; }
+.catchup-number { font-size: 15px; color: var(--text-2); }
+.catchup-number strong { font-size: 32px; line-height: 1; font-weight: var(--fw-strong); letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
+.catchup-sinceline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: 12px; color: var(--text-3); }
+.catchup-since { flex: none; height: 22px; padding: 0 6px; margin-left: -6px; color: var(--text-2); }
+.catchup-warn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--warn); }
+.catchup-ci.passing { color: var(--green); }
 .catchup-ci.failing { color: var(--red); }
-.catchup-ci.failing .pr-ci { color: var(--red); }
-.catchup-ci.pending .pr-ci { color: var(--yellow); }
-.catchup-groups { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
-.catchup-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.catchup-group > .badge, .catchup-group > .muted { flex: none; white-space: nowrap; }
-.catchup-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.catchup-more { height: 22px; padding: 0 6px; color: var(--accent-fg); }
-/* Same inset on every side, whichever range the picker is set to. */
-.review-catchup-card.compact { padding: 8px; }
-.review-catchup-card.compact .catchup-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
-.review-catchup-card.compact .catchup-head > .icon { flex: none; color: var(--green); }
-.catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.catchup-ci.pending { color: var(--yellow); }
+.catchup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.catchup-timeline { display: grid; padding-top: 8px; }
+.catchup-day { padding: 16px 8px 6px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-3); }
+.catchup-row { display: grid; grid-template-columns: max-content auto minmax(0, 1fr) auto; align-items: center; gap: 12px; height: 32px; padding: 0 8px; border-radius: var(--radius); cursor: default; }
+.catchup-row:hover { background: var(--bg-hover); }
+.catchup-row.active { background: var(--bg-selected); }
+.page.catchup:focus-visible .catchup-row.active { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.catchup-time { min-width: 5.5em; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.catchup-num { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.catchup-title { min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catchup-chip { white-space: nowrap; }
+.catchup-chip.muted { background: transparent; border: 1px solid var(--border); }
+.catchup-more { justify-self: start; height: 24px; margin: 6px 0 0 2px; padding: 0 6px; color: var(--accent-fg); }
+.catchup-note { padding: 8px; }
+.catchup-bridge { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; padding: 10px 14px; border: 1px dashed var(--border-strong); border-radius: 10px; font-size: 12px; color: var(--text-2); }
+.catchup-bridge strong { color: var(--text); font-weight: var(--fw-strong); }
+.catchup-empty { display: grid; justify-items: center; gap: 8px; padding: 64px 16px 24px; text-align: center; }
+.catchup-empty > .icon { color: var(--green); }
+.catchup-empty h2 { margin: 0; font-size: 16px; font-weight: var(--fw-strong); color: var(--text); }
+.catchup-empty p { margin: 0 0 8px; }
+.nav-badge.accent:not(:empty) { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; line-height: 16px; text-align: center; color: var(--on-accent); background: var(--accent-solid); font-weight: var(--fw-medium); }
 /* A section header's own button (Done, Plan merge) sits on the header line, so rows keep their full width. */
 .lanes-group.needs { display: flex; align-items: center; gap: 8px; }
 .lanes-group-act { margin-left: auto; height: 20px; padding: 0 6px; font-weight: var(--fw-medium); }

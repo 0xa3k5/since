@@ -572,32 +572,29 @@ process.exit(1);
   };
   const split = page.locator('.review-split');
 
-  // 1. Review: catch-up card, Stuck and Ready to merge.
+  // 1. Review: Stuck and Ready to merge.
   await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
-  const card = page.locator('.review-catchup-card');
-  // A later git-only refresh can overtake the catch-up's PR load; open Review again until the PRs are joined on.
-  await expect(async () => {
-    if (!(await card.locator('.catchup-counts').textContent().catch(() => ''))?.includes('14 merged')) {
-      await app.view('map');
-      await app.view('lanes');
-    }
-    await expect(card.locator('.catchup-counts')).toContainText('14 merged', { timeout: 4000 });
-  }).toPass({ timeout: 40_000 });
   await expect(page.locator('.lanes-group[data-stage="stuck"]')).toContainText('2');
   await expect(page.locator('.lanes-group[data-stage="ready"]')).toContainText('3');
   await expect(page.locator('.review-pane .review-row').first()).toBeVisible();
   await shot('review-dark');
 
-  // 2. Catch-up walk-through: what landed since the checkpoint, the first PR's diff in the pane.
-  await split.focus();
-  await split.press('Shift+Enter');
+  // 2. Catch up (AK-365): Reload joins the merged PRs on, then the walk-through shows the first PR's diff.
+  await app.view('catchup');
+  const catchup = page.locator('.page.catchup');
+  await catchup.press('Shift+R');
+  await expect(catchup.locator('.catchup-number')).toContainText('14 PRs merged', { timeout: 40_000 });
+  await shot('catchup-timeline-dark');
+  await catchup.press('Shift+Enter');
   await expect(page.locator('.lanes-group[data-stage="landed"]')).toContainText('· 14');
   await expect(page.locator('.review-pane .quick-title')).toContainText('#225');
   await expect(page.locator('.review-pane .diff-scroll')).toContainText('jitter');
   await shot('catchup-dark');
   await split.focus();
   await split.press('Escape');
-  await expect(page.locator('.lanes-group[data-stage="landed"]')).toHaveCount(0);
+  await expect(catchup).toBeVisible();
+  await app.view('lanes');
+
 
   // 3. A ready PR in the pane, two files ticked as reviewed.
   const row231 = page.locator('.lanes-row[data-key="pr:231"]');

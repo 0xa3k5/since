@@ -109,3 +109,63 @@ export function countsText({ entries, stuck, ready, prsOn, ci, base }) {
   const ciText = ci ? { passing: 'CI passing', failing: `CI failing${ci.failed?.length ? `: ${ci.failed.join(', ')}` : ''}`, pending: 'CI running' }[ci.state] : null;
   return { parts, ci: ciText ? { state: ci.state, text: `${base} ${ciText}` } : null };
 }
+
+// The Catch up view's timeline (AK-365): entries by local day, newest first. "Today", "Yesterday",
+// then dateLabel(start of that day). Entries without a date go last. → [{ id, label, entries }]
+const dayStart = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const longDate = (ms) => new Date(ms).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+export function byDay(entries = [], { now = Date.now(), dateLabel = longDate } = {}) {
+  const today = dayStart(now);
+  const yesterday = dayStart(today - 1);
+  const days = new Map();
+  for (const e of [...entries].sort((a, b) => (b.date || 0) - (a.date || 0))) {
+    const d = e.date ? dayStart(e.date) : null;
+    const id = d == null ? 'undated' : String(d);
+    let g = days.get(id);
+    if (!g) { g = { id, label: d == null ? 'Undated' : d === today ? 'Today' : d === yesterday ? 'Yesterday' : dateLabel(d), entries: [] }; days.set(id, g); }
+    g.entries.push(e);
+  }
+  return [...days.values()];
+}
+
+// How many rows the timeline shows before "+ N more ▸".
+export const FIRST = 10;
+// The first n entries across the days (days left empty drop out). → { days, more: how many are hidden }
+export function firstOf(days, n = FIRST) {
+  const out = [];
+  let left = n;
+  for (const d of days) {
+    if (left <= 0) break;
+    const entries = d.entries.slice(0, left);
+    left -= entries.length;
+    out.push({ ...d, entries });
+  }
+  const total = days.reduce((s, d) => s + d.entries.length, 0);
+  return { days: out, more: Math.max(0, total - n) };
+}
+
+// The big number: merged PRs, or the commits that landed when none came with a PR.
+// → { count, text: "PRs merged" | "commits landed", extra: "· 3 other commits" | null }
+export function headline(entries = []) {
+  const prs = entries.filter((e) => e.kind === 'pr').length;
+  const loose = entries.length - prs;
+  const s = (n, one, many) => (n === 1 ? one : many);
+  if (!prs) return { count: entries.length, text: s(entries.length, 'commit landed', 'commits landed'), extra: null };
+  return { count: prs, text: s(prs, 'PR merged', 'PRs merged'), extra: loose ? `${loose} other ${s(loose, 'commit', 'commits')}` : null };
+}
+
+// The since picker's label in the view: "since your checkpoint", "since yesterday", "since tag v0.1.0".
+export function sincePhrase(since = { since: 'checkpoint' }) {
+  if (since.since === 'tag') return `since tag ${since.tag}`;
+  if (since.since === 'yesterday') return 'since yesterday';
+  if (since.since === 'week') return 'since last week';
+  return 'since your checkpoint';
+}
+// When a checkpoint was: "Tuesday 18:40" within the week, "Oct 3 18:40" before that.
+export function whenText(ms, { now = Date.now() } = {}) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const day = now - ms < 6 * 24 * 3600e3 ? d.toLocaleDateString(undefined, { weekday: 'long' }) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${day} ${time}`;
+}

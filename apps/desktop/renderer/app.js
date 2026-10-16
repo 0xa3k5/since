@@ -8,7 +8,8 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
-import { lanesView } from './lanes-view.js';
+import { lanesView, reviewCounts } from './lanes-view.js';
+import { catchupView } from './catchup-view.js';
 import { createNav } from './nav.js';
 import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
@@ -182,6 +183,7 @@ const refreshHistory = coalesce(async () => {
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
   if (state.view === 'lanes') (state.cleanup ? cleanupPage : lanesPage)?.refresh();
+  if (logChanged) { if (state.view === 'catchup' && catchupPage) catchupPage.refresh(); else countCatchup(); }
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
@@ -475,7 +477,8 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null;
+let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null, catchupPage = null;
+let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 
 // ---------------------------------------------------------------------------
 // Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
@@ -568,14 +571,15 @@ function renderShell() {
 let startView = 'lanes';
 
 const VIEWS = [
-  { id: 'lanes', label: 'Review', icon: 'lanes', key: '1' },
-  { id: 'map', label: 'Map', icon: 'map', key: '2' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '3' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '4' },
-  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '5' },
-  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '6' },
-  { id: 'config', label: 'Config', icon: 'config', key: '7' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '8' },
+  { id: 'catchup', label: 'Catch up', icon: 'catchup', key: '1' },
+  { id: 'lanes', label: 'Review', icon: 'lanes', key: '2' },
+  { id: 'map', label: 'Map', icon: 'map', key: '3' },
+  { id: 'commit', label: 'Commit', icon: 'commit', key: '4' },
+  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '5' },
+  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '6' },
+  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '7' },
+  { id: 'config', label: 'Config', icon: 'config', key: '8' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '9' },
 ];
 
 function setView(v) {
@@ -752,6 +756,7 @@ function renderNavCounts() {
   const set = (id, v, cls) => { const b = sidebarEl.querySelector(`[data-view="${id}"] .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
   set('stashes', state.stashes.length);
+  set('catchup', catchupCount, 'accent');
 }
 
 function renderTopbar() {
@@ -947,6 +952,7 @@ function renderView(soft = false) {
   conflictEd = null;
   contentEl.replaceChildren();
   contentEl.dataset.view = state.view;
+  catchupPage = null;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
@@ -961,6 +967,7 @@ function renderView(soft = false) {
     case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
     case 'lanes': contentEl.append(state.cleanup ? openCleanup().el : openLanes().el); break;
+    case 'catchup': contentEl.append(openCatchup().el); break;
   }
 }
 
@@ -2340,7 +2347,7 @@ function openLanes() {
     onSendBack: sendBackRow,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
     all: lanesAll,
-    catchup: { load: (opts) => api.app('catchup', opts), mark: (to) => api.app('catchup-mark', to) },
+    walk: lanesWalk,
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
@@ -2356,7 +2363,34 @@ function openLanes() {
   });
   lanesAll = false;
   lanesPlace = null;
+  lanesWalk = null;
   return lanesPage;
+}
+let lanesWalk = null; // the next Review page walks through these landed entries (Catch up's ⇧↵ and ↵)
+
+// Catch up (catchup-view.js): what landed on the base since your checkpoint. Git alone until Reload.
+function openCatchup() {
+  catchupPage = catchupView({
+    repo: state.repo.root,
+    load: (opts) => api.app('catchup', opts),
+    mark: (to) => api.app('catchup-mark', to),
+    prsOn: () => Boolean(state.prs?.active),
+    counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
+    onWalk: (entries, start, label) => go(() => { lanesWalk = { entries, start, label, onDone: () => setView('catchup') }; showView('lanes'); }),
+    onReview: () => setView('lanes'),
+    onCount: setCatchupCount,
+  });
+  return catchupPage;
+}
+// The sidebar badge on Catch up: what landed since the checkpoint (git alone); none once caught up.
+function setCatchupCount(n) { if (n === catchupCount) return; catchupCount = n; renderNavCounts(); }
+function countCatchup() {
+  countRun ??= coalesce(async () => {
+    if (!state.repo) return;
+    const r = await api.app('catchup', { since: 'checkpoint' }).catch(() => null);
+    setCatchupCount(r?.commits?.length || 0);
+  });
+  return countRun();
 }
 let lanesAll = false; // the next Review page starts with Everything else open
 // ⌘K Show / hide everything else: Review, in that mode.
@@ -3319,10 +3353,12 @@ function openPalette() {
       if (prDescription(paneSel.row.pr)) add('Review', `Expand or collapse ${t}’s description`, () => lanesPage.toggleDescription(), { icon: 'lanes', kbd: keymap.keys('lanes.description'), keywords: 'review pane pull request description body summary expand collapse' });
     }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
-    if (state.view === 'lanes' && lanesOpen() && lanesPage) {
-      add('Review', 'Walk through what landed', () => lanesPage.walk(), { icon: 'commit', kbd: keymap.keys('lanes.walk'), keywords: 'catch up merged landed since checkpoint walk step through main' });
-      add('Review', 'Mark caught up', () => lanesPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('lanes.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
-      add('Review', 'Catch up since…', () => lanesPage.pickSince(), { icon: 'history', kbd: keymap.keys('lanes.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
+    if (state.view === 'catchup' && catchupPage) {
+      add('Catch up', 'Walk through what landed', () => catchupPage.walk(), { icon: 'commit', kbd: keymap.keys('catchup.walk'), keywords: 'catch up merged landed since checkpoint walk step through main' });
+      add('Catch up', 'Mark caught up', () => catchupPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('catchup.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
+      add('Catch up', 'Catch up since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
+      add('Catch up', 'Reload merged pull requests', () => catchupPage.reload(), { icon: 'restore', kbd: keymap.keys('catchup.reload'), keywords: 'catch up refresh fetch github merged pull requests ci gh' });
+      if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
     }
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
@@ -3458,7 +3494,7 @@ function shortcutsScope() {
   if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
-  return ['commit', 'stashes', 'snapshots', 'worktrees'].includes(state.view) ? state.view : 'map';
+  return ['commit', 'stashes', 'snapshots', 'worktrees', 'catchup'].includes(state.view) ? state.view : 'map';
 }
 function openShortcuts() {
   if (shortcuts) return shortcuts.close();

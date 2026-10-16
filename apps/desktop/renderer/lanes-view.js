@@ -1,7 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
-import { catchupCard } from './catchup-view.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
 
@@ -9,8 +8,7 @@ import * as keymap from './keymap.js';
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
-// bottom: the catch-up card (catchup-view.js: what landed since your checkpoint; ⇧↵ walks through it
-// one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
+// bottom: Stuck · N (each row says why, review-rows.js stuckReason), Ready to
 // merge · N, then lines that open in place: In progress · N ▾, Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
 // "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
@@ -20,8 +18,9 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
 // merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
 // come from local data alone, plus one line to turn them on: no `gh` calls.
-// Opening Review, repo changes and window focus read local data only: no network. Pull requests (and
-// the catch-up card's merged PRs) load when you press Reload (⇧R, the header button, ⌘K) or right
+// Catch up (catchup-view.js) opens Review walking through what landed (`walk`), one row at a time in
+// the split pane; Esc goes back to Catch up.
+// Opening Review, repo changes and window focus read local data only: no network. Pull requests load when you press Reload (⇧R, the header button, ⌘K) or right
 // after your own approve, close or merge. The last PR load is kept in memory for the open repo
 // (prCache), so coming back to Review shows it at once, with "Updated 4m ago" beside Reload.
 
@@ -41,9 +40,10 @@ const DEBOUNCE = 400;
 const PR_TIMEOUT = 30e3; // `gh` hung or offline: say so instead of loading forever
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // The last pull request load, kept across visits to Review (this window, this session) so coming back
-// costs no `gh` call: { repo, inbox, prs: the lanes that had a PR (for keepPrs), catchup: the catch-up
-// card's PR part, loadedAt (ms) }. Another repo, or pull requests turned off, drops it.
+// costs no `gh` call: { repo, inbox, prs: the lanes that had a PR (for keepPrs), loadedAt (ms) }. Another repo, or pull requests turned off, drops it.
 let prCache = null;
+// Review's last stuck and ready-to-merge counts, for Catch up's line to Review: { repo, stuck, ready }.
+let lastCounts = null;
 const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 
 // load({ prs, inbox }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
@@ -57,9 +57,9 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-// catchup: { load, mark } for the catch-up card (app:catchup, app:catchup-mark); null leaves it out.
+// walk: { entries, start, label, onDone } opens on Catch up's landed entries (catchup.js landedEntries) from `start`; Esc calls onDone.
 // git(method, ...args) reads the files an Everything else row's branch changes, for its preview in the pane.
-export function lanesView({ repo = null, git = null, catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
+export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   const seed = prsOn() && prCache ? prCache : null;
   let lanes = [];
@@ -488,9 +488,7 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     if (prsOn() && (id === 'approve' || id === 'close' || id === 'merge')) fetchLanes({ prs: true }).catch(fail);
   }
 
-  // The catch-up card, and the walk-through: its landed entries as rows (newest first) in the split pane.
-  const card = catchup ? catchupCard({ ...catchup, prsOn, seed: seed?.catchup || null, onWalk: () => walk(), onChange: () => remember() }) : null;
-  const catchUp = h('div.review-catchup', { 'data-slot': 'catch-up' }, card?.el);
+  // The walk-through (from Catch up): its landed entries as rows in the split pane.
   let walking = null; // landed rows while walking through what landed
   const landedRow = (e) => ({
     key: `landed:${e.id}`, landed: e, pr: null, stage: 'landed',
@@ -499,12 +497,12 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     lane: { name: e.sha, branch: null, head: e.sha, isBase: false, worktree: null },
   });
   function walk(on = true) {
-    if (on && !card?.walkList().length) return toast('Nothing landed to walk through');
-    walking = on ? card.walkList().map(landedRow) : null;
+    walking = on && walkFrom?.entries.length ? walkFrom.entries.map(landedRow) : null;
     filter.value = '';
     render();
-    if (walking) select(walking[0].key);
+    if (walking) select(walking[Math.max(0, Math.min(walking.length - 1, walkFrom.start || 0))].key);
     el.focus({ preventScroll: true });
+    if (!on) walkFrom?.onDone?.();
   }
   function landedRowEl(r) {
     const e = r.landed;
@@ -541,18 +539,17 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     const everything = filterLanes(marked, '', { agentsOnly, conflictsOnly }).map((l) => ({ key: allKey(l), lane: l, entry: true }));
     const rows = [];
     const q = filter.value.trim();
-    card?.setCounts({ stuck: staged.stages.stuck.length, ready: staged.stages.ready.length });
+    if (loaded) lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length };
     if (walking) {
       shown = walking;
-      rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, `${walking[0].landed.kind === 'pr' ? 'Merged' : 'Landed'} ${card.sinceLabel()} `, h('span.lanes-count', null, `· ${walking.length}`)),
-        h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Review (Esc)' }, 'Done', kbd('Esc'))));
+      rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, `${walkFrom.label} `, h('span.lanes-count', null, `· ${walking.length}`)),
+        h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Catch up (Esc)' }, 'Done', kbd('Esc'))));
       for (const r of walking) rows.push(landedRowEl(r));
     } else if (q) {
       shown = filterRows(staged.all, q);
       for (const r of shown) rows.push(stagedRow(r));
     } else {
       shown = [];
-      rows.push(catchUp);
       for (const s of STAGES) {
         const rs = staged.stages[s.id];
         // Stuck and Ready to merge always show their count; with PRs off nothing is ever ready.
@@ -606,7 +603,7 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     // A few keys with short labels; everything else is in ⌘K.
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     hint.replaceChildren(...(walking
-      ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Done')]
+      ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Back to Catch up')]
       : [k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'),
         pane ? k(['Esc'], 'Back') : many > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
       k(keymap.keys('view.palette'), 'All commands', '.all'));
@@ -716,9 +713,6 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.reload') reload();
     else if (id === 'lanes.open') { if (l) onOpen(l); else if (x) act('open', x); }
-    else if (id === 'lanes.walk' && !typing) walk();
-    else if (id === 'lanes.caughtUp' && !typing && card) card.markCaughtUp();
-    else if (id === 'lanes.since' && !typing && card) card.pickSince();
     else if (id === 'lanes.clear') {
       if (walking && !filter.value) { walk(false); e.preventDefault(); e.stopPropagation(); return true; }
       if (!filter.value && !typing) return false; // let Escape through
@@ -778,7 +772,6 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
   async function fetchLanes({ prs }) {
     const withPrs = Boolean(prs && prsOn());
     const t = loads.start(withPrs);
-    card?.reload({ prs: withPrs });
     if (withPrs) { reloading = true; inboxFailed = false; render(); } // Reload / Retry: "Reloading…"
     let res;
     try {
@@ -829,10 +822,10 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
   const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
   // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub on its own.
   const reload = () => (reloading ? Promise.resolve() : fetchLanes({ prs: true }).catch(fail));
-  // Keep the last PR load (and the catch-up card's PR part) for the next visit to Review.
+  // Keep the last PR load for the next visit to Review.
   function remember() {
     if (!prsOn() || !inbox || !loadedAt) return;
-    prCache = { repo, inbox, prs: lanes.filter((l) => l.pr), catchup: card?.prData() || prCache?.catchup || null, loadedAt };
+    prCache = { repo, inbox, prs: lanes.filter((l) => l.pr), loadedAt };
   }
 
   // Called on every repo change: debounced, local only (no network), keeps the selection.
@@ -846,7 +839,7 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
   // "Updated 4m ago" keeps up while Review is open; stops once the page is gone.
   const tick = setInterval(() => { if (el.isConnected) renderReload(); else clearInterval(tick); }, AGO_TICK);
 
-  render();
+  if (walkFrom) walk(); else render();
   fetchLanes({ prs: false }).catch(fail);
   setTimeout(() => el.focus({ preventScroll: true }));
   // ⌘K "Show everything else" / "Hide everything else".
@@ -882,5 +875,16 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     select(r.key);
     act('sendBack', r);
   }
-  return { el, walk: () => walk(), markCaughtUp: () => card?.markCaughtUp(), pickSince: () => card?.pickSince(), refresh, stuckSelection, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, refresh, stuckSelection, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+}
+
+// Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or
+// worked out from local lanes and the cached PRs (no `gh` call). load → app:lanes-list.
+export async function reviewCounts({ repo, load, prsOn }) {
+  if (lastCounts?.repo === repo) return lastCounts;
+  const res = await load({ prs: false });
+  const cached = prsOn() && prCache?.repo === repo ? prCache : null;
+  const lanes = cached ? keepPrs(res.lanes, cached.prs) : res.lanes;
+  const { stages } = reviewRows({ lanes, prs: cached?.inbox.prs || [], reviewRequested: cached?.inbox.requested || [], forecast: null, prsOn: prsOn(), now: Date.now(), previous: null });
+  return { repo, stuck: stages.stuck.length, ready: stages.ready.length };
 }
