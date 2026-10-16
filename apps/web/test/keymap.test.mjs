@@ -28,8 +28,10 @@ test('shows macOS keys, pairs and alternatives', () => {
 
 test('views have ⌘ numbers and G shortcuts', () => {
   const v = group('views');
-  assert.equal(v.length, 9);
-  assert.deepEqual(find(v, 'Worktrees')?.keys, ['⌘', '9']);
+  assert.equal(v.length, 10);
+  assert.deepEqual(find(v, 'Worktrees')?.keys, ['⌘', '0']);
+  assert.deepEqual(find(v, 'Branches')?.keys, ['⌘', '3']);
+  assert.deepEqual(find(v, 'Branches')?.alt, ['G', 'B']);
   assert.deepEqual(find(v, 'Catch up')?.keys, ['⌘', '1']);
   assert.deepEqual(find(v, 'Review')?.keys, ['⌘', '2']);
   assert.deepEqual(find(v, 'Snapshots')?.alt, ['G', 'H']);
