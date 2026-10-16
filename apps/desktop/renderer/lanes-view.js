@@ -192,6 +192,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     } else if (id === 'open') { if (lane) onOpen(lane); else if (pr) onPrReview(pr, inbox?.remote); }
     else if (id === 'checkout') { if (pr) onCheckout(pr, { worktree: true }); }
     else if (id === 'checkoutHere') { if (lane) onOpen(lane); else if (pr) onCheckout(pr, { worktree: false }); }
+    else if (id === 'updateBranch') { if (pr && onPaneAction) onPaneAction(id, r, paneCtx(r)); else toast(`${r.title} has no pull request to update`); }
     else if (id === 'sendBack') { if (r.stage === 'stuck') onSendBack(r, paneCtx(r)); else toast(`${r.title} isn’t stuck`); }
     else if (id === 'details') toggleDetails(r.key);
     else runKey(id, asLane(r));
@@ -538,6 +539,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     else if (id === 'lanes.merge') act('merge', x);
     else if (id === 'lanes.details') act('details', x);
     else if (id === 'lanes.sendBack') act('sendBack', x);
+    else if (id === 'lanes.updateBranch') act('updateBranch', x);
     else if (id === 'lanes.showConflicts') { if (baseConflict(x, base)) jumpToConflicts(x); else toast(`${x.title} doesn’t conflict with ${x.pr?.base || base || 'its base'}`); }
     else if (id === 'lanes.checkoutHere') act('checkoutHere', x);
     else if (PANE_KEYS[id] && split()) act(PANE_KEYS[id], x);

@@ -2652,6 +2652,7 @@ function paneAction(id, row, ctx) {
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
   if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
+  if (id === 'updateBranch' && pr) return updatePrBranch(pr, done);
   if (id === 'sendBack') return sendBackRow(row, ctx);
   toast(`That doesn’t apply to ${row.title}`);
 }
@@ -3376,6 +3377,27 @@ const closePr = (given, onDone) => withPr(given, 'Close', async (pr) => {
   refreshPrs();
 });
 
+// Update branch (AK-364): bring a PR that isn't checked out here up to date with its base on
+// GitHub (`gh pr update-branch`), with a merge commit or a rebase. GitHub refuses when the two
+// conflict; then the PR has to be checked out and fixed here.
+const updatePrBranch = (given, onDone) => withPr(given, 'Update branch of', async (pr) => {
+  const base = pr.base || 'its base';
+  const v = await dialog({
+    title: `Update #${pr.number} with ${base}?`,
+    description: `${pr.title}\n${REMOTE_NOTE}`,
+    submit: 'Update branch',
+    fields: [{ name: 'how', type: 'select', label: 'How', value: 'merge', options: [{ value: 'merge', label: `Merge ${base} into it` }, { value: 'rebase', label: `Rebase it onto ${base} (rewrites its commits)` }] }],
+  });
+  if (!v) return;
+  const res = await prCall('pr-update-branch', pr, { rebase: v.how === 'rebase' }, `Updating #${pr.number}…`);
+  if (res.error) return pr.mergeState === 'dirty' || pr.mergeable === false
+    ? toast(`Couldn’t update #${pr.number}`, { kind: 'error', detail: `GitHub can’t update a branch that conflicts with ${base}. Check it out (${keyText('lanes.checkout')}) to fix it here.` })
+    : prError(`Couldn’t update #${pr.number}`, res.error);
+  toast(`Updated #${pr.number} with ${base}`, { kind: 'success' });
+  onDone?.();
+  refreshPrs();
+});
+
 // The inbox's Ready bucket, squash-merged on GitHub one at a time after one confirmation. Stops
 // at the first failure and says what merged. The branches stay; deleting them is up to you.
 async function mergeReadyPrs(prs, remote) {
@@ -3556,8 +3578,9 @@ function openPalette() {
       }
       if (paneSel.row.pr && !paneSel.row.lane) add('Review', `Check out ${t} here`, () => checkoutPr(paneSel.row.pr), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
-      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
-        add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
+      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || x.id === 'updateBranch' || (x.id === 'checks' && !paneSel.row.lane))) {
+        const label = a.id === 'checks' ? 'Open failing checks of' : a.id === 'updateBranch' ? 'Update branch of' : 'Show conflicts in';
+        add('Review', `${label} ${t}${a.id === 'updateBranch' ? ' on GitHub…' : ''}`, () => (a.id === 'showConflicts' ? lanesPage.showRowConflicts() : paneAction(a.id, paneSel.row, paneSel.ctx)), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase update branch behind merge base github' });
       }
     }
     add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
