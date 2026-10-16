@@ -302,7 +302,7 @@ async function cleanupLanes(s, items, label) {
     if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another window. Close that window first.`);
   }
   const onProgress = (p) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
-  return s.journal.runCleanup(label || `Clean up ${items.length} lane${items.length === 1 ? '' : 's'}`, items, { onProgress });
+  return s.journal.runCleanup(label || `Clean up ${items.length} branch${items.length === 1 ? '' : 'es'}`, items, { onProgress });
 }
 
 // The window showing a repository root, if any.
