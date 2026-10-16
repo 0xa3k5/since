@@ -1270,11 +1270,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .reader-authors .reader-author { min-width: 0; }
 .reader-author-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-arrow { color: var(--text-4); }
-/* Rows: a small avatar beside each name at the start of the line under the title; never in the stuck red. */
-.review-row-authors { gap: 4px; vertical-align: -3px; }
-.review-row-authors .reader-author { gap: 4px; color: var(--text-2); }
+/* Rows (AK-400): who made it is one avatar group at the start of the line under the title, then "·" and
+   the rest; everything on the line shares one centre, and only the text after the group truncates. */
+.review-row-sub, .review-row.staged .review-reason { display: flex; align-items: center; gap: 5px; }
+.review-row-sep { flex: none; color: var(--text-4); }
 .review-row.staged .review-reason .review-row-sep { color: var(--text-3); }
-.lanes-row .list-sub > .review-row-authors { margin-right: 4px; }
+.review-row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The slim bar keeps the avatars; the names stay in their tooltips. */
 .reader-mini-authors { flex: none; gap: 4px; }
 .reader-mini-authors .reader-author-name { display: none; }
