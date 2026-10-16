@@ -1,19 +1,19 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
-import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
 
 // "2h ago", but "just now" and "Oct 3" as they are.
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
 
-// Review, the home view: one row per piece of work (per pull request while PRs are on), top to
-// bottom: Stuck · N (each row says why, review-rows.js stuckReason), Ready to
-// merge · N, then lines that open in place: In progress · N ▾, Everything else · N ▾ (every branch
+// Review, the home view: one row per piece of work (per pull request while PRs are on), one list at
+// a time behind tabs (AK-361, review-rows.js TABS; 1–5): Needs you (Stuck · N, each row says why,
+// review-rows.js stuckReason, then Ready to merge · N), Stuck, Ready, In progress and All open; then lines that open in place: Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
 // "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
 // button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
-// uncommitted changes, Show in Map), E opens In progress, S opens Everything else (A agent lanes
+// uncommitted changes, Show in Map), E shows In progress, S opens Everything else (A agent lanes
 // only, C predicted conflicts only), typing filters every row.
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
 // merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
@@ -30,7 +30,8 @@ const LANE_KEYS = { 'lanes.rebase': 'rebase', 'lanes.checks': 'checks', 'lanes.d
 // The split view's pane actions from the list (pr-review.js PANE_ACTIONS; M merges through lanes.merge).
 const PANE_KEYS = { 'lanes.approve': 'approve', 'lanes.closePr': 'close', 'lanes.checkout': 'checkout', 'lanes.github': 'github' };
 const BUCKET = new Map(BUCKETS.map((b) => [b.id, b]));
-const COLLAPSED = new Set(['inProgress']);
+const TAB = new Map(TABS.map((t) => [t.id, t]));
+const NONE = { stuck: 'Nothing is stuck.', ready: 'Nothing is ready to merge yet.', inProgress: 'Nothing is in progress.' };
 // Everything else rows are lanes; their keys get this prefix so a lane can also be a staged row.
 const ALL = 'all:';
 const allKey = (l) => ALL + laneKey(l);
@@ -44,6 +45,8 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 let prCache = null;
 // Review's last stuck and ready-to-merge counts, for Catch up's line to Review: { repo, stuck, ready }.
 let lastCounts = null;
+// The last tab, kept across visits to Review (this window, this session).
+let lastTab = 'needs';
 const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 
 // load({ prs, inbox }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
@@ -80,13 +83,12 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
   let base = null;
   let timer = 0;
   const loads = loadGuard();
-  const opened = new Set(); // collapsed stages the user opened
+  let tab = TAB.has(place?.tab) ? place.tab : lastTab; // TABS id
   const details = new Set(); // rows with Details ▾ open
   let wanted = place?.key ?? null; // the row to select once it's loaded
   let wantedScroll = place?.scroll ?? null;
   if (place) {
     all = !!place.all; agentsOnly = !!place.agentsOnly; conflictsOnly = !!place.conflictsOnly;
-    for (const id of place.opened || []) opened.add(id);
   }
 
   const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter…', spellcheck: false, 'aria-label': 'Filter', value: place?.filter || '' });
@@ -98,6 +100,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
   const empty = h('div.empty');
   const title = h('h1', null, 'Review');
   const lede = h('p.muted');
+  const tabBar = h('div.review-tabs', { role: 'tablist', 'aria-label': 'Review lists' });
   const hint = h('div.review-hints');
   const reloadKeys = () => keymap.keys('lanes.reload');
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
@@ -108,6 +111,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     h('div.page-head.review-head', null,
       h('div.review-head-row', null, title, count, h('span.spacer'), updated, reloadBtn, cleanupBtn),
       lede),
+    tabBar,
     h('div.lanes-bar', null, icon('search', 14), filter, allChip, agentChip, conflictChip),
     list,
     empty,
@@ -525,7 +529,6 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
   }
 
   function renderStaged() {
-    lede.textContent = prsOn() ? 'What’s stuck and what’s ready to merge come first. Everything else is a step away.' : 'Your branches and worktrees. What’s stuck comes first.';
     const prsLoading = prsOn() && !inbox && !inboxFailed && reloading;
     const prsUnloaded = prsOn() && !inbox && !inboxFailed && !reloading; // nothing cached, Reload not pressed yet
     // A PR GitHub is still checking keeps the stage it had (AK-321).
@@ -550,19 +553,18 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
       for (const r of shown) rows.push(stagedRow(r));
     } else {
       shown = [];
-      for (const s of STAGES) {
-        const rs = staged.stages[s.id];
-        // Stuck and Ready to merge always show their count; with PRs off nothing is ever ready.
-        if (!rs.length && (COLLAPSED.has(s.id) || (s.id === 'ready' && !prsOn()))) continue;
-        const collapsed = COLLAPSED.has(s.id) && !opened.has(s.id);
-        if (COLLAPSED.has(s.id)) {
-          rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(!collapsed), 'data-stage': s.id, onclick: () => toggleStage(s.id), title: `Show or hide (${keymap.keys('lanes.stages').join(' or ').toUpperCase()})` }, s.label, ' ', h('span.lanes-count', null, String(rs.length)), ` ${collapsed ? '▾' : '▴'}`));
-        } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, h('span', null, s.label, ' ', h('span.lanes-count', null, String(rs.length))),
-          s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
-        if (collapsed) continue;
-        if (!rs.length && loaded && !prsLoading && !(prsUnloaded && s.id === 'ready')) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
+      const t = TAB.get(tab);
+      const many = t.stages.length > 1;
+      for (const id of t.stages) {
+        const rs = staged.stages[id];
+        const label = STAGES.find((x) => x.id === id).label;
+        // Needs you always shows Stuck and (with PRs on) Ready to merge; All open only the stages with rows.
+        if (many && !rs.length && (tab === 'open' || (id === 'ready' && !prsOn()))) continue;
+        if (many) rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': id }, h('span', null, label, ' ', h('span.lanes-count', null, String(rs.length)))));
+        if (!rs.length && loaded && !prsLoading && !(prsUnloaded && id !== 'stuck')) rows.push(h('div.review-none', null, NONE[id]));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
       }
+      if (tab === 'open' && !shown.length && loaded && !prsLoading && !prsUnloaded) rows.push(h('div.review-none', null, 'Nothing is open.'));
       rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▴' : '▾'}`));
       if (all) {
         let bucket = null;
@@ -591,9 +593,13 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     conflictChip.classList.toggle('on', conflictsOnly);
     const n = staged.stages.stuck.length;
     const ready = staged.stages.ready.length;
-    // While PRs load, the local counts show with a spinner; "ready" needs the PRs.
-    count.replaceChildren(...(!loaded ? ['Loading…'] : prsLoading ? [`${n} stuck`, h('span.spinner.review-count-spin', { role: 'status', 'aria-label': 'Loading pull requests' })]
-      : [[`${n} stuck`, prsOn() ? `${ready} ready` : null].filter(Boolean).join(' · ')]));
+    const needs = n + ready;
+    // The counts live on the tabs; the title row only says it's loading.
+    count.replaceChildren(...(!loaded ? ['Loading…'] : prsLoading ? [h('span.spinner.review-count-spin', { role: 'status', 'aria-label': 'Loading pull requests' })] : []));
+    lede.textContent = !prsOn() ? 'Your branches and worktrees. What’s stuck comes first.'
+      : !loaded || prsUnloaded || prsLoading ? 'Pull requests that need you, one list at a time.'
+        : needs ? `${plural(needs, 'pull request needs', 'pull requests need')} you` : 'Nothing needs you right now.';
+    renderTabs();
     const failed = loaded && !prsLoading && inboxFailed && prsOn();
     empty.replaceChildren(...(failed ? ['Couldn’t load pull requests. ', h('button.btn.ghost.small', { onclick: () => fetchLanes({ prs: true }).catch(fail) }, 'Retry')]
       : loaded && prsUnloaded && !(q && !shown.length) ? ['Pull requests aren’t loaded. ', h('button.btn.ghost.small', { onclick: () => reload() }, 'Reload', kbd(...reloadKeys()))]
@@ -604,7 +610,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     hint.replaceChildren(...(walking
       ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Back to Catch up')]
-      : [k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'),
+      : [k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'), k(['1–5'], 'Tabs'),
         pane ? k(['Esc'], 'Back') : many > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
       k(keymap.keys('view.palette'), 'All commands', '.all'));
   }
@@ -630,15 +636,28 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     onMergePlan({ ready, others, base: to, remote: inbox.remote });
   }
 
-  function toggleStage(id) {
-    if (opened.has(id)) opened.delete(id); else opened.add(id);
-    render();
+  function renderTabs() {
+    tabBar.hidden = Boolean(walking);
+    const total = (t) => t.stages.reduce((sum, id) => sum + (staged?.stages[id]?.length || 0), 0);
+    tabBar.replaceChildren(...TABS.map((t) => {
+      const on = t.id === tab;
+      const n = total(t);
+      return h('button.review-tab' + (t.id === 'stuck' && n ? '.stuck' : ''), {
+        role: 'tab', 'aria-selected': String(on), tabIndex: on ? 0 : -1, 'data-tab': t.id,
+        'data-tip': tipFor(t.label, t.keyId), onclick: () => setTab(t.id),
+      }, t.label, loaded ? h('span.review-tab-n', null, String(n)) : null);
+    }),
+    h('span.spacer'),
+    (tab === 'needs' || tab === 'ready') && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), 'data-tip': tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null);
   }
-  // E: open the collapsed stages, or close them when any is open.
-  function toggleStages() {
-    const any = [...COLLAPSED].some((id) => opened.has(id));
-    for (const id of COLLAPSED) if (any) opened.delete(id); else opened.add(id);
+  // 1–5 and the tabs: one list at a time; the selection moves to the tab's first row unless it's on the tab.
+  function setTab(id) {
+    if (!TAB.has(id)) return;
+    tab = lastTab = id;
+    if (filter.value) filter.value = '';
     render();
+    if (!all && !shown.some((x) => x.key === selKey) && shown[0]) select(shown[0].key);
+    el.focus({ preventScroll: true });
   }
 
   // Everything else, opened or closed in place; opening it moves the selection to its first row.
@@ -723,7 +742,8 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     else if (id === 'lanes.all') setAll(!all);
     else if (id === 'lanes.agents') toggleAgents();
     else if (id === 'lanes.conflicts') toggleConflicts();
-    else if (id === 'lanes.stages') toggleStages();
+    else if (id === 'lanes.stages') setTab('inProgress');
+    else if (TABS.some((t) => t.keyId === id)) setTab(TABS.find((t) => t.keyId === id).id);
     else if (id === 'lanes.mergeReady') mergeReady();
     else if (id === 'lanes.mergePlan') mergePlan();
     else if (!x) return false;
@@ -855,7 +875,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     return x.lane ? { lane: asLane(x), base, step: STEPS[step(x)].label } : null;
   };
   // Where the user is, for Back and Forward (app.js passes it back as `place`).
-  const location = () => ({ all, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, opened: [...opened], scroll: left.scrollTop });
+  const location = () => ({ all, key: selKey, filter: filter.value, agentsOnly, conflictsOnly, tab, scroll: left.scrollTop });
   // ⌘K "Next step on …": the selected row's primary button.
   const runStep = () => {
     const x = current();
@@ -878,7 +898,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     select(r.key);
     act('sendBack', r);
   }
-  return { el, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or

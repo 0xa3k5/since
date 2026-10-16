@@ -1208,3 +1208,15 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .setup .tour-foot .btn { gap: 6px; }
 .overlay .setup { width: 460px; padding: 20px; border-radius: var(--radius-lg); background: var(--bg-elevated); box-shadow: var(--shadow); }
 @media (prefers-reduced-motion: reduce) { .switch, .switch-knob { transition: none; } }
+
+/* Review's tabs (AK-361): one list at a time; the selected tab has the accent underline. */
+.review-tabs { display: flex; align-items: center; gap: 2px; margin: 0 16px 10px; border-bottom: 1px solid var(--border); }
+.review-tabs[hidden] { display: none; }
+.review-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-3); font: inherit; font-size: 13px; cursor: pointer; }
+.review-tab:hover { color: var(--text-2); }
+.review-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--fw-medium); }
+.review-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--radius); }
+.review-tab-n { font-size: 11px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.review-tab.stuck .review-tab-n { color: var(--red); }
+.review-tabs .lanes-group-act { margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) { .review-tab { transition: color 120ms ease, border-color 120ms ease; } }

@@ -456,3 +456,12 @@ test('overlaps: an open PR gets a note and no stage change; merge order names th
   assert.equal(overlapNote({ overlaps: [{ number: 2, title: 'a', files: [] }, { number: 3, title: 'b', files: [] }] }).text, 'Overlaps 2 PRs');
   assert.equal(overlapNote({ overlaps: [] }), null);
 });
+
+test('Review tabs: Needs you is stuck then ready, All open is every stage, 1–5 each have a key', async () => {
+  const { TABS, STAGES } = await load();
+  const keymap = await import('../renderer/keymap.js');
+  assert.deepEqual(TABS.map((t) => t.id), ['needs', 'stuck', 'ready', 'inProgress', 'open']);
+  assert.deepEqual(TABS[0].stages, ['stuck', 'ready']);
+  assert.deepEqual(TABS.at(-1).stages, STAGES.map((s) => s.id));
+  assert.deepEqual(TABS.map((t) => keymap.keys(t.keyId).join()), ['1', '2', '3', '4', '5']);
+});

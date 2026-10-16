@@ -3368,6 +3368,11 @@ function openPalette() {
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
     add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
+    if (state.view === 'lanes' && lanesOpen() && lanesPage?.setTab) {
+      for (const [id, label, keyId] of [['needs', 'Needs you', 'lanes.tabNeeds'], ['stuck', 'Stuck', 'lanes.tabStuck'], ['ready', 'Ready', 'lanes.tabReady'], ['inProgress', 'In progress', 'lanes.tabProgress'], ['open', 'All open', 'lanes.tabAll']]) {
+        add('Review', `Show ${label}`, () => lanesPage.setTab(id), { icon: 'lanes', kbd: keymap.keys(keyId), detail: lanesPage.tab() === id ? 'current' : null, keywords: 'review tab list stuck ready merge in progress open pull requests needs you' });
+      }
+    }
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
