@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, session: electronSession } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -1084,6 +1084,7 @@ const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webConten
 
 
 function licenceItems() {
+  if (licensing?.disabled) return [];
   const licensed = licensing?.status().mode === 'licensed';
   return [
     { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: acc('app.licence'), click: send('licence') },
@@ -1103,7 +1104,7 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', acc('app.settings'), 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), ...(licensing?.disabled ? [] : [{ type: 'separator' }]), item('Settings…', acc('app.settings'), 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -1260,6 +1261,11 @@ app.on('open-file', (ev, p) => {
 
 app.whenReady().then(() => {
   app.setName('GitLanes');
+  // Packaged builds carry build/icon.icns; `pnpm start` would show Electron's icon in the Dock.
+  if (!app.isPackaged && isMac) {
+    const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.icns'));
+    if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
+  }
   lockDownSession(electronSession.defaultSession);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
@@ -1267,8 +1273,9 @@ app.whenReady().then(() => {
   initLicensing();
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
-    feed: pkg.updates?.feed,
-    page: pkg.updates?.page,
+    // The beta profile carries its own feed (the beta bucket); every other build uses package.json's.
+    feed: licensing.config.updates?.feed || pkg.updates?.feed,
+    page: licensing.config.updates?.page || pkg.updates?.page,
     devFeed: app.isPackaged ? null : process.env.GITLANES_UPDATE_FEED,
     onChange: (state) => {
       buildMenu();

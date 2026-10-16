@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { Licensing, DAY } = require('../licence');
-const { polarStore, mockStore, StoreError } = require('../licence/stores');
+const { polarStore, mockStore, createStore, StoreError } = require('../licence/stores');
 const { loadConfig, releaseProfile, PROFILES } = require('../licence/config');
 
 const T0 = Date.parse('2026-10-13T12:00:00Z');
@@ -432,4 +432,43 @@ test('config: release builds fail closed', () => {
   assert.throws(() => releaseProfile('bogus'), /can't be packaged/);
   assert.throws(() => releaseProfile('production'), /isn't filled in/, 'until the owner provides production values');
   assert.equal(releaseProfile('sandbox'), 'sandbox');
+});
+
+test('beta: packaged with no licence, no trial and no store calls', async () => {
+  assert.equal(releaseProfile('beta'), 'beta');
+  const beta = loadConfig({}, { packaged: true, baked: 'beta' });
+  assert.equal(beta.profile, 'beta');
+  assert.equal(loadConfig({ GITLANES_STORE: 'beta' }).profile, 'beta', 'pnpm start can try it too');
+  // The real store factory, with a fetch that records every call.
+  const calls = [];
+  const fetch = async (url) => { calls.push(url); throw new Error('no network'); };
+  const store = createStore(beta, { fetch });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-licence-'));
+  const files = { stateFile: path.join(dir, 'licence.json'), mirrorFile: path.join(dir, 'trial') };
+  let t = T0;
+  const lic = new Licensing({ ...files, config: beta, store, machine: 'mac-A', now: () => t });
+  const s = lic.status();
+  assert.equal(s.mode, 'beta');
+  assert.equal(s.canMutate, true);
+  assert.equal(s.licence, null);
+  assert.equal(s.checkoutUrl, null);
+  t += 400 * DAY; // never expires
+  assert.equal(lic.status().canMutate, true);
+  assert.equal(await lic.ensureCanMutate(), true);
+  assert.equal(lic.maybeRefresh(), null);
+  assert.equal((await lic.refresh()).mode, 'beta');
+  await assert.rejects(lic.activate('GL-TEST-1'), (e) => e instanceof StoreError && e.kind === 'config');
+  await assert.rejects(store.validate({ key: 'k', activationId: 'a' }), (e) => e.kind === 'config');
+  assert.deepEqual(calls, [], 'no request to the store');
+  assert.ok(!fs.existsSync(files.stateFile) && !fs.existsSync(files.mirrorFile), 'no trial clock written');
+});
+
+test('beta: updates come from the beta bucket; other profiles use package.json', () => {
+  const { feedUrl, feedOrigins } = require('../updater');
+  const { updates } = PROFILES.beta;
+  assert.equal(updates.feed, 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta');
+  assert.equal(updates.page, 'https://gitlanes.akml.io/download');
+  assert.equal(feedUrl(updates.feed, 'arm64'), 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta/update-mac-arm64.json');
+  assert.deepEqual(feedOrigins(feedUrl(updates.feed, 'x64')), ['https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev']);
+  for (const name of ['production', 'sandbox', 'mock']) assert.equal(PROFILES[name].updates, undefined, name);
 });

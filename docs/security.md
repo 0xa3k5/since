@@ -9,7 +9,8 @@ at `b084e11` plus the AK-48 changes (Electron 44.7.0).
 
 **`git` talks to the network only when you ask it to.** Apart from git, the app makes two kinds
 of request of its own, both from the main process: the update check and licence validation. The
-renderer makes none. The opt-in pull request features work like git: GitLanes runs your GitHub
+renderer makes none. Beta builds have no licence, so they make only the update check, to the beta
+bucket on Cloudflare R2 (`pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev`). The opt-in pull request features work like git: GitLanes runs your GitHub
 CLI (`gh`), and the connection happens inside `gh`, under your `gh` login. GitLanes never sees
 or stores a GitHub token, and opens no connection for them itself.
 
@@ -21,9 +22,9 @@ or stores a GitHub token, and opens no connection for them itself.
 | Push, push tags, delete remote branch | You press *Push* (⌘⇧P) or pick the menu item | `git push` | Your configured remotes |
 | Delete branches on the remote during *Clean up* | You tick *Delete on remote* for a branch in Review → Clean up (⌘⌥⌫) and confirm a second sheet that says it can’t be undone; off by default | `git push <remote> --delete <branch>…`, one per remote | Your configured remotes |
 | Open in hosting service, View on hosting service | You pick the menu item | Your default browser, not GitLanes | The remote's web page |
-| Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `gitlanes-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to |
+| Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `gitlanes-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to; beta builds: `https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev` (the beta bucket) |
 | Update download | When a newer signed version is found | macOS's updater (Squirrel) | The release zip named by the feed |
-| Licence validation | Activating a key, at launch and about daily | Main process | Polar's licence API (`api.polar.sh`) |
+| Licence validation | Activating a key, at launch and about daily. Never in beta builds, which have no licence | Main process | Polar's licence API (`api.polar.sh`) |
 | PR set-up check | You turn on *Pull requests* for this repository (off by default, per repository) | `gh auth status --hostname <host>` | Your GitHub host (`github.com` or your GitHub Enterprise host) |
 | PR status | Pull requests are on for this repository and you fetch (⌘⇧F), refresh PRs (⌘⌥⇧P), turn them on, or approve or close one; or the lanes overview asks for its PRs (`app:lanes-list` with `prs: true`; without it, or with pull requests off, the lanes list is local git only) | `gh pr list --repo …` (the same call also asks for `latestReviews`, `additions`, `deletions` and `changedFiles`, for the review stages' per-reviewer verdicts and PR size; only each reviewer's login and verdict are kept, never review text) | `api.github.com`, or your GitHub Enterprise host |
 | Shipped lanes | Pull requests are on and the lanes overview asks for its PRs (`app:lanes-list` with `prs: true`), on the same refreshes as its PR status. With pull requests off, the shipped check is local git only | `gh pr list --repo … --state merged --limit 100 --json number,title,headRefOid,headRefName,mergeCommit,mergedAt` per refresh (merged PRs' head commits, to mark lanes whose work already shipped; their merge commits, to name what landed in Review's catch-up card) | `api.github.com`, or your GitHub Enterprise host |
