@@ -76,6 +76,12 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   // The branch picker (AK-372, AK-374; a text button like the since picker, AK-390): a menu with the
   // default base first, then remote and local branches.
   const branchBtn = h('button.btn.ghost.small.catchup-branch', { 'aria-haspopup': 'menu', 'aria-label': 'Branch to catch up on', 'data-tip': tipFor('Catch up on another branch', 'catchup.branch'), onclick: (e) => { e.stopPropagation(); branchMenu(); } });
+  // The head reads as one sentence (AK-390, option A): "88 PRs merged on origin/main ▾ since your checkpoint ▾",
+  // then one quiet line: date · other commits · CI · Updated. Actions on the right.
+  const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'catchup.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } });
+  const lead = h('span.catchup-lead');
+  const sub = h('div.catchup-subline');
+  const actions = h('div.catchup-actions');
   const strip = h('div.catchup-strip');
   const msg = h('div.catchup-msg');
   const list = h('div.catchup-list');
@@ -89,7 +95,8 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   const hint = h('div.review-hints');
   el.append(
     h('div.page-head.review-head', null,
-      h('div.review-head-row', null, h('h1', null, 'Catch up'), h('span.muted.catchup-sub', null, 'What landed on ', branchBtn), h('span.spacer'), updated, reloadBtn)),
+      h('div.review-head-row.catchup-headrow', null, h('h1.catchup-sentence', null, lead, ' on ', branchBtn, ' ', sinceBtn), h('span.spacer'), actions, reloadBtn),
+      sub),
     strip, cols, msg, hint);
 
   const btn = (label, keyId, onclick, cls = 'button.btn.subtle') => h(cls, { 'data-tip': tipFor(label, keyId), onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...keymap.keys(keyId)));
@@ -143,19 +150,26 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
 
   function render() {
     renderHead();
+    lead.textContent = 'Catch up'; sub.replaceChildren(); actions.replaceChildren();
     if (failed) return showMsg(h('div.empty', null, `Couldn’t read what landed: ${failed}`));
     if (!res) return showMsg(h('div.empty', null, loaded ? 'No base branch to catch up on.' : 'Catching up…'));
     const head = sinceText(res, { short, ago: (ms) => ago(ms) });
     const cp = res.checkpoint || {};
     const when = since.since === 'checkpoint' ? whenText(cp.date) : '';
     const ci = res.ci && { passing: '✓', failing: '✗', pending: '…' }[res.ci.state];
-    const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'catchup.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } }, `${sincePhrase(since)} ▾`);
-    const sinceLine = h('div.catchup-sinceline', null, sinceBtn,
-      when ? h('span', { title: cp.date ? fullDate(cp.date / 1000) : '' }, `· ${when}`) : null,
-      ci ? h('span.catchup-ci.' + res.ci.state, { title: `${res.base} CI ${res.ci.state}${res.ci.failed?.length ? `: ${res.ci.failed.join(', ')}` : ''}` }, `· ${res.base} CI ${ci}`) : null);
+    sinceBtn.textContent = `${sincePhrase(since)} ▾`;
     const warn = head.warn ? h('div.catchup-warn', null, icon('warning', 12), head.warn) : null;
+    const subline = (extraText) => sub.replaceChildren(...[
+      when ? h('span', { title: cp.date ? fullDate(cp.date / 1000) : '' }, when) : null,
+      extraText ? h('span', null, extraText) : null,
+      ci ? h('span.catchup-ci.' + res.ci.state, { title: `${res.base} CI ${res.ci.state}${res.ci.failed?.length ? `: ${res.ci.failed.join(', ')}` : ''}` }, `CI ${ci} on ${res.base}`) : null,
+      prsOn() ? updated : null,
+    ].filter(Boolean).flatMap((x, i) => (i ? [h('span.catchup-dot', { 'aria-hidden': 'true' }, '·'), x] : [x])), warn || '');
+    actions.replaceChildren(...(res.defaultBase === false || !entries.length ? [] : [btn('Mark caught up', 'catchup.caughtUp', () => markCaughtUp())]));
 
     if (!entries.length) {
+      lead.textContent = 'Nothing new';
+      subline(null);
       const what = since.since === 'checkpoint' ? (when ? `since ${when}` : 'since your checkpoint') : sincePhrase(since);
       return showMsg(h('div.catchup-empty', null,
         icon('check', 20),
@@ -166,20 +180,15 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
       bridge());
     }
 
-    strip.hidden = false;
     cols.hidden = false;
     msg.hidden = true;
     const top = headline(entries);
+    lead.textContent = `${top.count} ${top.text}`;
+    subline(top.extra);
     const all = days();
     const { days: shown, more: hidden } = more ? { days: all, more: 0 } : firstOf(all, FIRST);
     if (!visible().some((e) => e.id === selId)) selId = visible()[0]?.id || null;
-    strip.replaceChildren(
-      h('section.catchup-top', null,
-        h('div.catchup-total', null,
-          h('div.catchup-number', null, h('strong', null, String(top.count)), ` ${top.text}`, top.extra ? h('span.muted', null, ` · ${top.extra}`) : null),
-          sinceLine, warn),
-        h('div.catchup-actions', null,
-          res.defaultBase === false ? null : btn('Mark caught up', 'catchup.caughtUp', () => markCaughtUp()))));
+    strip.hidden = true;
     list.replaceChildren(...[
       h('div.catchup-timeline', { role: 'listbox', 'aria-label': 'What landed' },
         ...shown.flatMap((d) => [

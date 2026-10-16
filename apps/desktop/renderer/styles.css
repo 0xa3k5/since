@@ -706,6 +706,14 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-sub { font-size: 13px; }
 /* The branch picker reads like the "since your checkpoint ▾" picker: a quiet text button, no border (AK-390). */
 .catchup-branch { flex: none; height: 22px; padding: 0 6px; margin-left: -4px; color: var(--text-2); vertical-align: baseline; }
+.catchup-headrow { align-items: center; }
+.catchup-sentence { margin: 0; font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; line-height: 1.3; min-width: 0; }
+.catchup-sentence .catchup-branch, .catchup-sentence .catchup-since { font: inherit; height: auto; padding: 0 4px; margin: 0 -2px; color: var(--text); vertical-align: baseline; }
+.catchup-sentence .catchup-branch { font-family: var(--mono); font-size: 0.92em; }
+.catchup-subline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
+.catchup-subline .catchup-dot { color: var(--text-4); }
+.catchup-subline .review-updated { color: var(--text-4); }
+.catchup-subline .catchup-warn { flex-basis: 100%; }
 .catchup-strip { flex: none; padding: 0 32px; border-bottom: 1px solid var(--border); }
 .catchup-msg { flex: 1; min-height: 0; overflow-y: auto; padding: 0 32px 24px; }
 .catchup-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; padding: 4px 0 20px; }
