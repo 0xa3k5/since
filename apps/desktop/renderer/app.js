@@ -28,6 +28,7 @@ import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
+import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
@@ -867,6 +868,7 @@ function isMenuKey(id, e) {
 function applyPanes() {
   root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
   root.style.setProperty('--cv-w', `${state.panes.commit}px`);
+  root.style.setProperty('--st-w', `${state.panes.stash}px`);
   root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
 }
 function setPane(id, px, save = true) {
@@ -1655,10 +1657,66 @@ function refMenu(x, y, r) {
 
 async function copy(text, msg) { await api.app('copy', text); toast(msg); }
 
-function checkout(branch) {
+async function checkout(branch) {
   const wt = worktreeOf(branch);
   if (wt) return toast(`${branch} is checked out in worktree “${wt.name}”`, { kind: 'error', detail: 'A branch can only be checked out in one worktree at a time.', action: { label: 'Switch', run: () => switchWorktree(wt) } });
-  return act(`Checkout ${branch}`, 'checkout', [branch], { success: `Switched to ${branch}` });
+  const label = `Checkout ${branch}`;
+  closeMenu();
+  try {
+    await git('checkout', branch, { __label: label });
+  } catch (e) {
+    // Only when local changes are in the way: offer to stash them and switch.
+    const blocked = !e.readOnly && blockedCheckout(`${e.stderr || ''}\n${e.message}`);
+    if (blocked) return autostashCheckout(branch, blocked);
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    await refreshAll();
+    return false;
+  }
+  toast(`Switched to ${branch}`, { kind: 'success', action: { label: 'Undo', run: undo } });
+  await refreshAll();
+  offerAutostash(branch);
+  return true;
+}
+
+// Stash, then switch (one undoable step). Asks first unless "Don't ask again" was ticked.
+async function autostashCheckout(branch, blocked) {
+  const from = state.head.branch;
+  const plan = autostashPlan(loadPref('autostash', AUTOSTASH_DEFAULT), blocked);
+  let message = stashMessage(from, branch), untracked = plan.untracked;
+  if (plan.ask) {
+    const v = await dialog({
+      title: `Stash your current changes before checking out ${branch}?`,
+      description: 'Your changes would be overwritten by this checkout. GitLanes offers them back when you return to this branch.',
+      submit: 'Stash and switch',
+      fields: [
+        { name: 'msg', label: 'Message', value: message },
+        { name: 'u', type: 'checkbox', label: 'Include untracked files', value: untracked },
+        { name: 'never', type: 'checkbox', label: 'Don’t ask again', value: false },
+      ],
+    });
+    if (!v) return false;
+    message = v.msg.trim() || message;
+    untracked = v.u || !!blocked.untracked;
+    if (v.never) savePref('autostash', { ask: false, untracked: v.u });
+  }
+  return act(`Checkout ${branch}`, 'autostashCheckout', [branch, message, untracked], {
+    success: `Stashed changes and switched to ${branch}`,
+    then: (a) => { if (a?.branch) savePref('autostashes', { list: [...loadPref('autostashes', { list: [] }).list, { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
+  });
+}
+
+// Back on a branch that was auto-stashed: offer its stash back.
+async function pendingAutostash(branch) {
+  const stashes = await git('stashes').catch(() => null);
+  if (!stashes || !state.repo) return null;
+  const { offer, records } = returnOffer(loadPref('autostashes', { list: [] }).list, state.repo.root, branch, stashes);
+  savePref('autostashes', { list: records });
+  return offer;
+}
+const applyAutostash = (o, drop) => act(drop ? `Apply and drop ${o.ref}` : `Apply ${o.ref}`, 'stashApply', [o.ref, drop]);
+async function offerAutostash(branch) {
+  const o = await pendingAutostash(branch);
+  if (o) toast(`You have changes stashed from ${branch}`, { detail: o.message, timeout: 15000, actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply, keep stash', run: () => applyAutostash(o, false) }] });
 }
 function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
@@ -2082,7 +2140,7 @@ function stashesView() {
   const el = h('div.split-view');
   const list = h('div.list-pane');
   const detail = h('div.detail-pane');
-  el.append(list, detail);
+  el.append(list, paneHandle('stash', () => el), detail);
   let current = state.stashes[0]?.ref;
   function renderList() {
     list.replaceChildren(
@@ -2374,7 +2432,8 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs().then(prefetchOnOpen) }); }
+// PRs refresh in the background, so Fetch resolves without waiting on `gh`.
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => { refreshPrs().then(prefetchOnOpen); } }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
@@ -2422,7 +2481,7 @@ function worktreesView() {
 
   el.append(
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own lane.')),
+      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own branch.')),
       h('div.page-actions', null,
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
         h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
@@ -2455,6 +2514,7 @@ function worktreesView() {
 
 // Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
 function openLanes() {
+  lanesPage?.destroy();
   lanesPage = lanesView({
     repo: state.repo.root,
     git,
@@ -2463,7 +2523,7 @@ function openLanes() {
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
-    onCheckout: (pr) => checkoutPr(pr, { worktree: true }),
+    onCheckout: (pr, opts) => checkoutPr(pr, opts),
     onPrReview: (pr, remote) => openPrReview(pr, remote),
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
@@ -2649,6 +2709,7 @@ function paneAction(id, row, ctx) {
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
   if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
+  if (id === 'updateBranch' && pr) return updatePrBranch(pr, done);
   if (id === 'sendBack') return sendBackRow(row, ctx);
   toast(`That doesn’t apply to ${row.title}`);
 }
@@ -2692,7 +2753,7 @@ async function mergeLane(lane, base = null, onDone = null) {
     fields: [
       pr ? { name: 'via', type: 'select', label: 'Merge', value: plan.mergeBlocker && n ? 'github' : 'here', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }] } : null,
       n ? { name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message } : null,
-      remote || pr ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
+      remote ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
     ].filter(Boolean),
   });
   if (!v) return;
@@ -2708,6 +2769,8 @@ async function mergeLane(lane, base = null, onDone = null) {
     toast(`Merged #${pr.number} on GitHub`, { kind: 'success', detail: 'The merge on GitHub can’t be undone.' });
     onDone?.();
     await fetchAll();
+    // Local commits GitHub never saw would go with the branch: keep it and say so.
+    if (info.ok.headOid && plan.head && info.ok.headOid !== plan.head) return toast(`Kept ${lane.branch}`, { detail: `It has commits that aren’t in #${pr.number}. Push or move them, then delete the branch.` });
     return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
@@ -3062,7 +3125,7 @@ async function checkoutPr(pr, { worktree = false } = {}) {
     const main = state.worktrees.find((w) => w.main);
     const v = await dialog({
       title: `Check out #${pr.number} in a new worktree`,
-      description: `Fetches ${pr.branch} from GitHub and checks it out in its own folder, as a new lane.`,
+      description: `Fetches ${pr.branch} from GitHub and checks it out on a new branch in its own worktree.`,
       submit: 'Create worktree',
       fields: [
         { name: 'dir', label: 'Location (optional)', placeholder: main ? `${tildify(parentDir(main.path))}/${main.name}-${pr.branch.replace(/\//g, '-')}` : '' },
@@ -3371,6 +3434,27 @@ const closePr = (given, onDone) => withPr(given, 'Close', async (pr) => {
   refreshPrs();
 });
 
+// Update branch (AK-364): bring a PR that isn't checked out here up to date with its base on
+// GitHub (`gh pr update-branch`), with a merge commit or a rebase. GitHub refuses when the two
+// conflict; then the PR has to be checked out and fixed here.
+const updatePrBranch = (given, onDone) => withPr(given, 'Update branch of', async (pr) => {
+  const base = pr.base || 'its base';
+  const v = await dialog({
+    title: `Update #${pr.number} with ${base}?`,
+    description: `${pr.title}\n${REMOTE_NOTE}`,
+    submit: 'Update branch',
+    fields: [{ name: 'how', type: 'select', label: 'How', value: 'merge', options: [{ value: 'merge', label: `Merge ${base} into it` }, { value: 'rebase', label: `Rebase it onto ${base} (rewrites its commits)` }] }],
+  });
+  if (!v) return;
+  const res = await prCall('pr-update-branch', pr, { rebase: v.how === 'rebase' }, `Updating #${pr.number}…`);
+  if (res.error) return pr.mergeState === 'dirty' || pr.mergeable === false
+    ? toast(`Couldn’t update #${pr.number}`, { kind: 'error', detail: `GitHub can’t update a branch that conflicts with ${base}. Check it out (${keyText('lanes.checkout')}) to fix it here.` })
+    : prError(`Couldn’t update #${pr.number}`, res.error);
+  toast(`Updated #${pr.number} with ${base}`, { kind: 'success' });
+  onDone?.();
+  refreshPrs();
+});
+
 // The inbox's Ready bucket, squash-merged on GitHub one at a time after one confirmation. Stops
 // at the first failure and says what merged. The branches stay; deleting them is up to you.
 async function mergeReadyPrs(prs, remote) {
@@ -3454,12 +3538,12 @@ function openPalette() {
     add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: keymap.keys('repo.prCreate'), keywords: 'pr github gh create open push' });
     add('Repository', 'New pull request from branch…', pickPrBranch, { icon: 'plus', keywords: 'pr github gh create open branch' });
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
-    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh lane review' });
+    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh branch review' });
     if (state.prs?.active) {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
       add('Repository', 'Request changes on pull request…', () => requestChangesPr(), { icon: 'edit', kbd: keymap.keys(state.review?.pr ? 'review.changes' : 'repo.prChanges'), keywords: 'pr github gh review request changes reject' });
       add('Repository', 'Review pull request…', pickPrReview, { icon: 'diff', keywords: 'pr github gh review diff files inbox' });
-      if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} as a lane`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree lane checkout' });
+      if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} in a new worktree`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree branch checkout' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
@@ -3469,6 +3553,10 @@ function openPalette() {
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: keymap.keys('repo.stash') });
+    if (!loadPref('autostash', AUTOSTASH_DEFAULT).ask) add('Repository', 'Ask before auto-stashing on checkout', () => { savePref('autostash', AUTOSTASH_DEFAULT); toast('GitLanes will ask before stashing on checkout'); }, { icon: 'stash', keywords: 'autostash auto stash checkout switch dont ask again' });
+    if (state.head?.branch && loadPref('autostashes', { list: [] }).list.some((x) => x.root === state.repo?.root && x.branch === state.head.branch)) {
+      add('Repository', `Apply auto-stash for ${state.head.branch}`, async () => { const o = await pendingAutostash(state.head.branch); if (o) applyAutostash(o, true); else toast('That auto-stash is gone'); }, { icon: 'stash', keywords: 'autostash auto stash pop apply drop' });
+    }
     add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
@@ -3479,7 +3567,7 @@ function openPalette() {
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: keymap.keys('repo.lfs'), detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
-    add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base lane files progress' });
+    add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base branch files progress' });
     add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: keymap.keys('repo.fileHistory'), detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: keymap.keys('repo.difftool'), keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
@@ -3528,16 +3616,16 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
-    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'lane squash merge tidy cleanup remove worktree delete branch land' });
+    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'squash merge tidy cleanup remove worktree delete branch land' });
     if (laneSel && !state.review) {
       const l = laneSel.lane;
       const t = laneTitle(l);
       const next = laneSel.step;
-      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'lane review next step primary button' });
-      if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'lane conflicts update base' });
-      if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'lane ci failing pull request github' });
-      if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} lane ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'lane remove worktree branch discard stalled abandon' });
-      if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'lane merged shipped tidy remove' });
+      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'branch review next step primary button' });
+      if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'branch conflicts update base' });
+      if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'branch ci failing pull request github' });
+      if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} branch ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'remove worktree branch discard stalled abandon' });
+      if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'branch merged shipped tidy remove' });
     }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue' });
@@ -3549,12 +3637,14 @@ function openPalette() {
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
+      if (paneSel.row.pr && !paneSel.row.lane) add('Review', `Check out ${t} here`, () => checkoutPr(paneSel.row.pr), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
-      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
-        add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
+      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || x.id === 'updateBranch' || (x.id === 'checks' && !paneSel.row.lane))) {
+        const label = a.id === 'checks' ? 'Open failing checks of' : a.id === 'updateBranch' ? 'Update branch of' : 'Show conflicts in';
+        add('Review', `${label} ${t}${a.id === 'updateBranch' ? ' on GitHub…' : ''}`, () => (a.id === 'showConflicts' ? lanesPage.showRowConflicts() : paneAction(a.id, paneSel.row, paneSel.ctx)), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase update branch behind merge base github' });
       }
     }
-    add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
+    add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
     if (state.view === 'branches' && branchesPage?.tab() === 'finished' && !state.review) {
       const n = branchesPage.panel.count();
       if (n) add('Branches', `Clean up ${n} ticked branch${n === 1 ? '' : 'es'}…`, () => branchesPage.panel.go(), { icon: 'trash', kbd: keymap.keys('cleanup.run'), keywords: 'clean up finished remove delete merged worktrees undo' });
@@ -3568,7 +3658,7 @@ function openPalette() {
       if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
       add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
     }
-    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap lanes worktrees' });
+    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap worktrees' });
     if (state.view === 'branches' && branchesPage && !state.review) {
       for (const t of BRANCH_TABS) add('Branches', `Show ${t.label}`, () => branchesPage.setTab(t.id), { icon: 'branch', kbd: keymap.keys(t.keyId), detail: branchesPage.tab() === t.id ? 'current' : null, keywords: 'branches tab active agent made would conflict idle finished clean up worktrees' });
       const sel = branchesPage.selected();
@@ -3593,10 +3683,10 @@ function openPalette() {
         add('Review', `Show ${label}`, () => lanesPage.setTab(id), { icon: 'lanes', kbd: keymap.keys(keyId), detail: lanesPage.tab() === id ? 'current' : null, keywords: 'review tab list stuck ready merge in progress open pull requests needs you' });
       }
     }
-    add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
+    add('View', state.show.agentLanes !== false ? 'Stop marking agent-made branches' : 'Mark branches that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge branch worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
-    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list panel pane default restore drag' });
+    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list stash panel pane default restore drag' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
@@ -3685,7 +3775,7 @@ async function setupFeature(id, on) {
 // The PR row: a switch once GitHub CLI is installed and logged in, else Set up…. Without a
 // repository the main process can't answer yet, so the row offers Set up….
 async function prSetup() {
-  const st = state.repo ? await api.app('pr-state').catch(() => null) : null;
+  const st = await api.app('pr-state').catch(() => null);
   if (!st) return { on: false, setup: true };
   return { on: st.enabled, setup: !st.enabled && (st.gh === 'missing' || prLoggedOut) };
 }

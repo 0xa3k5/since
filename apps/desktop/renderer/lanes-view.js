@@ -190,7 +190,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       else if (pr) onMergeReady([pr], inbox?.remote);
       else toast(`Nothing to merge on ${r.title}`);
     } else if (id === 'open') { if (lane) onOpen(lane); else if (pr) onPrReview(pr, inbox?.remote); }
-    else if (id === 'checkout') { if (pr) onCheckout(pr); }
+    else if (id === 'checkout') { if (pr) onCheckout(pr, { worktree: true }); }
+    else if (id === 'checkoutHere') { if (lane) onOpen(lane); else if (pr) onCheckout(pr, { worktree: false }); }
+    else if (id === 'updateBranch') { if (pr && onPaneAction) onPaneAction(id, r, paneCtx(r)); else toast(`${r.title} has no pull request to update`); }
     else if (id === 'sendBack') { if (r.stage === 'stuck') onSendBack(r, paneCtx(r)); else toast(`${r.title} isn’t stuck`); }
     else if (id === 'details') toggleDetails(r.key);
     else runKey(id, asLane(r));
@@ -265,7 +267,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       ...(r.conflicts || []).map((c) => h('div.review-detail.warn', { title: c.files.join('\n') }, conflictText(c))),
       h('div.lanes-fix', null,
         l ? h('button.btn.subtle.lanes-fix-btn', { onclick: () => onOpen(l), title: `Show in Map (${keymap.keys('lanes.open').join(' or ')})` }, icon('map', 12), l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to worktree' : 'Show in Map')
-          : r.pr ? h('button.btn.subtle.lanes-fix-btn', { onclick: () => onCheckout(r.pr), title: 'Check out in a new worktree' }, icon('worktree', 12), 'Check out') : null,
+          : r.pr ? h('button.btn.subtle.lanes-fix-btn', { 'aria-haspopup': 'menu', onclick: (e) => { const b = e.currentTarget.getBoundingClientRect(); contextMenu(b.left, b.bottom + 4, checkoutItems(r)); }, title: 'Check out here or in a new worktree' }, icon('checkout', 12), 'Check out', icon('chevronDown', 10)) : null,
         l && !l.isBase ? h('button.btn.subtle.lanes-fix-btn', { onclick: () => onReview(l, base), title: 'Review the branch’s changes' }, icon('check', 12), 'Review branch') : null));
   }
 
@@ -275,18 +277,24 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     render();
   }
 
+  // A pull request not on this Mac: switch this window to its branch, or give it its own worktree.
+  const checkoutItems = (r) => [
+    { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), run: () => act('checkoutHere', r) },
+    { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.checkout'), run: () => act('checkout', r) },
+  ];
+
   function stagedMenu(x, y, r) {
     const l = asLane(r);
     contextMenu(x, y, [
       ...(r.lane ? [{ label: r.lane.worktree && !r.lane.worktree.current && !r.lane.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: r.lane.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(r.lane) }] : []),
       ...(r.pr ? [{ label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }] : [{ label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }]),
-      ...(r.pr && !r.lane ? [{ label: 'Check Out in New Worktree…', icon: 'worktree', run: () => onCheckout(r.pr) }] : []),
+      ...(r.pr && !r.lane ? checkoutItems(r) : []),
       { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), run: () => act('merge', r) },
       ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
       ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),
       ...(r.stage === 'stuck' ? [{ label: 'Send Back…', icon: 'copy', kbd: keymap.keys('lanes.sendBack'), run: () => act('sendBack', r) }] : []),
       { label: details.has(r.key) ? 'Hide Details' : 'Details', icon: 'lanes', kbd: keymap.keys('lanes.details'), run: () => toggleDetails(r.key) },
-      ...(r.lane ? ['-', { label: r.lane.changes ? 'Discard Lane…' : 'Delete Lane…', icon: 'trash', kbd: keymap.keys('lanes.delete'), disabled: !canRemove(r.lane), run: () => act('delete', r) }] : []),
+      ...(r.lane ? ['-', { label: r.lane.changes ? 'Discard Branch…' : 'Delete Branch…', icon: 'trash', kbd: keymap.keys('lanes.delete'), disabled: !canRemove(r.lane), run: () => act('delete', r) }] : []),
     ]);
   }
 
@@ -531,7 +539,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     else if (id === 'lanes.merge') act('merge', x);
     else if (id === 'lanes.details') act('details', x);
     else if (id === 'lanes.sendBack') act('sendBack', x);
+    else if (id === 'lanes.updateBranch') act('updateBranch', x);
     else if (id === 'lanes.showConflicts') { if (baseConflict(x, base)) jumpToConflicts(x); else toast(`${x.title} doesn’t conflict with ${x.pr?.base || base || 'its base'}`); }
+    else if (id === 'lanes.checkoutHere') act('checkoutHere', x);
     else if (PANE_KEYS[id] && split()) act(PANE_KEYS[id], x);
     else if (LANE_KEYS[id]) act(LANE_KEYS[id], x);
     else return false;
@@ -542,6 +552,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   el.addEventListener('keydown', (e) => {
     if (paneHost.contains(e.target)) return; // the pane's own keys (review-view.js)
     if (e.target === filter || command(e, false)) return;
+    // With an empty filter, the window's own keys (the G of the go-to chords) go through to it.
+    if (!filter.value && ['menu', 'global'].some((s) => keymap.chordStart(s, e) || keymap.match(s, e))) return;
     // Any other letter starts filtering.
     if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
@@ -667,7 +679,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (!TAB.get(tab).stages.includes(r.stage)) setTab(TABS.find((t) => t.stages.length === 1 && t.stages[0] === r.stage)?.id || 'open');
     select(r.key);
   }
-  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  // The page is being replaced: drop its window listener and timer now, not on the next focus.
+  function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
+  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

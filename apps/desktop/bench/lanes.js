@@ -81,12 +81,16 @@ async function main() {
   if (!fs.existsSync(path.join(DIR, '.git'))) { console.log(`Generating ${DIR}…`); generate(DIR); }
   const time = async () => { const t = process.hrtime.bigint(); const r = await git.lanes(DIR); return [Number(process.hrtime.bigint() - t) / 1e6, r]; };
   const [cold, res] = await time();
+  // Warm: the base's squash data cached (the base hasn't moved). Uncached: as if it just moved.
   const warm = [];
+  const uncached = [];
   for (let i = 0; i < RUNS; i++) warm.push((await time())[0]);
+  for (let i = 0; i < RUNS; i++) { git.clearBaseSquashCache(); uncached.push((await time())[0]); }
   warm.sort((a, b) => a - b);
+  uncached.sort((a, b) => a - b);
   const count = (f) => res.lanes.filter(f).length;
   console.log(`lanes(): ${res.lanes.length} lanes (${count((l) => l.worktree)} worktrees, ${count((l) => l.merged)} merged, ${count((l) => l.done)} done, ${count((l) => l.agent)} agent) vs ${res.base}`);
-  console.log(`  cold ${cold.toFixed(0)} ms · warm median ${warm[Math.floor(warm.length / 2)].toFixed(0)} ms (${RUNS} runs)`);
+  console.log(`  cold ${cold.toFixed(0)} ms · warm median ${warm[Math.floor(warm.length / 2)].toFixed(0)} ms · base moved median ${uncached[Math.floor(uncached.length / 2)].toFixed(0)} ms (${RUNS} runs each)`);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

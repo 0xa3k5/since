@@ -51,6 +51,7 @@ function pins(entry) {
     objects.push(before.headOid, after.headOid);
   }
   if (entry.stash) objects.push(entry.stash.sha);
+  if (entry.autostash) objects.push(entry.autostash.sha);
   if (entry.worktree) objects.push(entry.worktree.head);
   for (const w of entry.cleanup || []) objects.push(w.head);
   return { blobs: [...git.snapshotBlobs(entry.work?.before), ...git.snapshotBlobs(entry.work?.after)], objects };
@@ -302,6 +303,31 @@ class Journal {
     return this.record(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash });
   }
 
+  // Stash the changes that block switching to `branch`, then switch, as one undoable step.
+  // Undo switches back and pops that stash; redo stashes again and switches. If the switch
+  // still fails, the stash is popped right away and nothing is recorded.
+  autostash(label, branch, message, untracked) {
+    return this.lock(async () => {
+      const cwd = this.root;
+      const id = ++nextId;
+      const before = await git.captureRefState(cwd);
+      const top = () => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+      const prev = await top();
+      await git.stashPush(cwd, { message, untracked });
+      const sha = await top();
+      const made = sha && sha !== prev;
+      try {
+        await git.run(cwd, ['checkout', branch], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+      } catch (err) {
+        if (made) await git.stashApply(cwd, 'stash@{0}', true).catch(() => {});
+        throw err;
+      }
+      const autostash = made ? { sha, message, untracked: !!untracked, branch: before.head?.replace(/^refs\/heads\//, '') || null } : null;
+      await this.finish({ id, label, method: 'autostashCheckout', before, autostash }).catch((err) => console.warn('journal failed', err.message));
+      return autostash;
+    });
+  }
+
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
   runWorktree(method, label, args) {
     return this.lock(() => this.runWorktreeNow(method, label, args));
@@ -370,7 +396,7 @@ class Journal {
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, midSequence }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
@@ -378,6 +404,7 @@ class Journal {
     let changed = !same(entry.before, entry.after) || !!worktree;
     if (cleanup) { entry.cleanup = cleanup; changed ||= cleanup.length > 0; }
     if (submodules?.length) { entry.submodules = submodules; changed = true; }
+    if (autostash) { entry.autostash = autostash; changed = true; }
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path)).catch(() => null);
       if (!workAfter || git.workChanges(workBefore, workAfter).length) {
@@ -418,7 +445,7 @@ class Journal {
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
-      if (e.worktree || e.cleanup || e.submodules) return null;
+      if (e.worktree || e.cleanup || e.submodules || e.autostash) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
         const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
@@ -443,6 +470,7 @@ class Journal {
     if (entry.worktree) await this.restoreWorktree(entry, dir);
     else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
+    else if (entry.autostash) await this.restoreAutostash(entry, dir);
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
     from.hot.pop();
@@ -482,6 +510,26 @@ class Journal {
     if (entry.stash) {
       if (dir === 'undo') await git.restoreStash(cwd, entry.stash);
       else await git.dropStashCommit(cwd, entry.stash.sha);
+    }
+  }
+
+  // Undo or redo a stash-and-switch (autostash). HEAD must still be where the step left it.
+  async restoreAutostash(entry, dir) {
+    const cwd = this.root;
+    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
+    const a = entry.autostash;
+    if (dir === 'undo') {
+      const i = (await git.getStashes(cwd)).findIndex((x) => x.sha === a.sha);
+      if (i === -1) throw fail('its stash was applied or dropped since.');
+      await git.restoreRefState(cwd, entry.before);
+      await git.stashApply(cwd, `stash@{${i}}`, true);
+    } else {
+      await git.stashPush(cwd, { message: a.message, untracked: a.untracked });
+      a.sha = (await git.run(cwd, ['rev-parse', 'refs/stash'])).trim();
+      await this.pin(entry.id, pins(entry));
+      delete entry.pin;
+      try { await git.restoreRefState(cwd, entry.after); } catch (err) { await git.stashApply(cwd, 'stash@{0}', true).catch(() => {}); throw err; }
     }
   }
 

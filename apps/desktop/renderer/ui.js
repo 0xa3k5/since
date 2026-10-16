@@ -139,12 +139,12 @@ export const loading = (label = 'Loading…') => h('div.loading-state', { role: 
 export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd', null, k)));
 
 // --- Toasts --------------------------------------------------------------------
-export function toast(message, { kind = 'info', action, timeout = 4200, detail } = {}) {
+export function toast(message, { kind = 'info', action, actions = [], timeout = 4200, detail } = {}) {
   let root = $('#toasts');
   const el = h('div.toast.' + kind, null,
     kind === 'error' ? icon('warning') : kind === 'success' ? icon('check') : kind === 'busy' ? h('span.spinner') : null,
     h('div.toast-body', null, h('div.toast-title', null, message), detail ? h('div.toast-detail', null, detail) : null),
-    action ? h('button.toast-action', { onclick: () => { action.run(); close(); } }, action.label) : null,
+    [...(action ? [action] : []), ...actions].map((a) => h('button.toast-action', { onclick: () => { a.run(); close(); } }, a.label)),
   );
   root.append(el);
   requestAnimationFrame(() => el.classList.add('in'));
