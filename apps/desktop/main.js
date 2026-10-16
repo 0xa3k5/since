@@ -423,7 +423,7 @@ async function aiPrompt(e) {
   const branch = (await git.run(root, ['branch', '--show-current']).catch(() => '')).trim();
   return ai.stagedChanges(git.run, root, branch);
 }
-const aiCall = (fn) => async (e, ...args) => {
+const okCall = (fn) => async (e, ...args) => {
   try { return { ok: await fn(e, ...args) }; } catch (err) { return { error: serializeError(err) }; }
 };
 handle('app:ai-settings', () => aiState());
@@ -432,13 +432,13 @@ handle('app:ai-configure', (_e, provider, model) => {
   writeSettings({ ai: { ...aiSettings(), provider, model: check.str(model ?? '', 'model', { max: 200, empty: true }).trim() } });
   return aiState();
 });
-handle('app:ai-preview', aiCall(async (e) => {
+handle('app:ai-preview', okCall(async (e) => {
   const prompt = await aiPrompt(e);
   return { ...aiState(), prompt, hash: ai.promptHash(prompt) };
 }));
 // The first send to a provider carries the hash of the previewed text; if staging changed while
 // the preview was open, nothing is sent and the renderer shows the new text instead.
-handle('app:ai-generate', aiCall(async (e, consent, hash) => {
+handle('app:ai-generate', okCall(async (e, consent, hash) => {
   const a = aiSettings();
   if (a.provider === 'off') throw new Error('AI commit messages are off.');
   const prompt = await aiPrompt(e);
@@ -477,7 +477,7 @@ async function prState(e) {
   return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
 }
 handle('app:pr-state', (e) => prState(e));
-handle('app:pr-detect', aiCall(async (e) => {
+handle('app:pr-detect', okCall(async (e) => {
   const s = sessions.get(e.sender.id);
   return github.detect({ remotes: s ? await git.getRemotes(s.repo.root) : null });
 }));
@@ -493,7 +493,7 @@ handle('app:pr-hide', async (e, hide) => {
   writeSettings({ github: github.setHidden(readSettings().github, session(e).repo.root, v) });
   return prState(e);
 });
-handle('app:pr-list', aiCall(async (e) => {
+handle('app:pr-list', okCall(async (e) => {
   const root = session(e).repo.root;
   // Checked before anything else, so nothing runs while it's off or hidden here.
   if (!(await prEnabled(root))) return null;
@@ -618,7 +618,7 @@ handle('app:catchup-mark', (e, to) => {
 
 // Approve, merge, close and update branch: remote actions on GitHub, not journaled (⌘Z can't undo them). The
 // renderer names the PR and the remote it came from; both are checked before `gh` runs.
-const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
+const prAction = (fn) => okCall(async (e, remoteName, number, opts) => {
   const root = session(e).repo.root;
   check.prNumber(number);
   const remote = check.knownRemote(await git.getRemotes(root), remoteName);
@@ -661,7 +661,7 @@ async function remoteBase(s, remote, base) {
   if (!/^[0-9a-f]{40,64}$/.test(oid)) throw planErr(`${base} isn’t on ${remote.name}.`);
   return oid;
 }
-handle('app:merge-plan', aiCall(async (e, remoteName, baseName, ready, others) => {
+handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   if (!Array.isArray(ready) || !Array.isArray(others)) throw new check.IpcArgError('Invalid merge plan');
   const numbers = ready.slice(0, mergePlan.MAX_READY).map((n) => check.prNumber(n));
@@ -686,7 +686,7 @@ handle('app:merge-plan', aiCall(async (e, remoteName, baseName, ready, others) =
 }));
 // One PR of a plan: { snap, baseSha } from the plan (or the previous merge's squash commit).
 // → { stop: reason } when something changed, else { merged: true, commit }.
-handle('app:merge-plan-merge', aiCall(async (e, remoteName, baseName, number, o) => {
+handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   check.prNumber(number);
   const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
@@ -716,7 +716,7 @@ handle('app:sendback-template-save', (e, id, text, scope) => {
 // Review a PR in the inbox: fetch its head into FETCH_HEAD only (no ref moves, so nothing to
 // journal) and diff it locally against the base's remote-tracking branch. Plain `git fetch`, no
 // `gh`, and only while pull requests are on here.
-handle('app:pr-review-head', aiCall(async (e, remoteName, number, base) => {
+handle('app:pr-review-head', okCall(async (e, remoteName, number, base) => {
   const s = session(e);
   const root = s.repo.root;
   check.prNumber(number);
@@ -736,7 +736,7 @@ const prCheckoutOpts = (v) => {
   if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
   return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update') };
 };
-handle('app:pr-checkout', aiCall(async (e, number, opts) => {
+handle('app:pr-checkout', okCall(async (e, number, opts) => {
   check.prNumber(number);
   const { worktree, dir, update } = prCheckoutOpts(opts);
   const s = session(e);
@@ -790,7 +790,7 @@ async function prBranch(s, branch) {
   const { dest, head, push, pushArgs } = github.prPushPlan({ branch, upRemote, upRef, track, remotes, target });
   return { enabled, remotes, target, dest, head, push, pushArgs };
 }
-handle('app:pr-create-info', aiCall(async (e, branch) => {
+handle('app:pr-create-info', okCall(async (e, branch) => {
   const s = session(e);
   const b = await prBranch(s, branch);
   const base = await github.defaultBranch({ enabled: b.enabled, remotes: b.remotes });
@@ -802,7 +802,7 @@ handle('app:pr-create-info', aiCall(async (e, branch) => {
 }));
 // "Draft with AI": the provider set up for commit messages, and only once the user has agreed
 // to send it diffs (the commit composer asks); this sheet never widens that consent.
-handle('app:pr-ai-draft', aiCall(async (e, branch, base) => {
+handle('app:pr-ai-draft', okCall(async (e, branch, base) => {
   const a = aiSettings();
   if (a.provider === 'off' || !a.consent.includes(a.provider)) throw Object.assign(new Error('Set up AI commit messages first.'), { code: 'ai-off' });
   const s = session(e);
@@ -825,7 +825,7 @@ const prCreateOpts = (v) => check.obj(v, 'pull request', {
   draft: check.bool,
   push: check.bool,
 });
-handle('app:pr-create', aiCall(async (e, branch, opts) => {
+handle('app:pr-create', okCall(async (e, branch, opts) => {
   const o = prCreateOpts(opts);
   const s = session(e);
   const b = await prBranch(s, branch);

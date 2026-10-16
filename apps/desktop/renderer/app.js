@@ -2318,7 +2318,8 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs().then(prefetchOnOpen) }); }
+// PRs refresh in the background, so Fetch resolves without waiting on `gh`.
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => { refreshPrs().then(prefetchOnOpen); } }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
