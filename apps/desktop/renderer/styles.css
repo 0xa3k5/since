@@ -873,8 +873,19 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tick.on { background: var(--accent); border-color: var(--accent); }
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Review split view (lanes-view.js + review-pane.js): the list on the left, the selected row's review on the right */
-.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; outline: 0; }
-.review-split > .review-hints { grid-column: 1 / -1; }
+/* Review (AK-373): the head across the view, then the list and the pane, then the key bar. */
+.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; outline: 0; }
+.review-split > .review-top { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+.review-split > .lanes, .review-split > .review-split-handle, .review-split > .review-pane-host { grid-row: 2; }
+.review-split > .review-hints { grid-column: 1 / -1; grid-row: 3; }
+.review-top > .page-head { margin: 0; padding: 20px 24px 12px; }
+.review-top > .review-tabs { margin: 0; padding: 0 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.review-top > .review-tabs::-webkit-scrollbar { display: none; }
+.review-top .review-tab { flex: none; margin-bottom: 0; white-space: nowrap; }
+.review-top .review-tabs > .spacer { flex: 1 0 12px; }
+.review-top .review-tabs .lanes-group-act { flex: none; white-space: nowrap; }
+.review-filter { position: sticky; top: 0; z-index: 2; padding: 10px 0 8px; background: var(--bg-content); }
+.review-filter > .lanes-bar { margin: 0 16px; }
 /* Each pane is a size container: dragging the divider and resizing the window behave the same. */
 .review-split > .lanes { container: review-list / inline-size; }
 .review-pane-host { container: review-pane / inline-size; }
@@ -889,13 +900,28 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-split.split { grid-template-columns: minmax(320px, 1fr) 6px var(--pane-w, 62%); }
 .review-split > .lanes { min-width: 0; }
 .review-split:not(.split) > .review-split-handle, .review-split:not(.split) > .review-pane-host { display: none; }
-.review-split.split .page.flush .page-head { padding: 20px 20px 12px; }
 .review-split-handle { cursor: col-resize; background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat; }
 .review-split-handle:hover, .review-split-handle:active { background-image: linear-gradient(var(--accent), var(--accent)); background-size: 2px 100%; }
 .review-pane-host { display: flex; min-width: 0; min-height: 0; }
 .review-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .review-pane > .quick.review { grid-template-columns: minmax(200px, 248px) 1fr; }
 .quick.review.with-header { grid-template-rows: auto minmax(0, 1fr); }
+.review-pane > .quick.review.stacked { grid-template-columns: minmax(0, 1fr); }
+/* The pane's files as blocks in one scroll (review-view.js stacked, AK-373): a sticky header per file
+   with the reviewed tick, the path and +N −M; a reviewed file folds to its header. */
+.review-stack { min-width: 0; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
+.review-stack > .review-files-group { padding: 12px 14px 6px; }
+.review-file { border-bottom: 1px solid var(--border); }
+.review-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 14px; background: var(--bg-content); border-bottom: 1px solid var(--border); font-size: 12px; cursor: default; }
+.review-file.folded > .review-file-head { border-bottom: 0; }
+.review-file-head:hover { background: color-mix(in srgb, var(--text) 3%, var(--bg-content)); }
+.review-file.active > .review-file-head { box-shadow: inset 2px 0 0 var(--accent); }
+.review-file-head > .icon { flex: none; color: var(--warn); }
+.review-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.review-file.reviewed .review-file-path { color: var(--text-3); }
+.review-file-head .stat, .review-file-head .badge, .review-file-head .muted { flex: none; }
+.review-file-body { overflow-x: auto; }
+.review-file-body > .empty, .review-file-body > .loading-state { padding: 16px; }
 .review-pane-head { padding: 18px 20px 14px; }
 .review-pane-top { grid-column: 1 / -1; min-width: 0; border-bottom: 1px solid var(--border); }
 .review-pane-top > .review-pane-head { padding-bottom: 10px; }
