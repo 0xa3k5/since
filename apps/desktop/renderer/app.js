@@ -867,6 +867,7 @@ function isMenuKey(id, e) {
 function applyPanes() {
   root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
   root.style.setProperty('--cv-w', `${state.panes.commit}px`);
+  root.style.setProperty('--st-w', `${state.panes.stash}px`);
   root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
 }
 function setPane(id, px, save = true) {
@@ -2082,7 +2083,7 @@ function stashesView() {
   const el = h('div.split-view');
   const list = h('div.list-pane');
   const detail = h('div.detail-pane');
-  el.append(list, detail);
+  el.append(list, paneHandle('stash', () => el), detail);
   let current = state.stashes[0]?.ref;
   function renderList() {
     list.replaceChildren(
@@ -3596,7 +3597,7 @@ function openPalette() {
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
-    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list panel pane default restore drag' });
+    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list stash panel pane default restore drag' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
