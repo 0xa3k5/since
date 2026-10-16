@@ -11,7 +11,7 @@ import { fileHistoryView } from './file-history-view.js';
 import { lanesView, reviewCounts, prefetchReview, cachedPrs } from './lanes-view.js';
 import { branchesView } from './branches-view.js';
 import { isFinished, BRANCH_TABS } from './branches.js';
-import { rowStage, STAGES } from './review-rows.js';
+import { stageMemory, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
@@ -3006,8 +3006,9 @@ const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
 // Draft and review marks plus the PR's Review stage dot (AK-385: the same stage and colour as Review,
 // from GitHub's merge box, so a failing check GitHub doesn't require stays green), shared by graph
 // badges and the sidebar list.
+let prStage = stageMemory(); // new per repository
 const prMarks = (pr) => {
-  const stage = rowStage({ pr });
+  const stage = prStage(pr);
   const label = STAGES.find((x) => x.id === stage)?.label || 'In progress';
   return [
     pr.draft ? h('span.pr-draft', null, 'draft') : null,
@@ -3824,6 +3825,7 @@ async function loadRepo(repo) {
   commitCache.clear();
   state.remotes = [];
   state.prs = null;
+  prStage = stageMemory();
   document.title = repo.name;
   if (from) nav.record(from, placeKey());
   renderShell();

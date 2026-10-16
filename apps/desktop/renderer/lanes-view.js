@@ -431,7 +431,12 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
 
   // Ready-to-merge PRs whose primary button is Merge: ⇧M merges them all after one confirmation.
   const readyPrs = () => (staged ? staged.stages.ready.filter((r) => r.pr && step(r) === 'merge').map((r) => r.pr) : []);
-  function mergeReady() {
+  // Reloads the inbox first so the confirmation doesn't list PRs whose checks or approval changed.
+  async function mergeReady() {
+    if (prsOn()) {
+      try { await fetchLanes({ prs: true }); } catch (e) { return fail(e); }
+      if (!el.isConnected || inboxFailed) return;
+    }
     const prs = readyPrs();
     if (!prs.length) return toast('Nothing is ready to merge', { detail: 'Ready means GitHub would merge it now.' });
     onMergeReady(prs, inbox?.remote);

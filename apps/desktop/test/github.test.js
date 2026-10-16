@@ -54,6 +54,14 @@ test('checks: failure wins, then pending; no checks is null', () => {
   assert.equal(github.checksState([run('COMPLETED', 'TIMED_OUT')]), 'failure');
 });
 
+test('checkCounts: skipped and neutral pass, like the merge box; null with no checks', () => {
+  const run = (status, conclusion = '') => ({ status, conclusion });
+  const ctx = (state) => ({ state });
+  assert.equal(github.checkCounts([]), null);
+  assert.equal(github.checkCounts(undefined), null);
+  assert.deepEqual(github.checkCounts([run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'SKIPPED'), run('COMPLETED', 'NEUTRAL'), run('COMPLETED', 'FAILURE'), run('IN_PROGRESS'), ctx('SUCCESS'), ctx('PENDING')]), { passed: 4, total: 7 });
+});
+
 test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', () => {
   const out = JSON.stringify([
     PR({ number: 1, updatedAt: '2026-10-01T00:00:00Z', isDraft: true, reviewDecision: '', statusCheckRollup: [{ status: 'QUEUED' }] }),
@@ -62,7 +70,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], checkCounts: { passed: 0, total: 1 }, author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
@@ -250,6 +258,8 @@ test('PR actions: gh arguments', async () => {
   assert.deepEqual(await run('mergePr', { method: 'rebase', deleteBranch: true, admin: true }), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--rebase', '--delete-branch', '--admin']);
   assert.deepEqual(await run('approvePr'), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve']);
   assert.deepEqual(await run('approvePr', { body: ' --admin looks good ' }), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve', '--body=--admin looks good']);
+  assert.deepEqual(await run('updatePrBranch'), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app']);
+  assert.deepEqual(await run('updatePrBranch', { rebase: true }), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app', '--rebase']);
   assert.deepEqual(await run('closePr', { body: 'superseded' }), ['pr', 'close', '7', '--repo', 'github.com/acme/app', '--comment=superseded']);
   const fail = async () => { throw new Error('HTTP 401: Bad credentials'); };
   await assert.rejects(github.closePr({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: fail }), { code: 'gh-auth' });
@@ -277,7 +287,7 @@ test('toggle off: no PR call spawns gh, with the real runner', async () => {
   fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\n/usr/bin/touch '${mark}'\necho '[]'\n`, { mode: 0o755 });
   const off = { enabled: false, remotes: [ORIGIN], number: 7, dirs: [dir] };
   assert.equal(await github.listPrs(off), null);
-  for (const fn of ['mergeInfo', 'approvePr', 'mergePr', 'closePr']) await assert.rejects(github[fn](off), { code: 'gh-off' }, fn);
+  for (const fn of ['mergeInfo', 'approvePr', 'mergePr', 'closePr', 'updatePrBranch']) await assert.rejects(github[fn](off), { code: 'gh-off' }, fn);
   assert.equal(fs.existsSync(mark), false, 'gh ran while pull requests were off');
   // The same gh does run once the toggle is on, so the mark would have shown up.
   await github.listPrs({ ...off, enabled: true });
