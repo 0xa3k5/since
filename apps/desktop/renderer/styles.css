@@ -481,7 +481,6 @@ kbd.inline { flex: none; }
 .file-row:hover { background: var(--bg-hover); }
 .file-row.active { background: var(--bg-selected); }
 .file-row.selected { background: var(--bg-selected); }
-.multi .file-row.active { box-shadow: inset 2px 0 0 var(--accent); }
 .fname { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; max-width: 70%; }
 .fdir { color: var(--text-4); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; flex: 1; min-width: 0; }
 .fstatus { width: 16px; height: 16px; border-radius: 4px; flex: none; display: inline-flex; align-items: center; justify-content: center; font: 650 9.5px/1 var(--font); }
@@ -635,6 +634,9 @@ kbd.inline { flex: none; }
 .commit-view { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
 .cv-side { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
 .cv-lists { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+.cv-section.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: var(--radius); }
+.file-row[draggable="true"] { -webkit-user-drag: element; }
+.drag-pill { position: fixed; top: -100px; left: 0; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: var(--fw-strong); color: var(--accent-text); background: var(--accent); }
 .cv-section + .cv-section { border-top: 1px solid var(--border); margin-top: 4px; }
 .cv-section-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 10px 0 16px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-2); background: var(--bg-content); }
 .cv-empty { padding: 6px 16px 12px; font-size: 12.5px; color: var(--text-4); }
@@ -1300,6 +1302,11 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row-sep { flex: none; color: var(--text-4); }
 .review-row.staged .review-reason .review-row-sep { color: var(--text-3); }
 .review-row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Failing checks and conflicts at a glance (AK-411): a red ✕ and an underlined count, then a marker. */
+.review-signals { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--red); }
+.review-signal { display: inline-flex; align-items: center; gap: 2px; }
+.review-signal .icon { flex: none; }
+.review-signal-count { font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 /* The slim bar keeps the avatars; the names stay in their tooltips. */
 .reader-mini-authors { flex: none; gap: 4px; }
 .reader-mini-authors .reader-author-name { display: none; }

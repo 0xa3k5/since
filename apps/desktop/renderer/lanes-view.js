@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { navPos, authorsStack, fastKeys } from './reader.js';
 
@@ -211,7 +211,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
     const authors = rowAuthors(r, { agents: markAgents() });
     const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    const line = [...tags.map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
+    const line = [...tags.filter((b) => !b.signal).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
       title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, authors.length ? `By ${authors.map((a) => a.name).join(' + ')}` : null, stage?.label, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
@@ -223,22 +223,33 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
-        stuck ? reasonEl(r, authors) : line || authors.length ? h('div.list-sub.review-row-sub', null, authorsStack(authors, 14, '.review-row-authors'), authors.length && line ? h('span.review-row-sep', { 'aria-hidden': 'true' }, '·') : null, line ? h('span.review-row-text', null, line) : null) : null,
+        stuck ? reasonEl(r, authors) : subLine('div.list-sub.review-row-sub', null, r, authors, line ? h('span.review-row-text', null, line) : null),
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
+  }
+
+  // The line under the title (AK-400, AK-411): avatar group · failing checks ✕ 3/5 and a conflict
+  // marker · the text, "·" between the parts there are. null when there's nothing to show.
+  function subLine(sel, props, r, authors, text) {
+    const s = rowSignals(r);
+    const signals = s.checks || s.conflict ? h('span.review-signals', null,
+      s.checks ? h('span.review-signal', { role: 'img', 'aria-label': s.checks.title, title: s.checks.title }, icon('x', 11), s.checks.text ? h('span.review-signal-count', null, s.checks.text) : null) : null,
+      s.conflict ? h('span.review-signal', { role: 'img', 'aria-label': s.conflict.title, title: s.conflict.title }, icon('warning', 12)) : null) : null;
+    const parts = [authors.length ? authorsStack(authors, 14, '.review-row-authors') : null, signals, text].filter(Boolean);
+    if (!parts.length) return null;
+    return h(sel, props, parts.flatMap((p, i) => (i ? [h('span.review-row-sep', { 'aria-hidden': 'true' }, '·'), p] : [p])));
   }
 
   const reason = (r, max = 2) => stuckReason(r, { base, max });
   // Why it's stuck; a conflict with the base is its own note that jumps to the conflicting files.
   function reasonEl(r, authors = []) {
     const note = conflictNote(r, { base, files: paneConflicts.get(r.key) });
-    const rest = stuckReason(r, { base, max: 2, noBase: Boolean(note) });
-    return h('div.review-reason', { title: reason(r, 20) },
-      authors.length ? [authorsStack(authors, 14, '.review-row-authors'), h('span.review-row-sep', { 'aria-hidden': 'true' }, '·')] : null,
-      h('span.review-row-text', null,
+    const rest = stuckReason(r, { base, max: 2, noBase: Boolean(note), bareChecks: true });
+    return subLine('div.review-reason', { title: reason(r, 20) }, r, authors,
+      note || rest ? h('span.review-row-text', null,
         note ? h('button.review-reason-link', { title: 'Show the conflicting files', onclick: (e) => { e.stopPropagation(); jumpToConflicts(r); }, ondblclick: (e) => e.stopPropagation() }, note) : null,
-        note && rest ? ' · ' : null, rest));
+        note && rest ? ' · ' : null, rest) : null);
   }
 
   // Details ▾: the branch, its commits, worktree and uncommitted changes, and the way into the map.

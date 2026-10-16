@@ -87,12 +87,11 @@ export function authorsEl(authors = [], size = 16, cls = '') {
 }
 
 // The same people as one overlapping avatar group, no names (list rows, AK-400); like the map's
-// co-author stack, with every name in the tooltip.
+// co-author stack. No hover: the names are only read out to screen readers.
 export function authorsStack(authors = [], size = 14, cls = '') {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
-  const names = list.map((a) => a.title || a.name).join('\n');
-  return h('span.avatar-stack' + cls, { title: names, role: 'img', 'aria-label': list.map((a) => a.name).join(' and ') },
+  return h('span.avatar-stack' + cls, { role: 'img', 'aria-label': list.map((a) => a.name).join(' and ') },
     ...list.map((a) => { const av = personAvatar(a.name, a.key || a.name, size); av.title = ''; return av; }));
 }
 
