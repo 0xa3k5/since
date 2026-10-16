@@ -174,12 +174,7 @@ export function whenText(ms, { now = Date.now() } = {}) {
   return `${day} ${time}`;
 }
 
-// The reader (AK-372): Walk through goes over the merged PRs, or every entry when none came with a PR.
-export function walkList(entries = []) {
-  const prs = entries.filter((e) => e.kind === 'pr');
-  return prs.length ? prs : entries;
-}
-// The id `d` steps from `id` in `list` (entries), clamped to its ends; the first when `id` isn't in it.
+// The reader (AK-372, AK-381): ←/→ step the timeline. The id `d` steps from `id` in `list` (entries), clamped to its ends; the first when `id` isn't in it.
 export function stepId(list = [], id = null, d = 1) {
   if (!list.length) return null;
   const i = list.findIndex((e) => e.id === id);

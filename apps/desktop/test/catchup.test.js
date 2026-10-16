@@ -195,12 +195,9 @@ test('timeline: entries by day, newest first, Today and Yesterday, then dates (A
   assert.equal(sincePhrase({ since: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
 });
 
-test('the reader: walk list, stepping, diff counts, viewed and the description (AK-372)', async () => {
-  const { walkList, stepId, diffCounts, firstUnviewed, readerDescription, landedEntries } = await load('catchup.js');
+test('the reader: stepping, diff counts, viewed and the description (AK-372)', async () => {
+  const { stepId, diffCounts, firstUnviewed, readerDescription, landedEntries } = await load('catchup.js');
   const pr = (id) => ({ id, kind: 'pr' });
-  const cm = (id) => ({ id, kind: 'commit' });
-  assert.deepEqual(walkList([cm('a'), pr('b'), pr('c')]).map((e) => e.id), ['b', 'c'], 'merged PRs only');
-  assert.deepEqual(walkList([cm('a'), cm('b')]).map((e) => e.id), ['a', 'b'], 'every commit when none came with a PR');
   const list = [pr('a'), pr('b'), pr('c')];
   assert.equal(stepId(list, 'b', 1), 'c');
   assert.equal(stepId(list, 'c', 1), 'c', 'stops at the end');

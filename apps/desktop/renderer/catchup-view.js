@@ -1,19 +1,22 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
-import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, walkList, stepId, diffCounts, firstUnviewed, readerDescription } from './catchup.js';
+import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad } from './lanes.js';
 import * as keymap from './keymap.js';
+import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, readerKey, navPos } from './reader.js';
 
 // Catch up (AK-365, was Review's catch-up card, AK-281): what landed on the base since your
 // checkpoint. Under the full-width head (the big number, PRs merged or commits with PRs off; the
-// since line, picker ⇧T, the checkpoint's time, the base's CI; Walk through ⇧↵ and Mark caught up
-// ⇧C) sit two columns (AK-372): the timeline by day on the left, one row per merged PR or landed
-// commit, newest first (↑/↓), and a reader on the right that follows the selection (debounced
-// like Review's pane; ↵ moves focus into it). The reader shows the change's header, its
-// description (the PR's when GitHub sent one, else the commit message; Show more I) and its files
-// against the first parent, each under a sticky header with a viewed tick (V ticks the next one)
-// that folds it. Ticks live in memory per entry. Walk through steps the reader over the merged PRs
-// (←/→, Esc leaves). Below the timeline, a line to Review's stuck and ready-to-merge rows.
+// since line, picker ⇧T, the checkpoint's time, the base's CI; Read from the top ⇧↵ and Mark caught
+// up ⇧C) sit two columns (AK-372): the timeline by day on the left, one row per merged PR or landed
+// commit, newest first (↑/↓ or ←/→), and a reader on the right that follows the selection (debounced
+// like Review's pane; ↵ moves focus into it, Esc back). The reader is the one Review's pane uses
+// (reader.js, AK-381): ‹ N of M › and the header with the author's avatar and "Merged", the
+// description (the PR's when GitHub sent one, else the commit message; … Show more where it's cut)
+// and the files against the first parent, each under a sticky header with a fold chevron and a
+// viewed tick (V ticks the next one; ticking folds it). Ticks and folds live in memory per entry.
+// In the reader ↑/↓ scroll, Page Up/Down and Space by a page, ←/→ still step the timeline, , and .
+// jump between files. Below the timeline, a line to Review's stuck and ready-to-merge rows.
 // The checkpoint lives in app data (main process) and only moves on Mark caught up, which Undo on
 // its toast puts back. Merged PRs and CI load once when a repo opens (prefetchCatchup, AK-382), then
 // only on Reload (⇧R) or after your own picks; opening the view, repo changes and window focus read
@@ -30,8 +33,8 @@ const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digi
 const AGO_TICK = 30e3;
 const READ_DELAY = 120; // ↑/↓ held down: the reader waits for the selection to settle
 
-// The view's range and its last load with PRs, per repo (this window, this session), so coming back from
-// the walk-through shows them at once: { repo, since, res, extra: { merged, ci } | null, loadedAt }.
+// The view's range and its last load with PRs, per repo (this window, this session), so coming back to
+// the view shows them at once: { repo, since, res, extra: { merged, ci } | null, loadedAt }.
 let cache = null;
 // The load with PRs in flight for the default range (since the checkpoint, default base), shared by Reload and
 // the load when a repo opens: one `gh` call per repo. openRepo: the repo it's for; a load for another lands nowhere.
@@ -40,8 +43,6 @@ let openRepo = null;
 const DEFAULT_SINCE = { since: 'checkpoint' };
 // What the reader read, per commit, for this repo: sha → Promise<{ diffs, message }>.
 const reads = new Map();
-// The description shows its first lines until Show more (I); that choice sticks across entries.
-let descOpen = false;
 
 export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
@@ -60,11 +61,11 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   let review = null; // { stuck, ready }
   let seq = 0;
   let loaded = Boolean(res);
-  let walking = false; // Walk through: the reader steps over walkList(entries)
   let readId = null; // the entry in the reader
   let readTimer = 0;
   let change = null; // { id, diffs, message } once the reader's entry is read
   const viewed = new Map(); // entry id → Set of viewed paths (this view only)
+  const folds = new Map(); // "id\0path" → folded, set by hand; otherwise viewed files are folded
   const full = new Set(); // "id\0path" of diffs shown past the truncation limit
 
   const el = h('div.page.flush.catchup', { tabIndex: 0, role: 'region', 'aria-label': 'Catch up' });
@@ -75,10 +76,12 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   const strip = h('div.catchup-strip');
   const msg = h('div.catchup-msg');
   const list = h('div.catchup-list');
-  const readerHead = h('div.catchup-reader-head');
+  const headBox = h('div.catchup-reader-head');
   const readerDesc = h('div.catchup-reader-desc');
-  const readerFiles = h('div.catchup-files');
+  const readerFiles = h('div.catchup-files', { role: 'list', 'aria-label': 'Files' });
+  // The reader is its own scroll and takes focus (↵), so ↑/↓ and Space scroll it.
   const reader = h('div.catchup-reader', { tabIndex: -1, role: 'region', 'aria-label': 'Reader' });
+  const mini = miniHeader(reader);
   const cols = h('div.catchup-cols', null, list, reader);
   const hint = h('div.review-hints');
   el.append(
@@ -116,7 +119,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     if ((ref || null) === base) return;
     base = ref || null;
     since = base ? { since: 'week' } : { since: 'checkpoint' };
-    more = false; walking = false; selId = null; readId = null; change = null;
+    more = false; selId = null; readId = null; change = null;
     fetch({ prs: Boolean(loadedAt) });
   }
 
@@ -144,7 +147,6 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     const warn = head.warn ? h('div.catchup-warn', null, icon('warning', 12), head.warn) : null;
 
     if (!entries.length) {
-      walking = false;
       const what = since.since === 'checkpoint' ? (when ? `since ${when}` : 'since your checkpoint') : sincePhrase(since);
       return showMsg(h('div.catchup-empty', null,
         icon('check', 20),
@@ -168,7 +170,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
           h('div.catchup-number', null, h('strong', null, String(top.count)), ` ${top.text}`, top.extra ? h('span.muted', null, ` · ${top.extra}`) : null),
           sinceLine, warn),
         h('div.catchup-actions', null,
-          btn('Walk through', 'catchup.walk', () => walk()),
+          btn('Read from the top', 'catchup.walk', () => walk()),
           res.defaultBase === false ? null : btn('Mark caught up', 'catchup.caughtUp', () => markCaughtUp(), 'button.btn.primary'))));
     list.replaceChildren(...[
       h('div.catchup-timeline', { role: 'listbox', 'aria-label': 'What landed' },
@@ -184,15 +186,17 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     syncReader();
   }
 
-  // The key bar: the walk-through's keys while walking, the timeline's otherwise.
+  // The key bar: the reader's keys while focus is in it, the timeline's otherwise.
   function renderHints() {
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     const id = (x) => keymap.keys(x);
-    const rows = walking
-      ? [k([...id('catchup.walkPrev'), ...id('catchup.walkNext')], 'Previous / next'), k(id('catchup.viewed'), 'Viewed'), k(id('catchup.description'), 'Description'), k(id('catchup.walkDone'), 'Done')]
-      : [k([...id('catchup.prev'), ...id('catchup.next')], 'Move'), k(id('catchup.open'), 'Read'), k(id('catchup.walk'), 'Walk through'), k(id('catchup.caughtUp'), 'Mark caught up'), k(id('catchup.since'), 'Since…'), k(id('catchup.reload'), 'Reload')];
+    const rows = reader.contains(document.activeElement)
+      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('catchup.viewed'), 'Viewed'), k(id('reader.back'), 'Back to the timeline')]
+      : [k([...id('catchup.prev'), ...id('catchup.next')], 'Move'), k(id('catchup.open'), 'Read'), k(id('catchup.walk'), 'From the top'), k(id('catchup.caughtUp'), 'Mark caught up'), k(id('catchup.since'), 'Since…'), k(id('catchup.reload'), 'Reload')];
     hint.replaceChildren(...rows, k(id('view.palette'), 'All commands', '.all'));
   }
+  reader.addEventListener('focusin', () => renderHints());
+  reader.addEventListener('focusout', () => setTimeout(() => { if (el.isConnected) renderHints(); }));
 
   function row(e) {
     const active = e.id === selId;
@@ -298,7 +302,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     change = null;
     reader.scrollTop = 0;
     if (!e) return reader.replaceChildren(h('div.empty', null, 'Select a pull request or commit to read it.'));
-    reader.replaceChildren(readerHead, readerDesc, readerFiles);
+    reader.replaceChildren(mini.el, headBox, readerDesc, readerFiles);
     renderReaderHead();
     readerDesc.replaceChildren();
     readerFiles.replaceChildren(loading(`Reading ${e.kind === 'pr' ? `#${e.number}` : short(e.sha)}…`));
@@ -314,61 +318,41 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     });
   }
 
-  // "‹ Previous · Walking through · 3 of 21 · Next ›  Done Esc" while walking; the title; then
-  // "#313  WEB-142  mira  agent/web-313 → origin/main  merged Tuesday 18:40  ✓ Merged".
+  // The shared head (reader.js): "‹ 3 of 21 ›", "#313 title", then "(M) mira  agent/web-313 →
+  // origin/main  WEB-142  merged Tuesday 18:40  ✓ Merged".
   function renderReaderHead() {
     const e = entryById(readId);
     if (!e || !res) return;
-    let bar = null;
-    if (walking) {
-      const wl = walkList(entries);
-      const i = wl.findIndex((x) => x.id === e.id);
-      bar = h('div.catchup-walkbar', { role: 'toolbar', 'aria-label': 'Walk through' },
-        h('button.btn.ghost.small', { onclick: () => walkStep(-1), disabled: i <= 0, 'data-tip': tipFor('Previous', 'catchup.walkPrev') }, icon('chevronLeft', 12), 'Previous'),
-        h('span.catchup-walkpos', { 'aria-live': 'polite' }, i < 0 ? 'Walking through' : `Walking through · ${i + 1} of ${wl.length}`),
-        h('button.btn.ghost.small', { onclick: () => walkStep(1), disabled: i < 0 || i >= wl.length - 1, 'data-tip': tipFor('Next', 'catchup.walkNext') }, 'Next', icon('chevron', 12)),
-        h('span.spacer'),
-        h('button.btn.ghost.small', { onclick: () => stopWalk(), 'data-tip': tipFor('Done', 'catchup.walkDone') }, 'Done', kbd(...keymap.keys('catchup.walkDone'))));
-    }
     const pr = e.kind === 'pr';
-    readerHead.replaceChildren(...[bar,
-      h('h2.catchup-reader-title', null, e.title),
-      h('div.catchup-reader-meta', null,
-        h('span.catchup-num', { title: e.sha }, pr ? `#${e.number}` : short(e.sha)),
+    const num = pr ? `#${e.number}` : short(e.sha);
+    const top = readerHead({
+      num, numTip: e.sha, title: e.title, nav: { ...navPos(entries, e.id), onStep: step },
+      author: e.author || null,
+      branch: pr && e.branch ? e.branch : null, base: res.base,
+      meta: [
         h('span.badge.catchup-chip' + (e.key ? '' : '.muted'), null, e.key || e.area),
-        e.author ? h('span', null, e.author) : null,
-        pr && e.branch ? h('span.mono', null, e.branch, h('span.muted', null, ' → '), res.base) : h('span', null, 'on ', h('span.mono', null, res.base)),
         e.date ? h('span', { title: fullDate(e.date / 1000) }, `${pr ? 'merged' : 'committed'} ${whenText(e.date)}`) : null,
-        pr ? h('span.catchup-merged', null, icon('check-circle', 12), 'Merged') : null)].filter(Boolean));
+        pr ? h('span.catchup-merged', null, icon('check-circle', 12), 'Merged') : null,
+      ].filter(Boolean),
+    });
+    headBox.replaceChildren(top);
+    mini.set(miniContent({ author: e.author || null, num, title: e.title }));
+    mini.watch(top);
   }
 
-  // The PR's description (or the commit message), a few lines until Show more (I).
+  // The PR's description (or the commit message), clamped until … Show more.
   function renderDescription() {
     const e = entryById(readId);
     if (!e || change?.id !== e.id) return;
     const { text, from } = readerDescription(e, change.message);
-    const label = e.kind === 'pr' ? 'Description' : 'Commit message';
-    const note = e.kind === 'pr' && from === 'commit' ? h('span.muted', null, '· from the commit message') : null;
-    const box = h('section.catchup-desc' + (descOpen ? '.open' : ''), { 'aria-label': label },
-      h('div.catchup-desc-head', null, h('span', null, label), note,
-        text ? h('button.btn.ghost.small.catchup-desc-more', { 'aria-expanded': String(descOpen), 'data-tip': tipFor(descOpen ? 'Show less' : 'Show more', 'catchup.description'), onclick: () => toggleDescription() }, descOpen ? 'Show less' : 'Show more', kbd(...keymap.keys('catchup.description'))) : null),
-      text ? h('div.catchup-desc-text', null, text) : h('div.catchup-desc-none', null, 'No description'));
-    readerDesc.replaceChildren(box);
-    // Show more only when the clamped text has more to show.
-    requestAnimationFrame(() => {
-      const t = box.querySelector('.catchup-desc-text');
-      if (t && !descOpen) box.classList.toggle('fits', t.scrollHeight <= t.clientHeight + 1);
-    });
-  }
-  function toggleDescription() {
-    const e = entryById(readId);
-    if (!e || change?.id !== e.id || !readerDescription(e, change.message).text) return false;
-    descOpen = !descOpen;
-    renderDescription();
-    return true;
+    readerDesc.replaceChildren(descriptionBlock({
+      label: e.kind === 'pr' ? 'Description' : 'Commit message',
+      note: e.kind === 'pr' && from === 'commit' ? h('span.muted', null, '· from the commit message') : null,
+      text,
+    }) || '');
   }
 
-  // Each file under a sticky header: viewed tick, path, +N −M. Ticked files fold.
+  // Each file a shared card (reader.js): fold chevron, viewed tick, path, +N −M. Viewed files fold.
   const viewedOf = (id) => { if (!viewed.has(id)) viewed.set(id, new Set()); return viewed.get(id); };
   function renderFiles() {
     if (!change) return;
@@ -379,29 +363,37 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     const done = viewedOf(id).has(d.path);
     const { add, del } = diffCounts(d);
     const fk = `${id}\0${d.path}`;
-    return h('section.catchup-file' + (done ? '.viewed' : ''), { 'data-path': d.path },
-      h('div.catchup-file-head', null,
-        h('input.catchup-viewed', { type: 'checkbox', checked: done, 'aria-label': `Viewed ${d.path}`, 'data-tip': tipFor('Viewed', 'catchup.viewed'), onchange: (ev) => setViewed(d.path, ev.target.checked) }),
-        h('span.catchup-file-path', { title: d.path }, d.path),
-        h('span.stat', { 'aria-label': `${add} added, ${del} removed` }, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`))),
-      done ? null : h('div.catchup-file-diff', null, renderDiff(d, { full: full.has(fk), onShowAll: () => { full.add(fk); replaceFile(d.path); } })));
+    const folded = folds.has(fk) ? folds.get(fk) : done;
+    return fileCard({
+      path: d.path, add, del,
+      checked: done, checkLabel: `Viewed ${d.path}`, checkTip: tipFor(done ? 'Viewed' : 'Mark viewed', 'catchup.viewed'),
+      onCheck: () => setViewed(d.path, !done),
+      collapsed: folded, onToggle: () => fold(d.path, !folded),
+      body: h('div.review-file-body', null, renderDiff(d, { full: full.has(fk), onShowAll: () => { full.add(fk); replaceFile(d.path); } })),
+    });
   }
   function replaceFile(path) {
     const old = [...readerFiles.children].find((x) => x.dataset.path === path);
     const d = change?.diffs.find((x) => x.path === path);
     if (!old || !d) return null;
-    const refocus = old.contains(document.activeElement);
+    const focused = document.activeElement;
+    const refocus = old.contains(focused) ? (focused.classList.contains('review-tick') ? '.review-tick' : '.review-file-fold') : null;
     const next = fileBlock(d);
     old.replaceWith(next);
-    if (refocus) next.querySelector('.catchup-viewed').focus({ preventScroll: true });
+    if (refocus) next.querySelector(refocus)?.focus({ preventScroll: true });
+    // Folding a file you scrolled into: bring its header back into view.
+    if (next.classList.contains('folded') && next.getBoundingClientRect().top < reader.getBoundingClientRect().top) next.scrollIntoView({ block: 'start' });
     return next;
+  }
+  function fold(path, on) {
+    folds.set(`${change.id}\0${path}`, on);
+    replaceFile(path);
   }
   function setViewed(path, on) {
     const set = viewedOf(change.id);
     if (on) set.add(path); else set.delete(path);
-    const block = replaceFile(path);
-    // Folding a file you scrolled into: bring its header back into view.
-    if (on && block && block.getBoundingClientRect().top < reader.getBoundingClientRect().top) block.scrollIntoView({ block: 'start' });
+    folds.delete(`${change.id}\0${path}`); // ticking folds it, unticking shows it again
+    replaceFile(path);
   }
   // V: tick the first file not yet viewed.
   function markNextViewed() {
@@ -411,26 +403,31 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     setViewed(path, true);
     return true;
   }
+  // , and . in the reader: the previous or next file's header to the top.
+  function jumpFile(d) {
+    const cards = [...readerFiles.querySelectorAll('.reader-file')];
+    if (!cards.length) return;
+    const line = reader.getBoundingClientRect().top + 48; // just under the slim bar
+    let cur = -1; // the file being read: the last one whose top is above the line
+    cards.forEach((c, i) => { if (c.getBoundingClientRect().top <= line) cur = i; });
+    // Back from the middle of a file: its own header first.
+    const to = d < 0 && cur >= 0 && cards[cur].getBoundingClientRect().top < line - 12 ? cur : cur + d;
+    cards[Math.max(0, Math.min(cards.length - 1, to))].scrollIntoView({ block: 'start' });
+  }
 
-  // Walk through: the merged PRs (or the commits when none came with a PR), one at a time in the
-  // reader, ←/→ to step, Esc to leave. The timeline shows everything while walking.
+  // ⇧↵, Read from the top: the timeline's first item, in the reader.
   function walk() {
-    const wl = walkList(entries);
-    if (!wl.length) return toast('Nothing landed to walk through');
-    walking = true;
-    more = true;
-    selId = wl[0].id;
-    render();
-    syncReader(true);
+    const first = visible()[0];
+    if (!first) return toast('Nothing landed to read');
+    open(first);
   }
-  function walkStep(d) {
-    selId = stepId(walkList(entries), selId, d);
+  // ←/→ (from the timeline or the reader) and ‹ ›: the previous or next item, the reader following.
+  function step(d) {
+    const id = stepId(entries, selId, d);
+    if (!id || id === selId) return;
+    selId = id;
+    if (!visible().some((e) => e.id === id)) more = true;
     render();
-  }
-  function stopWalk() {
-    walking = false;
-    render();
-    el.focus({ preventScroll: true });
   }
   // ↵: show it now and move focus into the reader, so Space and Page Down scroll it.
   function open(e = entryById(selId)) {
@@ -441,7 +438,6 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     reader.focus({ preventScroll: true });
   }
   function move(d) {
-    if (walking) return walkStep(d);
     const vis = visible();
     if (!vis.length) return;
     const i = vis.findIndex((e) => e.id === selId);
@@ -451,6 +447,10 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   const showMore = () => { if (!more) { more = true; render(); } };
 
   el.addEventListener('keydown', (e) => {
+    // In the reader (AK-381): ↑/↓ and Space scroll it, ←/→ step the timeline, , and . the files, Esc back.
+    if (reader.contains(e.target) && readerKey(e, { scroller: reader, onStep: step, onFile: jumpFile, onBack: () => el.focus({ preventScroll: true }) })) return;
+    const r = keymap.match('reader', e);
+    if (r === 'reader.next' || r === 'reader.prev') { e.preventDefault(); e.stopPropagation(); step(r === 'reader.next' ? 1 : -1); return; }
     const id = keymap.match('catchup', e);
     if (!id) return;
     if (id === 'catchup.next') move(1);
@@ -462,12 +462,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     else if (id === 'catchup.reload') reload();
     else if (id === 'catchup.branch') { branchSel.focus(); branchSel.showPicker?.(); }
     else if (id === 'catchup.more') showMore();
-    else if (id === 'catchup.walkNext' && walking) walkStep(1);
-    else if (id === 'catchup.walkPrev' && walking) walkStep(-1);
-    else if (id === 'catchup.walkDone' && walking) stopWalk();
-    else if (id === 'catchup.walkDone' && reader.contains(document.activeElement)) el.focus({ preventScroll: true });
     else if (id === 'catchup.viewed') { if (!markNextViewed()) return; }
-    else if (id === 'catchup.description') { if (!toggleDescription()) return; }
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -484,8 +479,8 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
     el, refresh: () => fetch(), reload, walk, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && entries.length > FIRST, canReload: () => true,
-    // ⌘K: the reader's V and I, and leaving the walk-through.
-    markNextViewed, toggleDescription, walking: () => walking, stopWalk,
+    // ⌘K: the reader's V.
+    markNextViewed,
   };
 }
 
