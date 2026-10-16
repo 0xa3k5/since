@@ -21,7 +21,7 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
 // come from local data alone, plus one line to turn them on: no `gh` calls.
 // Opening Review, repo changes and window focus read local data only: no network. Pull requests (and
-// the catch-up card's merged PRs) load when you press Reload (⌘R, the header button, ⌘K) or right
+// the catch-up card's merged PRs) load when you press Reload (⇧R, the header button, ⌘K) or right
 // after your own approve, close or merge. The last PR load is kept in memory for the open repo
 // (prCache), so coming back to Review shows it at once, with "Updated 4m ago" beside Reload.
 
@@ -826,7 +826,7 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
     render();
   }
   const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
-  // Reload (button, ⌘R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub on its own.
+  // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub on its own.
   const reload = () => (reloading ? Promise.resolve() : fetchLanes({ prs: true }).catch(fail));
   // Keep the last PR load (and the catch-up card's PR part) for the next visit to Review.
   function remember() {
