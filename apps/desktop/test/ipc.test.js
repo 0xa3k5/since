@@ -257,6 +257,8 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
   rejects(() => check.knownRemote(remotes, 'upstream'), /not a remote/);
   rejects(() => check.knownRemote(remotes, 'git@github.com:evil/app.git'), /not a remote/);
   rejects(() => check.knownRemote(remotes, 7));
+  // AK-446: a missing remote is still refused, not defaulted.
+  for (const v of [undefined, null, '']) rejects(() => check.knownRemote(remotes, v), /remote: (expected a string|empty)/);
   rejects(() => check.knownRemote([], 'origin'), /not a remote/);
   const method = check.oneOf(...require('../github').MERGE_METHODS);
   for (const m of ['squash', 'merge', 'rebase']) assert.strictEqual(method(m, 'merge method'), m);
