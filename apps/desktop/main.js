@@ -360,6 +360,7 @@ handle('git', async (e, method, ...args) => {
     try {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
+      if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (worktreeOps[method]) {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
