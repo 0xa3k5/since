@@ -32,6 +32,8 @@ import { tourView } from './tour-view.js';
 import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
+import { prefsWindow } from './prefs-view.js';
+import { prefRows } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
@@ -72,7 +74,6 @@ const state = {
   snapSel: null, // selected row in the Snapshots view (journal entry id)
   reflog: [],
   config: [],
-  configFilter: '',
   remotes: [],
   worktrees: [],
   submodules: [], // see git.getSubmodules
@@ -418,14 +419,14 @@ async function refreshAux() {
   if (!state.repo) return;
   refreshRemotes();
   // Re-render only when the data changed: a rebuild drops filters, selection and in-flight clicks.
-  const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog, state.view === 'config' && state.config]);
+  const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog]);
   const before = shown();
   state.stashes = await git('stashes').catch(() => []);
   refreshLfs();
   if (state.view === 'reflog') state.reflog = await git('reflog').catch(() => []);
-  if (state.view === 'config') state.config = await git('config').catch(() => []);
+  if (prefs && state.repo) { state.config = await git('config').catch(() => []); prefs.refresh(); }
   renderNavCounts();
-  if (['stashes', 'reflog', 'config'].includes(state.view) && shown() !== before) renderView(true);
+  if (['stashes', 'reflog'].includes(state.view) && shown() !== before) renderView(true);
 }
 
 async function refreshLfs() {
@@ -548,7 +549,7 @@ async function navStep(dir) {
     renderTopbar();
     renderView();
     if (to.view === 'map' && !to.quick && !to.review && !to.fileHistory && to.selected) selectCommit(to.selected, 'center');
-    if (to.view === 'reflog' || to.view === 'config' || to.view === 'stashes') refreshAux();
+    if (to.view === 'reflog' || to.view === 'stashes') refreshAux();
     if (to.view === 'worktrees') refreshHistory();
   } finally { navigating = false; }
 }
@@ -589,7 +590,6 @@ const VIEWS = [
   { id: 'stashes', label: 'Stashes', icon: 'stash', key: '6' },
   { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '7' },
   { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '8' },
-  { id: 'config', label: 'Config', icon: 'config', key: '9' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '0' },
 ];
 
@@ -606,7 +606,7 @@ function showView(v) {
   renderSidebar();
   renderTopbar();
   renderView();
-  if (v === 'reflog' || v === 'config' || v === 'stashes') refreshAux();
+  if (v === 'reflog' || v === 'stashes') refreshAux();
   if (v === 'worktrees') refreshHistory();
 }
 
@@ -1036,7 +1036,6 @@ function renderView(soft = false) {
     case 'stashes': contentEl.append(stashesView()); break;
     case 'snapshots': contentEl.append(snapshotsView()); break;
     case 'reflog': contentEl.append(reflogView()); break;
-    case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
     case 'lanes': contentEl.append(openLanes().el); break;
     case 'catchup': contentEl.append(openCatchup().el); break;
@@ -2324,47 +2323,6 @@ function reflogView() {
   if (!state.reflog.length) rows.append(h('div.empty', null, 'Reflog is empty'));
   el.append(rows);
   return el;
-}
-
-// ---------------------------------------------------------------------------
-// Config
-
-function configView() {
-  const el = h('div.page.flush');
-  const table = h('div.table');
-  const render = () => {
-    table.replaceChildren();
-    const filter = state.configFilter.toLowerCase();
-    for (const c of state.config) {
-      if (filter && !(c.key + ' ' + c.value).toLowerCase().includes(filter)) continue;
-      table.append(h('div.table-row.config-row', {
-        ondblclick: () => c.scope === 'local' && editConfig(c),
-        oncontextmenu: (e) => {
-          e.preventDefault();
-          contextMenu(e.clientX, e.clientY, [
-            { label: 'Edit…', icon: 'edit', disabled: c.scope !== 'local', run: () => editConfig(c) },
-            { label: 'Copy Value', icon: 'copy', run: () => copy(c.value, 'Copied') },
-            { label: 'Delete', icon: 'trash', danger: true, disabled: c.scope !== 'local', run: () => act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false }) },
-          ]);
-        },
-      }, h('span.badge.' + c.scope, null, sentence(c.scope)), h('span.mono', null, c.key), h('span.config-val', null, c.value)));
-    }
-  };
-  el.append(
-    h('div.page-head', null,
-      h('div', null, h('h1', null, 'Configuration'), h('p.muted', null, 'Effective git config. Local values can be edited.')),
-      h('div.page-actions', null,
-        h('input.input.small', { placeholder: 'Filter…', value: state.configFilter, oninput: (e) => { state.configFilter = e.target.value; render(); } }),
-        h('button.btn.subtle', { onclick: () => editConfig(null) }, icon('plus', 14), 'Add option'))),
-    table,
-  );
-  render();
-  return el;
-}
-
-async function editConfig(c) {
-  const v = await dialog({ title: c ? 'Edit option' : 'Add option', submit: 'Save', fields: [{ name: 'k', label: 'Key', value: c?.key || '', placeholder: 'user.name' }, { name: 'v', label: 'Value', value: c?.value || '' }] });
-  if (v && v.k.trim()) act(`Set ${v.k.trim()}`, 'setConfig', [v.k.trim(), v.v], { undoable: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -3722,6 +3680,8 @@ function openPalette() {
     add('App', 'Export shortcuts…', exportShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom save file json' });
     add('App', 'Import shortcuts…', importShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom load file json' });
     add('App', 'Reset all shortcuts to defaults', resetShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom restore default' });
+    add('App', 'Preferences…', () => openPrefs(), { icon: 'config', kbd: keymap.keys('app.settings'), keywords: 'settings options config general appearance sidebar git' });
+    if (state.repo) add('Repository', 'Repository settings…', () => openPrefs('repository'), { icon: 'config', kbd: keymap.keys('view.config'), keywords: 'git config configuration option local' });
     add('App', 'Keyboard shortcuts', openShortcuts, { icon: 'command', kbd: keymap.keys('help.shortcuts'), keywords: 'keys keymap bindings hotkeys cheat sheet help' });
     add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: keymap.keys('global.setup'), keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
@@ -3857,6 +3817,83 @@ async function resetShortcuts() {
   toast('Shortcuts reset to the defaults', { kind: 'success' });
 }
 
+// ---------------------------------------------------------------------------
+// Preferences window (⌘,; prefs.js / prefs-view.js). No new store: each row reads and writes the same saved
+// value as ⌘K and the menus (settings.json in the main process, or the renderer's prefs), and acts the same way.
+
+let prefs = null;
+const prefState = () => ({
+  autoUpdate: update.auto,
+  licence: state.licence && state.licence.mode !== 'beta' ? { licensed: state.licence.mode === 'licensed', detail: trialLine(state.licence) } : null,
+  autostash: loadPref('autostash', AUTOSTASH_DEFAULT),
+  ai: aiLabel(),
+  theme: state.theme,
+  themes: THEMES,
+  show: state.show,
+  sidebarExpanded: state.sidebar.expanded,
+  prs: prefPrs,
+  repo: Boolean(state.repo),
+  config: state.config,
+});
+let prefPrs = null;
+async function loadPrefState() {
+  const [ai, pr, config] = await Promise.all([
+    api.app('ai-settings').catch(() => null),
+    api.app('pr-state').catch(() => null),
+    state.repo ? git('config').catch(() => []) : [],
+  ]);
+  if (ai) state.ai = ai;
+  prefPrs = pr;
+  state.config = config;
+}
+async function openPrefs(section) {
+  if (prefs) return prefs.show(section || 'general');
+  if (document.querySelector('.overlay:not(.closing)')) return;
+  await loadPrefState();
+  if (prefs || document.querySelector('.overlay:not(.closing)')) return;
+  prefs = prefsWindow({ section, rows: () => prefRows(prefState()), act: prefAct, onClose: () => { prefs = null; } });
+}
+// Rows that open their own window close Preferences first.
+const leavePrefs = (then) => { prefs?.close(); setTimeout(then, 120); };
+async function prefAct(row, value) {
+  const id = row.id;
+  if (row.kind === 'config') return configAct(row.value, value);
+  if (id === 'autoUpdate') { const s = await api.app('set-auto-update', value); update = { ...update, auto: s.auto }; }
+  else if (id === 'checkUpdates') await api.app('check-updates');
+  else if (id === 'licence') leavePrefs(() => openLicence());
+  else if (id === 'setup') leavePrefs(openSetup);
+  else if (id === 'autostashAsk' || id === 'autostashUntracked') {
+    const a = loadPref('autostash', AUTOSTASH_DEFAULT);
+    savePref('autostash', id === 'autostashAsk' ? { ...a, ask: value } : { ...a, untracked: value });
+  }
+  else if (id === 'identity') leavePrefs(openIdentity);
+  else if (id === 'ai') await setupAi();
+  else if (id === 'theme') { state.theme = value; await setTheme(value); }
+  else if (id in state.show) { if (state.show[id] !== value) { if (state.repo) toggleShow(id); else { state.show[id] = value; savePref('show', state.show); if (id === 'swatches') setSwatches(value); } } }
+  else if (id === 'sidebarExpanded') setSidebar({ ...state.sidebar, expanded: value });
+  else if (id === 'resetPanes') resetPanes();
+  else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'shortcuts') leavePrefs(openShortcuts);
+  else if (id === 'importShortcuts') await importShortcuts();
+  else if (id === 'exportShortcuts') await exportShortcuts();
+  else if (id === 'resetShortcuts') await resetShortcuts();
+  else if (id === 'addConfig') return configAct(null);
+}
+// One git config entry of the open repository: edit (local only), copy or unset. Moved here from the old
+// Config view; the table refreshes once git has the new value.
+async function configAct(c, how) {
+  if (how === 'copy') return copy(c.value, 'Copied');
+  if (c && c.scope !== 'local') return toast(`${c.key} is set in your ${c.scope} git config`, { detail: 'Only this repository’s local values can be edited here.' });
+  if (how === 'unset') await act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false });
+  else {
+    const v = await dialog({ title: c ? 'Edit option' : 'Add option', submit: 'Save', fields: [{ name: 'k', label: 'Key', value: c?.key || '', placeholder: 'user.name' }, { name: 'v', label: 'Value', value: c?.value || '' }] });
+    if (!v || !v.k.trim()) return;
+    await act(`Set ${v.k.trim()}`, 'setConfig', [v.k.trim(), v.v], { undoable: false });
+  }
+  state.config = await git('config').catch(() => state.config);
+}
+
 async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
   const recent = await api.app('recent');
   let idx = 0;
@@ -3924,7 +3961,6 @@ async function loadRepo(repo) {
   state.fileHistory = null;
   state.review = null;
   state.search = '';
-  state.configFilter = '';
   commitCache.clear();
   state.remotes = [];
   state.prs = null;
@@ -3977,7 +4013,8 @@ const commands = {
   redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); else tour?.redo(); },
   search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
-  view: (v) => setView(v),
+  view: (v) => (v === 'config' ? openPrefs('repository') : setView(v)),
+  preferences: (section) => openPrefs(section),
   back: goBack,
   forward: goForward,
   sidebar: toggleSidebar,
@@ -4025,6 +4062,9 @@ api.on('command', (cmd, ...args) => {
   // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
   if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
   if (shortcuts && cmd === 'search') return shortcuts.find();
+  // With Preferences open, ⌘, closes it and ⌘F goes to its search.
+  if (prefs && cmd === 'preferences') return prefs.close();
+  if (prefs && cmd === 'search') return prefs.find();
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
   commands[cmd]?.(...args);
 });
@@ -4207,6 +4247,7 @@ api.on('theme', (mode, { announce } = {}) => {
   state.theme = mode;
   if (announce) toast(`Theme: ${themeLabel(mode)}`);
   setTimeout(() => mapView?.refresh(), 50);
+  prefs?.refresh();
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 
