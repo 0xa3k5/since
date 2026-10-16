@@ -175,7 +175,8 @@ class AppDriver {
     }).toPass();
   }
 
-  async dialog({ fields = {}, submit } = {}) {
+  // `under`: overlays left open beneath the dialog (a dialog opened from Preferences).
+  async dialog({ fields = {}, submit, under = 0 } = {}) {
     const d = this.page.locator('.overlay .dialog');
     await expect(d).toBeVisible();
     for (const [label, value] of Object.entries(fields)) {
@@ -185,7 +186,7 @@ class AppDriver {
       else await input.fill(value);
     }
     await d.locator('.dialog-foot button[type=submit]', submit ? { hasText: submit } : {}).click();
-    await expect(this.page.locator('.overlay')).toHaveCount(0);
+    await expect(this.page.locator('.overlay')).toHaveCount(under);
   }
 
   undoButton() { return this.page.locator('.topbar button[title^="Undo"]'); }

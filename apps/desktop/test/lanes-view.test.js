@@ -33,6 +33,8 @@ test('recent dirty work, drafts and merged lanes are not flagged', async () => {
   assert.equal(laneBucket(lane('x', { pr: { checks: 'success', review: 'approved', draft: true } }), NOW), 'active');
   assert.equal(laneBucket(lane('x', { merged: 'squash' }), NOW), 'idle');
   assert.equal(laneBucket(lane('x', { pr: { checks: 'pending', review: 'required' } }), NOW), 'review');
+  assert.equal(laneBucket(lane('x', { done: { reason: 'key' }, pr: { checks: 'failure' } }), NOW), 'failing', 'an open PR on a shipped-looking lane');
+  assert.equal(laneBucket(lane('x', { done: { reason: 'key' }, pr: { checks: 'success', review: 'approved' } }), NOW), 'merged');
 });
 
 test('within a bucket the newest activity comes first', async () => {

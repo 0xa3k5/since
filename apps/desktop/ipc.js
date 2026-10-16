@@ -147,6 +147,12 @@ const cleanupItem = (v, what) => {
   if (!v.branch && !v.worktree) fail(what, 'expected a branch or a worktree');
   return v;
 };
+// A name for `git remote add`/`rename`: one path component git accepts in refs/remotes/<name>/.
+const remoteName = (v, w = 'remote name') => {
+  str(v, w, { max: 256 });
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(v) || v.includes('..') || v.endsWith('.lock') || v.endsWith('.')) fail(w, 'letters, digits, ".", "_" and "-" only');
+  return v;
+};
 const remoteBranch = (v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); if (/\/-/.test(v)) fail(w, 'must not start with -'); return v; };
 
 // The worktree in `worktrees` (from git.getWorktrees) at `dir`, or throws. `same` compares paths
@@ -201,6 +207,7 @@ const gitSchemas = {
   // ref mutations
   checkout: [rev],
   checkoutTracking: [rev],
+  autostashCheckout: [rev, text, optional(bool)],
   createBranch: [rev, rev, optional(bool)],
   deleteBranch: [rev],
   renameBranch: [rev, rev],
@@ -230,6 +237,11 @@ const gitSchemas = {
   deleteRemoteBranch: [remoteBranch],
   deleteRemoteBranches: [(v, w) => list(v, w, remoteBranch)],
   setConfig: [safeConfigKey, text],
+  // undoable remote changes (journal.runRemote)
+  addRemote: [remoteName, cloneUrl],
+  setRemoteUrl: [remoteName, cloneUrl],
+  renameRemote: [remoteName, remoteName],
+  removeRemote: [remoteName],
   mergetool: [optional(repoPaths)],
   unsetConfig: [configKey],
   markResolved: [repoPath],
@@ -336,4 +348,4 @@ function insideRepo(root, rel) {
 
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote, obj };
+module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote, remoteName, obj };

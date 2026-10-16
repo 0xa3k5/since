@@ -110,6 +110,11 @@ test('listPrs / detect: missing gh, logged out and other errors', async () => {
   const { calls, exec } = recorder('');
   assert.equal((await github.detect({ remotes: [ORIGIN], dirs: [fakeGh()], exec })).gh, 'ready');
   assert.deepEqual(calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  // No repository open: the github.com login only, no remote needed.
+  const none = recorder('');
+  assert.deepEqual(await github.detect({ remotes: null, dirs: [fakeGh()], exec: none.exec }), { gh: 'ready', remote: null });
+  assert.deepEqual(none.calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  await assert.rejects(github.detect({ remotes: [], dirs: [fakeGh()], exec: none.exec }), { code: 'gh-no-remote' });
 });
 
 test('settings: one user-wide flag, a per-repository hide, and the old per-repository keys migrated', () => {
@@ -117,7 +122,7 @@ test('settings: one user-wide flag, a per-repository hide, and the old per-repos
   assert.deepEqual(github.normalize({ on: false, hidden: ['/a', 3] }), { on: false, hidden: ['/a'] });
   // Upgrades: on if any repository had it on; the old `repos` key is dropped.
   assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { on: true, hidden: [] });
-  assert.deepEqual(github.normalize({ repos: [] }), { on: null, hidden: [] });
+  assert.deepEqual(github.normalize({ repos: [] }), { on: false, hidden: [] }, 'turned off in the last repository stays off');
   assert.equal(github.normalize({ on: false, repos: ['/a'] }).on, false, 'an explicit choice wins');
   let s = github.setEnabled(undefined, true);
   assert.ok(github.isEnabled(s, '/a') && github.isEnabled(s, '/b'), 'on for every repository');
@@ -185,8 +190,14 @@ test('parsePrHead: refuses odd output, wrong PR, bad shas and unsafe branch name
   assert.throws(() => github.parsePrHead('[]', 12), { code: 'gh-failed' });
   assert.throws(() => github.parsePrHead(HEAD(), 13), { code: 'gh-failed' });
   assert.throws(() => github.parsePrHead(HEAD({ headRefOid: 'HEAD' }), 12), /no head commit/);
-  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'semi;colon']) {
+  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'a/.b', 'a~b', 'a:b', 'a?b', 'a[b', 'a\\b', '@', 'x@{1}', 'dot.']) {
     assert.throws(() => github.parsePrHead(HEAD({ headRefName: name }), 12), { code: 'gh-failed' }, name);
+  }
+});
+
+test('parsePrHead: takes any branch name git accepts', () => {
+  for (const name of ['fix+x', 'issue#12', 'me@work', 'café/ñ', 'semi;colon', 'a.b/c-d_e']) {
+    assert.equal(github.parsePrHead(HEAD({ headRefName: name }), 12).local, name);
   }
 });
 
