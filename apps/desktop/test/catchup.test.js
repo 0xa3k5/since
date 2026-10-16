@@ -236,3 +236,10 @@ test('landed reads another branch when given a base ref (AK-374)', async () => {
   assert.equal((await git.laneBase(dir, 'refs/heads/dev')).ref, 'refs/heads/dev');
   await assert.rejects(git.landed(dir, { base: 'refs/heads/nope' }), /Unknown base/);
 });
+
+test('changeSize sums a change\'s file diffs for the reader head', async () => {
+  const { changeSize } = await load('catchup.js');
+  const d = (adds, dels) => ({ hunks: [{ lines: [...Array(adds).fill({ t: '+' }), ...Array(dels).fill({ t: '-' }), { t: ' ' }] }] });
+  assert.deepEqual(changeSize([d(3, 1), d(0, 2)]), { additions: 3, deletions: 3, files: 2 });
+  assert.deepEqual(changeSize([]), { additions: 0, deletions: 0, files: 0 });
+});
