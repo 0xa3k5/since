@@ -1,18 +1,19 @@
-// Lanes → Clean up: pure helpers (no DOM) for cleanup-view.js. A lane is one entry of
+// Clean up, the Finished tab of Branches: pure helpers (no DOM) for cleanup-view.js. A lane is one entry of
 // `app:lanes-list` (git.lanes). Each finished lane lands in the first group it matches.
 
 import { laneKey } from './lanes.js';
 
 const DAY = 24 * 3600e3;
-// "Untouched for N days": an optional filter, off by default. The default N when it's turned on.
+// "Untouched for N days": its own card, never ticked up front. The default N.
 export const STALE_DAYS = 30;
 
+// In the order the Finished tab of Branches shows them (AK-396). Each card ticks its whole group.
 export const GROUPS = [
-  { id: 'missing', label: 'Worktree folder missing', detail: 'The folder is gone; the worktree record is pruned.' },
-  { id: 'mergedWorktree', label: 'Worktrees of merged branches', detail: 'Removes the worktree and its branch.' },
-  { id: 'merged', label: 'Merged or shipped', detail: 'Merged, squash-merged, rebased or shipped through a pull request.' },
-  { id: 'gone', label: 'Upstream gone', detail: 'The branch it tracked was deleted on the remote.' },
-  { id: 'old', label: 'Untouched', detail: 'No commits or edits for a while.' },
+  { id: 'merged', label: 'Merged or shipped', detail: 'Merged, squash-merged, rebased, or shipped through a pull request.' },
+  { id: 'mergedWorktree', label: 'Worktrees of merged branches', detail: 'Removes the worktree folder and its branch.' },
+  { id: 'missing', label: 'Worktree folder missing', detail: 'The folder is already gone; only git’s record is left.' },
+  { id: 'gone', label: 'Deleted on GitHub', detail: 'The remote branch it tracked was deleted, usually after its PR merged.' },
+  { id: 'old', label: 'Untouched', detail: 'Not merged anywhere. Your call; not ticked by default.' },
   { id: 'dirty', label: 'Finished, with uncommitted changes', detail: 'Removing these worktrees deletes their uncommitted files for good.', warn: true },
 ];
 
@@ -63,9 +64,10 @@ export function blocked(lane) {
   return null;
 }
 
-// Ticked when the list opens: anything not blocked and not dirty. Dirty worktrees need an
-// explicit tick (and a warning); the current worktree and the base branch are never offered.
-export const preselect = (lane) => !blocked(lane) && !dirty(lane);
+// Ticked when the list opens: anything not blocked, not dirty and not merely untouched. Dirty
+// worktrees need an explicit tick (and a warning); untouched branches are your call; the current
+// worktree and the base branch are never offered.
+export const preselect = (lane) => !blocked(lane) && !dirty(lane) && lane.group !== 'old';
 
 // Its remote branch, when it still has one (deleting it there is a separate, opt-in tick).
 export const remoteOf = (lane) => (lane.upstream && !lane.upstreamGone ? lane.upstream : null);
