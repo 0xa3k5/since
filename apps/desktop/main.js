@@ -562,6 +562,10 @@ handle('app:lanes-forecast', async (e) => {
 // yesterday, last week or a tag), from git log. With { prs: true } and pull requests on here, the
 // merged PRs (the same `gh pr list --state merged` call as app:lanes-list) are joined on by merge
 // commit, plus the base's CI (`gh run list --branch <base>`); with pull requests off, no gh calls.
+// { base } (AK-374) reads another branch instead: a full ref name, refs/heads/… or refs/remotes/…
+// (the `name` of a branch or remote ref from `refs`). The checkpoint belongs to the default base,
+// so another branch has none (checkpoint: null, Mark caught up doesn't apply) and a checkpoint
+// read falls back to last week (kind: 'week').
 const catchupFile = () => path.join(app.getPath('userData'), 'catchup.json');
 const tipOf = async (root) => {
   const r = await git.landed(root, {});
@@ -569,17 +573,21 @@ const tipOf = async (root) => {
 };
 const SINCE = check.oneOf('checkpoint', 'yesterday', 'week', 'tag');
 handle('app:catchup', async (e, opts) => {
-  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['since', 'tag', 'prs'].includes(k)))) throw new check.IpcArgError('Invalid catch-up options');
-  const kind = opts?.since == null ? 'checkpoint' : SINCE(opts.since, 'since');
+  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['since', 'tag', 'prs', 'base'].includes(k)))) throw new check.IpcArgError('Invalid catch-up options');
+  let kind = opts?.since == null ? 'checkpoint' : SINCE(opts.since, 'since');
   const tag = kind === 'tag' ? check.rev(opts.tag, 'tag') : null;
   const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
+  const base = opts?.base == null ? null : check.rev(opts.base, 'base');
+  if (base && !/^refs\/(heads|remotes)\//.test(base)) throw new check.IpcArgError('Invalid base: not a branch');
   const root = session(e).repo.root;
-  const cp = catchupStore.checkpoint(catchupFile(), root);
+  const isDefault = !base || (await git.laneBase(root))?.ref === base;
+  const cp = isDefault ? catchupStore.checkpoint(catchupFile(), root) : null;
+  if (!cp && kind === 'checkpoint') kind = 'week';
   const DAY = 24 * 3600 * 1000;
   const since = kind === 'checkpoint' ? { sha: cp.sha || undefined, date: cp.date }
     : kind === 'tag' ? { ref: `refs/tags/${tag}` }
       : { date: Date.now() - (kind === 'yesterday' ? DAY : 7 * DAY) };
-  const res = await git.landed(root, { since });
+  const res = await git.landed(root, { base: isDefault ? undefined : base, since });
   if (!res) return null;
   let merged = null;
   let ci = null;
@@ -594,7 +602,7 @@ handle('app:catchup', async (e, opts) => {
       if (c.status === 'fulfilled') ci = c.value;
     }
   }
-  return { ...res, kind, tag, checkpoint: cp, merged, ci, prError };
+  return { ...res, kind, tag, checkpoint: cp, defaultBase: isDefault, merged, ci, prError };
 });
 // Mark caught up: the checkpoint becomes the base tip the card showed. → the checkpoint it replaced,
 // which the renderer sends back to undo.
