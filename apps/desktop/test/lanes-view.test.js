@@ -136,3 +136,26 @@ test('a PR load that never answers times out', async () => {
   await assert.rejects(withTimeout(new Promise(() => {}), 10, 'slow'), /slow/);
   assert.equal(await withTimeout(Promise.resolve(4), 10), 4);
 });
+
+test('the PR load when a repo opens and Reload share one call per repo', async () => {
+  const { sharedLoad } = await load();
+  const s = sharedLoad();
+  let calls = 0;
+  let finish;
+  const start = () => { calls++; return new Promise((r) => { finish = r; }); };
+  const a = s.run('/a', start);
+  const b = s.run('/a', start); // Reload while the open-time load runs: joins it
+  assert.equal(calls, 1);
+  assert.equal(s.pending('/a'), a);
+  assert.equal(s.pending('/b'), null);
+  finish(7);
+  assert.equal(await a, 7);
+  assert.equal(await b, 7);
+  assert.equal(s.pending('/a'), null); // done: the next Reload asks again
+  s.run('/a', start);
+  s.run('/b', start); // another repo replaces it
+  assert.equal(calls, 3);
+  assert.equal(s.pending('/a'), null);
+  await assert.rejects(s.run('/c', () => { throw new Error('gh'); }), /gh/);
+  assert.equal(s.pending('/c'), null);
+});
