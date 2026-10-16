@@ -1810,7 +1810,6 @@ async function mapLimit(items, n, fn) {
   return out;
 }
 
-// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
 // The base commit a key or subject match points at: its sha and, for a squash-merged PR ("… (#12)"), the number.
 function squashOf(row) {
   if (!row) return {};
@@ -1821,7 +1820,8 @@ function squashOf(row) {
 // patch id → newest commit with it, from patchIds over a newest-first log.
 const newestBy = (m) => { const out = new Map(); for (const [sha, id] of m) if (!out.has(id)) out.set(id, sha); return out; };
 
-// commit → patch id for a diff-producing git command. Its output is piped straight into
+// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
+// For a diff-producing git command. Its output is piped straight into
 // `git patch-id --stable`, so a huge diff (an icon repo's SVG history runs to hundreds of MB) never
 // becomes a JS string. Past maxBytes or timeout both are killed and the result is empty: squash
 // detection degrades, the main process keeps its heap.
