@@ -943,6 +943,10 @@ async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = 
   for (const [n, o] of Object.entries(state.refs)) if (current.refs[n] !== o) lines.push(`update ${n} ${o}`);
   for (const n of Object.keys(current.refs)) if (!(n in state.refs)) lines.push(`delete ${n}`);
   if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo'], { input: lines.join('\n') + '\n', env });
+  // A deleted branch takes its `[branch "x"]` config (upstream) with it, as `git branch -D` does.
+  for (const n of Object.keys(current.refs)) {
+    if (!(n in state.refs) && n.startsWith('refs/heads/')) await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+  }
   if (state.head) await run(cwd, ['symbolic-ref', 'HEAD', state.head], { env });
   else if (state.headOid) await run(cwd, ['update-ref', '--no-deref', 'HEAD', state.headOid], { env });
 }
@@ -1311,7 +1315,8 @@ function resolveWorktreePath(mainPath, dir) {
 
 // Add a worktree. `branch`: an existing local branch is checked out, a new name
 // is created at `base`; no branch gives a detached HEAD at `base`. Returns the path.
-async function addWorktree(cwd, { dir, branch, base } = {}) {
+// `force` moves an existing `branch` to `base` (`-B`), so the move and the new worktree are one step.
+async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
   const main = (await getWorktrees(cwd)).find((w) => w.main);
   const at = base || 'HEAD';
   dir = dir ? resolveWorktreePath(main.path, dir) : defaultWorktreePath(main.path, branch || (await run(cwd, ['rev-parse', '--short', at])).trim());
@@ -1319,6 +1324,7 @@ async function addWorktree(cwd, { dir, branch, base } = {}) {
   const local = branch && (await run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], { allowCodes: [0, 1] })).trim();
   const args = ['worktree', 'add', '-q'];
   if (!branch) args.push('--detach', dir, at);
+  else if (local && force && base) args.push('-B', branch, dir, base);
   else if (local) args.push(dir, branch);
   else args.push('-b', branch, dir, at);
   await run(cwd, args, { env: W_ENV });
