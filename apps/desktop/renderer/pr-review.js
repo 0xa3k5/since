@@ -10,7 +10,7 @@ export const PR_ACTIONS = [
   { id: 'changes', key: 'review.changes', label: 'Request changes…', icon: 'edit' },
   { id: 'merge', key: 'review.merge', label: 'Merge…', icon: 'merge' },
   { id: 'close', key: 'review.closePr', label: 'Close…', icon: 'x', danger: true },
-  { id: 'checkout', key: 'review.checkout', label: 'Check out as lane', icon: 'worktree' },
+  { id: 'checkout', key: 'review.checkout', label: 'Check out', icon: 'worktree' },
 ];
 
 // The action a `review` key id runs on a PR page, or null.
