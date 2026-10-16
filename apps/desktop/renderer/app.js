@@ -2456,6 +2456,7 @@ function worktreesView() {
 
 // Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
 function openLanes() {
+  lanesPage?.destroy();
   lanesPage = lanesView({
     repo: state.repo.root,
     git,
