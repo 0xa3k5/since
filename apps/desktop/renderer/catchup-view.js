@@ -1,6 +1,7 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
 import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, firstUnviewed, readerDescription } from './catchup.js';
+import { sharedLoad } from './lanes.js';
 import * as keymap from './keymap.js';
 import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, readerKey, navPos } from './reader.js';
 
@@ -17,9 +18,10 @@ import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, reader
 // In the reader ↑/↓ scroll, Page Up/Down and Space by a page, ←/→ still step the timeline, , and .
 // jump between files. Below the timeline, a line to Review's stuck and ready-to-merge rows.
 // The checkpoint lives in app data (main process) and only moves on Mark caught up, which Undo on
-// its toast puts back. Opening the view, repo changes and window focus read git alone: merged PRs
-// and CI load on Reload (⇧R) or after your own picks, and the last load is kept per repo
-// (`cache`), so coming back shows it with "Updated 4m ago". With PRs off it's git log alone.
+// its toast puts back. Merged PRs and CI load once when a repo opens (prefetchCatchup, AK-382), then
+// only on Reload (⇧R) or after your own picks; opening the view, repo changes and window focus read
+// git alone. The last load is kept per repo (`cache`), so coming back shows it with "Updated 4m ago".
+// With PRs off it's git log alone.
 //
 // load(opts) → app:catchup; mark(to) → app:catchup-mark (returns the checkpoint it replaced);
 // git(method, ...args) reads a change (commitDiffs, commit); prsOn() reads the setting; counts() →
@@ -31,14 +33,20 @@ const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digi
 const AGO_TICK = 30e3;
 const READ_DELAY = 120; // ↑/↓ held down: the reader waits for the selection to settle
 
-// The view's range and its last load with PRs, per repo (this window, this session), so coming back from
-// the walk-through shows them at once: { repo, since, res, extra: { merged, ci } | null, loadedAt }.
+// The view's range and its last load with PRs, per repo (this window, this session), so coming back to
+// the view shows them at once: { repo, since, res, extra: { merged, ci } | null, loadedAt }.
 let cache = null;
+// The load with PRs in flight for the default range (since the checkpoint, default base), shared by Reload and
+// the load when a repo opens: one `gh` call per repo. openRepo: the repo it's for; a load for another lands nowhere.
+const prLoads = sharedLoad();
+let openRepo = null;
+const DEFAULT_SINCE = { since: 'checkpoint' };
 // What the reader read, per commit, for this repo: sha → Promise<{ diffs, message }>.
 const reads = new Map();
 
 export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
+  openRepo = repo;
   if (cache && !prsOn() && cache.extra) cache = { ...cache, res: null, extra: null, loadedAt: null };
   let since = cache?.since || { since: 'checkpoint' };
   let base = cache?.base || null; // null: the default base (origin/main); else a branch ref from the select (AK-372)
@@ -221,7 +229,9 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     const withPrs = Boolean(prs && prsOn());
     if (withPrs) { reloading = true; renderHead(); }
     try {
-      const r = await load({ ...since, prs: withPrs, ...(base ? { base } : {}) });
+      const opts = { ...since, prs: withPrs, ...(base ? { base } : {}) };
+      // The default range with PRs joins the load from opening the repo, if it's still running.
+      const r = await (withPrs && since.since === 'checkpoint' && !base ? prLoads.run(repo, () => load(opts)) : load(opts));
       if (n !== seq) return;
       failed = null;
       loaded = true;
@@ -464,11 +474,27 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   window.addEventListener('focus', onFocus);
 
   render();
-  fetch();
+  // The load from opening the repo is still running: wait for it ("Reloading…") instead of asking again.
+  if (prsOn() && since.since === 'checkpoint' && !base && prLoads.pending(repo)) reload(); else fetch();
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
     el, refresh: () => fetch(), reload, walk, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && entries.length > FIRST, canReload: () => true,
     // ⌘K: the reader's V.
     markNextViewed,
   };
+}
+
+// The load when a repo opens (AK-382): merged PRs and CI since the checkpoint, the same as Reload, into `cache`,
+// so Catch up shows them without a Reload; onCount(n) updates the sidebar badge. Catch up open on this repo
+// calls its own reload() instead (app.js). Quiet on failure; a repo switch before it lands drops it.
+export async function prefetchCatchup({ repo, load, prsOn, onCount = () => {} }) {
+  openRepo = repo;
+  if (!prsOn()) return;
+  const r = await prLoads.run(repo, () => load({ ...DEFAULT_SINCE, prs: true })).catch(() => null);
+  if (!r || openRepo !== repo || !prsOn()) return;
+  // Your own pick of range or branch for this repo stays; its PRs come on Reload.
+  if (cache?.repo === repo && (cache.since?.since !== 'checkpoint' || cache.base)) return;
+  if (cache?.repo !== repo) reads.clear();
+  cache = { repo, since: { ...DEFAULT_SINCE }, base: null, extra: { merged: r.merged, ci: r.ci }, loadedAt: Date.now(), res: r };
+  onCount(landedEntries(r.commits, r.merged).length);
 }

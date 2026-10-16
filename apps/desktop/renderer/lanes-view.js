@@ -1,5 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
-import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
+import { prAvatar, loadAvatars } from './pr-avatars.js';
+import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
@@ -22,9 +23,9 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
 // merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
 // come from local data alone, plus one line to turn them on: no `gh` calls.
-// Opening Review, repo changes and window focus read local data only: no network. Pull requests load when you press Reload (⇧R, the header button, ⌘K) or right
-// after your own approve, close or merge. The last PR load is kept in memory for the open repo
-// (prCache), so coming back to Review shows it at once, with "Updated 4m ago" beside Reload.
+// Pull requests load once when a repo opens (prefetchReview, AK-382), then only when you press Reload (⇧R, the header button, ⌘K)
+// or right after your own approve, close or merge. Opening Review, repo changes and window focus read local data only: no network.
+// The last PR load is kept in memory for the open repo (prCache), so coming back to Review shows it at once, with "Updated 4m ago" beside Reload.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 // Row-action keys → their action (lanes.js ACTIONS); review, merge and open have their own branches.
@@ -45,6 +46,11 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // The last pull request load, kept across visits to Review (this window, this session) so coming back
 // costs no `gh` call: { repo, inbox, prs: the lanes that had a PR (for keepPrs), loadedAt (ms) }. Another repo, or pull requests turned off, drops it.
 let prCache = null;
+// The PR load in flight (`gh`), shared by Reload and the load when a repo opens: one per repo.
+const prLoads = sharedLoad();
+// The repo Review last opened or prefetched for: a load for another repo lands nowhere.
+let openRepo = null;
+const loadPrs = (repo, load) => prLoads.run(repo, () => withTimeout(load({ prs: true, inbox: true }), PR_TIMEOUT, 'GitHub didn’t answer in time.'));
 // Review's last stuck and ready-to-merge counts, for Catch up's line to Review: { repo, stuck, ready }.
 let lastCounts = null;
 // The last tab, kept across visits to Review (this window, this session).
@@ -63,8 +69,9 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
 // git(method, ...args) reads the files an Everything else row's branch changes, for its preview in the pane.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null, avatars = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
+  openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
   let lanes = [];
   let seedLanes = seed?.prs || []; // the cached PRs, put on the first local lanes
@@ -309,8 +316,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
-        h('div.list-title', null, r.pr?.author ? personAvatar(r.pr.authorName || r.pr.author, r.pr.author, 16) : null, h('span.lanes-name', { title: r.title }, r.title)),
-        stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, line) : null,
+        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
+        stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, r.pr?.author ? personAvatar(r.pr.authorName || r.pr.author, r.pr.author, 14, prAvatar(r.pr.author)) : null, line) : null,
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
@@ -734,7 +741,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   filter.addEventListener('input', () => render());
 
   // Local data first, so the list shows at once; PRs (`gh pr list` plus your review requests) only when asked
-  // (Reload, or after your own approve, close or merge) and on.
+  // (Reload, or after your own approve, close or merge) or when the repo opens (loadPrs joins that load), and on.
   // A local refresh that lands while `gh` is still running doesn't discard the PRs (loadGuard); `gh` gets PR_TIMEOUT.
   async function fetchLanes({ prs }) {
     const withPrs = Boolean(prs && prsOn());
@@ -742,8 +749,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (withPrs) { reloading = true; inboxFailed = false; render(); } // Reload / Retry: "Reloading…"
     let res;
     try {
-      const p = load({ prs: withPrs, ...(withPrs ? { inbox: true } : {}) });
-      res = await (withPrs ? withTimeout(p, PR_TIMEOUT, 'GitHub didn’t answer in time.') : p);
+      res = await (withPrs ? loadPrs(repo, load) : load({ prs: false }));
     } catch (e) {
       if (withPrs && loads.prs(t)) reloading = false;
       if (!withPrs || !loads.prs(t) || !el.isConnected) { if (withPrs && el.isConnected) render(); throw e; }
@@ -774,6 +780,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
     render();
     if (newest) runForecast(t);
+    // Authors' avatars after the list shows; initials until they arrive.
+    if (withPrs && avatars) loadAvatars([...lanes.map((l) => l.pr), ...(inbox?.prs || [])], avatars).then((got) => { if (got && el.isConnected) render(); });
   }
   // Off the hot path: after the list shows. Unchanged pairs come from the main process's cache;
   // a newer list cancels this run (main resolves the cancelled one to null).
@@ -807,6 +815,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const tick = setInterval(() => { if (el.isConnected) renderReload(); else clearInterval(tick); }, AGO_TICK);
 
   render();
+  // The load from opening the repo is still running: show "Reloading…" and its PRs when they land (no second `gh` call).
+  // Before the local load, so that one is the newest lanes and the list shows at once (loadGuard).
+  if (prsOn() && prLoads.pending(repo)) reload();
   fetchLanes({ prs: false }).catch(fail);
   setTimeout(() => el.focus({ preventScroll: true }));
   // ⌘K "Show everything else" / "Hide everything else".
@@ -844,6 +855,18 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     act('sendBack', r);
   }
   return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+}
+
+// The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows
+// them without a Reload. Review open on this repo calls its own reload() instead (app.js). Quiet on
+// failure: Reload says why. A repo switch before it lands drops it.
+export async function prefetchReview({ repo, load, prsOn }) {
+  openRepo = repo;
+  if (!prsOn()) return;
+  const res = await loadPrs(repo, load).catch(() => null);
+  if (!res?.prs || openRepo !== repo || !prsOn()) return;
+  prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter((l) => l.pr), loadedAt: Date.now() };
+  if (lastCounts?.repo === repo) lastCounts = null; // Catch up's line counts from these PRs
 }
 
 // Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or

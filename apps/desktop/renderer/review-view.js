@@ -1,4 +1,5 @@
-import { h, icon, kbd, toast, loading } from './ui.js';
+import { h, icon, kbd, toast, loading, avatar } from './ui.js';
+import { prAvatar } from './pr-avatars.js';
 import { renderDiff, statusBadge, fileName, fileRef } from './diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
 import * as keymap from './keymap.js';
@@ -61,7 +62,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     header ? null : h('div.quick-head', null,
       embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
       h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
-      pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.authorName || pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
+      pr ? h('div.quick-meta.review-pr', null, pr.author ? avatar(pr.authorName || pr.author, pr.author, 16, prAvatar(pr.author)) : null, [pr.author ? `by ${pr.authorName || pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
       pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out as a new lane (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
