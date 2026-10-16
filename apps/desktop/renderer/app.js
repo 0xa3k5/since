@@ -8,7 +8,9 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
-import { lanesView, reviewCounts, prefetchReview } from './lanes-view.js';
+import { lanesView, reviewCounts, prefetchReview, cachedPrs } from './lanes-view.js';
+import { branchesView } from './branches-view.js';
+import { isFinished, BRANCH_TABS } from './branches.js';
 import { rowStage, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
@@ -184,6 +186,8 @@ const refreshHistory = coalesce(async () => {
   renderBanner();
   if (state.view === 'map') mapView?.refresh();
   if (state.view === 'lanes') (state.cleanup ? cleanupPage : lanesPage)?.refresh();
+  if (state.view === 'branches') branchesPage?.refresh();
+  else if (logChanged || worktreesChanged) countFinished();
   if (logChanged) { if (state.view === 'catchup' && catchupPage) catchupPage.refresh(); else countCatchup(); }
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
@@ -478,7 +482,8 @@ function refPill(r) {
 
 const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
-let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null, catchupPage = null;
+let mapView = null, commitView = null, lanesPage = null, cleanupPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
+let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 
 // ---------------------------------------------------------------------------
@@ -574,13 +579,14 @@ let startView = 'lanes';
 const VIEWS = [
   { id: 'catchup', label: 'Catch up', icon: 'catchup', key: '1' },
   { id: 'lanes', label: 'Review', icon: 'lanes', key: '2' },
-  { id: 'map', label: 'Map', icon: 'map', key: '3' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '4' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '5' },
-  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '6' },
-  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '7' },
-  { id: 'config', label: 'Config', icon: 'config', key: '8' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '9' },
+  { id: 'branches', label: 'Branches', icon: 'branch', key: '3' },
+  { id: 'map', label: 'Map', icon: 'map', key: '4' },
+  { id: 'commit', label: 'Commit', icon: 'commit', key: '5' },
+  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '6' },
+  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '7' },
+  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '8' },
+  { id: 'config', label: 'Config', icon: 'config', key: '9' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '0' },
 ];
 
 function setView(v) {
@@ -758,6 +764,7 @@ function renderNavCounts() {
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
   set('stashes', state.stashes.length);
   set('catchup', catchupCount, 'accent');
+  set('branches', finishedCount ? `${finishedCount} to clean` : '', 'quiet');
 }
 
 function renderTopbar() {
@@ -824,7 +831,7 @@ function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
   if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
-  if (key === 'agentLanes') { lanesPage?.rerender(); return; }
+  if (key === 'agentLanes') { lanesPage?.rerender(); branchesPage?.rerender(); return; }
   refreshHistory();
   renderTopbar();
 }
@@ -954,6 +961,7 @@ function renderView(soft = false) {
   contentEl.replaceChildren();
   contentEl.dataset.view = state.view;
   catchupPage = null;
+  branchesPage = null;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
@@ -969,6 +977,7 @@ function renderView(soft = false) {
     case 'worktrees': contentEl.append(worktreesView()); break;
     case 'lanes': contentEl.append(state.cleanup ? openCleanup().el : openLanes().el); break;
     case 'catchup': contentEl.append(openCatchup().el); break;
+    case 'branches': contentEl.append(openBranches().el); break;
   }
 }
 
@@ -2392,6 +2401,48 @@ function countCatchup() {
   });
   return countRun();
 }
+// Branches (branches-view.js, AK-396): every local branch and worktree behind tabs, with the
+// branch preview beside the list. Local data; pull requests from Review's last load.
+let branchesTab = null; // the tab the next Branches page opens on (null: the last one)
+function openBranches() {
+  branchesPage = branchesView({
+    repo: state.repo.root,
+    git,
+    load: (opts) => api.app('lanes-list', opts),
+    forecast: () => api.app('lanes-forecast'),
+    prs: () => (state.prs?.active ? cachedPrs(state.repo.root) : []),
+    markAgents: () => state.show.agentLanes !== false,
+    onOpen: openLane,
+    onReview: (lane, base) => openReview(lane, base),
+    onMerge: mergeLane,
+    onAction: laneAction,
+    onCleanup: (lane) => startCleanup(lane),
+    onNewWorktree: () => addWorktree(),
+    onCount: setFinishedCount,
+    paneWidth: () => loadPref('reviewPane', {}).width || null,
+    setPaneWidth: (width) => savePref('reviewPane', { width }),
+    tab: branchesTab,
+  });
+  branchesTab = null;
+  return branchesPage;
+}
+// Branches on a tab (⌘K, the keys that used to open Everything else in Review).
+function showBranches(tab = null) {
+  if (!state.repo) return;
+  if (state.view === 'branches' && branchesPage && !state.review && !state.quick && !state.split && !state.fileHistory) return tab && branchesPage.setTab(tab);
+  branchesTab = tab;
+  setView('branches');
+}
+// The sidebar badge on Branches: finished branches waiting for Clean up, quiet (not the accent).
+function setFinishedCount(n) { if (n === finishedCount) return; finishedCount = n; renderNavCounts(); }
+function countFinished() {
+  finishedRun ??= coalesce(async () => {
+    if (!state.repo) return;
+    const r = await api.app('lanes-list', { prs: false }).catch(() => null);
+    if (r?.lanes) setFinishedCount(r.lanes.filter(isFinished).length);
+  });
+  return finishedRun();
+}
 let lanesAll = false; // the next Review page starts with Everything else open
 // ⌘K Show / hide everything else: Review, in that mode.
 function showAllLanes(on) {
@@ -3389,7 +3440,22 @@ function openPalette() {
       if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
       add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
     }
-    add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
+    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: keymap.keys('branches.tabConflict'), keywords: 'branches predicted conflicts forecast merge-tree overlap lanes worktrees' });
+    if (state.view === 'branches' && branchesPage && !state.review) {
+      for (const t of BRANCH_TABS) add('Branches', `Show ${t.label}`, () => branchesPage.setTab(t.id), { icon: 'branch', kbd: keymap.keys(t.keyId), detail: branchesPage.tab() === t.id ? 'current' : null, keywords: 'branches tab active agent made would conflict idle finished clean up worktrees' });
+      const sel = branchesPage.selected();
+      if (sel) {
+        const n = sel.lane.name;
+        const can = (id) => branchesPage.can(id);
+        add('Branches', `Show ${n} in the Map`, () => branchesPage.run('open'), { icon: 'map', kbd: keymap.keys('branches.open'), keywords: 'branch open worktree switch map' });
+        if (can('review')) add('Branches', `Review ${n}`, () => branchesPage.run('review'), { icon: 'check', kbd: keymap.keys('branches.review'), keywords: 'branch review diff changes' });
+        if (can('merge')) add('Branches', `Merge and tidy ${n}…`, () => branchesPage.run('merge'), { icon: 'merge', kbd: keymap.keys('branches.merge'), keywords: 'branch squash merge tidy land' });
+        if (can('rebase')) add('Branches', `Rebase ${n} onto ${sel.base}`, () => branchesPage.run('rebase'), { icon: 'rebase', kbd: keymap.keys('branches.rebase'), keywords: 'branch rebase update base conflicts' });
+        if (can('checks')) add('Branches', `Open checks of ${n}`, () => branchesPage.run('checks'), { icon: 'external', kbd: keymap.keys('branches.checks'), keywords: 'branch ci checks pull request github' });
+        if (can('delete')) add('Branches', `${sel.lane.changes ? 'Discard' : 'Delete'} ${n}…`, () => branchesPage.run('delete'), { icon: 'trash', kbd: keymap.keys('branches.delete'), keywords: 'branch delete remove worktree undo' });
+        if (can('cleanup')) add('Branches', `Clean up ${n}…`, () => branchesPage.run('cleanup'), { icon: 'trash', kbd: keymap.keys('branches.cleanup'), keywords: 'branch finished merged clean up tidy remove' });
+      }
+    }
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
     add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.setTab) {
@@ -3528,7 +3594,7 @@ function shortcutsScope() {
   if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
-  return ['commit', 'stashes', 'snapshots', 'worktrees', 'catchup'].includes(state.view) ? state.view : 'map';
+  return ['commit', 'stashes', 'snapshots', 'worktrees', 'catchup', 'branches'].includes(state.view) ? state.view : 'map';
 }
 function openShortcuts() {
   if (shortcuts) return shortcuts.close();
@@ -3632,6 +3698,7 @@ async function loadRepo(repo) {
   if (from) nav.record(from, placeKey());
   renderShell();
   loadPrs().then(prefetchOnOpen);
+  if (!sameRepo) { finishedCount = 0; countFinished(); }
   await refreshAll();
   if (state.head.oid) selectCommit(state.head.oid, 'center');
   if (state.view === 'map') mapView?.focus();
@@ -3856,6 +3923,8 @@ window.addEventListener('keydown', (e) => {
   }
   // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
+  // ⌘3: Branches. The View menu doesn't list it yet, so its key is handled here.
+  if (state.repo && keymap.match('menu', e) === 'view.branches') { e.preventDefault(); setView('branches'); return; }
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }
