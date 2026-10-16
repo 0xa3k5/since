@@ -19,9 +19,12 @@ import { PR_ACTIONS, prActionFor } from './pr-review.js';
 // runs across the full width above the files and the diff; there's no Back button and it doesn't
 // take focus; onKey(keyId) runs first and returns true when
 // it handled a `review` key (the pane's actions); Esc still calls onClose.
-// With a header (Review's pane, AK-373) there's no files column: every file is a block of its own,
-// one after the other in one scroll, under a sticky header with the reviewed tick, the path and
-// +N −M. Ticking a file (V or the tick) folds its code; clicking a reviewed file's header unfolds it.
+// With a header (Review's pane, AK-373) there's no files column: every file is a card of its own,
+// one after the other, under a sticky header with a fold chevron, the reviewed tick, the path and
+// +N −M. The header and the files share one scroll (AK-379): the whole view scrolls, so the pane's
+// head and description move away as you read and each file header sticks to the top while its file
+// is in view. Ticking a file (V or the tick) folds its code; clicking anywhere else on a header (or
+// ↵/Space on its chevron) folds or unfolds that file, remembered per file while the view is open.
 // ↑/↓ move between files, diffs load as their blocks come near the view.
 // checkConflicts: the branch is known to conflict with its base (AK-305), so the files
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
@@ -43,7 +46,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
 
   const stacked = Boolean(header); // per-file blocks instead of a files column (AK-373)
   const diffs = new Map(); // stacked: `${path}@${tip}@${since}` → diff, so re-renders keep their height
-  const opened = new Set(); // stacked: reviewed files unfolded by hand
+  const folds = new Map(); // stacked: path → folded, set by hand; otherwise reviewed files are folded
   const fulls = new Set(); // stacked: files showing every line (Show all)
   let observer = null;
   const meta = h('div.quick-meta');
@@ -65,6 +68,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   const top = header ? h('div.review-pane-top', null, header, h('div.review-progress-line', null, meta, deltaBtn)) : null;
   const main = h('div.quick-main', null, loading('Loading the branch…'));
   const stack = stacked ? h('div.review-stack', { role: 'list', 'aria-label': 'Files' }, loading('Loading the branch…')) : null;
+  // Stacked, `el` itself is the one scroll (styles.css), so the observer and scroll restore use it.
   const el = stacked ? h('div.quick.review.with-header.stacked', { tabIndex: 0 }, top, stack)
     : h('div.quick.review' + (header ? '.with-header' : ''), { tabIndex: 0 }, top, side, main);
   const listRoot = stacked ? stack : listEl;
@@ -164,15 +168,15 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     const cs = conflicting();
     const list = entries();
     if (!list.some((e) => e.path === current && e.c === onConflict)) { current = list[0]?.path || null; onConflict = Boolean(list[0]?.c); }
-    const y = stack.scrollTop;
+    const y = el.scrollTop;
     observer?.disconnect();
     observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver((xs) => {
       for (const x of xs) if (x.isIntersecting) { observer.unobserve(x.target); fill(x.target); }
-    }, { root: stack, rootMargin: '800px 0px' }) : null;
+    }, { root: el, rootMargin: '800px 0px' }) : null;
     const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
     stack.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock), group('Changed', files.length)] : []), ...files.map(fileBlock));
     if (!files.length) stack.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
-    stack.scrollTop = y;
+    el.scrollTop = y;
     renderMeta();
   }
 
@@ -192,15 +196,19 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   function fileBlock(f) {
     const st = states.get(f.path);
     const reviewed = st?.state === 'reviewed';
-    const folded = reviewed && !opened.has(f.path);
+    const folded = folds.has(f.path) ? folds.get(f.path) : reviewed;
     const on = f.path === current && !onConflict;
     const since = delta && st?.state === 'changed' ? st.since : null;
     const body = folded ? null : h('div.review-file-body');
     const block = h('section.review-file' + (on ? '.active' : '') + (reviewed ? '.reviewed' : '') + (folded ? '.folded' : ''), { role: 'listitem', 'data-path': f.path, 'aria-label': f.path },
       h('div.review-file-head', {
-        title: reviewed ? `${f.path}\n${folded ? 'Click to show the code' : 'Click to fold'}` : f.path,
-        onclick: () => { select(f.path, false); if (reviewed) unfold(f.path); },
+        title: `${f.path}\n${folded ? 'Click to show the code' : 'Click to fold'}`,
+        onclick: () => { select(f.path, false); fold(f.path); },
       },
+        h('button.review-file-fold', {
+          'aria-expanded': String(!folded), 'aria-label': `${folded ? 'Show' : 'Fold'} ${f.path}`,
+          onclick: (e) => { e.stopPropagation(); select(f.path, false); fold(f.path); },
+        }, icon(folded ? 'chevron' : 'chevronDown', 12)),
         h('button.review-tick' + (reviewed ? '.on' : ''), {
           role: 'checkbox', 'aria-checked': String(reviewed), 'aria-label': `Reviewed ${f.path}`,
           title: reviewed ? 'Reviewed (V to undo)' : 'Mark reviewed (V)',
@@ -243,15 +251,22 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
       if (block.isConnected) block.lastChild.replaceChildren(h('div.empty', null, since ? 'The version you reviewed is gone (garbage-collected or never fetched here).' : 'Couldn’t load the diff', h('div.muted.small', null, e.message)));
     }
   }
-  // One file's block again, in place (after a tick or an unfold), so the rest keeps its scroll.
+  // One file's block again, in place (after a tick or a fold), so the rest keeps its scroll.
   function reblock(path) {
     const old = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
     const f = review?.files.find((x) => x.path === path);
     if (old && f) old.replaceWith(fileBlock(f));
   }
-  function unfold(path) {
-    if (opened.has(path)) opened.delete(path); else opened.add(path);
+  function fold(path) {
+    const f = review?.files.find((x) => x.path === path);
+    if (!f) return;
+    const now = folds.has(path) ? folds.get(path) : states.get(path)?.state === 'reviewed';
+    folds.set(path, !now);
     reblock(path);
+    // Folding a file whose header was stuck at the top: bring its header back into view.
+    const b = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+    if (b && b.getBoundingClientRect().top < el.getBoundingClientRect().top) b.scrollIntoView({ block: 'start' });
+    b?.querySelector('.review-file-fold')?.focus({ preventScroll: true });
   }
 
   async function renderFile() {
@@ -337,7 +352,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     const was = current;
     if (stacked) {
       // Ticking folds the file's code; unticking shows it again. Delta mode drops it from the list.
-      opened.delete(path);
+      folds.delete(path);
       if (delta) renderStack(); else { reblock(path); renderMeta(); }
       if (next && next.path !== current) { select(next.path); }
       return;
@@ -377,6 +392,8 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
 
   el.addEventListener('keydown', (e) => {
     const id = keymap.match('review', e);
+    // ↵ on a focused button (a file's chevron or tick) presses it rather than running the pane's ↵.
+    if (id === 'review.checkout' && e.target !== el && e.target.closest?.('button')) return;
     if (id && onKey?.(id)) { e.preventDefault(); e.stopPropagation(); return; }
     if (!id || (!pr && prActionFor(id) && id !== 'review.merge')) return;
     e.preventDefault();

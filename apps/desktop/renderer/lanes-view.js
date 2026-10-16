@@ -12,8 +12,8 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // the tabs with Plan merge ▸) spans the view above the list and the pane (AK-373). Tabs: Needs you (Stuck · N, each row says why,
 // review-rows.js stuckReason, then Ready to merge · N), Stuck, Ready, In progress and All open; then lines that open in place: Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
-// "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
-// button, ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
+// "N finished · Clean up". Rows carry no buttons (AK-379). Keyboard-first: ↑/↓ move, Space runs the row's primary
+// step (the pane's status strip shows it as its last button), ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
 // uncommitted changes, Show in Map), E shows In progress, S opens Everything else (A agent lanes
 // only, C predicted conflicts only), typing filters every row.
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
@@ -287,55 +287,35 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
   }
   const step = (r) => primaryAction(r, { base, requested: requested() });
 
+  // A row (AK-379): status dot · #number · the title over one quiet line (why it's stuck, in red; else
+  // its tags, who and where) · age. No buttons: Space runs the primary step, the pane's status strip
+  // has the rest, and the context menu has them all. Details (D) open under the title.
   function stagedRow(r) {
     const active = r.key === selKey;
-    const id = step(r);
-    const s = STEPS[id];
     const open = details.has(r.key);
     const at = r.pr?.updatedAt ? Date.parse(r.pr.updatedAt) : r.lane?.activity || 0;
     const overlap = overlapNote(r);
+    const stage = STAGES.find((x) => x.id === r.stage);
+    const stuck = r.stage === 'stuck' && reason(r);
+    const tags = rowBadges(r, { requested: requested(), agents: markAgents() });
     const sub = r.pr
       ? [r.pr.authorName || r.pr.author, r.branch].filter(Boolean).join(' · ')
       : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
+    const line = [...tags.map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
-      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
+      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, stage?.label, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
       onclick: () => select(r.key),
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
-      icon(r.pr ? 'merge' : r.worktree ? 'worktree' : 'branch', 14),
-      // Two lines: the title, then status tags, who and where, and age. Only the selected row shows
-      // its buttons (pinned to the title line, styles.css) and why it's stuck.
+      h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
+      r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
-        h('div.list-title', null, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : null, h('span.lanes-name', { title: r.title }, r.title)),
-        h('div.list-sub.review-row-meta', null,
-          // The review decision is an icon here; the pane's header spells it out.
-          ...rowBadges(r, { requested: requested(), agents: markAgents() }).map((b) => b.icon
-            ? h('span.review-decision' + (b.kind ? `.${b.kind}` : ''), { title: b.title, 'aria-label': b.text }, icon(b.icon, 12))
-            : h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text)),
-          sub ? h('span.review-row-sub', { title: r.pr?.authorName && r.pr.authorName !== r.pr.author ? `${r.pr.authorName} (${r.pr.author})` : null }, sub) : null,
-          // Overlaps with other open PRs (AK-321): quiet text, never a tag.
-          overlap ? h('span.review-row-overlap', { title: overlap.title }, overlap.text) : null,
-          at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : null),
-        r.stage === 'stuck' && reason(r) ? reasonEl(r) : null,
+        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
+        stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, line) : null,
         open ? detailsEl(r) : null),
-      h('div.review-row-acts', null,
-        r.stage === 'stuck' && id !== 'sendBack' ? h('button.btn.ghost.review-details-btn.review-sendback', {
-          'data-tip': `${tipFor('Send back…', 'lanes.sendBack')}\nA ready-made prompt for whoever made it`, 'aria-label': 'Send back…',
-          onclick: (e) => { e.stopPropagation(); select(r.key); act('sendBack', r); },
-          ondblclick: (e) => e.stopPropagation(),
-        }, icon('sparkle', 13), h('span.btn-label', null, 'Send back…')) : null,
-        h('button.btn.ghost.icon-btn.review-details-btn', {
-          'data-tip': tipFor(open ? 'Hide details' : 'Details', 'lanes.details'), 'aria-label': 'Details', 'aria-expanded': String(open),
-          onclick: (e) => { e.stopPropagation(); select(r.key); toggleDetails(r.key); },
-          ondblclick: (e) => e.stopPropagation(),
-        }, icon('chevronDown', 13)),
-        h('button.btn.subtle.lanes-step', {
-          'data-tip': tipFor(s.label, s.keyId), 'aria-label': s.label,
-          onclick: (e) => { e.stopPropagation(); select(r.key); act(id, r); },
-          ondblclick: (e) => e.stopPropagation(),
-        }, icon(s.icon, 12), h('span.btn-label', null, s.label))),
+      at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
   }
 
