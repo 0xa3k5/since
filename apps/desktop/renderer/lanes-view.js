@@ -1,5 +1,4 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading, avatar } from './ui.js';
-import { prAvatar, loadAvatars } from './pr-avatars.js';
+import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import { statusBadge, fileName } from './diff.js';
@@ -66,7 +65,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
 // git(method, ...args) reads the files an Everything else row's branch changes, for its preview in the pane.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null, avatars = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -312,7 +311,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
-        stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, r.pr?.author ? avatar(r.pr.authorName || r.pr.author, r.pr.author, 14, prAvatar(r.pr.author)) : null, line) : null,
+        stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, line) : null,
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
@@ -762,8 +761,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
     render();
     if (newest) runForecast(t);
-    // Authors' avatars after the list shows; initials until they arrive.
-    if (withPrs && avatars) loadAvatars([...lanes.map((l) => l.pr), ...(inbox?.prs || [])], avatars).then((got) => { if (got && el.isConnected) render(); });
   }
   // Off the hot path: after the list shows. Unchanged pairs come from the main process's cache;
   // a newer list cancels this run (main resolves the cancelled one to null).
