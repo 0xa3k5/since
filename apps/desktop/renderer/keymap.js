@@ -34,6 +34,7 @@ export const SCOPES = {
   fileHistory: 'File history',
   setup: 'Choose defaults',
   shortcuts: 'Keyboard Shortcuts window',
+  prefs: 'Preferences window',
   dialog: 'Dialogs and menus',
   tour: 'Tour',
 };
@@ -65,7 +66,7 @@ export const COMMANDS = [
   c('menu', 'views', 'view.stashes', 'Stashes', ['Mod+6', 'g s']),
   c('menu', 'views', 'view.snapshots', 'Snapshots', ['Mod+7', 'g h']),
   c('menu', 'views', 'view.reflog', 'Reflog', ['Mod+8', 'g r']),
-  c('menu', 'views', 'view.config', 'Configuration', 'Mod+9'),
+  c('menu', 'views', 'view.config', 'Repository Settings', 'Mod+9'),
   c('menu', 'views', 'view.worktrees', 'Worktrees', ['Mod+0', 'g w']),
   c('menu', 'view', 'view.back', 'Back', 'Mod+['),
   c('menu', 'view', 'view.forward', 'Forward', 'Mod+]'),
@@ -321,6 +322,18 @@ export const COMMANDS = [
   c('shortcuts', null, 'shortcuts.find', 'Search shortcuts', 'Mod+f'),
   c('shortcuts', null, 'shortcuts.edit', 'Change the shortcut', 'Enter'),
   c('shortcuts', null, 'shortcuts.close', 'Clear the search, then close', 'Escape'),
+
+  // The Preferences window.
+  c('prefs', null, 'prefs.next', 'Next setting', 'ArrowDown'),
+  c('prefs', null, 'prefs.prev', 'Previous setting', 'ArrowUp'),
+  c('prefs', null, 'prefs.nextSection', 'Next section', 'Mod+ArrowDown'),
+  c('prefs', null, 'prefs.prevSection', 'Previous section', 'Mod+ArrowUp'),
+  c('prefs', null, 'prefs.toggle', 'Toggle the switch or press the button', 'Enter'),
+  c('prefs', null, 'prefs.right', 'Next choice', 'ArrowRight'),
+  c('prefs', null, 'prefs.left', 'Previous choice', 'ArrowLeft'),
+  c('prefs', null, 'prefs.unset', 'Remove the local git config value', 'Mod+Backspace'),
+  c('prefs', null, 'prefs.find', 'Search preferences', 'Mod+f'),
+  c('prefs', null, 'prefs.close', 'Clear the search, then close', 'Escape'),
 
   // Dialogs, context menus and the ⌘K menu.
   c('dialog', null, 'dialog.cancel', 'Close', 'Escape'),
