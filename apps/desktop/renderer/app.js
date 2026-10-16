@@ -771,7 +771,7 @@ function renderTopbar() {
       h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
       h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
     h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
-    state.head.branch ? h('span.head-chip', { title: 'Current branch' }, icon('branch', 12), state.head.branch) : state.head.oid ? h('span.head-chip.detached', null, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
+    state.head.branch ? h('button.head-chip.branch-chip', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, icon('branch', 12), state.head.branch) : state.head.oid ? h('button.head-chip.branch-chip.detached', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
@@ -2735,6 +2735,24 @@ function openWorktreeWindow(w) {
   api.app('open-window', w.path);
 }
 
+// The header branch pill and ⌘⇧B: local branches first (current on top), then
+// remote branches that have no local branch yet, which check out as tracking branches.
+function branchSwitcher() {
+  if (!state.repo || !state.head.oid) return;
+  const locals = state.refs.filter((r) => r.kind === 'branch').sort((a, b) => (a.short === state.head.branch ? -1 : b.short === state.head.branch ? 1 : a.short.localeCompare(b.short)));
+  const tracked = new Set(locals.map((r) => r.upstream).filter(Boolean));
+  const names = new Set(locals.map((r) => r.short));
+  const remotes = state.refs.filter((r) => r.kind === 'remote' && !r.short.endsWith('/HEAD') && !tracked.has(r.short) && !names.has(r.short.slice(r.short.indexOf('/') + 1)));
+  palette(() => [
+    ...locals.map((r) => {
+      const cur = r.short === state.head.branch, wt = worktreeOf(r.short);
+      return { group: 'Branches', label: r.short, icon: 'branch', detail: cur ? 'current' : wt ? `in worktree ${wt.name}` : r.upstream || '', keywords: r.upstream || '', run: () => cur ? null : wt ? switchWorktree(wt) : checkout(r.short) };
+    }),
+    ...remotes.map((r) => ({ group: 'Remote branches', label: r.short, icon: 'cloud', detail: 'check out as local branch', run: () => act(`Checkout ${r.short}`, 'checkoutTracking', [r.short]) })),
+    { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('commit.branch'), run: () => createBranch(state.head.oid) },
+  ], { placeholder: 'Switch to branch…' });
+}
+
 function worktreeSwitcher() {
   if (!state.repo) return;
   palette(() => [
@@ -3369,6 +3387,7 @@ function openPalette() {
       c('Mark file resolved', a.resolve, [MOD, 'S']);
     }
     add('Repository', 'Open conflicts in mergetool', () => openMergetool(), { icon: 'merge', kbd: keymap.keys('repo.mergetool'), detail: state.status.conflicts.length ? `${state.status.conflicts.length} conflicted` : 'no conflicts', keywords: 'mergetool external merge tool conflict resolve' });
+    if (state.head.oid) add('Repository', 'Switch branch…', branchSwitcher, { icon: 'branch', kbd: keymap.keys('repo.branchSwitch'), keywords: 'checkout branch switch change' });
     add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: keymap.keys('repo.worktreeAdd') });
     add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: keymap.keys('repo.worktreeSwitch') });
     if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
@@ -3756,6 +3775,7 @@ const commands = {
   origin: () => state.repo && openOrigin(),
   hosting: () => state.repo && openHosting(),
   worktreeAdd: () => state.repo && addWorktree(),
+  branchSwitch: () => state.repo && branchSwitcher(),
   worktreeSwitch: () => state.repo && worktreeSwitcher(),
   repoSwitch: () => repoSwitcher(),
   lfs: () => openLfs(),

@@ -1180,6 +1180,7 @@ function buildMenu() {
         item('Reset Hard to HEAD…', undefined, 'resetHard'),
         { type: 'separator' },
         item('New Worktree…', acc('repo.worktreeAdd'), 'worktreeAdd'),
+        item('Switch Branch…', acc('repo.branchSwitch'), 'branchSwitch'),
         item('Switch Worktree…', acc('repo.worktreeSwitch'), 'worktreeSwitch'),
         { type: 'separator' },
         item('Open Submodule…', acc('repo.submodules'), 'submodules'),
