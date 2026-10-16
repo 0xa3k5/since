@@ -4,6 +4,7 @@ import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary
 import * as keymap from './keymap.js';
 import { prStatusLine } from './prs.js';
 import { PR_ACTIONS, prActionFor } from './pr-review.js';
+import { fileCard } from './reader.js';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).
@@ -25,7 +26,9 @@ import { PR_ACTIONS, prActionFor } from './pr-review.js';
 // head and description move away as you read and each file header sticks to the top while its file
 // is in view. Ticking a file (V or the tick) folds its code; clicking anywhere else on a header (or
 // ↵/Space on its chevron) folds or unfolds that file, remembered per file while the view is open.
-// ↑/↓ move between files, diffs load as their blocks come near the view.
+// The cards are reader.js fileCard, shared with Catch up (AK-381). Stacked, ↑/↓ scroll and , / .
+// jump between files (the reader keys, handled by the pane); with a files column ↑/↓ move between
+// files. Diffs load as their blocks come near the view.
 // checkConflicts: the branch is known to conflict with its base (AK-305), so the files
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
 // shows the base side against the branch's side. onConflicts(files) reports what it found.
@@ -199,31 +202,18 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     const folded = folds.has(f.path) ? folds.get(f.path) : reviewed;
     const on = f.path === current && !onConflict;
     const since = delta && st?.state === 'changed' ? st.since : null;
-    const body = folded ? null : h('div.review-file-body');
-    const block = h('section.review-file' + (on ? '.active' : '') + (reviewed ? '.reviewed' : '') + (folded ? '.folded' : ''), { role: 'listitem', 'data-path': f.path, 'aria-label': f.path },
-      h('div.review-file-head', {
-        title: `${f.path}\n${folded ? 'Click to show the code' : 'Click to fold'}`,
-        onclick: () => { select(f.path, false); fold(f.path); },
-      },
-        h('button.review-file-fold', {
-          'aria-expanded': String(!folded), 'aria-label': `${folded ? 'Show' : 'Fold'} ${f.path}`,
-          onclick: (e) => { e.stopPropagation(); select(f.path, false); fold(f.path); },
-        }, icon(folded ? 'chevron' : 'chevronDown', 12)),
-        h('button.review-tick' + (reviewed ? '.on' : ''), {
-          role: 'checkbox', 'aria-checked': String(reviewed), 'aria-label': `Reviewed ${f.path}`,
-          title: reviewed ? 'Reviewed (V to undo)' : 'Mark reviewed (V)',
-          onclick: (e) => { e.stopPropagation(); select(f.path, false); tick(f.path); },
-        }, reviewed ? icon('check', 12) : null),
-        statusBadge(f.status),
-        h('span.mono.review-file-path', null, f.oldPath ? `${f.oldPath} → ${f.path}` : f.path),
-        st?.state === 'changed' ? h('span.badge.warn', { title: 'Changed since you marked it reviewed' }, 'Changed') : null,
-        since ? h('span.muted.small', null, `since ${since.slice(0, 7)}`) : null,
-        h('span.spacer'),
-        f.add || f.del ? h('span.stat.small', null, h('span.add', null, `+${f.add || 0}`), h('span.del', null, `−${f.del || 0}`)) : null),
-      body);
+    // The shared file card (reader.js), with the status letter, Changed and "since abc1234".
+    const block = fileCard({
+      path: f.path, shown: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path, add: f.add || 0, del: f.del || 0, cls: on ? '.active' : '',
+      checked: reviewed, checkLabel: `Reviewed ${f.path}`, checkTip: reviewed ? 'Reviewed (V to undo)' : 'Mark reviewed (V)',
+      onCheck: () => { select(f.path, false); tick(f.path); },
+      collapsed: folded, onToggle: () => { select(f.path, false); fold(f.path); },
+      lead: [statusBadge(f.status)],
+      tail: [st?.state === 'changed' ? h('span.badge.warn', { title: 'Changed since you marked it reviewed' }, 'Changed') : null, since ? h('span.muted.small', null, `since ${since.slice(0, 7)}`) : null].filter(Boolean),
+    });
     block.file = f;
     block.since = since;
-    if (body) {
+    if (!folded) {
       const id = diffId(f, since);
       if (diffs.has(id)) showDiff(block, diffs.get(id));
       else if (observer) observer.observe(block);
@@ -391,6 +381,13 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   }
 
   el.addEventListener('keydown', (e) => {
+    // Stacked, the view is Review's reader (AK-381): , and . jump between files; the other reader
+    // keys (↑/↓ scroll, ←/→ step the list, Esc) go up to the pane (review-pane.js, reader.js).
+    if (stacked) {
+      const r = keymap.match('reader', e);
+      if (r === 'reader.nextFile' || r === 'reader.prevFile') { e.preventDefault(); e.stopPropagation(); move(r === 'reader.nextFile' ? 1 : -1); return; }
+      if (r) return;
+    }
     const id = keymap.match('review', e);
     // ↵ on a focused button (a file's chevron or tick) presses it rather than running the pane's ↵.
     if (id === 'review.checkout' && e.target !== el && e.target.closest?.('button')) return;

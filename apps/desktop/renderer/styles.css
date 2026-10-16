@@ -739,33 +739,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-note { padding: 8px; }
 .catchup-bridge { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; padding: 10px 14px; border: 1px dashed var(--border-strong); border-radius: 10px; font-size: 12px; color: var(--text-2); }
 .catchup-bridge strong { color: var(--text); font-weight: var(--fw-strong); }
-/* The reader: walk-through bar, title and meta, the description, then each file under a sticky header. */
-.catchup-reader-head { padding: 16px 22px 12px; }
-.catchup-walkbar { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px -10px; font-size: 12px; color: var(--text-3); }
-.catchup-walkbar .btn.small { height: 26px; gap: 4px; }
-.catchup-walkpos { font-variant-numeric: tabular-nums; }
-.catchup-reader-title { margin: 0 0 6px; font-size: 17px; font-weight: var(--fw-strong); line-height: 1.3; color: var(--text); overflow-wrap: anywhere; }
-.catchup-reader-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12px; color: var(--text-3); }
-.catchup-reader-meta .mono { font-size: 11.5px; color: var(--text-2); }
 .catchup-merged { display: inline-flex; align-items: center; gap: 4px; color: var(--merged); font-weight: var(--fw-medium); }
-.catchup-desc { margin: 0 22px 14px; padding: 8px 14px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
-.catchup-desc-head { display: flex; align-items: center; gap: 6px; min-height: 24px; margin-bottom: 4px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
-.catchup-desc-head .muted { font-weight: normal; color: var(--text-4); }
-.catchup-desc-more { margin-left: auto; height: 22px; padding: 0 6px; font-size: 12px; }
-.catchup-desc.fits .catchup-desc-more { display: none; }
-.catchup-desc-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
-.catchup-desc.open .catchup-desc-text { display: block; }
-.catchup-desc-none { color: var(--text-4); }
-.catchup-files { display: grid; gap: 12px; padding: 0 22px 24px; }
-.catchup-files > .loading-state, .catchup-files > .empty { padding: 24px 0; }
-.catchup-file { min-width: 0; border: 1px solid var(--border); border-radius: 8px; }
-.catchup-file-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; background: var(--bg-elevated); font: 12px var(--mono); }
-.catchup-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.catchup-viewed { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--accent-solid); cursor: pointer; }
-.catchup-file-diff { overflow-x: auto; border-radius: 0 0 8px 8px; }
-.catchup-file.viewed .catchup-file-head { border-bottom: 0; border-radius: 8px; }
-.catchup-file.viewed .catchup-file-path { color: var(--text-3); }
-.catchup-file.viewed .stat { opacity: 0.7; }
+.catchup-files { min-width: 0; padding-bottom: 24px; }
+.catchup-files > .loading-state, .catchup-files > .empty { padding: 24px 22px; }
 .catchup-empty { display: grid; justify-items: center; gap: 8px; padding: 64px 16px 24px; text-align: center; }
 .catchup-empty > .icon { color: var(--green); }
 .catchup-empty h2 { margin: 0; font-size: 16px; font-weight: var(--fw-strong); color: var(--text); }
@@ -939,9 +915,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
    with the reviewed tick, the path and +N −M; a reviewed file folds to its header. */
 .review-stack { min-width: 0; padding-bottom: 24px; }
 .review-stack > .review-files-group { padding: 4px 22px 6px; }
-.review-file { margin: 0 22px 12px; border: 1px solid var(--border); border-radius: 8px; }
-.review-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; font-size: 12px; cursor: pointer; }
-.review-file.folded > .review-file-head { border-bottom: 0; border-radius: 8px; }
+.review-file { margin: 0 22px 12px; border: 1px solid var(--border); border-radius: 8px; overflow: clip; scroll-margin-top: 40px; }
+.review-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); font-size: 12px; cursor: pointer; }
+.review-file.folded > .review-file-head { border-bottom: 0; }
 .review-file-head:hover { background: color-mix(in srgb, var(--text) 3%, var(--bg-elevated)); }
 .review-file.active > .review-file-head { box-shadow: inset 2px 0 0 var(--accent); }
 .review-file-head > .icon { flex: none; color: var(--warn); }
@@ -953,34 +929,20 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-file.reviewed.folded > .review-file-head { color: var(--text-4); }
 .review-file-head .stat, .review-file-head .badge, .review-file-head .muted { flex: none; }
 .review-file-head .stat { font-family: var(--mono); gap: 6px; }
-.review-file-body { overflow-x: auto; border-radius: 0 0 8px 8px; }
+.review-file-body { overflow-x: auto; }
 .review-file-body > .empty, .review-file-body > .loading-state { padding: 16px; }
 .review-pane-head { padding: 18px 20px 14px; }
 .review-pane-top { min-width: 0; }
 /* The pane's head (AK-379): title and meta, the status strip, then the description box. */
-.review-pane-head:has(> .review-pane-ph) { padding: 0; }
-.review-pane-ph { padding: 16px 22px 12px; }
-.review-pane-ph .quick-title { font-size: 17px; font-weight: var(--fw-strong); }
-.review-pane-ph .review-pane-meta { margin-top: 4px; gap: 4px 12px; font-size: 12px; }
+.review-pane-head:has(> .reader-head) { padding: 0; }
 .review-progress-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 22px 10px; }
 .review-progress-line .quick-meta { margin-top: 0; }
 .review-progress-line .chip:disabled { opacity: 0.5; }
 .review-pane-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; min-width: 0; }
 .review-pane-title .quick-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; margin-top: 0; min-width: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.3; overflow: hidden; overflow-wrap: anywhere; }
 .review-pane-title .badge { flex: none; }
-.review-pane-num { color: var(--text-4); font-weight: var(--fw-medium); }
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
-.review-pane-arrow { color: var(--text-4); }
-.review-pane-desc { margin: 0 22px 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
-.review-pane-desc.none .review-pane-desc-text { color: var(--text-4); }
-.review-pane-desc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
-.review-pane-desc-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: pre-wrap; overflow: hidden; overflow-wrap: anywhere; }
-.review-pane-desc.open .review-pane-desc-text { display: block; }
-.review-pane-desc-more { font-size: 12px; font-weight: normal; color: var(--accent-fg); text-decoration: none; }
-.review-pane-desc-more:hover { text-decoration: underline; }
-.review-pane-desc-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
-.review-pane-desc.fits .review-pane-desc-more { display: none; }
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }
@@ -996,6 +958,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-pane-status > .review-pane-actions { flex: 1 1 auto; gap: 6px; margin-top: 0; }
 .review-pane-status > .review-pane-actions > :first-child { margin-left: auto; }
+.review-pane-status.wrapped > .review-pane-actions > :first-child { margin-left: 0; }
+.review-pane-status.fit-more .pane-secondary { display: none; }
+.review-pane-status.fit-more .pane-more { display: inline-flex; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
@@ -1287,3 +1252,44 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tab.stuck .review-tab-n { color: var(--red); }
 .review-tabs .lanes-group-act { margin-bottom: 4px; }
 @media (prefers-reduced-motion: no-preference) { .review-tab { transition: color 120ms ease, border-color 120ms ease; } }
+
+/* The reader (reader.js, AK-381): one head, description and file cards for Review's pane and Catch up.
+   The head's sticky file cards are .review-file (above); overflow: clip on the card squares a stuck
+   header's corners, so no code shows behind them. */
+.reader-head { padding: 16px 22px 12px; min-width: 0; }
+.reader-title-row { display: flex; align-items: flex-start; gap: 6px 10px; min-width: 0; }
+.reader-title { flex: 1 1 auto; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; margin: 0; overflow: hidden; font-size: 17px; font-weight: var(--fw-strong); line-height: 1.3; letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.reader-title-row > .badge { flex: none; margin-top: 3px; }
+.reader-num { color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.reader-num > .icon { vertical-align: -2px; color: var(--text-3); }
+.reader-nav { flex: none; display: inline-flex; align-items: center; gap: 2px; margin: -2px -6px 0 auto; font-size: 12px; color: var(--text-3); }
+.reader-nav-btn.btn.icon-btn { width: 24px; height: 24px; }
+.reader-nav-pos { min-width: 4.5em; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.reader-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.reader-meta .mono { font-size: 11.5px; color: var(--text-2); }
+.reader-author { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+.reader-arrow { color: var(--text-4); }
+.lanes-row .list-title > .avatar { margin-right: 2px; }
+/* The description: clamped to four lines with "… Show more" over the cut; Show less after the text. */
+.reader-desc { --reader-bg: var(--bg-content); margin: 0 22px 14px; padding: 10px 14px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.reader-desc-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
+.reader-desc-head .muted { font-weight: normal; color: var(--text-4); }
+.reader-desc-text { position: relative; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.reader-desc-text.clamped { max-height: 6em; overflow: hidden; }
+.reader-desc-text.none { color: var(--text-4); }
+.reader-desc-cut { position: absolute; right: 0; bottom: 0; padding-left: 2.5em; background: linear-gradient(to right, transparent, var(--reader-bg) 2em); color: var(--text-3); }
+.reader-desc.fits .reader-desc-cut { display: none; }
+.reader-desc-more { font-size: 12px; font-weight: normal; color: var(--accent-fg); text-decoration: none; }
+.reader-desc-more:hover { text-decoration: underline; }
+.reader-desc-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+/* The slim bar: takes no room; fades in at the top of the reader once the head scrolls away. File
+   headers stick under it while it shows. */
+.reader-mini { position: sticky; top: 0; z-index: 4; height: 0; opacity: 0; visibility: hidden; }
+.reader-mini.on { opacity: 1; visibility: visible; }
+.reader-mini-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 22px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.reader-mini-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); color: var(--text); }
+.reader-mini-act.btn.small { flex: none; gap: 5px; }
+.mini-on .review-file-head { top: 36px; }
+@media (prefers-reduced-motion: no-preference) { .reader-mini { transition: opacity 140ms ease, visibility 140ms; } }
+/* Both readers show where focus is the same way once ↵ moves it in. */
+.review-pane:focus-visible, .review-pane > .quick.review.stacked:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }

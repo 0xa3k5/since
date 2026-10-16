@@ -3,6 +3,7 @@ import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
+import { navPos, personAvatar } from './reader.js';
 
 // "2h ago", but "just now" and "Oct 3" as they are.
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
@@ -12,8 +13,10 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // the tabs with Plan merge ▸) spans the view above the list and the pane (AK-373). Tabs: Needs you (Stuck · N, each row says why,
 // review-rows.js stuckReason, then Ready to merge · N), Stuck, Ready, In progress and All open; then lines that open in place: Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
-// "N finished · Clean up". Rows carry no buttons (AK-379). Keyboard-first: ↑/↓ move, Space runs the row's primary
-// step (the pane's status strip shows it as its last button), ↵ opens it, R reviews, M merges, D shows its details (branch, commits, worktree,
+// "N finished · Clean up". Rows carry no buttons (AK-379); a PR row shows its author's initials before the title.
+// Keyboard-first (AK-381): ↑/↓ and ←/→ move, Space runs the row's primary step (the pane's status strip
+// shows it as its last button), ↵ (or R) moves focus into the pane, the reader shared with Catch up
+// (reader.js: there ↑/↓ scroll, ←/→ still step the list, Esc comes back), M merges, D shows its details (branch, commits, worktree,
 // uncommitted changes, Show in Map), E shows In progress, S opens Everything else (A agent lanes
 // only, C predicted conflicts only), typing filters every row.
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
@@ -247,6 +250,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
     conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
     onSelectPr: (n) => { const x = staged?.all.find((y) => y.pr?.number === n); if (x) select(x.key); else toast(`#${n} isn’t listed`); },
+    // ‹ N of M › and ←/→ in the reader: the current tab's list (AK-381).
+    nav: { ...navPos(shown.map((x) => x.key), r.key), onStep: (d) => move(d) },
   });
   // The pane read which files conflict: the row's note counts them.
   function noteConflicts(key, files) {
@@ -304,7 +309,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
+        h('div.list-title', null, r.pr?.author ? personAvatar(r.pr.authorName || r.pr.author, r.pr.author, 16) : null, h('span.lanes-name', { title: r.title }, r.title)),
         stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, line) : null,
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
@@ -386,6 +391,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const r = split() ? current() : null;
     if (!r || isLaneEntry(r)) {
       clearTimeout(paneTimer); paneObj?.destroy(); paneObj = null;
+      if (paneHost.contains(document.activeElement)) el.focus({ preventScroll: true });
       if (!r) paneHost.replaceChildren('');
       else if (paneHost.firstChild?.dataset?.key !== r.key || paneHost.firstChild.lane !== r.lane) paneHost.replaceChildren(branchPreview(r));
       if (r && moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
@@ -405,7 +411,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     paneHost.replaceChildren(paneObj.el);
     if (jumpTo === r.key) paneObj.showConflicts?.();
     jumpTo = null;
-    if (had) el.focus({ preventScroll: true });
+    // Stepping from the reader (←/→) keeps you reading: focus goes into the new pane.
+    if (had) paneObj.focus();
     if (moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
     moved = false;
     settled = r.key;
@@ -542,13 +549,23 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       : loaded && prsUnloaded && !(q && !shown.length) ? ['Pull requests aren’t loaded. ', h('button.btn.ghost.small', { onclick: () => reload() }, 'Reload', kbd(...reloadKeys()))]
         : [!loaded ? '' : prsLoading ? 'Loading pull requests…' : q && !shown.length ? 'Nothing matches.' : '']));
     empty.hidden = !empty.textContent;
-    const many = readyPrs().length;
-    // A few keys with short labels; everything else is in ⌘K.
-    const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
-    hint.replaceChildren(...[k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'), k(['1–5'], 'Tabs'),
-        pane ? k(['Esc'], 'Back') : many > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean),
-      k(keymap.keys('view.palette'), 'All commands', '.all'));
+    renderHints();
   }
+
+  // The key bar: a few keys with short labels (everything else is in ⌘K); the reader's own while
+  // focus is in the pane.
+  function renderHints() {
+    const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
+    const id = (x) => keymap.keys(x);
+    const reading = paneHost.contains(document.activeElement) && paneObj;
+    hint.replaceChildren(...(reading
+      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
+      : [k([...id('lanes.prev'), ...id('lanes.next')], 'Move'), k(['Space'], 'Main action'), k(id('lanes.open'), 'Read'), k(id('lanes.merge'), 'Merge'), k(['1–5'], 'Tabs'),
+        !pane && readyPrs().length > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
+    k(keymap.keys('view.palette'), 'All commands', '.all'));
+  }
+  paneHost.addEventListener('focusin', () => renderHints());
+  paneHost.addEventListener('focusout', () => setTimeout(() => { if (el.isConnected) renderHints(); }));
 
   // Ready-to-merge PRs whose primary button is Merge: ⇧M merges them all after one confirmation.
   const readyPrs = () => (staged ? staged.stages.ready.filter((r) => r.pr && step(r) === 'merge').map((r) => r.pr) : []);
@@ -582,7 +599,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       }, t.label, loaded ? h('span.review-tab-n', null, String(n)) : null);
     }),
     h('span.spacer'),
-    (tab === 'needs' || tab === 'ready') && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), 'data-tip': tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null);
+    ...[(tab === 'needs' || tab === 'ready') && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), 'data-tip': tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null].filter(Boolean)); // nothing (not "null") when Plan merge isn't offered
   }
   // 1–5 and the tabs: one list at a time; the selection moves to the tab's first row unless it's on the tab.
   function setTab(id) {
@@ -657,6 +674,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
 
   // Commands shared by the list and the filter box. In the box, letters type instead.
   function command(e, typing) {
+    const rs = typing ? null : keymap.match('reader', e); // ←/→ step the list too (AK-381); in the filter they move the caret
+    if (rs === 'reader.next' || rs === 'reader.prev') { move(rs === 'reader.next' ? 1 : -1); e.preventDefault(); e.stopPropagation(); return true; }
     const id = keymap.match('lanes', e);
     if (!id || (typing && e.key.length === 1)) return false;
     const x = current();
@@ -665,7 +684,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     else if (id === 'lanes.prev') move(-1);
     else if (id === 'lanes.filter') filter.focus();
     else if (id === 'lanes.reload') reload();
-    else if (id === 'lanes.open') { if (l) onOpen(l); else if (x) act('open', x); }
+    else if (id === 'lanes.open') { if (l) onOpen(l); else if (x && split() && paneObj?.key === x.key) paneObj.focus(); else if (x) act('open', x); }
     else if (id === 'lanes.clear') {
       if (!filter.value && !typing) return false; // let Escape through
       filter.value = '';
@@ -692,7 +711,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     else if (id === 'lanes.details') act('details', x);
     else if (id === 'lanes.sendBack') act('sendBack', x);
     else if (id === 'lanes.showConflicts') { if (baseConflict(x, base)) jumpToConflicts(x); else toast(`${x.title} doesn’t conflict with ${x.pr?.base || base || 'its base'}`); }
-    else if (id === 'lanes.description' && paneObj?.key === x.key) { if (!paneObj.toggleDescription()) return false; }
     else if (PANE_KEYS[id] && split()) act(PANE_KEYS[id], x);
     else if (LANE_KEYS[id]) act(LANE_KEYS[id], x);
     else return false;
@@ -825,7 +843,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     select(r.key);
     act('sendBack', r);
   }
-  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or
