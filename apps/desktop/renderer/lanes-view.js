@@ -542,8 +542,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   el.addEventListener('keydown', (e) => {
     if (paneHost.contains(e.target)) return; // the pane's own keys (review-view.js)
     if (e.target === filter || command(e, false)) return;
-    // `?` (shortcuts) and, with an empty filter, `g` (the go-to chords) belong to the window.
-    if (e.key === '?' || (e.key === 'g' && !filter.value)) return;
+    // With an empty filter, the window's own keys (the G of the go-to chords) go through to it.
+    if (!filter.value && ['menu', 'global'].some((s) => keymap.chordStart(s, e) || keymap.match(s, e))) return;
     // Any other letter starts filtering.
     if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
