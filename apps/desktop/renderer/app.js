@@ -2257,7 +2257,7 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs() }); }
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs().then(prefetchOnOpen) }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
@@ -2848,8 +2848,8 @@ async function loadPrs() {
   state.prs = { ...st, data, stale: Boolean(data), error: null, busy: false, byRef: new Map() };
   showPrs();
 }
-// Review's and Catch up's pull requests load once when a repo opens (AK-382), with pull requests on,
-// then only on Reload (⇧R): not on view changes or window focus. The same loads Reload runs, shared, so
+// Review's and Catch up's pull requests load when a repo opens (AK-382) and after each Fetch (AK-401), with
+// pull requests on, and on Reload (⇧R): not on view changes or window focus. The same loads Reload runs, shared, so
 // an open Review or Catch up shows "Reloading…" and then the PRs; a closed one finds them in its cache.
 function prefetchOnOpen() {
   const root = state.repo?.root;
