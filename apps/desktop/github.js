@@ -157,13 +157,14 @@ const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli }) => exec(bin,
 
 // The enable sheet's check, after the user chose to turn it on: is `gh` installed, and logged in
 // to this remote's host? Returns { gh: 'missing' | 'logged-out' | 'ready', remote }.
+// `remotes: null` means no repository is open: only the github.com login is checked.
 async function detect({ remotes, dirs = searchDirs(), exec } = {}) {
-  const remote = pickRemote(remotes);
-  if (!remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
+  const remote = remotes ? pickRemote(remotes) : null;
+  if (remotes && !remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
   const bin = findBinary('gh', dirs);
   if (!bin) return { gh: 'missing', remote };
   try {
-    await run(bin, ['auth', 'status', '--hostname', remote.host], { dirs, exec });
+    await run(bin, ['auth', 'status', '--hostname', remote ? remote.host : 'github.com'], { dirs, exec });
     return { gh: 'ready', remote };
   } catch {
     return { gh: 'logged-out', remote };

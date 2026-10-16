@@ -466,17 +466,21 @@ const prSettings = () => (prInit ||= (async () => {
   if (JSON.stringify(saved) !== JSON.stringify(s)) writeSettings({ github: s });
 })().catch(() => { prInit = null; }));
 const prEnabled = async (root) => { await prSettings(); return github.isEnabled(readSettings().github, root); };
+// The user-wide switch works before a repository is open (the welcome screen's setup step).
 async function prState(e) {
-  const root = session(e).repo.root;
+  const root = sessions.get(e.sender.id)?.repo.root;
   await prSettings();
   const saved = readSettings().github;
-  const remote = github.pickRemote(await git.getRemotes(root).catch(() => []));
+  const remote = root ? github.pickRemote(await git.getRemotes(root).catch(() => [])) : null;
   const enabled = github.normalize(saved).on === true;
-  const hidden = github.isHidden(saved, root);
+  const hidden = root ? github.isHidden(saved, root) : false;
   return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
 }
 handle('app:pr-state', (e) => prState(e));
-handle('app:pr-detect', aiCall(async (e) => github.detect({ remotes: await git.getRemotes(session(e).repo.root) })));
+handle('app:pr-detect', aiCall(async (e) => {
+  const s = sessions.get(e.sender.id);
+  return github.detect({ remotes: s ? await git.getRemotes(s.repo.root) : null });
+}));
 handle('app:pr-enable', async (e, on) => {
   const v = check.bool(on, 'pull requests on');
   await prSettings();

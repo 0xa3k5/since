@@ -3628,7 +3628,7 @@ async function setupFeature(id, on) {
 // The PR row: a switch once GitHub CLI is installed and logged in, else Set up…. Without a
 // repository the main process can't answer yet, so the row offers Set up….
 async function prSetup() {
-  const st = state.repo ? await api.app('pr-state').catch(() => null) : null;
+  const st = await api.app('pr-state').catch(() => null);
   if (!st) return { on: false, setup: true };
   return { on: st.enabled, setup: !st.enabled && (st.gh === 'missing' || prLoggedOut) };
 }

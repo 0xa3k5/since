@@ -110,6 +110,11 @@ test('listPrs / detect: missing gh, logged out and other errors', async () => {
   const { calls, exec } = recorder('');
   assert.equal((await github.detect({ remotes: [ORIGIN], dirs: [fakeGh()], exec })).gh, 'ready');
   assert.deepEqual(calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  // No repository open: the github.com login only, no remote needed.
+  const none = recorder('');
+  assert.deepEqual(await github.detect({ remotes: null, dirs: [fakeGh()], exec: none.exec }), { gh: 'ready', remote: null });
+  assert.deepEqual(none.calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  await assert.rejects(github.detect({ remotes: [], dirs: [fakeGh()], exec: none.exec }), { code: 'gh-no-remote' });
 });
 
 test('settings: one user-wide flag, a per-repository hide, and the old per-repository keys migrated', () => {
