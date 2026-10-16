@@ -742,6 +742,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     else if (id === 'lanes.merge') act('merge', x);
     else if (id === 'lanes.details') act('details', x);
     else if (id === 'lanes.sendBack') act('sendBack', x);
+    else if (id === 'lanes.showConflicts') { if (baseConflict(x, base)) jumpToConflicts(x); else toast(`${x.title} doesn’t conflict with ${x.pr?.base || base || 'its base'}`); }
     else if (id === 'lanes.description' && paneObj?.key === x.key) { if (!paneObj.toggleDescription()) return false; }
     else if (PANE_KEYS[id] && split()) act(PANE_KEYS[id], x);
     else if (LANE_KEYS[id]) act(LANE_KEYS[id], x);
@@ -866,6 +867,8 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
   };
   // The selected row and its pane context, for ⌘K's pane actions (split view only).
   const paneSelection = () => { const x = split() ? current() : null; return x && !isLaneEntry(x) && !x.landed ? { row: x, ctx: paneCtx(x) } : null; };
+  // ⌘K's Show conflicts (AK-359): the selected row's conflicting files in its pane.
+  const showRowConflicts = () => { const x = current(); if (x && !isLaneEntry(x) && baseConflict(x, base)) jumpToConflicts(x); };
   // Send back (⌘K, and Merge plan's links): the selected row when it's stuck, or PR #number's row.
   const stuckSelection = () => { const x = current(); return x && !isLaneEntry(x) && x.stage === 'stuck' ? x : null; };
   function sendBack(number = null) {
@@ -875,7 +878,7 @@ export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane
     select(r.key);
     act('sendBack', r);
   }
-  return { el, refresh, stuckSelection, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, refresh, stuckSelection, showRowConflicts, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or

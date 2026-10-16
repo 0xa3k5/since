@@ -919,6 +919,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }
+.review-pane-stuck { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 7%, transparent); font-size: 12.5px; line-height: 1.45; }
+.review-pane-stuck-why { display: flex; align-items: baseline; gap: 8px; flex: 1 1 220px; min-width: 0; color: var(--text-2); }
+.review-pane-stuck-label { display: inline-flex; align-items: center; gap: 5px; flex: none; align-self: center; color: var(--warn); font-weight: var(--fw-medium); }
+.review-pane-stuck-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pane-stuck-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.review-pane-stuck-actions > .btn { flex: none; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
