@@ -708,7 +708,7 @@ export function lanesView({ repo = null, git = null, catchup = null, pane = null
   // Commands shared by the list and the filter box. In the box, letters type instead.
   function command(e, typing) {
     const id = keymap.match('lanes', e);
-    if (!id || (typing && e.key.length === 1 && id !== 'lanes.reload')) return false;
+    if (!id || (typing && e.key.length === 1)) return false;
     const x = current();
     const l = isLaneEntry(x) ? x.lane : null; // an Everything else row
     if (id === 'lanes.next') move(1);
