@@ -1300,6 +1300,11 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row-sep { flex: none; color: var(--text-4); }
 .review-row.staged .review-reason .review-row-sep { color: var(--text-3); }
 .review-row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Failing checks and conflicts at a glance (AK-411): a red ✕ and an underlined count, then a marker. */
+.review-signals { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--red); }
+.review-signal { display: inline-flex; align-items: center; gap: 2px; }
+.review-signal .icon { flex: none; }
+.review-signal-count { font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 /* The slim bar keeps the avatars; the names stay in their tooltips. */
 .reader-mini-authors { flex: none; gap: 4px; }
 .reader-mini-authors .reader-author-name { display: none; }
