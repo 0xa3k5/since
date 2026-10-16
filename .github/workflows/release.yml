@@ -1,7 +1,9 @@
 name: Release
 
 # A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
-# zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. Tags and
+# zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. A beta tag
+# (v0.1.0-beta.1) builds without a licence (GITLANES_STORE=beta) and uploads to the Cloudflare R2 bucket
+# instead, with no GitHub Release; the beta app reads its update feed from there. Tags and
 # manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
 # a workflow artifact. Signing secrets are optional; without them every run produces unsigned DMGs.
@@ -33,6 +35,9 @@ jobs:
       contents: write # create the draft release on tags
     env:
       IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      # Beta builds live in this R2 bucket; its public URL must match the beta profile in licence/config.js.
+      R2_BUCKET: gitlanes-beta
+      R2_PUBLIC_URL: https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev
       # Developer ID Application certificate (.p12, base64) and its password.
       CSC_LINK: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.MAC_CERTIFICATE_P12_BASE64 || '' }}
       CSC_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.MAC_CERTIFICATE_PASSWORD || '' }}
@@ -61,13 +66,16 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
-          # Licence store baked into the app: production for a final release tag, the Polar sandbox for
-          # release candidates and dry runs. A production build fails until licence/config.js has the
-          # production values, so a release can't ship selling through the test store.
-          store=sandbox
+          # Licence store baked into the app: production for a final release tag, no licence for a beta
+          # tag, the Polar sandbox for release candidates and dry runs. A production build fails until
+          # licence/config.js has the production values, so a release can't ship selling through the test store.
+          # Passed to the build step only, so the e2e suite keeps its usual (sandbox) licence behaviour.
+          store=sandbox beta=false
           [ "$IS_TAG" = true ] && [ "${GITHUB_REF_NAME#v}" = "$version" ] && store=production
-          echo "GITLANES_STORE=$store" >> "$GITHUB_ENV"
-          # A pre-release tag (v0.1.0-rc.1) builds the package.json version with that suffix, so release
+          if [ "$IS_TAG" = true ] && [[ "$GITHUB_REF_NAME" =~ -beta\.[0-9]+$ ]]; then store=beta beta=true; fi
+          echo "store=$store" >> "$GITHUB_OUTPUT"
+          echo "beta=$beta" >> "$GITHUB_OUTPUT"
+          # A pre-release tag (v0.1.0-rc.1, v0.1.0-beta.1) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
           if [ "$IS_TAG" = true ]; then
             tag_version=${GITHUB_REF_NAME#v}
@@ -83,6 +91,8 @@ jobs:
             fi
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
+            # Friends download beta builds straight from the bucket: they must open without a Gatekeeper warning.
+            [ "$beta" = true ] && { echo "::error::Beta builds must be signed and notarized, but the signing secrets are missing"; exit 1; }
             [ "$IS_TAG" = true ] && echo "::warning::No signing secrets: this release's DMGs are unsigned and not notarized"
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
@@ -106,6 +116,8 @@ jobs:
           retention-days: 14
 
       - name: Build DMGs
+        env:
+          GITLANES_STORE: ${{ steps.plan.outputs.store }}
         run: pnpm dist -- -c.extraMetadata.version="${{ steps.plan.outputs.version }}"
 
       - name: Verify signature and notarization
@@ -118,9 +130,13 @@ jobs:
           done
 
       - name: Write update feeds
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          BETA: ${{ steps.plan.outputs.beta }}
         run: |
-          node apps/desktop/scripts/update-feed.js --version "${{ steps.plan.outputs.version }}" \
-            --base-url "https://github.com/${{ github.repository }}/releases/download/v${{ steps.plan.outputs.version }}"
+          base="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          [ "$BETA" = true ] && base="$R2_PUBLIC_URL/beta/$VERSION"
+          node apps/desktop/scripts/update-feed.js --version "$VERSION" --base-url "$base"
 
       - name: Upload dry-run artifact
         if: env.IS_TAG != 'true'
@@ -132,7 +148,7 @@ jobs:
           compression-level: 0
 
       - name: Upload to draft release
-        if: env.IS_TAG == 'true'
+        if: env.IS_TAG == 'true' && steps.plan.outputs.beta != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNED: ${{ steps.plan.outputs.signed }}
@@ -148,3 +164,47 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft "${prerelease[@]}" --verify-tag \
               --title "GitLanes ${{ steps.plan.outputs.version }}" --notes "$notes"
           fi
+
+      # Bucket layout: beta/<version>/ holds the DMGs and update zips, beta/latest/GitLanes-<arch>.dmg are the
+      # website's stable links, and beta/update-mac-<arch>.json are the feeds. Versioned files go up first and
+      # the feeds last, so a feed never names a file that isn't there yet. The last 5 versions are kept.
+      - name: Upload beta to R2
+        if: steps.plan.outputs.beta == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 rejects the newer default checksum headers of the aws CLI.
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+        run: |
+          set -euo pipefail
+          s3() { aws s3 --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" --only-show-errors "$@"; }
+          dist=apps/desktop/dist
+          dest="s3://$R2_BUCKET/beta"
+          for f in "$dist"/GitLanes-"$VERSION"-*.dmg "$dist"/GitLanes-"$VERSION"-*-mac.zip; do
+            s3 cp "$f" "$dest/$VERSION/$(basename "$f")" --cache-control "public, max-age=31536000, immutable"
+          done
+          for arch in arm64 x64; do
+            s3 cp "$dist/GitLanes-$VERSION-$arch.dmg" "$dest/latest/GitLanes-$arch.dmg" \
+              --cache-control "public, max-age=300" --content-type application/x-apple-diskimage \
+              --content-disposition "attachment; filename=\"GitLanes-$VERSION-$arch.dmg\""
+          done
+          for f in "$dist"/update-mac-*.json; do
+            s3 cp "$f" "$dest/$(basename "$f")" --cache-control no-cache --content-type application/json
+          done
+          # Prune: every beta/<version>/ folder except the newest 5 (semver order, as the updater compares).
+          s3 ls "$dest/" | awk '$1 == "PRE" { sub("/$", "", $2); print $2 }' > versions.txt
+          node -e "
+            const { compareVersions, parseVersion } = require('./apps/desktop/updater');
+            const all = require('fs').readFileSync('versions.txt', 'utf8').split('\n').filter(parseVersion).sort(compareVersions).reverse();
+            console.log(all.slice(5).filter((v) => v !== process.env.VERSION).join('\n'));
+          " > prune.txt
+          while read -r old; do
+            [ -n "$old" ] || continue
+            echo "Removing beta/$old/"
+            s3 rm "$dest/$old/" --recursive
+          done < prune.txt
+          echo "Uploaded $VERSION: $R2_PUBLIC_URL/beta/latest/GitLanes-arm64.dmg, $R2_PUBLIC_URL/beta/latest/GitLanes-x64.dmg"

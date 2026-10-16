@@ -135,8 +135,15 @@ function mockStore(config = { activationLimit: 3 }) {
   };
 }
 
+// Builds without a licence (beta): every call fails as unconfigured, without touching the network.
+function noStore() {
+  const off = async () => { throw new StoreError('config', 'This build doesn’t use licences.'); };
+  return { activate: off, validate: off, deactivate: off };
+}
+
 function createStore(config, opts) {
+  if (config.provider === 'none') return noStore();
   return config.provider === 'mock' ? mockStore(config) : polarStore(config, opts);
 }
 
-module.exports = { StoreError, polarStore, mockStore, createStore };
+module.exports = { StoreError, polarStore, mockStore, noStore, createStore };
