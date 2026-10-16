@@ -1314,3 +1314,18 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 @media (prefers-reduced-motion: no-preference) { .reader-mini { transition: opacity 140ms ease, visibility 140ms; } }
 /* Both readers show where focus is the same way once ↵ moves it in. */
 .review-pane:focus-visible, .review-pane > .quick.review.stacked:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+/* Branches (AK-396): every branch and worktree behind tabs, Review's layout. */
+.nav-badge.quiet:not(:empty) { height: 16px; padding: 0 6px; border-radius: 8px; line-height: 16px; background: var(--bg-active); color: var(--text-3); white-space: nowrap; }
+.review-dot.warn { background: var(--warn); }
+.review-dot.red { background: var(--red); }
+.review-dot.green { background: var(--green); }
+.review-tab-n.warn { color: var(--warn); }
+.lanes-row.review-row.branches-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 14px; border-radius: 0; border-bottom: 1px solid var(--border); }
+.branches-row .branches-name { font-family: var(--mono); font-size: 12.5px; font-weight: var(--fw-medium); }
+.branches-row .list-sub { margin-top: 1px; font-size: 12px; color: var(--text-3); }
+.branches-row .list-sub.warn { color: var(--warn); }
+.branches-row > .review-row-age { font-size: 12px; }
+.branches-explain { margin: 2px 16px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text-3); font-size: 12.5px; line-height: 1.5; }
+.branches-explain b { color: var(--text); font-weight: var(--fw-medium); }
+.branches-pane-empty { padding: 24px; }

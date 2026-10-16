@@ -1,9 +1,9 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
+import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
-import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
 import { navPos, authorsEl, fastKeys } from './reader.js';
+import { branchPreview, laneBadges } from './branch-preview.js';
 
 // "2h ago", but "just now" and "Oct 3" as they are.
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
@@ -154,25 +154,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     handle.addEventListener('pointerup', onUp);
   });
 
-  function doneText(l) {
-    const why = l.done.reason === 'pr' ? `Pull request #${l.done.pr} was merged`
-      : l.done.reason === 'key' ? `${l.done.key} is on the base branch`
-        : l.done.reason === 'subject' ? 'A commit with its title is on the base branch'
-          : l.merged === 'ancestor' ? 'Already part of the base branch' : 'Its changes are already on the base branch';
-    return l.changes ? `${why} · ${l.changes} uncommitted file${l.changes === 1 ? '' : 's'}` : why;
-  }
-
-  function badges(l) {
-    return [
-      l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
-      l.isBase ? h('span.badge', { title: 'The base branch' }, 'Base') : null,
-      l.worktree?.current ? h('span.badge.local', { title: 'Open in this window' }, 'This window') : null,
-      l.done ? h('span.badge', { title: doneText(l) }, 'Merged') : null,
-      l.upstreamGone ? h('span.badge.warn', { title: 'Its upstream branch was deleted' }, 'Gone') : null,
-      l.worktree?.prunable ? h('span.badge.warn', { title: 'The worktree folder no longer exists' }, 'Missing') : null,
-    ];
-  }
-
   function prCell(pr) {
     if (!pr) return h('span.lanes-pr.muted', null, '');
     // The number itself sits before the row's title; this column keeps draft, review and CI.
@@ -204,7 +185,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     },
       icon(l.worktree ? 'worktree' : 'branch', 14),
       h('div.list-main', null,
-        h('div.list-title', null, l.pr ? h('span.review-row-num', null, `#${l.pr.number}`) : null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
+        h('div.list-title', null, l.pr ? h('span.review-row-num', null, `#${l.pr.number}`) : null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...laneBadges(l)),
         h('div.list-sub', null,
           // The agent that made it (AK-390), where the lane looks agent-made.
           authorsEl(authorsOf({ agent: l.agent, agents: markAgents() }), 14, '.review-row-authors'),
@@ -403,7 +384,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       clearTimeout(paneTimer); paneObj?.destroy(); paneObj = null;
       if (paneHost.contains(document.activeElement)) el.focus({ preventScroll: true });
       if (!r) paneHost.replaceChildren('');
-      else if (paneHost.firstChild?.dataset?.key !== r.key || paneHost.firstChild.lane !== r.lane) paneHost.replaceChildren(branchPreview(r));
+      else if (paneHost.firstChild?.dataset?.key !== r.key || paneHost.firstChild.lane !== r.lane) paneHost.replaceChildren(preview(r));
       if (r && moved && settled && settled !== r.key) onSettle({ ...location(), key: settled });
       if (r) { moved = false; settled = r.key; }
       return;
@@ -428,52 +409,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     settled = r.key;
   }
 
-  // The pane for an Everything else row: the branch at a glance (upstream, ↑↓, worktree), its
-  // actions, predicted conflicts, its commits and the files it changes against the base, then the
-  // way in as a muted line. Files come from git branchReview, cached per branch tip.
+  // The pane for an Everything else row (branch-preview.js, shared with Branches).
   const previewFiles = new Map();
-  function branchPreview(x) {
-    const l = x.lane;
-    const ab = aheadBehind(l);
-    const ids = [...laneActions(l), ...(l.branch && !l.isBase && base ? ['rebase'] : []), ...(!l.isBase && (l.branch || l.head) ? ['review'] : [])]
-      .filter((id, i, all) => all.indexOf(id) === i && id !== 'delete' && id !== 'discard');
-    const section = (label, ...body) => h('section.branch-preview-section', null, h('div.lanes-group', null, label), ...body);
-    const files = h('div.branch-preview-files');
-    const el = h('div.review-pane.branch-preview', { 'data-key': x.key },
-      h('div.review-pane-head', null,
-        h('div.review-pane-title', null, h('div.quick-title', { title: laneTitle(l) }, icon(l.worktree ? 'worktree' : 'branch', 14), ' ', laneTitle(l)), ...badges(l)),
-        h('div.quick-meta.review-pane-meta', null,
-          h('span.mono', null, l.name),
-          h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
-          ab ? h('span', { title: base ? `Ahead/behind ${base}` : '' }, ab) : null,
-          l.worktree ? h('span.mono', { title: l.worktree.path }, tildify(l.worktree.path)) : null),
-        ids.length ? h('div.review-pane-actions', null, ...ids.map((id) => actionBtn(l, id, true))) : null),
-      h('div.branch-preview-body', null,
-        l.conflicts ? section('Predicted conflicts', ...l.conflicts.map((c) => h('div.review-detail.warn', { title: c.files.join('\n') }, conflictText(c)))) : null,
-        l.isBase ? null : section(l.ahead != null ? `Commits not on ${base || 'the base'} · ${l.ahead}` : 'Commits',
-          l.ahead === 0 ? h('div.review-none', null, 'Nothing here that isn’t on the base.')
-            : h('div.branch-preview-commit', null, icon('commit', 13), h('span.lanes-name', { title: l.title || '' }, l.title || l.name), l.activity ? h('span.review-row-age', { title: fullDate(l.activity / 1000) }, timeAgo(l.activity / 1000)) : null),
-          l.ahead > 1 ? h('div.review-none', null, `and ${plural(l.ahead - 1, 'older commit')}: R reviews them all`) : null),
-        l.isBase ? h('div.review-none', null, 'This is the base branch.') : section('Changed files', files)),
-      h('div.branch-preview-hint', null, `↵ ${l.worktree && !l.worktree.current ? 'switches to its worktree' : 'shows it in the Map'} · R reviews the branch`));
-    el.lane = l;
-    if (!l.isBase && git && (l.branch || l.head)) {
-      const id = `${laneKey(l)}@${l.head || ''}@${base || ''}`;
-      const show = (list) => files.replaceChildren(...(list.length ? list.map((f) => {
-        const [name, dir] = fileName(f.path);
-        return h('div.file-row', { title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path }, statusBadge(f.status), h('span.fname', null, name), h('span.fdir', null, dir),
-          f.add || f.del ? h('span.stat.small', null, f.add ? h('span.add', null, '+' + f.add) : null, f.del ? h('span.del', null, '−' + f.del) : null) : null);
-      }) : [h('div.review-none', null, 'No changes against the base.')]));
-      if (previewFiles.has(id)) show(previewFiles.get(id));
-      else {
-        files.replaceChildren(loading('Reading its changes…'));
-        git('branchReview', l.branch || l.head, base || undefined)
-          .then((res) => { previewFiles.set(id, res.files); if (files.isConnected) show(res.files); })
-          .catch((e) => files.replaceChildren(h('div.review-none', null, `Couldn’t read its changes: ${e.message}`)));
-      }
-    }
-    return el;
-  }
+  const preview = (x) => branchPreview({ lane: x.lane, key: x.key, base, git, cache: previewFiles, onRun: (id, l) => { select(allKey(l)); run(id, l); } });
 
   // After a pane action on row `key` (approve, merge, close…): re-stage it at once and move the
   // selection to the next row that needs you; the PR list reloads behind it.
@@ -880,6 +818,10 @@ export async function prefetchReview({ repo, load, prsOn }) {
   prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter((l) => l.pr), loadedAt: Date.now() };
   if (lastCounts?.repo === repo) lastCounts = null; // Catch up's line counts from these PRs
 }
+
+// The pull requests of the last load for `repo` (lanes with `pr`), for keepPrs: Branches shows "PR #N open"
+// from them without a `gh` call (AK-396).
+export const cachedPrs = (repo) => (prCache?.repo === repo ? prCache.prs : []);
 
 // Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or
 // worked out from local lanes and the cached PRs (no `gh` call). load → app:lanes-list.

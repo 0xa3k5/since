@@ -129,7 +129,8 @@ test('menu accelerators and keycaps per platform', async () => {
   const { accelerator, keys } = await load();
   assert.equal(accelerator('repo.fetch', true), 'CmdOrCtrl+Shift+F');
   assert.equal(accelerator('view.sidebar', true), 'CmdOrCtrl+S');
-  assert.equal(accelerator('view.map', true), 'CmdOrCtrl+3');
+  assert.equal(accelerator('view.map', true), 'CmdOrCtrl+4');
+  assert.equal(accelerator('view.branches', true), 'CmdOrCtrl+3');
   assert.equal(accelerator('view.cycleTheme', true), 'Ctrl+Cmd+T');
   assert.equal(accelerator('view.cycleTheme', false), 'Ctrl+Alt+Shift+T');
   assert.equal(accelerator('app.settings', true), 'CmdOrCtrl+,');
@@ -142,12 +143,13 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
 });
 
-test('Mod+1…8 follow the sidebar order, top to bottom', async () => {
+test('Mod+1…9 and Mod+0 follow the sidebar order, top to bottom', async () => {
   const { defaults } = await load();
   const app = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
   const ids = [...app.match(/const VIEWS = \[([\s\S]*?)\];/)[1].matchAll(/id: '(\w+)'/g)].map((m) => m[1]);
   assert.equal(ids[0], 'catchup', 'Catch up is the first view in the sidebar');
-  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${i + 1}`, `view.${id}`));
+  assert.equal(ids.length, 10, 'ten views: Mod+1…9, then Mod+0');
+  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${(i + 1) % 10}`, `view.${id}`));
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {
