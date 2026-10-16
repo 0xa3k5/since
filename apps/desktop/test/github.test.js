@@ -117,7 +117,7 @@ test('settings: one user-wide flag, a per-repository hide, and the old per-repos
   assert.deepEqual(github.normalize({ on: false, hidden: ['/a', 3] }), { on: false, hidden: ['/a'] });
   // Upgrades: on if any repository had it on; the old `repos` key is dropped.
   assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { on: true, hidden: [] });
-  assert.deepEqual(github.normalize({ repos: [] }), { on: null, hidden: [] });
+  assert.deepEqual(github.normalize({ repos: [] }), { on: false, hidden: [] }, 'turned off in the last repository stays off');
   assert.equal(github.normalize({ on: false, repos: ['/a'] }).on, false, 'an explicit choice wins');
   let s = github.setEnabled(undefined, true);
   assert.ok(github.isEnabled(s, '/a') && github.isEnabled(s, '/b'), 'on for every repository');

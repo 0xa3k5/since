@@ -557,10 +557,11 @@ async function createPr({ enabled, remotes, base, head, title, body = '', draft 
 
 // settings.json `github`: { on, hidden: [repository roots the user hid PRs for] }. One user-wide
 // flag; `on: null` means not decided yet (a fresh install, see ghStatus). Older versions kept a
-// per-repository `repos` list: any repository on there means it was on.
+// per-repository `repos` list: any repository on there means it was on, and an empty list means
+// the user turned it off everywhere (still a decision).
 function normalize(saved = {}) {
   const hidden = Array.isArray(saved?.hidden) ? saved.hidden.filter((r) => typeof r === 'string') : [];
-  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) && saved.repos.some((r) => typeof r === 'string') ? true : null;
+  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) ? saved.repos.some((r) => typeof r === 'string') : null;
   return { on, hidden };
 }
 const isHidden = (saved, root) => normalize(saved).hidden.includes(root);
