@@ -8,8 +8,8 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
-import { lanesView, reviewCounts } from './lanes-view.js';
-import { catchupView } from './catchup-view.js';
+import { lanesView, reviewCounts, prefetchReview } from './lanes-view.js';
+import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
 import { cleanupView } from './cleanup-view.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
@@ -2814,6 +2814,18 @@ async function loadPrs() {
   state.prs = { ...st, data, stale: Boolean(data), error: null, busy: false, byRef: new Map() };
   showPrs();
 }
+// Review's and Catch up's pull requests load once when a repo opens (AK-382), with pull requests on,
+// then only on Reload (⇧R): not on view changes or window focus. The same loads Reload runs, shared, so
+// an open Review or Catch up shows "Reloading…" and then the PRs; a closed one finds them in its cache.
+function prefetchOnOpen() {
+  const root = state.repo?.root;
+  if (!root || !state.prs?.active) return;
+  const prsOn = () => Boolean(state.prs?.active) && state.repo?.root === root;
+  prefetchReview({ repo: root, load: (opts) => api.app('lanes-list', opts), prsOn });
+  prefetchCatchup({ repo: root, load: (opts) => api.app('catchup', opts), prsOn, onCount: (n) => { if (state.repo?.root === root) setCatchupCount(n); } });
+  if (lanesPage?.el.isConnected && lanesPage.canReload()) lanesPage.reload(); // joins the load above
+  if (catchupPage?.el.isConnected) catchupPage.reload();
+}
 function indexPrs() { if (state.prs) state.prs.byRef = prsByRef(state.prs.data, state.refs); }
 function showPrs() { indexPrs(); renderSidebar(); mapView?.refresh(); }
 const prFor = (r) => (state.prs?.active ? state.prs.byRef.get(refKey(r)) : null);
@@ -3609,7 +3621,7 @@ async function loadRepo(repo) {
   document.title = repo.name;
   if (from) nav.record(from, placeKey());
   renderShell();
-  loadPrs();
+  loadPrs().then(prefetchOnOpen);
   await refreshAll();
   if (state.head.oid) selectCommit(state.head.oid, 'center');
   if (state.view === 'map') mapView?.focus();
