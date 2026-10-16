@@ -1,8 +1,8 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
-import { rowBadges, reviewers as reviewersOf, mergeOrder } from './review-rows.js';
-import { loadPrReview, paneActions, prDescription } from './pr-review.js';
+import { rowBadges, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
+import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
 import * as keymap from './keymap.js';
 
 // Review's right-hand pane: the selected row's header (title, CI and review state, author, size,
@@ -53,6 +53,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   const head = h('div.review-pane-head');
   let view = null;
   let actions = [];
+  let fixes = [];
   let alive = true;
   let jump = false; // showConflicts() before the review mounted
 
@@ -101,9 +102,11 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const updated = pr?.updatedAt ? Date.parse(pr.updatedAt) / 1000 : 0;
     const badges = rowBadges(row, { requested: ctx.requested, agents: ctx.agents });
     const draft = badges.find((b) => b.kind === 'draft');
+    // A stuck row's fixes sit on their own line (stuckLine), so the bar doesn't repeat them.
+    fixes = fixActions(row, ctx);
+    const fixing = new Set(fixes.map((a) => a.id));
     const extra = [
-      pr?.url ? { id: 'checks', label: 'Checks', key: 'lanes.checks', icon: 'checks' } : null,
-      row.stage === 'stuck' ? { id: 'sendBack', label: 'Send back…', key: 'lanes.sendBack', icon: 'sparkle' } : null,
+      pr?.url && !fixing.has('checks') ? { id: 'checks', label: 'Checks', key: 'lanes.checks', icon: 'checks' } : null,
     ].filter(Boolean);
     const button = (a) => {
       const label = a.label.replace('…', '');
@@ -114,13 +117,12 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       if (a.id === 'close' || a.id === 'checks') return h('button.btn.ghost.icon-btn.pane-secondary' + (a.danger ? '.danger-hover' : ''), { 'data-tip': a.id === 'close' ? `${tipFor('Close PR…', a.key)}\n${note}` : tip, 'aria-label': a.id === 'close' ? 'Close PR…' : a.label, onclick }, icon(a.icon, 15));
       return h('button.btn' + cls, { 'data-tip': tip, 'aria-label': a.label, onclick }, icon(a.id === 'github' ? 'github' : a.icon, 14), h('span.btn-label', null, a.label), kbd(...keymap.keys(a.key)));
     };
-    const main = actions.filter((a) => a.id !== 'close' && a.id !== 'github').sort((a, b) => (b.id === primary) - (a.id === primary));
+    const main = actions.filter((a) => a.id !== 'close' && a.id !== 'github' && !fixing.has(a.id)).sort((a, b) => (b.id === primary) - (a.id === primary));
     const close = actions.find((a) => a.id === 'close');
     const github = actions.find((a) => a.id === 'github');
-    const send = extra.find((a) => a.id === 'sendBack');
-    const icons = [...extra.filter((a) => a.id !== 'sendBack'), close].filter(Boolean);
+    const icons = [...extra, close].filter(Boolean);
     // ⋯: every action but the primary one, for the narrowest panes (their keys and ⌘K still work).
-    const more = [...main, send, ...icons, github].filter((a) => a && a.id !== primary);
+    const more = [...main, ...icons, github].filter((a) => a && a.id !== primary);
     const moreBtn = more.length ? h('button.btn.ghost.icon-btn.pane-more', {
       'data-tip': 'More actions', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
       onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, run: () => run(a.id, row, ctx) }))); },
@@ -138,9 +140,9 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       pr ? descriptionEl(pr) : null,
       pr ? reviewersLine(pr) : null,
       ...(pr ? mergeOrderLines() : []),
-      main.length || icons.length || send || github ? h('div.review-pane-actions', null,
+      stuckLine(ctx.step === 'rebase' ? 'rebase' : primary),
+      main.length || icons.length || github ? h('div.review-pane-actions', null,
         ...main.map(button),
-        send ? button(send) : null,
         main.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null,
         ...icons.map(button),
         github || moreBtn ? h('span.spacer') : null,
@@ -149,6 +151,26 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     ].filter(Boolean));
     fit();
   }
+
+  // Stuck (AK-359): why, then a button per fix (fixActions), the row's primary step filled in.
+  // "Stuck  conflicts with main in a.js · CI ✗ lint   [Rebase onto main B] [Show conflicts F] …"
+  function stuckLine(primaryId) {
+    if (!fixes.length) return null;
+    const why = stuckReason(row, { base: ctx.base, max: 3 });
+    return h('div.review-pane-stuck', { role: 'group', 'aria-label': 'Fix what’s stuck' },
+      h('div.review-pane-stuck-why', { title: stuckReason(row, { base: ctx.base, max: 20 }) || '' },
+        h('span.review-pane-stuck-label', null, icon('checks', 13), 'Stuck'),
+        why ? h('span.review-pane-stuck-text', null, why) : null),
+      h('div.review-pane-stuck-actions', null, ...fixes.map((a) => h('button.btn.small' + (a.id === primaryId ? '.primary' : '.subtle'), {
+        'data-tip': `${tipFor(a.label, a.key)}\n${a.note}`, 'aria-label': a.label, onclick: () => fix(a.id),
+      }, icon(a.icon, 13), h('span.btn-label', null, a.label), kbd(...keymap.keys(a.key))))));
+  }
+
+  function fix(id) {
+    if (id === 'showConflicts') showConflicts();
+    else run(id, row, ctx);
+  }
+  function showConflicts() { if (view) view.showConflicts(); else jump = true; }
 
   // Merge order (AK-321), one line per open PR this one overlaps: "Overlaps #87 in lanes-view.js.
   // Whichever merges second needs a rebase. Smaller first: this one (+28 −12)." #87 selects that PR.
@@ -164,6 +186,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
 
   const onKey = (id) => {
     if (id === 'review.description') return toggleDescription();
+    const f = fixes.find((x) => x.key === id);
+    if (f) { fix(f.id); return true; }
     const a = actions.find((x) => x.key === id);
     if (!a) return false;
     run(a.id, row, ctx);
@@ -205,7 +229,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     // I and ⌘K: Show more or less of the description. False when there's none.
     toggleDescription,
     // The row's "Conflicts in N files" note: jump to the Conflicting group.
-    showConflicts() { if (view) view.showConflicts(); else jump = true; },
+    showConflicts,
     focus: () => (view?.el || el).focus({ preventScroll: true }),
   };
 }
