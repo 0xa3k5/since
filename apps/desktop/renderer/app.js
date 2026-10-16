@@ -17,7 +17,7 @@ import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';
-import { loadPrReview, leavesPage, paneActions, prDescription } from './pr-review.js';
+import { loadPrReview, leavesPage, paneActions, fixActions, prDescription } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
@@ -2460,6 +2460,7 @@ function paneAction(id, row, ctx) {
   if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
+  if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
   if (id === 'sendBack') return sendBackRow(row, ctx);
   toast(`That doesn’t apply to ${row.title}`);
 }
@@ -3313,6 +3314,10 @@ function openPalette() {
       const t = paneSel.row.pr ? `#${paneSel.row.pr.number}` : paneSel.row.title;
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
+      }
+      // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
+      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
+        add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
       }
       if (prDescription(paneSel.row.pr)) add('Review', `Expand or collapse ${t}’s description`, () => lanesPage.toggleDescription(), { icon: 'lanes', kbd: keymap.keys('lanes.description'), keywords: 'review pane pull request description body summary expand collapse' });
     }
