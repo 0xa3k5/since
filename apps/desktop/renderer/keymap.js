@@ -187,6 +187,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.prev', 'Previous row', 'ArrowUp'),
   c('lanes', null, 'lanes.open', 'Open the row: its branch in the map, or the pull request’s review', 'Enter'),
   c('lanes', null, 'lanes.filter', 'Filter', '/'),
+  c('lanes', null, 'lanes.reload', 'Reload pull requests', 'Mod+R'),
   c('lanes', null, 'lanes.clear', 'Clear the filter', 'Escape'),
   c('lanes', null, 'lanes.agents', 'Everything else, agent-made only', 'a'),
   c('lanes', null, 'lanes.all', 'Open or close Everything else (every branch and worktree)', 's'),
