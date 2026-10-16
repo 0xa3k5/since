@@ -186,6 +186,12 @@ export function diffCounts(diff) {
   for (const hunk of diff?.hunks || []) for (const l of hunk.lines) { if (l.t === '+') add++; else if (l.t === '-') del++; }
   return { add, del };
 }
+// The whole change's size for the reader head: { additions, deletions, files } over its file diffs.
+export function changeSize(diffs = []) {
+  let additions = 0, deletions = 0;
+  for (const d of diffs) { const c = diffCounts(d); additions += c.add; deletions += c.del; }
+  return { additions, deletions, files: diffs.length };
+}
 // The first path in `paths` not in `viewed` (a Set), or null.
 export const firstUnviewed = (paths = [], viewed = new Set()) => paths.find((p) => !viewed.has(p)) ?? null;
 // What the reader shows above the files: the PR's description when GitHub sent it, else the commit
