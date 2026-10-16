@@ -87,6 +87,12 @@ test('add: new branch at a base, existing branch, default path does not clobber'
   assert.equal(p2, path.join(parent, 'custom'));
   assert.equal((await git.run(p2, ['symbolic-ref', '--short', 'HEAD'])).trim(), 'existing');
 
+  // `force` moves an existing branch to `base` as it adds the worktree (a PR checkout's update).
+  await git.run(dir, ['branch', 'moved']);
+  const p3 = await git.addWorktree(dir, { branch: 'moved', base, force: true });
+  assert.equal(await sha(dir, 'moved'), base);
+  assert.equal(await sha(p3), base);
+
   fs.mkdirSync(path.join(parent, 'app-x'));
   fs.writeFileSync(path.join(parent, 'app-x', 'keep'), '');
   assert.equal(await git.addWorktree(dir, { branch: 'x' }), path.join(parent, 'app-x-2'));

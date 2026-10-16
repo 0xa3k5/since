@@ -867,6 +867,7 @@ function isMenuKey(id, e) {
 function applyPanes() {
   root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
   root.style.setProperty('--cv-w', `${state.panes.commit}px`);
+  root.style.setProperty('--st-w', `${state.panes.stash}px`);
   root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
 }
 function setPane(id, px, save = true) {
@@ -2082,7 +2083,7 @@ function stashesView() {
   const el = h('div.split-view');
   const list = h('div.list-pane');
   const detail = h('div.detail-pane');
-  el.append(list, detail);
+  el.append(list, paneHandle('stash', () => el), detail);
   let current = state.stashes[0]?.ref;
   function renderList() {
     list.replaceChildren(
@@ -2374,7 +2375,8 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs().then(prefetchOnOpen) }); }
+// PRs refresh in the background, so Fetch resolves without waiting on `gh`.
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => { refreshPrs().then(prefetchOnOpen); } }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
@@ -2463,7 +2465,7 @@ function openLanes() {
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
-    onCheckout: (pr) => checkoutPr(pr, { worktree: true }),
+    onCheckout: (pr, opts) => checkoutPr(pr, opts),
     onPrReview: (pr, remote) => openPrReview(pr, remote),
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
@@ -3549,6 +3551,7 @@ function openPalette() {
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
+      if (paneSel.row.pr && !paneSel.row.lane) add('Review', `Check out ${t} here`, () => checkoutPr(paneSel.row.pr), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
       for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
         add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
@@ -3596,7 +3599,7 @@ function openPalette() {
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
-    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list panel pane default restore drag' });
+    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list stash panel pane default restore drag' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
@@ -3685,7 +3688,7 @@ async function setupFeature(id, on) {
 // The PR row: a switch once GitHub CLI is installed and logged in, else Set up…. Without a
 // repository the main process can't answer yet, so the row offers Set up….
 async function prSetup() {
-  const st = state.repo ? await api.app('pr-state').catch(() => null) : null;
+  const st = await api.app('pr-state').catch(() => null);
   if (!st) return { on: false, setup: true };
   return { on: st.enabled, setup: !st.enabled && (st.gh === 'missing' || prLoggedOut) };
 }
