@@ -4,8 +4,8 @@
 /** Polar customer portal: devices (activations), licence keys, receipts. Sandbox until production credentials exist. */
 export const PORTAL_URL = 'https://sandbox.polar.sh/gitlanes/portal';
 
-/** Off until release builds are signed and notarized (AK-41 + Apple Developer account). Switches the install note to the checksum note. */
-export const NOTARIZED = false;
+/** Beta builds are signed and notarized (AK-424), so the install note says they open without warnings. */
+export const NOTARIZED = true;
 
 /** Minimum macOS from the packaging config. TBD until it's tested on a real Mac running that version. */
 export const MIN_MACOS = 'macOS 12 Monterey';
