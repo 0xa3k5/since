@@ -201,6 +201,7 @@ const gitSchemas = {
   // ref mutations
   checkout: [rev],
   checkoutTracking: [rev],
+  autostashCheckout: [rev, text, optional(bool)],
   createBranch: [rev, rev, optional(bool)],
   deleteBranch: [rev],
   renameBranch: [rev, rev],

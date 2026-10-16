@@ -931,13 +931,15 @@ async function captureRefState(cwd) {
 }
 
 async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = {}) {
-  const current = await captureRefState(cwd);
+  let current = await captureRefState(cwd);
   const env = { GIT_OPTIONAL_LOCKS: '1' };
   // Move the working copy first so a dirty tree blocks the restore before any ref changes.
   // `soft` keeps the undone commit's changes staged (undoing a commit). `refsOnly` leaves
   // the index and working tree alone; the caller restores them from a work snapshot.
   if (!refsOnly && state.headOid && state.headOid !== current.headOid) {
     await run(cwd, ['reset', soft ? '--soft' : '--keep', state.headOid], { env });
+    // The reset moved the branch HEAD is on; when HEAD goes back to another branch, that one moves back below.
+    current = await captureRefState(cwd);
   }
   const lines = [];
   for (const [n, o] of Object.entries(state.refs)) if (current.refs[n] !== o) lines.push(`update ${n} ${o}`);
@@ -1167,7 +1169,8 @@ async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
   }
   if (paths?.length) args.push('--', ...paths.filter((p) => !gone.includes(p)));
   try {
-    await run(cwd, args, { env: W_ENV });
+    // With GIT_LITERAL_PATHSPECS, `stash -u` saves untracked files but leaves them in place; literal paths only matter with paths.
+    await run(cwd, args, { env: paths?.length ? W_ENV : { GIT_OPTIONAL_LOCKS: '1' } });
     if (gone.length) await run(cwd, ['checkout', 'HEAD', '--', ...gone]);
   } catch (e) {
     // `stash push --staged` arrived in Git 2.35; older git rejects the option with a usage dump.

@@ -28,6 +28,7 @@ import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
+import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
@@ -1656,10 +1657,66 @@ function refMenu(x, y, r) {
 
 async function copy(text, msg) { await api.app('copy', text); toast(msg); }
 
-function checkout(branch) {
+async function checkout(branch) {
   const wt = worktreeOf(branch);
   if (wt) return toast(`${branch} is checked out in worktree “${wt.name}”`, { kind: 'error', detail: 'A branch can only be checked out in one worktree at a time.', action: { label: 'Switch', run: () => switchWorktree(wt) } });
-  return act(`Checkout ${branch}`, 'checkout', [branch], { success: `Switched to ${branch}` });
+  const label = `Checkout ${branch}`;
+  closeMenu();
+  try {
+    await git('checkout', branch, { __label: label });
+  } catch (e) {
+    // Only when local changes are in the way: offer to stash them and switch.
+    const blocked = !e.readOnly && blockedCheckout(`${e.stderr || ''}\n${e.message}`);
+    if (blocked) return autostashCheckout(branch, blocked);
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    await refreshAll();
+    return false;
+  }
+  toast(`Switched to ${branch}`, { kind: 'success', action: { label: 'Undo', run: undo } });
+  await refreshAll();
+  offerAutostash(branch);
+  return true;
+}
+
+// Stash, then switch (one undoable step). Asks first unless "Don't ask again" was ticked.
+async function autostashCheckout(branch, blocked) {
+  const from = state.head.branch;
+  const plan = autostashPlan(loadPref('autostash', AUTOSTASH_DEFAULT), blocked);
+  let message = stashMessage(from, branch), untracked = plan.untracked;
+  if (plan.ask) {
+    const v = await dialog({
+      title: `Stash your current changes before checking out ${branch}?`,
+      description: 'Your changes would be overwritten by this checkout. GitLanes offers them back when you return to this branch.',
+      submit: 'Stash and switch',
+      fields: [
+        { name: 'msg', label: 'Message', value: message },
+        { name: 'u', type: 'checkbox', label: 'Include untracked files', value: untracked },
+        { name: 'never', type: 'checkbox', label: 'Don’t ask again', value: false },
+      ],
+    });
+    if (!v) return false;
+    message = v.msg.trim() || message;
+    untracked = v.u || !!blocked.untracked;
+    if (v.never) savePref('autostash', { ask: false, untracked: v.u });
+  }
+  return act(`Checkout ${branch}`, 'autostashCheckout', [branch, message, untracked], {
+    success: `Stashed changes and switched to ${branch}`,
+    then: (a) => { if (a?.branch) savePref('autostashes', { list: [...loadPref('autostashes', { list: [] }).list, { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
+  });
+}
+
+// Back on a branch that was auto-stashed: offer its stash back.
+async function pendingAutostash(branch) {
+  const stashes = await git('stashes').catch(() => null);
+  if (!stashes || !state.repo) return null;
+  const { offer, records } = returnOffer(loadPref('autostashes', { list: [] }).list, state.repo.root, branch, stashes);
+  savePref('autostashes', { list: records });
+  return offer;
+}
+const applyAutostash = (o, drop) => act(drop ? `Apply and drop ${o.ref}` : `Apply ${o.ref}`, 'stashApply', [o.ref, drop]);
+async function offerAutostash(branch) {
+  const o = await pendingAutostash(branch);
+  if (o) toast(`You have changes stashed from ${branch}`, { detail: o.message, timeout: 15000, actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply, keep stash', run: () => applyAutostash(o, false) }] });
 }
 function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
@@ -3496,6 +3553,10 @@ function openPalette() {
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: keymap.keys('repo.stash') });
+    if (!loadPref('autostash', AUTOSTASH_DEFAULT).ask) add('Repository', 'Ask before auto-stashing on checkout', () => { savePref('autostash', AUTOSTASH_DEFAULT); toast('GitLanes will ask before stashing on checkout'); }, { icon: 'stash', keywords: 'autostash auto stash checkout switch dont ask again' });
+    if (state.head?.branch && loadPref('autostashes', { list: [] }).list.some((x) => x.root === state.repo?.root && x.branch === state.head.branch)) {
+      add('Repository', `Apply auto-stash for ${state.head.branch}`, async () => { const o = await pendingAutostash(state.head.branch); if (o) applyAutostash(o, true); else toast('That auto-stash is gone'); }, { icon: 'stash', keywords: 'autostash auto stash pop apply drop' });
+    }
     add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
