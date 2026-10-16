@@ -898,6 +898,13 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
 .review-pane-arrow { color: var(--text-4); }
+.review-pane-desc { margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.review-pane-desc.none { color: var(--text-4); }
+.review-pane-desc-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: pre-wrap; overflow: hidden; overflow-wrap: anywhere; }
+.review-pane-desc.open .review-pane-desc-text { display: block; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
+.review-pane-desc-more { margin-top: 2px; color: var(--text-3); }
+.review-pane-desc-more:hover { color: var(--text); }
+.review-pane-desc.fits .review-pane-desc-more { display: none; }
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }

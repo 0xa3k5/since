@@ -62,7 +62,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null } });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
@@ -344,6 +344,14 @@ test('normalizePr: GitHub’s merge state in lower case, null when missing or un
   assert.equal(github.normalizePr(PR({ mergeStateStatus: 'WEIRD' })).mergeState, null);
   assert.equal(github.normalizePr(PR({})).mergeState, null);
   assert.ok(github.PR_FIELDS.includes('mergeStateStatus'));
+});
+
+test('normalizePr: the PR description, empty when missing, capped at 20,000 characters (AK-357)', () => {
+  assert.equal(github.normalizePr(PR({ body: 'Fixes the thing.\n\nDetails' })).body, 'Fixes the thing.\n\nDetails');
+  assert.equal(github.normalizePr(PR({})).body, '');
+  assert.equal(github.normalizePr(PR({ body: null })).body, '');
+  assert.equal(github.normalizePr(PR({ body: 'x'.repeat(25000) })).body.length, 20000);
+  assert.ok(github.PR_FIELDS.includes('body'));
 });
 
 test('inbox: nothing runs while off; review requests and the login, the login asked once per host', async () => {

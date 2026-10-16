@@ -2,7 +2,7 @@ import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from '.
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, reviewers as reviewersOf, mergeOrder } from './review-rows.js';
-import { loadPrReview, paneActions } from './pr-review.js';
+import { loadPrReview, paneActions, prDescription } from './pr-review.js';
 import * as keymap from './keymap.js';
 
 // Review's right-hand pane: the selected row's header (title, CI and review state, author, size,
@@ -23,6 +23,8 @@ const STATE = {
   pending: { icon: 'pending', glyph: '○', verb: 'review requested', many: 'haven’t reviewed yet' },
 };
 const SHOWN_REVIEWERS = 4;
+// The description shows its first lines until Show more (I); that choice sticks across PRs.
+let descOpen = false;
 // "2h ago", "just now", or a date for anything older than a month.
 const ago = (t) => { const a = timeAgo(t); return /^\d+[mhd]$/.test(a) ? `${a} ago` : a; };
 const reviewerTip = (r) => `${r.name}${r.login && r.login !== r.name ? ` (${r.login})` : ''}: ${STATE[r.state].verb}${r.at ? ` · ${fullDate(Date.parse(r.at) / 1000)}` : ''}`;
@@ -67,6 +69,28 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     bar.classList.remove('fit-github', 'fit-shrink');
     if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-github');
     if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-shrink');
+    // Show more only when the clamped description has more to show.
+    const d = head.querySelector('.review-pane-desc:not(.open)');
+    const t = d?.querySelector('.review-pane-desc-text');
+    if (t) d.classList.toggle('fits', t.scrollHeight <= t.clientHeight + 1);
+  }
+
+  // The PR's description under the meta: plain text, a few lines until Show more. Nothing when
+  // GitHub didn't send one; "No description" when the author left it empty.
+  function descriptionEl(pr) {
+    const text = prDescription(pr);
+    if (text == null) return null;
+    if (!text) return h('div.review-pane-desc.none', null, 'No description');
+    return h('div.review-pane-desc' + (descOpen ? '.open' : ''), null,
+      h('div.review-pane-desc-text', null, text),
+      h('button.review-reason-link.review-pane-desc-more', { 'aria-expanded': String(descOpen), 'data-tip': tipFor(descOpen ? 'Show less' : 'Show more', 'review.description'), onclick: toggleDescription }, descOpen ? 'Show less' : 'Show more'));
+  }
+
+  function toggleDescription() {
+    if (!prDescription(row.pr)) return false;
+    descOpen = !descOpen;
+    renderHead();
+    return true;
   }
 
   function renderHead() {
@@ -111,6 +135,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
         draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
         updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null),
+      pr ? descriptionEl(pr) : null,
       pr ? reviewersLine(pr) : null,
       ...(pr ? mergeOrderLines() : []),
       main.length || icons.length || send || github ? h('div.review-pane-actions', null,
@@ -138,6 +163,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   }
 
   const onKey = (id) => {
+    if (id === 'review.description') return toggleDescription();
     const a = actions.find((x) => x.key === id);
     if (!a) return false;
     run(a.id, row, ctx);
@@ -176,6 +202,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     // The row changed under the pane (approved, CI finished): new header, same diff and ticks.
     update(r, c) { row = r; ctx = c; renderHead(); },
     destroy() { alive = false; ro.disconnect(); },
+    // I and ⌘K: Show more or less of the description. False when there's none.
+    toggleDescription,
     // The row's "Conflicts in N files" note: jump to the Conflicting group.
     showConflicts() { if (view) view.showConflicts(); else jump = true; },
     focus: () => (view?.el || el).focus({ preventScroll: true }),
