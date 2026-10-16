@@ -448,6 +448,14 @@ function branchName(head) {
   return head.cross && head.headOwner && head.branch === head.base ? `${head.headOwner}/${head.branch}` : head.branch;
 }
 
+// What `git check-ref-format --branch` accepts (so `+`, `#`, `@` and non-ASCII letters are fine),
+// minus a leading `-` so the name can't be read as an option.
+function validBranch(name) {
+  if (!name || name === '@' || name.startsWith('-')) return false;
+  if (/[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|\/\/|^\/|[./]$/.test(name)) return false;
+  return name.split('/').every((c) => c && !c.startsWith('.') && !c.endsWith('.lock'));
+}
+
 // `gh pr view --json …` output → { number, branch, sha, cross, headOwner, base, state, local }.
 // Throws on anything that couldn't be a branch name or a commit, so nothing odd reaches git.
 function parsePrHead(out, number) {
@@ -464,7 +472,7 @@ function parsePrHead(out, number) {
   };
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head.sha)) throw coded(`Pull request #${number} has no head commit.`, 'gh-failed');
   head.local = branchName(head);
-  if (!head.branch || !/^[\w./-]+$/.test(head.local) || /^[-./]|\.\.|\/\/|[./]$|\.lock$/.test(head.local)) {
+  if (!head.branch || !validBranch(head.local)) {
     throw coded(`Pull request #${number} has a branch name GitLanes can’t use: “${head.branch}”.`, 'gh-failed');
   }
   return head;

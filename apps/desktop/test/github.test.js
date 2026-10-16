@@ -185,8 +185,14 @@ test('parsePrHead: refuses odd output, wrong PR, bad shas and unsafe branch name
   assert.throws(() => github.parsePrHead('[]', 12), { code: 'gh-failed' });
   assert.throws(() => github.parsePrHead(HEAD(), 13), { code: 'gh-failed' });
   assert.throws(() => github.parsePrHead(HEAD({ headRefOid: 'HEAD' }), 12), /no head commit/);
-  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'semi;colon']) {
+  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'a/.b', 'a~b', 'a:b', 'a?b', 'a[b', 'a\\b', '@', 'x@{1}', 'dot.']) {
     assert.throws(() => github.parsePrHead(HEAD({ headRefName: name }), 12), { code: 'gh-failed' }, name);
+  }
+});
+
+test('parsePrHead: takes any branch name git accepts', () => {
+  for (const name of ['fix+x', 'issue#12', 'me@work', 'café/ñ', 'semi;colon', 'a.b/c-d_e']) {
+    assert.equal(github.parsePrHead(HEAD({ headRefName: name }), 12).local, name);
   }
 });
 

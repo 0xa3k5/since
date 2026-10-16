@@ -757,8 +757,8 @@ handle('app:pr-checkout', aiCall(async (e, number, opts) => {
       await track();
       return { branch: local, sha };
     }
-    if (tip && tip !== sha) await s.journal.record(`Update ${local} to #${number}`, 'setBranchTip', () => r(s, ['branch', '-f', local, sha]));
-    const wt = await s.journal.runWorktree('addWorktree', `New worktree for #${number}`, [{ dir, branch: local, base: tip ? null : sha }]);
+    // Moving an existing branch and adding its worktree are one journal step, so one ⌘Z undoes both.
+    const wt = await s.journal.runWorktree('addWorktree', `New worktree for #${number}`, [{ dir, branch: local, base: tip === sha ? null : sha, force: Boolean(tip) && tip !== sha }]);
     await track();
     return { branch: local, sha, worktree: wt };
   } finally {

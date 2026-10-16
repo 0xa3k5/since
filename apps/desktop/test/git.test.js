@@ -128,6 +128,17 @@ test('undo restores refs and working tree', async () => {
   assert.ok(!refs.find((r) => r.short === 'feature'));
 });
 
+test('undo that deletes a branch drops its upstream config', async () => {
+  const dir = await repo();
+  await commit(dir, 'a', '1', 'one');
+  const before = await git.captureRefState(dir);
+  await git.run(dir, ['branch', 'pr']);
+  await git.run(dir, ['config', 'branch.pr.remote', 'origin']);
+  await git.run(dir, ['config', 'branch.pr.merge', 'refs/heads/pr']);
+  await git.restoreRefState(dir, before);
+  assert.equal((await git.run(dir, ['config', '--get-regexp', '^branch\\.pr\\.'], { allowCodes: [0, 1] })).trim(), '');
+});
+
 test('graph layout assigns lanes for branches and merges', async () => {
   const { layout } = await import('../renderer/graph.js');
   // m merges b into a; a and b both descend from root
