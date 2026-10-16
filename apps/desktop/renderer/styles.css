@@ -974,9 +974,11 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-status.stuck .review-pane-status-label { color: var(--red); }
 .review-pane-status.ready .review-pane-status-label { color: var(--green); }
 .review-pane-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-pane-status > .review-pane-actions { flex: 1 1 auto; gap: 6px; margin-top: 0; }
-.review-pane-status > .review-pane-actions > :first-child { margin-left: auto; }
-.review-pane-status.wrapped > .review-pane-actions > :first-child { margin-left: 0; }
+/* Right-aligned on the bar itself, not via the first child's margin: that child may be a hidden
+   secondary (fit-more), which left the stuck strip's buttons floating mid-row. `safe` falls back to
+   start on overflow, so fit() still sees scrollWidth grow. */
+.review-pane-status > .review-pane-actions { flex: 1 1 auto; justify-content: safe flex-end; gap: 6px; margin-top: 0; }
+.review-pane-status.wrapped > .review-pane-actions { justify-content: flex-start; }
 .review-pane-status.fit-more .pane-secondary { display: none; }
 .review-pane-status.fit-more .pane-more { display: inline-flex; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
