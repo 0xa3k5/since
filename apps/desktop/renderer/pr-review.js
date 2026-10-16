@@ -76,6 +76,23 @@ export function paneActions(row, step) {
   return { actions, primary };
 }
 
+// A stuck row's fixes (AK-359), for the pane's Stuck line and ⌘K, in the order you'd try them:
+// rebase onto the base when it conflicts and its branch is here, else check the PR out to fix it
+// here; jump to the conflicting files; open the failing checks; send it back to whoever made it.
+// ctx: the pane's { base, conflicts } (conflicts: it conflicts with its base). [] unless stuck.
+export function fixActions(row, { base = null, conflicts = false } = {}) {
+  if (row?.stage !== 'stuck') return [];
+  const { pr, lane } = row;
+  const local = Boolean(lane?.branch && !lane.isBase);
+  const out = [];
+  if (conflicts && local && base) out.push({ id: 'rebase', key: 'review.rebase', listKey: 'lanes.rebase', label: `Rebase onto ${base}`, icon: 'rebase', note: 'Fix the conflicts here (undoable)' });
+  else if (conflicts && pr && !lane) out.push({ id: 'checkout', key: 'review.checkout', listKey: 'lanes.checkout', label: 'Check out to fix…', icon: 'worktree', note: 'Opens it in its own worktree, where you can rebase it' });
+  if (conflicts) out.push({ id: 'showConflicts', key: 'review.showConflicts', listKey: 'lanes.showConflicts', label: 'Show conflicts', icon: 'diff', note: 'Jumps to the conflicting files' });
+  if (pr?.checks === 'failure' && pr.url) out.push({ id: 'checks', key: 'review.checks', listKey: 'lanes.checks', label: 'Open failing checks', icon: 'checks', note: 'Opens in your browser' });
+  out.push({ id: 'sendBack', key: 'review.sendBack', listKey: 'lanes.sendBack', label: 'Send back…', icon: 'sparkle', note: 'A ready-made prompt for whoever made it' });
+  return out;
+}
+
 // The PR's description for the pane, as plain text: template comments (<!-- … -->) dropped, runs
 // of blank lines squeezed to one, trimmed. null when GitHub didn't send one (older list data);
 // '' when the author left it empty.

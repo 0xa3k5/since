@@ -18,7 +18,7 @@ import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';
-import { loadPrReview, leavesPage, paneActions, prDescription } from './pr-review.js';
+import { loadPrReview, leavesPage, paneActions, fixActions, prDescription } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
@@ -2495,6 +2495,7 @@ function paneAction(id, row, ctx) {
   if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
+  if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
   if (id === 'sendBack') return sendBackRow(row, ctx);
   toast(`That doesn’t apply to ${row.title}`);
 }
@@ -3350,6 +3351,10 @@ function openPalette() {
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
+      // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
+      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
+        add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
+      }
       if (prDescription(paneSel.row.pr)) add('Review', `Expand or collapse ${t}’s description`, () => lanesPage.toggleDescription(), { icon: 'lanes', kbd: keymap.keys('lanes.description'), keywords: 'review pane pull request description body summary expand collapse' });
     }
     add('Repository', 'Clean up stale branches and worktrees…', startCleanup, { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk' });
@@ -3363,6 +3368,11 @@ function openPalette() {
     add('View', 'Show branches with predicted conflicts', () => { setView('lanes'); lanesPage?.showConflicts(); }, { icon: 'lanes', keywords: 'review conflict forecast merge-tree overlap lanes branches worktrees' });
     const allOn = state.view === 'lanes' && lanesOpen() && lanesPage?.isAll();
     add('View', allOn ? 'Review: hide everything else' : 'Review: show everything else (every branch and worktree)', () => showAllLanes(!allOn), { icon: 'lanes', kbd: keymap.keys('lanes.all'), keywords: 'review show all every branch worktree local lanes inbox pull requests everything else' });
+    if (state.view === 'lanes' && lanesOpen() && lanesPage?.setTab) {
+      for (const [id, label, keyId] of [['needs', 'Needs you', 'lanes.tabNeeds'], ['stuck', 'Stuck', 'lanes.tabStuck'], ['ready', 'Ready', 'lanes.tabReady'], ['inProgress', 'In progress', 'lanes.tabProgress'], ['open', 'All open', 'lanes.tabAll']]) {
+        add('Review', `Show ${label}`, () => lanesPage.setTab(id), { icon: 'lanes', kbd: keymap.keys(keyId), detail: lanesPage.tab() === id ? 'current' : null, keywords: 'review tab list stuck ready merge in progress open pull requests needs you' });
+      }
+    }
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made lanes' : 'Mark lanes that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });

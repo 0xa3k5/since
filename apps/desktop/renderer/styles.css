@@ -919,6 +919,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }
+.review-pane-stuck { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 7%, transparent); font-size: 12.5px; line-height: 1.45; }
+.review-pane-stuck-why { display: flex; align-items: baseline; gap: 8px; flex: 1 1 220px; min-width: 0; color: var(--text-2); }
+.review-pane-stuck-label { display: inline-flex; align-items: center; gap: 5px; flex: none; align-self: center; color: var(--warn); font-weight: var(--fw-medium); }
+.review-pane-stuck-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-pane-stuck-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.review-pane-stuck-actions > .btn { flex: none; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
@@ -1202,3 +1208,15 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .setup .tour-foot .btn { gap: 6px; }
 .overlay .setup { width: 460px; padding: 20px; border-radius: var(--radius-lg); background: var(--bg-elevated); box-shadow: var(--shadow); }
 @media (prefers-reduced-motion: reduce) { .switch, .switch-knob { transition: none; } }
+
+/* Review's tabs (AK-361): one list at a time; the selected tab has the accent underline. */
+.review-tabs { display: flex; align-items: center; gap: 2px; margin: 0 16px 10px; border-bottom: 1px solid var(--border); }
+.review-tabs[hidden] { display: none; }
+.review-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-3); font: inherit; font-size: 13px; cursor: pointer; }
+.review-tab:hover { color: var(--text-2); }
+.review-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--fw-medium); }
+.review-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--radius); }
+.review-tab-n { font-size: 11px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.review-tab.stuck .review-tab-n { color: var(--red); }
+.review-tabs .lanes-group-act { margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) { .review-tab { transition: color 120ms ease, border-color 120ms ease; } }

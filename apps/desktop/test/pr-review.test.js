@@ -90,3 +90,18 @@ test('prDescription: plain text without template comments, null when not sent', 
   assert.equal(prDescription({ body: '<!-- Describe your change -->\r\n\r\n' }), '');
   assert.equal(prDescription({ body: 'Fixes the graph.  \r\n\r\n\r\n\r\n- one\n- two\n<!-- unclosed' }), 'Fixes the graph.\n\n- one\n- two');
 });
+
+test('fixActions: a stuck row offers its fixes in order, with keys in both scopes', async () => {
+  const { fixActions } = await import('../renderer/pr-review.js');
+  const { COMMANDS } = await import('../renderer/keymap.js');
+  const ids = new Set(COMMANDS.map((c) => c.id));
+  const pr = { number: 7, url: 'https://github.com/o/r/pull/7', checks: 'failure' };
+  const lane = { branch: 'feat', name: 'feat' };
+  assert.deepEqual(fixActions({ stage: 'ready', pr }, { base: 'main', conflicts: true }), []);
+  const here = fixActions({ stage: 'stuck', pr, lane }, { base: 'main', conflicts: true });
+  assert.deepEqual(here.map((a) => a.id), ['rebase', 'showConflicts', 'checks', 'sendBack']);
+  assert.equal(here[0].label, 'Rebase onto main');
+  for (const a of here) assert.ok(ids.has(a.key) && ids.has(a.listKey), a.id);
+  assert.deepEqual(fixActions({ stage: 'stuck', pr }, { base: 'main', conflicts: true }).map((a) => a.id), ['checkout', 'showConflicts', 'checks', 'sendBack']);
+  assert.deepEqual(fixActions({ stage: 'stuck', pr: { ...pr, checks: 'success' }, lane }, { base: 'main' }).map((a) => a.id), ['sendBack']);
+});

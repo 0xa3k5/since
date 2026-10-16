@@ -14,6 +14,16 @@ export const STAGES = [
   { id: 'inProgress', label: 'In progress' },
 ];
 
+// Review's tabs (AK-361), one list at a time instead of stacked stages; 1–5 switch. Needs you is
+// Stuck and Ready to merge, each under its heading; All open is every stage.
+export const TABS = [
+  { id: 'needs', label: 'Needs you', keyId: 'lanes.tabNeeds', stages: ['stuck', 'ready'] },
+  { id: 'stuck', label: 'Stuck', keyId: 'lanes.tabStuck', stages: ['stuck'] },
+  { id: 'ready', label: 'Ready', keyId: 'lanes.tabReady', stages: ['ready'] },
+  { id: 'inProgress', label: 'In progress', keyId: 'lanes.tabProgress', stages: ['inProgress'] },
+  { id: 'open', label: 'All open', keyId: 'lanes.tabAll', stages: ['stuck', 'ready', 'inProgress'] },
+];
+
 const time = (iso) => {
   const t = Date.parse(iso || '');
   return Number.isFinite(t) ? t : 0;
