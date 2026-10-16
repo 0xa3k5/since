@@ -1110,7 +1110,7 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), ...(licensing?.disabled ? [] : [{ type: 'separator' }]), item('Settings…', acc('app.settings'), 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), ...(licensing?.disabled ? [] : [{ type: 'separator' }]), item('Settings…', acc('app.settings'), 'preferences'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -1154,7 +1154,7 @@ function buildMenu() {
         item('Stashes', acc('view.stashes'), 'view', 'stashes'),
         item('Snapshots', acc('view.snapshots'), 'view', 'snapshots'),
         item('Reflog', acc('view.reflog'), 'view', 'reflog'),
-        item('Configuration', acc('view.config'), 'view', 'config'),
+        item('Repository Settings…', acc('view.config'), 'preferences', 'repository'),
         item('Worktrees', acc('view.worktrees'), 'view', 'worktrees'),
         { type: 'separator' },
         item('Toggle Sidebar', acc('view.sidebar'), 'sidebar'),
