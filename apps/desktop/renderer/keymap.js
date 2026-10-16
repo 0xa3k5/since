@@ -152,7 +152,7 @@ export const COMMANDS = [
   c('commit', null, 'cv.extendPrev', 'Extend the selection up', 'Shift+ArrowUp'),
   c('commit', 'commit-view', 'cv.selectAll', 'Select every file in the list', 'Mod+a'),
   c('commit', 'commit-view', 'cv.single', 'Back to a single file', 'Escape'),
-  c('commit', 'commit-view', 'cv.stage', 'Stage or unstage the selected files', 'Enter'),
+  c('commit', 'commit-view', 'cv.stage', 'Stage or unstage the selected lines, else the selected files', 'Enter'),
   c('commit', 'commit-view', 'cv.discard', 'Discard the selected unstaged files (undoable)', ['Backspace', 'Delete']),
   c('commit', 'commit-view', 'cv.message', 'Write the commit message', 'c'),
   c('message', 'commit-view', 'message.commit', 'Commit', 'Mod+Enter'),

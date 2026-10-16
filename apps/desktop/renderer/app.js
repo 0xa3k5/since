@@ -1682,7 +1682,36 @@ function createCommitView(container) {
     }
   }
 
-  const section = (title, files, list, actions) => h('div.cv-section', null,
+  // Drag files between Unstaged and Staged. A row in the selection carries the whole selection.
+  let dragging = null;
+  function dragStart(e, list, f) {
+    if (list !== state.cv.list || !state.cv.sel.has(f.path)) selectFile(list, f.path);
+    dragging = { from: list, paths: paths(targets(list, f)) };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', dragging.paths.join('\n'));
+    if (dragging.paths.length > 1) {
+      const pill = h('div.drag-pill', null, `${dragging.paths.length} files`);
+      document.body.append(pill);
+      e.dataTransfer.setDragImage(pill, -8, -8);
+      setTimeout(() => pill.remove());
+    }
+  }
+  function dropZone(sec, list) {
+    if (list === 'conflicts') return sec;
+    const over = () => dragging && dragging.from !== list && dragging.from !== 'conflicts';
+    sec.addEventListener('dragover', (e) => { if (!over()) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
+    sec.addEventListener('dragleave', (e) => { if (!sec.contains(e.relatedTarget)) sec.classList.remove('drop-target'); });
+    sec.addEventListener('drop', (e) => {
+      sec.classList.remove('drop-target');
+      if (!over()) return;
+      e.preventDefault();
+      quiet(list === 'staged' ? 'stageFiles' : 'unstageFiles', dragging.paths);
+      dragging = null;
+    });
+    return sec;
+  }
+
+  const section = (title, files, list, actions) => dropZone(h('div.cv-section', null,
     h('div.cv-section-head', null, h('span', null, title), h('span.sb-count', null, files.length), h('span.spacer'), actions),
     files.length ? h('div.file-list', null, files.map((f) => {
       const row = fileRow(f, (e) => clickFile(e, list, f.path), h('span.row-actions', null,
@@ -1697,6 +1726,11 @@ function createCommitView(container) {
           h('button.icon-btn.tiny', { title: 'Mark as resolved', onclick: (e) => { e.stopPropagation(); quiet('markResolved', f.path); } }, icon('check', 13)),
         ]));
       row.dataset.list = list; row.dataset.path = f.path;
+      if (list !== 'conflicts') {
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => dragStart(e, list, f));
+        row.addEventListener('dragend', () => { dragging = null; lists.querySelectorAll('.drop-target').forEach((s) => s.classList.remove('drop-target')); });
+      }
       row.addEventListener('mousedown', (e) => { if (e.shiftKey) e.preventDefault(); });
       row.addEventListener('dblclick', (e) => {
         if (e.shiftKey || e.metaKey || e.ctrlKey) return;
@@ -1735,7 +1769,7 @@ function createCommitView(container) {
       });
       return row;
     })) : h('div.cv-empty', null, list === 'staged' ? 'No staged changes' : 'Working tree clean'),
-  );
+  ), list);
 
   function renderLists() {
     const { staged, unstaged, conflicts } = state.status;
@@ -1833,6 +1867,7 @@ function createCommitView(container) {
   }
 
   let diffToken = 0;
+  let stageSelectedLines = null; // set while the diff pane has a stageable file
   async function renderDiffPane() {
     const { list, path } = state.cv;
     const file = (state.status[list] || []).find((f) => f.path === path);
@@ -1840,12 +1875,14 @@ function createCommitView(container) {
       conflictEd = null;
       // After resolving a file, move on to the next conflicted one.
       if (list === 'conflicts' && state.status.conflicts[0]) return selectFile('conflicts', state.status.conflicts[0].path);
+      stageSelectedLines = null;
       const any = state.status.unstaged[0] ? ['unstaged', state.status.unstaged[0]] : state.status.staged[0] ? ['staged', state.status.staged[0]] : state.status.conflicts[0] ? ['conflicts', state.status.conflicts[0]] : null;
       if (any) return selectFile(any[0], any[1].path);
       diffPane.replaceChildren(h('div.empty.big', null, icon('check', 28), h('div', null, 'Nothing to commit'), h('div.muted', null, 'Your working tree matches HEAD.')));
       return;
     }
     const token = ++diffToken;
+    stageSelectedLines = null;
     if (list === 'conflicts') return renderConflict(file, token);
     conflictEd = null;
     const d = await git('workingDiff', fileRef(file), list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
@@ -1889,6 +1926,7 @@ function createCommitView(container) {
       sel.clear();
       await refreshStatus();
     }
+    stageSelectedLines = list === 'conflicts' ? null : () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines');
     const hunkActions = list === 'conflicts' ? null : (hi, hunk) => [
       list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('discardLines', hunkKeys(hunk, hi), true) }, 'Discard hunk') : null,
       list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('stashLines', hunkKeys(hunk, hi), true) }, 'Stash hunk') : null,
@@ -1926,6 +1964,8 @@ function createCommitView(container) {
       e.preventDefault(); selectFile(state.cv.list, state.cv.path);
     } else if (id === 'cv.stage' && i !== -1) {
       e.preventDefault();
+      // Selected lines in the diff take precedence over the file selection.
+      if (state.cv.lines.size && stageSelectedLines) return stageSelectedLines();
       const [l, f] = all[i];
       if (l === 'unstaged') quiet('stageFiles', paths(targets(l, f))); else if (l === 'staged') quiet('unstageFiles', paths(targets(l, f)));
     } else if (id === 'cv.discard' && i !== -1 && all[i][0] === 'unstaged') {
