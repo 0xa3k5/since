@@ -30,6 +30,7 @@ import { tourView } from './tour-view.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
+import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -1212,7 +1213,7 @@ function commitDetail(c) {
       ),
       h('h2.detail-title', null, subject),
       refs.length ? h('div.pills.wrap', null, refs.map(refPill)) : null,
-      body ? h('pre.detail-body', null, body) : null,
+      body ? markdown(body, '.detail-body') : null,
     ),
     h('div.props', null,
       prop('Author', personLink(c.author, c.email)),
