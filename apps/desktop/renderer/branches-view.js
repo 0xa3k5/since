@@ -4,7 +4,7 @@ import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from './review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
 import { branchPreview, laneBadges } from './branch-preview.js';
-import { authorsEl } from './reader.js';
+import { authorsStack } from './reader.js';
 import * as keymap from './keymap.js';
 
 // Branches (AK-396, ⌘3): every local branch and worktree on this Mac, one list at a time behind tabs
@@ -111,7 +111,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name.branches-name', { title: l.name }, l.name), ...laneBadges(l).filter((b) => b && !b.classList.contains('lanes-conflict'))),
         h('div.list-sub.review-row-sub' + ln.cls, null,
-          authorsEl(who, 14, '.review-row-authors'), who.length && ln.text ? h('span.review-row-sep', null, ' · ') : null, ln.text)),
+          authorsStack(who, 14, '.review-row-authors'), who.length && ln.text ? h('span.review-row-sep', { 'aria-hidden': 'true' }, '·') : null, ln.text ? h('span.review-row-text', null, ln.text) : null)),
       l.activity ? h('span.review-row-age', { title: fullDate(l.activity / 1000) }, timeAgo(l.activity / 1000)) : h('span'));
   }
 
