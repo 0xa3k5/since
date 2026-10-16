@@ -1570,7 +1570,23 @@ const AGENT_HINTS = {
 };
 // Lane commits read for trailers and squash checks, and base commits searched for squash merges.
 const LANE_COMMITS = 5000;
+// Squash merges older than BASE_COMMITS base commits aren't detected: such a branch reads merged: null.
 const BASE_COMMITS = 2000;
+// The base side of the squash checks (its log and patch ids) only depends on the base tip: one entry
+// per repo, replaced when the base moves.
+const baseSquash = new Map();
+function baseSquashData(cwd, sha) {
+  const hit = baseSquash.get(cwd);
+  if (hit?.sha === sha) return hit.data;
+  const data = Promise.all([
+    run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', sha, '--']),
+    patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', sha, '--']).then(newestBy),
+  ]);
+  baseSquash.set(cwd, { sha, data });
+  // A failure, or patch ids cut short (size or time limit: empty), is not kept.
+  data.then(([, ids]) => { if (!ids.size && baseSquash.get(cwd)?.data === data) baseSquash.delete(cwd); }, () => { if (baseSquash.get(cwd)?.data === data) baseSquash.delete(cwd); });
+  return data;
+}
 // Lanes further ahead than this skip the per-commit (cherry) check: too much diff for too little.
 const CHERRY_MAX = 100;
 // Commits that say nothing about a lane's work: the empty commit an agent's task worktree starts
@@ -1958,9 +1974,8 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
     const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
     const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
     let trees;
-    [trees, baseIds, laneIds, squashIds] = await Promise.all([
-      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', b.sha, '--']),
-      patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']).then(newestBy),
+    [[trees, baseIds], laneIds, squashIds] = await Promise.all([
+      baseSquashData(cwd, b.sha),
       cherryTips.length ? patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : new Map(),
       squashLines.length ? patchIds(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : new Map(),
     ]);
@@ -2328,6 +2343,7 @@ function parseBlame(out) {
 }
 
 module.exports = {
+  clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,

@@ -302,3 +302,13 @@ test('patchIds: pipes the diff into patch-id; a diff past the cap degrades to no
   assert.match(warned[0], /squash detection skipped/);
   await assert.rejects(git.patchIds(dir, ['log', '-p', 'no-such-ref', '--']), git.GitError);
 });
+
+test('the base squash data is cached per base tip and re-read when the base moves', async () => {
+  const { dir } = await repo();
+  await g(dir, ['switch', '-q', '-c', 'feat']); await commit(dir, 'f.txt', 'f\n', 'add f');
+  await g(dir, ['switch', '-q', 'main']);
+  assert.equal(byName(await git.lanes(dir)).feat.merged, null);
+  assert.equal(byName(await git.lanes(dir)).feat.merged, null, 'same answer from the cache');
+  await g(dir, ['merge', '-q', '--squash', 'feat']); clock += 60; await g(dir, ['commit', '-q', '-m', 'Ship f (#1)']);
+  assert.equal(byName(await git.lanes(dir)).feat.merged, 'squash', 'the moved base is read again');
+});
