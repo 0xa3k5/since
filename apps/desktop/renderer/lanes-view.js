@@ -1,7 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
 import { STAGES, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
-import { catchupCard } from './catchup-view.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
 
@@ -9,8 +8,7 @@ import * as keymap from './keymap.js';
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), top to
-// bottom: the catch-up card (catchup-view.js: what landed since your checkpoint; ⇧↵ walks through it
-// one row at a time in the split pane, Esc stops), Stuck · N (each row says why, review-rows.js stuckReason), Ready to
+// bottom: Stuck · N (each row says why, review-rows.js stuckReason), Ready to
 // merge · N, then lines that open in place: In progress · N ▾, Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
 // "N finished · Clean up". Keyboard-first: ↑/↓ move, Space runs the row's one primary
@@ -20,6 +18,11 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
 // merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
 // come from local data alone, plus one line to turn them on: no `gh` calls.
+// Catch up (catchup-view.js) opens Review walking through what landed (`walk`), one row at a time in
+// the split pane; Esc goes back to Catch up.
+// Opening Review, repo changes and window focus read local data only: no network. Pull requests load when you press Reload (⇧R, the header button, ⌘K) or right
+// after your own approve, close or merge. The last PR load is kept in memory for the open repo
+// (prCache), so coming back to Review shows it at once, with "Updated 4m ago" beside Reload.
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 // Row-action keys → their action (lanes.js ACTIONS); review, merge and open have their own branches.
@@ -36,6 +39,12 @@ const isLaneEntry = (x) => Boolean(x?.entry);
 const DEBOUNCE = 400;
 const PR_TIMEOUT = 30e3; // `gh` hung or offline: say so instead of loading forever
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// The last pull request load, kept across visits to Review (this window, this session) so coming back
+// costs no `gh` call: { repo, inbox, prs: the lanes that had a PR (for keepPrs), loadedAt (ms) }. Another repo, or pull requests turned off, drops it.
+let prCache = null;
+// Review's last stuck and ready-to-merge counts, for Catch up's line to Review: { repo, stuck, ready }.
+let lastCounts = null;
+const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 
 // load({ prs, inbox }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
 // onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
@@ -48,12 +57,17 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-// catchup: { load, mark } for the catch-up card (app:catchup, app:catchup-mark); null leaves it out.
+// walk: { entries, start, label, onDone } opens on Catch up's landed entries (catchup.js landedEntries) from `start`; Esc calls onDone.
 // git(method, ...args) reads the files an Everything else row's branch changes, for its preview in the pane.
-export function lanesView({ git = null, catchup = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
+export function lanesView({ repo = null, git = null, walk: walkFrom = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, actions = () => [], all = false, place = null }) {
+  if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
+  const seed = prsOn() && prCache ? prCache : null;
   let lanes = [];
-  let inbox = null; // { prs, remote, me, requested } from the last PR load
+  let seedLanes = seed?.prs || []; // the cached PRs, put on the first local lanes
+  let inbox = seed?.inbox || null; // { prs, remote, me, requested } from the last PR load
   let inboxFailed = false;
+  let loadedAt = seed?.loadedAt || null; // when the PRs last loaded (ms); null: not this session
+  let reloading = false; // a PR load is running
   let staged = null; // the last reviewRows result
   let shown = [];
   let selKey = null;
@@ -85,11 +99,14 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   const title = h('h1', null, 'Review');
   const lede = h('p.muted');
   const hint = h('div.review-hints');
+  const reloadKeys = () => keymap.keys('lanes.reload');
+  const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
+  const reloadBtn = h('button.btn.ghost.small.review-reload', { onclick: () => reload(), 'data-tip': `${tipFor('Reload pull requests', 'lanes.reload')}\nAsk GitHub for the latest pull requests and review requests`, 'aria-label': 'Reload pull requests' });
   const cleanupBtn = onCleanup ? h('button.btn.ghost.icon-btn', { onclick: () => onCleanup(), 'data-tip': `${tipFor('Clean up…', 'global.cleanup')}\nFind stale branches and worktrees and remove them in bulk`, 'aria-label': 'Clean up…' }, icon('trash', 15)) : null;
   // One line: the title, the counts and Clean up; the description under it at full width.
   const left = h('div.page.flush.lanes', null,
     h('div.page-head.review-head', null,
-      h('div.review-head-row', null, title, count, h('span.spacer'), cleanupBtn),
+      h('div.review-head-row', null, title, count, h('span.spacer'), updated, reloadBtn, cleanupBtn),
       lede),
     h('div.lanes-bar', null, icon('search', 14), filter, allChip, agentChip, conflictChip),
     list,
@@ -366,7 +383,19 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     allChip.classList.toggle('on', all);
     allChip.setAttribute('aria-pressed', String(all));
     renderStaged();
+    renderReload();
     syncPane();
+  }
+
+  // Reload and "Updated 4m ago" in the header; hidden while pull requests are off.
+  function renderReload() {
+    const on = prsOn();
+    reloadBtn.hidden = !on;
+    updated.hidden = !on;
+    reloadBtn.disabled = reloading;
+    reloadBtn.replaceChildren(icon('restore', 14), reloading ? 'Reloading…' : 'Reload');
+    updated.textContent = reloading ? '' : loadedAt ? `Updated ${ago(loadedAt / 1000)}` : 'Not loaded yet';
+    updated.title = loadedAt ? fullDate(loadedAt / 1000) : '';
   }
 
   // The pane follows the selection, a moment after it stops moving (a PR not here is fetched).
@@ -459,9 +488,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     if (prsOn() && (id === 'approve' || id === 'close' || id === 'merge')) fetchLanes({ prs: true }).catch(fail);
   }
 
-  // The catch-up card, and the walk-through: its landed entries as rows (newest first) in the split pane.
-  const card = catchup ? catchupCard({ ...catchup, prsOn, onWalk: () => walk() }) : null;
-  const catchUp = h('div.review-catchup', { 'data-slot': 'catch-up' }, card?.el);
+  // The walk-through (from Catch up): its landed entries as rows in the split pane.
   let walking = null; // landed rows while walking through what landed
   const landedRow = (e) => ({
     key: `landed:${e.id}`, landed: e, pr: null, stage: 'landed',
@@ -470,12 +497,12 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     lane: { name: e.sha, branch: null, head: e.sha, isBase: false, worktree: null },
   });
   function walk(on = true) {
-    if (on && !card?.walkList().length) return toast('Nothing landed to walk through');
-    walking = on ? card.walkList().map(landedRow) : null;
+    walking = on && walkFrom?.entries.length ? walkFrom.entries.map(landedRow) : null;
     filter.value = '';
     render();
-    if (walking) select(walking[0].key);
+    if (walking) select(walking[Math.max(0, Math.min(walking.length - 1, walkFrom.start || 0))].key);
     el.focus({ preventScroll: true });
+    if (!on) walkFrom?.onDone?.();
   }
   function landedRowEl(r) {
     const e = r.landed;
@@ -499,7 +526,8 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
 
   function renderStaged() {
     lede.textContent = prsOn() ? 'What’s stuck and what’s ready to merge come first. Everything else is a step away.' : 'Your branches and worktrees. What’s stuck comes first.';
-    const prsLoading = prsOn() && !inbox && !inboxFailed;
+    const prsLoading = prsOn() && !inbox && !inboxFailed && reloading;
+    const prsUnloaded = prsOn() && !inbox && !inboxFailed && !reloading; // nothing cached, Reload not pressed yet
     // A PR GitHub is still checking keeps the stage it had (AK-321).
     const previous = staged ? new Map(staged.all.map((x) => [x.key, x.stage])) : null;
     staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now(), previous });
@@ -511,18 +539,17 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     const everything = filterLanes(marked, '', { agentsOnly, conflictsOnly }).map((l) => ({ key: allKey(l), lane: l, entry: true }));
     const rows = [];
     const q = filter.value.trim();
-    card?.setCounts({ stuck: staged.stages.stuck.length, ready: staged.stages.ready.length });
+    if (loaded) lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length };
     if (walking) {
       shown = walking;
-      rows.push(catchUp, h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, `${walking[0].landed.kind === 'pr' ? 'Merged' : 'Landed'} ${card.sinceLabel()} `, h('span.lanes-count', null, `· ${walking.length}`)),
-        h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Review (Esc)' }, 'Done', kbd('Esc'))));
+      rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': 'landed' }, h('span', null, `${walkFrom.label} `, h('span.lanes-count', null, `· ${walking.length}`)),
+        h('button.btn.ghost.small.lanes-group-act', { onclick: () => walk(false), title: 'Back to Catch up (Esc)' }, 'Done', kbd('Esc'))));
       for (const r of walking) rows.push(landedRowEl(r));
     } else if (q) {
       shown = filterRows(staged.all, q);
       for (const r of shown) rows.push(stagedRow(r));
     } else {
       shown = [];
-      rows.push(catchUp);
       for (const s of STAGES) {
         const rs = staged.stages[s.id];
         // Stuck and Ready to merge always show their count; with PRs off nothing is ever ready.
@@ -533,7 +560,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
         } else rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': s.id }, h('span', null, s.label, ' ', h('span.lanes-count', null, String(rs.length))),
           s.id === 'ready' && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), title: `Work out an order with no conflicts, then merge in that order (${keymap.keys('lanes.mergePlan').join(' or ').toUpperCase()})` }, 'Plan merge ▸') : null));
         if (collapsed) continue;
-        if (!rs.length && loaded && !prsLoading) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
+        if (!rs.length && loaded && !prsLoading && !(prsUnloaded && s.id === 'ready')) rows.push(h('div.review-none', null, s.id === 'stuck' ? 'Nothing is stuck.' : 'Nothing is ready to merge yet.'));
         for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
       }
       rows.push(h('button.lanes-group.review-stage', { 'aria-expanded': String(all), 'data-stage': 'everything', onclick: () => setAll(!all), title: `Every branch and worktree (${keymap.keys('lanes.all').join(' or ').toUpperCase()})` }, 'Everything else ', h('span.lanes-count', null, String(lanes.length)), ` ${all ? '▴' : '▾'}`));
@@ -569,13 +596,14 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       : [[`${n} stuck`, prsOn() ? `${ready} ready` : null].filter(Boolean).join(' · ')]));
     const failed = loaded && !prsLoading && inboxFailed && prsOn();
     empty.replaceChildren(...(failed ? ['Couldn’t load pull requests. ', h('button.btn.ghost.small', { onclick: () => fetchLanes({ prs: true }).catch(fail) }, 'Retry')]
-      : [!loaded ? '' : prsLoading ? 'Loading pull requests…' : q && !shown.length ? 'Nothing matches.' : '']));
+      : loaded && prsUnloaded && !(q && !shown.length) ? ['Pull requests aren’t loaded. ', h('button.btn.ghost.small', { onclick: () => reload() }, 'Reload', kbd(...reloadKeys()))]
+        : [!loaded ? '' : prsLoading ? 'Loading pull requests…' : q && !shown.length ? 'Nothing matches.' : '']));
     empty.hidden = !empty.textContent;
     const many = readyPrs().length;
     // A few keys with short labels; everything else is in ⌘K.
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     hint.replaceChildren(...(walking
-      ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Done')]
+      ? [k(['↑', '↓'], 'Next and previous'), k(['↵'], 'Show in Map'), k(['R'], 'Read the diff'), k(['Esc'], 'Back to Catch up')]
       : [k(['Space'], 'Main action'), k(['↵'], 'Open'), k(['M'], 'Merge'), k(['R'], 'Read the diff'),
         pane ? k(['Esc'], 'Back') : many > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
       k(keymap.keys('view.palette'), 'All commands', '.all'));
@@ -626,7 +654,7 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   // Back to a saved place: select its row once the list has it, and scroll to where it was.
   function adopt(keys) {
     if (wanted && keys.includes(wanted)) selKey = wanted;
-    if (loaded && (!prsOn() || inbox || inboxFailed)) wanted = null; // gone since: keep the usual first row
+    if (loaded && (!prsOn() || inbox || inboxFailed || !reloading)) wanted = null; // gone since: keep the usual first row
     if (loaded && wantedScroll != null) { const y = wantedScroll; wantedScroll = null; setTimeout(() => { left.scrollTop = y; }); }
   }
 
@@ -683,10 +711,8 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     if (id === 'lanes.next') move(1);
     else if (id === 'lanes.prev') move(-1);
     else if (id === 'lanes.filter') filter.focus();
+    else if (id === 'lanes.reload') reload();
     else if (id === 'lanes.open') { if (l) onOpen(l); else if (x) act('open', x); }
-    else if (id === 'lanes.walk' && !typing) walk();
-    else if (id === 'lanes.caughtUp' && !typing && card) card.markCaughtUp();
-    else if (id === 'lanes.since' && !typing && card) card.pickSince();
     else if (id === 'lanes.clear') {
       if (walking && !filter.value) { walk(false); e.preventDefault(); e.stopPropagation(); return true; }
       if (!filter.value && !typing) return false; // let Escape through
@@ -740,19 +766,20 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
   filter.addEventListener('keydown', (e) => { if (!command(e, true)) e.stopPropagation(); });
   filter.addEventListener('input', () => { walking = null; render(); });
 
-  // Local data first, so the list shows at once; PRs (`gh pr list` plus your review requests) only when asked and on.
+  // Local data first, so the list shows at once; PRs (`gh pr list` plus your review requests) only when asked
+  // (Reload, or after your own approve, close or merge) and on.
   // A local refresh that lands while `gh` is still running doesn't discard the PRs (loadGuard); `gh` gets PR_TIMEOUT.
   async function fetchLanes({ prs }) {
     const withPrs = Boolean(prs && prsOn());
     const t = loads.start(withPrs);
-    card?.reload({ prs: withPrs });
-    if (withPrs && inboxFailed) { inboxFailed = false; render(); } // Retry: back to "Loading pull requests…"
+    if (withPrs) { reloading = true; inboxFailed = false; render(); } // Reload / Retry: "Reloading…"
     let res;
     try {
       const p = load({ prs: withPrs, ...(withPrs ? { inbox: true } : {}) });
       res = await (withPrs ? withTimeout(p, PR_TIMEOUT, 'GitHub didn’t answer in time.') : p);
     } catch (e) {
-      if (!withPrs || !loads.prs(t) || !el.isConnected) throw e;
+      if (withPrs && loads.prs(t)) reloading = false;
+      if (!withPrs || !loads.prs(t) || !el.isConnected) { if (withPrs && el.isConnected) render(); throw e; }
       inboxFailed = true;
       loaded = true;
       render();
@@ -760,20 +787,23 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
       return;
     }
     const newest = loads.lanes(t);
+    if (withPrs && loads.prs(t)) reloading = false;
     if ((!newest && !loads.prs(t)) || (loaded && !el.isConnected)) return;
     if (withPrs && loads.prs(t)) {
       // Without the login and review requests (res.inboxError) the PRs still show.
       inboxFailed = !res.prs;
-      if (!inboxFailed) inbox = { prs: res.prs, remote: res.remote, ...(res.inbox || {}) };
+      if (!inboxFailed) { inbox = { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }; loadedAt = Date.now(); }
       if (res.inboxError) toast('Could not load your review requests', { kind: 'error', detail: res.inboxError.message });
     }
-    if (!prsOn()) { inbox = null; inboxFailed = false; }
+    if (!prsOn()) { inbox = null; inboxFailed = false; loadedAt = null; seedLanes = []; prCache = null; }
     if (newest) {
       base = res.base;
-      const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes)) : res.lanes;
+      const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes.length ? lanes : seedLanes)) : res.lanes;
       lanes = sortLanes(withConflicts(next, conflicts));
     } else lanes = sortLanes(withConflicts(takePrs(lanes, res.lanes), conflicts)); // a newer local refresh has the lanes
     loaded = true;
+    seedLanes = [];
+    if (withPrs && inbox) remember();
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
     render();
     if (newest) runForecast(t);
@@ -790,18 +820,27 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     render();
   }
   const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
+  // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub on its own.
+  const reload = () => (reloading ? Promise.resolve() : fetchLanes({ prs: true }).catch(fail));
+  // Keep the last PR load for the next visit to Review.
+  function remember() {
+    if (!prsOn() || !inbox || !loadedAt) return;
+    prCache = { repo, inbox, prs: lanes.filter((l) => l.pr), loadedAt };
+  }
 
   // Called on every repo change: debounced, local only (no network), keeps the selection.
   function refresh() {
     clearTimeout(timer);
     timer = setTimeout(() => { if (el.isConnected) { fetchLanes({ prs: false }).catch(fail); paneObj?.refresh(); } }, DEBOUNCE);
   }
-  // Other worktrees' files aren't watched: recount (and re-read PRs) when the window comes back.
-  const onFocus = () => { if (el.isConnected) fetchLanes({ prs: true }).catch(fail); else window.removeEventListener('focus', onFocus); };
+  // Other worktrees' files aren't watched: recount when the window comes back (local only; Reload asks GitHub).
+  const onFocus = () => { if (el.isConnected) fetchLanes({ prs: false }).catch(fail); else window.removeEventListener('focus', onFocus); };
   window.addEventListener('focus', onFocus);
+  // "Updated 4m ago" keeps up while Review is open; stops once the page is gone.
+  const tick = setInterval(() => { if (el.isConnected) renderReload(); else clearInterval(tick); }, AGO_TICK);
 
-  render();
-  fetchLanes({ prs: false }).then(() => (prsOn() ? fetchLanes({ prs: true }) : null)).catch(fail);
+  if (walkFrom) walk(); else render();
+  fetchLanes({ prs: false }).catch(fail);
   setTimeout(() => el.focus({ preventScroll: true }));
   // ⌘K "Show everything else" / "Hide everything else".
   const showAll = (on = !all) => setAll(on);
@@ -836,5 +875,16 @@ export function lanesView({ git = null, catchup = null, pane = null, onPaneActio
     select(r.key);
     act('sendBack', r);
   }
-  return { el, walk: () => walk(), markCaughtUp: () => card?.markCaughtUp(), pickSince: () => card?.pickSince(), refresh, stuckSelection, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload: () => fetchLanes({ prs: true }).catch(fail) };
+  return { el, refresh, stuckSelection, sendBack, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, showAll, isAll: () => all, showConflicts, selected, location, step: runStep, reload, canReload: () => prsOn() };
+}
+
+// Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or
+// worked out from local lanes and the cached PRs (no `gh` call). load → app:lanes-list.
+export async function reviewCounts({ repo, load, prsOn }) {
+  if (lastCounts?.repo === repo) return lastCounts;
+  const res = await load({ prs: false });
+  const cached = prsOn() && prCache?.repo === repo ? prCache : null;
+  const lanes = cached ? keepPrs(res.lanes, cached.prs) : res.lanes;
+  const { stages } = reviewRows({ lanes, prs: cached?.inbox.prs || [], reviewRequested: cached?.inbox.requested || [], forecast: null, prsOn: prsOn(), now: Date.now(), previous: null });
+  return { repo, stuck: stages.stuck.length, ready: stages.ready.length };
 }
