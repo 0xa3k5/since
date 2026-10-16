@@ -93,6 +93,7 @@ export const COMMANDS = [
   c('menu', 'repository', 'repo.fileHistory', 'File History & Blame…', 'Mod+Shift+H'),
   c('menu', 'repository', 'repo.review', 'Review Branch…', 'Mod+Alt+V'),
   c('menu', 'repository', 'repo.identity', 'Commit Identity…', 'Mod+Alt+I'),
+  c('menu', 'repository', 'repo.remotes', 'Remotes…', 'Mod+Alt+Shift+R'),
   c('menu', 'repository', 'repo.aiMessage', 'Write Commit Message with AI', 'Mod+Alt+G'),
   c('menu', 'repository', 'repo.prs', 'Pull Requests…', 'Mod+Alt+P'),
   c('menu', 'repository', 'repo.prRefresh', 'Refresh Pull Requests', 'Mod+Alt+Shift+P'),

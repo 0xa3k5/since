@@ -265,6 +265,8 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .sb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot-head { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .sb-track { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.sb-url { min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-add { color: var(--text-3); cursor: pointer; }
 .sb-gone { font-size: 11px; color: var(--warn); }
 .sb-wt { display: inline-flex; }
 .sb-item.missing .sb-label { color: var(--text-4); text-decoration: line-through; }

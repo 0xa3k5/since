@@ -6,7 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const git = require('./git');
-const { Journal, workOps, worktreeOps, laneOps } = require('./journal');
+const { Journal, workOps, worktreeOps, laneOps, remoteOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
 const { loadConfig } = require('./licence/config');
@@ -360,6 +360,7 @@ handle('git', async (e, method, ...args) => {
     try {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
+      if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (worktreeOps[method]) {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
@@ -1200,6 +1201,7 @@ function buildMenu() {
         item('File History & Blame…', acc('repo.fileHistory'), 'fileHistory'),
         item('Review Branch…', acc('repo.review'), 'review'),
         item('Commit Identity…', acc('repo.identity'), 'identity'),
+        item('Remotes…', acc('repo.remotes'), 'remotes'),
         item('Write Commit Message with AI', acc('repo.aiMessage'), 'aiMessage'),
         item('AI Commit Messages…', undefined, 'aiSetup'),
         { type: 'separator' },

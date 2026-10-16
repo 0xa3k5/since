@@ -12,8 +12,8 @@ test('every git method the main process serves has a schema, and nothing else do
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
-  const { workOps, worktreeOps, laneOps } = require('../journal');
-  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'autostashCheckout', 'undo', 'redo', 'restoreHistory'];
+  const { workOps, worktreeOps, laneOps, remoteOps } = require('../journal');
+  const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...Object.keys(remoteOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'autostashCheckout', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });
 
@@ -40,6 +40,10 @@ test('calls the renderer actually makes pass', () => {
     ['addWorktree', [{ dir: null, branch: 'feature', base: sha }]],
     ['addWorktree', [{ dir: '~/wt/app-x', branch: null, base: 'HEAD' }]],
     ['removeWorktree', ['/repos/app-feature']],
+    ['addRemote', ['upstream', 'git@github.com:acme/app.git']],
+    ['setRemoteUrl', ['origin', 'https://github.com/acme/app.git']],
+    ['renameRemote', ['origin', 'my.fork_2']],
+    ['removeRemote', ['origin']],
     ['lockWorktree', ['/repos/app-feature', null]],
     ['lockWorktree', ['/repos/app-feature', 'on a USB disk']],
     ['unlockWorktree', ['/repos/app-feature']],
@@ -281,4 +285,11 @@ test('main.js checks the PR number and remote before any PR action reaches gh', 
   // The PR switch works on the welcome screen: state, enable and detect don't need a repository.
   const prPart = main.slice(main.indexOf('async function prState('), main.indexOf("handle('app:pr-hide'"));
   assert.ok(prPart.length > 0 && !/session\(e\)/.test(prPart), 'pr-state, pr-enable and pr-detect work without a repository');
+});
+
+test('remote names and URLs are checked before git sees them', () => {
+  for (const name of ['-x', 'a/b', 'a..b', 'x.lock', '', 'a b']) rejects(() => check.checkGit('addRemote', [name, 'https://example.com/a.git']));
+  rejects(() => check.checkGit('addRemote', ['up', 'ext::sh -c touch% /tmp/x']), /transport helpers/);
+  rejects(() => check.checkGit('setRemoteUrl', ['origin', '--upload-pack=x']), /must not start/);
+  rejects(() => check.checkGit('renameRemote', ['origin', '../x']));
 });

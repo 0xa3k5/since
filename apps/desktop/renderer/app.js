@@ -25,6 +25,7 @@ import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.j
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
+import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
 import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
@@ -627,6 +628,7 @@ async function refreshRemotes() {
   if (JSON.stringify(remotes) === JSON.stringify(state.remotes)) return;
   state.remotes = remotes;
   $('.sb-origin')?.replaceChildren(...[originLink()].filter(Boolean));
+  renderSidebar();
 }
 
 // A person in the commit details; a link to their GitHub profile when we can place them.
@@ -717,6 +719,17 @@ function renderSidebar() {
     m.state === 'clean' ? null : h(m.state === 'uninitialized' ? 'span.sb-track' : 'span.sb-gone', null, sentence(SUBMODULE_STATES[m.state][0])),
   );
 
+  const remoteItem = (r) => h('div.sb-item', {
+    title: `${r.name}\n${r.label}`,
+    ondblclick: () => editRemoteUrl(r),
+    oncontextmenu: (e) => { e.preventDefault(); remoteMenu(e.clientX, e.clientY, r); },
+  },
+    icon('cloud', 14),
+    h('span.sb-label', null, r.name),
+    h('span.sb-track.sb-url', null, r.label),
+  );
+  const addRemoteItem = h('div.sb-item.sb-add', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), h('span.sb-label', null, 'Add remote…'));
+
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
       h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
@@ -734,6 +747,7 @@ function renderSidebar() {
       section('branches', 'Branches', branches, (r) => refItem(r)),
       [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
       section('tags', 'Tags', tags, (r) => refItem(r)),
+      section('remotes', 'Remotes', [...state.remotes, null], (r) => (r ? remoteItem(r) : addRemoteItem)),
       state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
       state.prs?.active ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
     ),
@@ -743,6 +757,7 @@ function renderSidebar() {
       railItem('branches', 'Branches', 'branch'),
       [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
       railItem('tags', 'Tags', 'tag'),
+      railItem('remotes', 'Remotes', 'cloud'),
       state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
       state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
     ),
@@ -2403,6 +2418,66 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
+// Managing remotes: add, edit URL, rename, remove (Remotes section, ⌥⇧⌘R, ⌘K, Preferences → Repository).
+// Each is one undoable step (journal.runRemote); removing a remote that has branches asks first.
+const remoteDone = { then: () => refreshRemotes() };
+async function addRemote() {
+  if (!state.repo) return;
+  const v = await dialog({
+    title: 'Add remote',
+    fields: [
+      { name: 'name', label: 'Name', value: state.remotes.length ? '' : 'origin', placeholder: 'upstream' },
+      { name: 'url', label: 'URL', placeholder: 'git@github.com:owner/repo.git' },
+    ],
+    submit: 'Add',
+  });
+  if (!v) return;
+  const name = v.name.trim(), url = v.url.trim(), bad = remoteNameError(name, state.remotes) || (url ? null : 'Enter a URL');
+  if (bad) return toast(bad, { kind: 'error' });
+  return act(`Add remote ${name}`, 'addRemote', [name, url], { success: `Added remote ${name}`, ...remoteDone });
+}
+async function editRemoteUrl(r) {
+  const v = await dialog({ title: `Edit URL of ${r.name}`, fields: [{ name: 'url', label: 'URL', value: r.url }], submit: 'Save' });
+  const url = v?.url.trim();
+  if (!url || url === r.url) return;
+  return act(`Edit URL of ${r.name}`, 'setRemoteUrl', [r.name, url], { success: `Changed the URL of ${r.name}`, ...remoteDone });
+}
+async function renameRemote(r) {
+  const v = await dialog({ title: `Rename ${r.name}`, description: 'Its remote branches and the upstreams that point at it are renamed too.', fields: [{ name: 'name', label: 'New name', value: r.name }], submit: 'Rename' });
+  const name = v?.name.trim();
+  if (!v || name === r.name) return;
+  const bad = remoteNameError(name, state.remotes, r.name);
+  if (bad) return toast(bad, { kind: 'error' });
+  return act(`Rename remote ${r.name} to ${name}`, 'renameRemote', [r.name, name], { success: `Renamed ${r.name} to ${name}`, ...remoteDone });
+}
+async function removeRemote(r) {
+  const warn = removeRemoteWarning(remoteUsage(state.refs, r.name), keyText('edit.undo'));
+  if (warn && !(await confirm(`Remove remote ${r.name}?`, warn, { submit: 'Remove' }))) return;
+  return act(`Remove remote ${r.name}`, 'removeRemote', [r.name], { success: `Removed remote ${r.name}`, ...remoteDone });
+}
+const remoteItems = (r, group = `Remote ${r.name}`) => [
+  { group, label: `Edit URL of ${r.name}…`, icon: 'edit', detail: r.label, keywords: 'remote url change set-url', run: () => editRemoteUrl(r) },
+  { group, label: `Rename ${r.name}…`, icon: 'edit', keywords: 'remote rename', run: () => renameRemote(r) },
+  { group, label: `Remove ${r.name}…`, icon: 'trash', keywords: 'remote remove delete', run: () => removeRemote(r) },
+];
+function remoteMenu(x, y, r) {
+  contextMenu(x, y, [
+    ...remoteItems(r).map(({ group, detail, keywords, ...i }) => ({ ...i, danger: i.icon === 'trash' })),
+    '-',
+    { label: 'Copy URL', icon: 'copy', run: () => copy(r.url, 'Copied URL') },
+    r.web ? { label: 'Open on Hosting Service', icon: 'external', run: () => api.app('external', r.web) } : null,
+    { label: 'Add Remote…', icon: 'plus', run: () => addRemote() },
+  ].filter(Boolean));
+}
+// ⌥⇧⌘R: every remote action in one searchable list.
+function remotesSwitcher() {
+  if (!state.repo) return;
+  palette(() => [
+    { group: 'Remotes', label: 'Add remote…', icon: 'plus', keywords: 'remote new origin upstream fork', run: () => addRemote() },
+    ...state.remotes.flatMap((r) => remoteItems(r)),
+  ], { placeholder: 'Manage remotes…' });
+}
+
 // PRs refresh in the background, so Fetch resolves without waiting on `gh`.
 function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => { refreshPrs().then(prefetchOnOpen); } }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
@@ -3521,6 +3596,9 @@ function openPalette() {
     add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
     if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
+    add('Repository', 'Manage remotes…', remotesSwitcher, { icon: 'cloud', kbd: keymap.keys('repo.remotes'), keywords: 'remote origin upstream fork url' });
+    add('Repository', 'Add remote…', () => addRemote(), { icon: 'plus', keywords: 'remote new origin upstream fork' });
+    for (const it of state.remotes.flatMap((r) => remoteItems(r, 'Repository'))) items.push(it);
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: keymap.keys('repo.stash') });
@@ -3834,6 +3912,7 @@ const prefState = () => ({
   prs: prefPrs,
   repo: Boolean(state.repo),
   config: state.config,
+  remotes: state.remotes,
 });
 let prefPrs = null;
 async function loadPrefState() {
@@ -3879,6 +3958,8 @@ async function prefAct(row, value) {
   else if (id === 'exportShortcuts') await exportShortcuts();
   else if (id === 'resetShortcuts') await resetShortcuts();
   else if (id === 'addConfig') return configAct(null);
+  else if (id === 'addRemote') await addRemote();
+  else if (id.startsWith('remote:')) { const r = state.remotes.find((x) => `remote:${x.name}` === id); if (r) leavePrefs(() => palette(() => remoteItems(r), { placeholder: `Remote ${r.name}…` })); }
 }
 // One git config entry of the open repository: edit (local only), copy or unset. Moved here from the old
 // Config view; the table refreshes once git has the new value.
@@ -4043,6 +4124,7 @@ const commands = {
   fileHistory: () => openFileHistory(),
   review: () => openReview(),
   identity: () => openIdentity(),
+  remotes: () => remotesSwitcher(),
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
