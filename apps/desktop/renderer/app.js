@@ -31,7 +31,7 @@ import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
-import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -2531,8 +2531,9 @@ function openReviewNow(lane, base = null) {
 // Review a pull request from the Inbox (pr-review.js): its head is fetched into FETCH_HEAD and
 // diffed locally, with the PR's actions on the page. Esc goes back to the Inbox row.
 function openPrReview(...args) { return go(() => openPrReviewNow(...args)); }
-async function openPrReviewNow(pr, remote = prRemote()) {
+async function openPrReviewNow(pr, given = null) {
   if (!state.repo || !pr) return;
+  const remote = prRemote(pr, given);
   if (!state.prs?.active) return setupPrs();
   const t = toast(`Fetching #${pr.number}…`, { kind: 'busy', timeout: 0 });
   const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
@@ -2567,7 +2568,9 @@ function prDeskAction(id) {
 // approve and close happen on GitHub (their dialogs say so); then the row re-stages and the
 // selection moves to the next row that needs you. Merge on a local branch is merge and tidy.
 function paneAction(id, row, ctx) {
-  const { pr, lane } = row;
+  const { lane } = row;
+  // The Inbox row's PR doesn't carry its remote; the page's context does.
+  const pr = row.pr && { ...row.pr, remote: prRemote(row.pr, ctx?.remote) };
   const done = () => lanesPage?.afterAction(row.key, id);
   const local = lane?.branch && !lane.isBase ? (pr && !lane.pr ? { ...lane, pr } : lane) : null;
   if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
@@ -2584,7 +2587,7 @@ function paneAction(id, row, ctx) {
 // Send back (send-back-view.js): the sheet for a stuck row. sendBackPr(number) opens it for that
 // PR from anywhere (Merge plan links to it), going to Review first.
 function sendBackRow(row, ctx) {
-  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: ctx?.remote || null, call: (...a) => api.app(...a), git });
+  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: prRemote(row.pr, ctx?.remote), call: (...a) => api.app(...a), git });
 }
 function sendBackPr(number) {
   if (!state.repo) return;
@@ -2602,7 +2605,7 @@ async function mergeLane(lane, base = null, onDone = null) {
   let plan;
   try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
-  const pr = state.prs?.active && prRemote() ? lane.pr : null;
+  const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   if (plan.mergeBlocker && !pr && plan.commits.length) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
   const n = plan.commits.length;
   const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
@@ -3187,7 +3190,7 @@ function prList() {
 // Approve, merge and close. These happen on GitHub, so ⌘Z can't undo them, and each sheet says
 // so. What follows locally (fetch, deleting the merged branch) goes through the journal as usual.
 const REMOTE_NOTE = 'This happens on GitHub. ⌘Z can’t undo it.';
-const prRemote = () => state.prs?.data?.remote?.name;
+const prRemote = (pr, fallback) => prActionRemote(pr, state.prs, fallback);
 
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
 function withPr(pr, verb, fn) {
@@ -3203,7 +3206,7 @@ function withPr(pr, verb, fn) {
 
 async function prCall(channel, pr, opts, busy) {
   const t = toast(busy, { kind: 'busy', timeout: 0 });
-  const res = await api.app(channel, prRemote(), pr.number, opts).catch((e) => ({ error: { message: e.message } }));
+  const res = await prActionCall((...a) => api.app(...a), channel, pr, opts, { prs: state.prs });
   t.close();
   return res;
 }
@@ -3312,7 +3315,7 @@ async function mergeReadyPrs(prs, remote) {
   const merged = [];
   for (const pr of prs) {
     const t = toast(`Merging #${pr.number} (${merged.length + 1} of ${prs.length})…`, { kind: 'busy', timeout: 0 });
-    const res = await api.app('pr-merge', remote, pr.number, { method: 'squash', deleteBranch: false, admin: false }).catch((e) => ({ error: { message: e.message } }));
+    const res = await prActionCall((...a) => api.app(...a), 'pr-merge', pr, { method: 'squash', deleteBranch: false, admin: false }, { prs: state.prs, remote });
     t.close();
     if (res.error) {
       prError(`Couldn’t merge #${pr.number}${merged.length ? ` · merged ${merged.map((n) => `#${n}`).join(', ')}` : ''}`, res.error);
