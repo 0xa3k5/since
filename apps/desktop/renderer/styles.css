@@ -704,8 +704,16 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
    line to Review) on the left and the reader on the right (AK-372), the key bar. */
 .page.catchup { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; outline: 0; }
 .catchup-sub { font-size: 13px; }
-.catchup-branch { font: 12.5px var(--mono); color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); padding: 1px 6px; margin-left: 2px; cursor: pointer; }
-.catchup-branch:hover { border-color: var(--border-strong); }
+/* The branch picker reads like the "since your checkpoint ▾" picker: a quiet text button, no border (AK-390). */
+.catchup-branch { flex: none; height: 22px; padding: 0 6px; margin-left: -4px; color: var(--text-2); vertical-align: baseline; }
+.catchup-headrow { align-items: center; }
+.catchup-sentence { margin: 0; font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -0.01em; line-height: 1.3; min-width: 0; }
+.catchup-sentence .catchup-branch, .catchup-sentence .catchup-since { font: inherit; height: auto; padding: 0 4px; margin: 0 -2px; color: var(--text); vertical-align: baseline; }
+.catchup-sentence .catchup-branch { font-family: var(--mono); font-size: 0.92em; }
+.catchup-subline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
+.catchup-subline .catchup-dot { color: var(--text-4); }
+.catchup-subline .review-updated { color: var(--text-4); }
+.catchup-subline .catchup-warn { flex-basis: 100%; }
 .catchup-strip { flex: none; padding: 0 32px; border-bottom: 1px solid var(--border); }
 .catchup-msg { flex: 1; min-height: 0; overflow-y: auto; padding: 0 32px 24px; }
 .catchup-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; padding: 4px 0 20px; }
@@ -813,7 +821,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-step-none { flex: none; }
 .lanes-row.active .lanes-step { background: var(--accent-solid); border-color: transparent; color: var(--on-accent); box-shadow: var(--btn-highlight), var(--shadow-sm); }
 .lanes-row.active .lanes-step .icon { color: var(--on-accent); }
-.badge.agent { color: var(--accent-fg); background: var(--accent-soft); }
 .lanes-changes, .lanes-ab, .lanes-pr, .lanes-time { flex: none; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
 .lanes-changes { min-width: 72px; }
 .lanes-changes.dirty { color: var(--warn); }
@@ -1269,8 +1276,20 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .reader-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
 .reader-meta .mono { font-size: 11.5px; color: var(--text-2); }
 .reader-author { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+/* Who made it (AK-390): "(AK) AK + (CO) Claude Opus 5.5". */
+.reader-authors { display: inline-flex; align-items: center; gap: 6px; min-width: 0; vertical-align: middle; }
+.reader-authors-plus { color: var(--text-4); }
+.reader-authors .reader-author { min-width: 0; }
+.reader-author-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-arrow { color: var(--text-4); }
-.lanes-row .list-title > .avatar { margin-right: 2px; }
+/* Rows: a small avatar beside each name at the start of the line under the title; never in the stuck red. */
+.review-row-authors { gap: 4px; vertical-align: -3px; }
+.review-row-authors .reader-author { gap: 4px; color: var(--text-2); }
+.review-row.staged .review-reason .review-row-sep { color: var(--text-3); }
+.lanes-row .list-sub > .review-row-authors { margin-right: 4px; }
+/* The slim bar keeps the avatars; the names stay in their tooltips. */
+.reader-mini-authors { flex: none; gap: 4px; }
+.reader-mini-authors .reader-author-name { display: none; }
 /* The description: clamped to four lines with "… Show more" over the cut; Show less after the text. */
 .reader-desc { --reader-bg: var(--bg-content); margin: 0 22px 14px; padding: 10px 14px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
 .reader-desc-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }

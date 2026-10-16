@@ -4,7 +4,7 @@ import * as keymap from './keymap.js';
 // The reader (AK-381): one set of building blocks for Review's right-hand pane (review-pane.js +
 // review-view.js) and Catch up's reader (catchup-view.js), so both read the same way.
 //  - readerHead: "‹ 3 of 21 ›" on the right of the title (#number, then the title), then the meta
-//    line: initials avatar and author, branch → base, then whatever the screen adds (size, dates,
+//    line: who made it (authorsEl: the person, "+", the agent, each with an initials avatar), branch → base, then whatever the screen adds (size, dates,
 //    Catch up's "Merged"). Review adds its reviewers, merge order, status strip and actions below.
 //  - descriptionBlock: the description (or commit message) clamped to a few lines, with "… Show
 //    more" where the text is cut and "Show less" after the whole text. Open or closed sticks across
@@ -14,7 +14,7 @@ import * as keymap from './keymap.js';
 //  - miniHeader: a slim bar (avatar, #number, title, the primary action) that fades in at the top of
 //    the reader once its head has scrolled out of view (IntersectionObserver), and hides again.
 //  - readerKey: the reader's keys once focus is in it (↵ from the list): ↑/↓ scroll by a few lines,
-//    Page Up/Down and Space by a page, ←/→ step the list's selection, , and . jump between files,
+//    ⇧↑/⇧↓ four times as far (AK-390), Page Up/Down and Space by a page, ←/→ step the list's selection, , and . jump between files,
 //    Esc goes back to the list. ↑/↓ never change the item here.
 
 // Description open or closed, for every item on both screens.
@@ -22,13 +22,22 @@ let descOpen = false;
 
 export const LINE = 20; // px: one line of the reader, for ↑/↓
 const LINES = 3;
+const FAST = 4; // ⇧↑/⇧↓: this many ↑/↓ steps at once
 const PAGE_KEEP = 3; // lines of the last page kept in view after Page Down
 
 // How far a reader key scrolls, in px (negative: up), for a reader `page` px tall; null when the key
 // doesn't scroll.
 export function scrollDelta(id, page = 0) {
   const p = Math.max(LINE, page - PAGE_KEEP * LINE);
-  return { 'reader.down': LINES * LINE, 'reader.up': -LINES * LINE, 'reader.pageDown': p, 'reader.pageUp': -p }[id] ?? null;
+  return { 'reader.down': LINES * LINE, 'reader.up': -LINES * LINE, 'reader.downFast': FAST * LINES * LINE, 'reader.upFast': -FAST * LINES * LINE, 'reader.pageDown': p, 'reader.pageUp': -p }[id] ?? null;
+}
+
+// The footer's "⇧↑↓ Faster" keycaps: the shared modifiers once, then both arrows.
+export function fastKeys() {
+  const up = keymap.keys('reader.upFast');
+  const down = keymap.keys('reader.downFast');
+  const same = up.length > 1 && up.length === down.length && up.slice(0, -1).every((k, i) => k === down[i]);
+  return same ? [...up, down[down.length - 1]] : [...up, ...down];
 }
 
 // "3 of 21": where `id` sits in `list` (items with an `id`, or keys). → { at: 1-based or 0, of }
@@ -64,6 +73,18 @@ export function personAvatar(name, key = name, size = 18) {
   return a;
 }
 
+// Who made it (AK-390): authors = [{ name, key, agent, title }] (review-rows.js authorsOf), each an
+// initials avatar and its name, joined by "+": "(AK) AK + (CO) Claude Opus 5.5".
+export function authorsEl(authors = [], size = 16, cls = '') {
+  const list = (authors || []).filter((a) => a?.name);
+  if (!list.length) return null;
+  return h('span.reader-authors' + cls, { title: list.map((a) => a.title || a.name).join('\n') },
+    ...list.flatMap((a, i) => [
+      i ? h('span.reader-authors-plus', { 'aria-hidden': 'true' }, '+') : null,
+      h('span.reader-author' + (a.agent ? '.agent' : ''), null, personAvatar(a.name, a.key || a.name, size), h('span.reader-author-name', null, a.name)),
+    ]).filter(Boolean));
+}
+
 // "‹ 3 of 21 ›": nav = { at, of, onStep }. Nothing when the list has one item or fewer.
 function navEl({ at, of, onStep }) {
   if (of < 2) return null;
@@ -73,17 +94,19 @@ function navEl({ at, of, onStep }) {
     h('button.btn.ghost.icon-btn.reader-nav-btn', { disabled: !at || at >= of, 'aria-label': 'Next', 'data-tip': tipFor('Next', 'reader.next'), onclick: () => onStep(1) }, icon('chevron', 13)));
 }
 
-// The head. num: "#12", a short sha or an icon; author: the name shown (authorKey picks its colour);
+// The head. num: "#12", a short sha or an icon; authors: who made it (authorsEl), or author: one
+// name shown (authorKey picks its colour);
 // branch/base: "branch → base" (base alone: "on base"); badges sit after the title; meta after the
 // branch; below: extra lines under the meta. nav: { at, of, onStep } or null.
-export function readerHead({ num = null, numTip = '', title, badges = [], author = null, authorKey = null, authorTip = null, branch = null, base = null, meta = [], below = [], nav = null }) {
+export function readerHead({ num = null, numTip = '', title, badges = [], authors = null, author = null, authorKey = null, authorTip = null, branch = null, base = null, meta = [], below = [], nav = null }) {
   return h('header.reader-head', null,
     h('div.reader-title-row', null,
       h('h2.reader-title', { title }, num ? h('span.reader-num', { title: numTip || null }, num) : null, num ? ' ' : null, title),
       ...badges,
       nav ? navEl(nav) : null),
     h('div.reader-meta', null,
-      author ? h('span.reader-author', { title: authorTip || author }, personAvatar(author, authorKey || author, 16), h('span', null, author)) : null,
+      authors ? authorsEl(authors, 16)
+        : author ? h('span.reader-author', { title: authorTip || author }, personAvatar(author, authorKey || author, 16), h('span', null, author)) : null,
       branch ? h('span.reader-branch', null, h('span.mono', null, branch), base ? [h('span.reader-arrow', null, ' → '), h('span.mono', null, base)] : null)
         : base ? h('span.reader-branch', null, 'on ', h('span.mono', null, base)) : null,
       ...meta),
@@ -170,11 +193,11 @@ export function miniHeader(scroller) {
   };
 }
 
-// The bar's contents: avatar, #number, the title (truncated), then the primary action, if any
-// ({ label, icon, run }).
-export function miniContent({ author = null, authorKey = null, num = null, title, action = null }) {
+// The bar's contents: avatar (or who made it, authors), #number, the title (truncated), then the
+// primary action, if any ({ label, icon, run }).
+export function miniContent({ authors = null, author = null, authorKey = null, num = null, title, action = null }) {
   return [
-    author ? personAvatar(author, authorKey || author, 16) : null,
+    authors?.length ? authorsEl(authors, 16, '.reader-mini-authors') : author ? personAvatar(author, authorKey || author, 16) : null,
     num ? h('span.reader-num', null, num) : null,
     h('span.reader-mini-title', { title }, title),
     action ? h('button.btn.primary.small.reader-mini-act', { onclick: () => action.run() }, action.icon ? icon(action.icon, 13) : null, action.label) : null,

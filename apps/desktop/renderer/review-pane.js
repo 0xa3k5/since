@@ -1,19 +1,19 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
-import { rowBadges, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
+import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
 import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey } from './reader.js';
 import * as keymap from './keymap.js';
 
 // Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with
 // Catch up (reader.js, AK-381): the selected row's head (‹ N of M ›, #number and title, CI and review
-// state, the author's avatar, branch → base, size, draft, last update, reviewers and their states), a
+// state, who made it (AK-390: the author, + the agent, or the bot alone), branch → base, size, draft, last update, reviewers and their states), a
 // status strip (Stuck and why / Ready to merge / In progress, the actions on the right, primary
 // last), the description (… Show more where it's cut), then the branch review (review-view.js: each
 // file a reader.js card under a sticky header; "changed since last look"). A slim bar with the
-// avatar, number, title and primary action fades in at the top once the head scrolls away.
-// Keys once focus is in the pane (↵ from the list): ↑/↓ scroll, Page Up/Down and Space by a page,
+// avatars, number, title and primary action fades in at the top once the head scrolls away.
+// Keys once focus is in the pane (↵ from the list): ↑/↓ scroll (⇧ for four times as far), Page Up/Down and Space by a page,
 // ←/→ the previous or next row (ctx.nav), , and . the files, Esc back to the list. A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
@@ -93,7 +93,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     actions = list;
     const size = pr?.size;
     const updated = pr?.updatedAt ? Date.parse(pr.updatedAt) / 1000 : 0;
-    const badges = rowBadges(row, { requested: ctx.requested, agents: ctx.agents });
+    const badges = rowBadges(row, { requested: ctx.requested });
     const draft = badges.find((b) => b.kind === 'draft');
     // A stuck row's fixes lead its strip, so the actions don't repeat them.
     fixes = fixActions(row, ctx);
@@ -123,12 +123,13 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       'data-tip': 'More actions', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
       onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
     }, icon('more', 15)) : null;
-    const author = pr?.author ? pr.authorName || pr.author : null;
+    // Who made it (AK-390): the person, + the agent when its lane looks agent-made, or the bot alone.
+    const authors = rowAuthors(row, { agents: ctx.agents });
     const num = pr ? `#${pr.number}` : icon(lane?.worktree ? 'worktree' : 'branch', 14);
     const top = readerHead({
       num, title: row.title, nav: ctx.nav || null,
       badges: badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text)),
-      author, authorKey: pr?.author, authorTip: pr?.bot ? `${pr.author} (a bot)` : pr?.author,
+      authors,
       branch: pr ? pr.branch : row.branch || null, base: pr ? pr.base : null,
       meta: [
         size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
@@ -143,7 +144,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       pr ? descriptionBlock({ text: prDescription(pr) }) : null,
     ].filter(Boolean));
     // The slim bar once the head scrolls away: avatar, number, title and the primary action.
-    mini.set(miniContent({ author, authorKey: pr?.author, num: pr ? `#${pr.number}` : null, title: row.title, action: lead ? { label: lead.label.replace('…', ''), icon: lead.icon, run: () => (fixing.has(lead.id) ? fix(lead.id) : run(lead.id, row, ctx)) } : null }));
+    mini.set(miniContent({ authors, num: pr ? `#${pr.number}` : null, title: row.title, action: lead ? { label: lead.label.replace('…', ''), icon: lead.icon, run: () => (fixing.has(lead.id) ? fix(lead.id) : run(lead.id, row, ctx)) } : null }));
     mini.watch(top);
     fit();
   }

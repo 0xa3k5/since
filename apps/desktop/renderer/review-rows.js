@@ -220,11 +220,10 @@ export const STEPS = {
 };
 
 // Small CI and review badges for a row: [{ text, kind, title }], kind '' | 'ok' | 'warn' | 'busy'.
-export function rowBadges(row, { requested = new Set(), agents = false } = {}) {
+// An agent shows as an author (rowAuthors, AK-390), not as a badge.
+export function rowBadges(row, { requested = new Set() } = {}) {
   const { pr } = row;
   const out = [];
-  const agent = agents ? rowAgent(row) : null;
-  if (agent) out.push({ text: 'Agent', kind: 'agent', title: agent });
   if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
   if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed' });
   else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing' });
@@ -249,6 +248,65 @@ export function rowAgent({ lane, pr } = {}) {
 
 // What to call a reviewer or author: the name, else the login without a bot's "[bot]".
 const who = (p) => p.name || String(p.login || '').replace(/^app\//, '').replace(/\[bot\]$/, '');
+
+// The name to show for an agent guess (AK-390; git.agentGuess, or { reason: 'bot author', match }):
+// a trailer's value without its <email> and any (note) ("Co-Authored-By: Claude Opus 5.5 (1M context)
+// <noreply@anthropic.com>" → "Claude Opus 5.5"), a bot's name without "[bot]", else the branch
+// prefix capitalised ("codex/" → "Codex", "ai/" → "AI"). null when there's nothing to go on.
+export function agentName(agent) {
+  if (!agent?.match) return null;
+  const match = String(agent.match);
+  if (agent.reason === 'trailer') {
+    const value = match.replace(/^[A-Za-z0-9-]+:\s*/, '');
+    const name = value.replace(/<[^>]*>?/g, '').replace(/\([^)]*\)?/g, '').replace(/\s+/g, ' ').trim();
+    return name || (/<([^@>]+)@/.exec(value)?.[1] ?? null);
+  }
+  if (agent.reason === 'bot author') return match.replace(/^app\//, '').replace(/\[bot\]$/i, '').trim() || null;
+  const prefix = match.replace(/\/+$/, '').trim();
+  if (!prefix) return null;
+  return prefix.length <= 2 ? prefix.toUpperCase() : prefix[0].toUpperCase() + prefix.slice(1);
+}
+
+// An agent named in a commit message's trailers (Catch up's reader, AK-390), like git.agentGuess:
+// a Co-Authored-By naming a coding agent, or a trailer only agents write. → { reason, match } or null.
+const AGENT_WORDS = ['claude', 'anthropic', 'codex', 'openai', 'copilot', 'cursor', 'devin', 'aider', 'gemini', 'jules', 'openhands', 'sweep', 'cline', 'windsurf', 'codeium'];
+const AGENT_KEYS = ['generated-by', 'generated-with', 'agent', 'ai-agent', 'assisted-by'];
+export function messageAgent(message = '') {
+  for (const line of String(message || '').split('\n')) {
+    const m = /^([A-Za-z0-9-]+):\s*(.+)$/.exec(line.trim());
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    if (AGENT_KEYS.includes(key)) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+    if (key === 'co-authored-by' && AGENT_WORDS.some((w) => m[2].toLowerCase().split(/[^a-z0-9]+/).includes(w))) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+  }
+  return null;
+}
+
+// Who made it (AK-390): [{ name, key, agent, title }], the person first, then the agent. A PR a bot
+// opened is that bot alone; a person's PR on an agent-made lane is both ("AK + Claude Opus 5.5").
+// person: { name, key } when the caller knows one without a PR (Catch up's commit author).
+// agents: whether agent-made marks are on; off, only the person shows.
+export function authorsOf({ pr = null, agent = null, person = null, agents = true } = {}) {
+  const out = [];
+  if (pr?.bot) {
+    const name = who({ name: pr.authorName, login: pr.author }) || 'Bot';
+    return [{ name, key: pr.author || name, agent: true, title: `${name} (a bot opened it)` }];
+  }
+  // A commit by a bot ("dependabot[bot]") is that bot alone, like a PR a bot opened.
+  if (!pr?.author && /\[bot\]$/i.test(person?.name || '')) {
+    const name = person.name.replace(/\[bot\]$/i, '').trim();
+    return [{ name, key: person.key || person.name, agent: true, title: `${name} (a bot)` }];
+  }
+  const p = pr?.author ? { name: pr.authorName || pr.author, key: pr.author } : person?.name ? { name: person.name, key: person.key || person.name } : null;
+  if (p) out.push({ ...p, agent: false, title: p.key && p.key !== p.name ? `${p.name} (${p.key})` : p.name });
+  const name = agents ? agentName(agent) : null;
+  if (name && !(p && p.name.toLowerCase() === name.toLowerCase())) {
+    out.push({ name, key: `agent:${name}`, agent: true, title: `${name}: looks agent-made (${agent.reason}: ${agent.match})` });
+  }
+  return out;
+}
+// A review row's authors: its PR's author and its lane's agent guess.
+export const rowAuthors = (row, { agents = false } = {}) => authorsOf({ pr: row?.pr || null, agent: row?.lane?.agent || null, agents });
 
 // A PR's reviewers for its header: one entry per person or team, [{ key, name, login, state }],
 // state 'changes' | 'approved' | 'commented' | 'pending'. A request outranks an older review (it was

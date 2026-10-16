@@ -1,9 +1,9 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { BUCKETS, ACTIONS, sortLanes, filterLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneActions, laneTitle, canRemove } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import { statusBadge, fileName } from './diff.js';
 import * as keymap from './keymap.js';
-import { navPos, personAvatar } from './reader.js';
+import { navPos, authorsEl, fastKeys } from './reader.js';
 
 // "2h ago", but "just now" and "Oct 3" as they are.
 const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
@@ -13,7 +13,8 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // the tabs with Plan merge ▸) spans the view above the list and the pane (AK-373). Tabs: Needs you (Stuck · N, each row says why,
 // review-rows.js stuckReason, then Ready to merge · N), Stuck, Ready, In progress and All open; then lines that open in place: Everything else · N ▾ (every branch
 // and worktree as one triage list, the lanes that need you first; lanes.js has the order) and
-// "N finished · Clean up". Rows carry no buttons (AK-379); a PR row shows its author's initials before the title.
+// "N finished · Clean up". Rows carry no buttons (AK-379); the line under the title starts with who made it
+// (AK-390): a small initials avatar and name, "+" the agent when the lane looks agent-made, or the bot alone.
 // Keyboard-first (AK-381): ↑/↓ and ←/→ move, Space runs the row's primary step (the pane's status strip
 // shows it as its last button), ↵ (or R) moves focus into the pane, the reader shared with Catch up
 // (reader.js: there ↑/↓ scroll, ←/→ still step the list, Esc comes back), M merges, D shows its details (branch, commits, worktree,
@@ -163,7 +164,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
 
   function badges(l) {
     return [
-      l.agent && markAgents() ? h('span.badge.agent', { title: `Looks agent-made (${l.agent.reason}: ${l.agent.match})` }, 'Agent') : null,
       l.conflicts ? h('span.badge.warn.lanes-conflict', { title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') }, icon('warning', 11), 'Conflicts') : null,
       l.isBase ? h('span.badge', { title: 'The base branch' }, 'Base') : null,
       l.worktree?.current ? h('span.badge.local', { title: 'Open in this window' }, 'This window') : null,
@@ -206,6 +206,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       h('div.list-main', null,
         h('div.list-title', null, l.pr ? h('span.review-row-num', null, `#${l.pr.number}`) : null, h('span.lanes-name', { title: laneTitle(l) }, laneTitle(l)), ...badges(l)),
         h('div.list-sub', null,
+          // The agent that made it (AK-390), where the lane looks agent-made.
+          authorsEl(authorsOf({ agent: l.agent, agents: markAgents() }), 14, '.review-row-authors'),
           laneTitle(l) !== l.name ? h('span.lanes-branch', null, l.name) : null,
           l.worktree ? h('span', { title: l.worktree.path }, l.worktree.short || tildify(l.worktree.path)) : h('span', null, l.upstream || (l.detached ? 'Detached HEAD' : 'Local branch')),
           // The age lives on the sub line so it survives narrow lists and the split view.
@@ -301,14 +303,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const overlap = overlapNote(r);
     const stage = STAGES.find((x) => x.id === r.stage);
     const stuck = r.stage === 'stuck' && reason(r);
-    const tags = rowBadges(r, { requested: requested(), agents: markAgents() });
-    const sub = r.pr
-      ? [r.pr.authorName || r.pr.author, r.branch].filter(Boolean).join(' · ')
-      : [r.branch, r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
+    const tags = rowBadges(r, { requested: requested() });
+    // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
+    const authors = rowAuthors(r, { agents: markAgents() });
+    const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
     const line = [...tags.map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
-      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, stage?.label, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
+      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, authors.length ? `By ${authors.map((a) => a.name).join(' + ')}` : null, stage?.label, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
       onclick: () => select(r.key),
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
@@ -316,8 +318,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
-        h('div.list-title', null, r.pr?.author ? personAvatar(r.pr.authorName || r.pr.author, r.pr.author, 16) : null, h('span.lanes-name', { title: r.title }, r.title)),
-        stuck ? reasonEl(r) : line ? h('div.list-sub.review-row-sub', null, line) : null,
+        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
+        stuck ? reasonEl(r, authors) : line || authors.length ? h('div.list-sub.review-row-sub', null, authorsEl(authors, 14, '.review-row-authors'), authors.length && line ? h('span.review-row-sep', null, ' · ') : null, line) : null,
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
@@ -325,10 +327,11 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
 
   const reason = (r, max = 2) => stuckReason(r, { base, max });
   // Why it's stuck; a conflict with the base is its own note that jumps to the conflicting files.
-  function reasonEl(r) {
+  function reasonEl(r, authors = []) {
     const note = conflictNote(r, { base, files: paneConflicts.get(r.key) });
     const rest = stuckReason(r, { base, max: 2, noBase: Boolean(note) });
     return h('div.review-reason', { title: reason(r, 20) },
+      authors.length ? [authorsEl(authors, 14, '.review-row-authors'), h('span.review-row-sep', null, ' · ')] : null,
       note ? h('button.review-reason-link', { title: 'Show the conflicting files', onclick: (e) => { e.stopPropagation(); jumpToConflicts(r); }, ondblclick: (e) => e.stopPropagation() }, note) : null,
       note && rest ? ' · ' : null, rest);
   }
@@ -567,7 +570,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const id = (x) => keymap.keys(x);
     const reading = paneHost.contains(document.activeElement) && paneObj;
     hint.replaceChildren(...(reading
-      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
+      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(fastKeys(), 'Faster'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
       : [k([...id('lanes.prev'), ...id('lanes.next')], 'Move'), k(['Space'], 'Main action'), k(id('lanes.open'), 'Read'), k(id('lanes.merge'), 'Merge'), k(['1–5'], 'Tabs'),
         !pane && readyPrs().length > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
     k(keymap.keys('view.palette'), 'All commands', '.all'));
