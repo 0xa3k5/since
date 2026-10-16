@@ -89,6 +89,19 @@ export function rowStage(row, { now = Date.now(), previous = null } = {}) {
   return null;
 }
 
+// rowStage for a PR outside Review (the sidebar and graph dots, AK-388): remembers each PR's last
+// stage, so while GitHub is still checking one it keeps that stage, as Review does, instead of
+// falling back to the CI-only rules. Make a new one per repository.
+export function stageMemory() {
+  const last = new Map();
+  return (pr) => {
+    const key = pr.url || pr.number;
+    const stage = rowStage({ pr }, { previous: last.get(key) || null });
+    if (stage) last.set(key, stage);
+    return stage;
+  };
+}
+
 // Sort rank inside a stage, lowest first, so the top row is the most actionable:
 //   stuck      a conflict with the base (a clear fix: rebase onto it), then failing checks, then
 //              the rest (changes requested)
