@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove } from './lanes.js';
-import { reason } from './cleanup.js';
+import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from './review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
 import { branchPreview, laneBadges } from './branch-preview.js';
@@ -8,7 +8,8 @@ import { authorsEl } from './reader.js';
 import * as keymap from './keymap.js';
 
 // Branches (AK-396, ⌘3): every local branch and worktree on this Mac, one list at a time behind tabs
-// (branches.js BRANCH_TABS; 1–5): Active · Agent-made · Would conflict · Idle · Finished. The head
+// (branches.js BRANCH_TABS; 1–5): Active · Agent-made · Would conflict · Idle · Finished. Finished is
+// Clean up (cleanup-view.js): cards per reason in place of the list and the pane. The head
 // spans the view like Review's; the list sits left, the branch preview (branch-preview.js) right.
 // A row: status dot · the branch name (mono) over one quiet line: who made it, ↑ahead ↓behind,
 // worktree, PR, uncommitted changes (on Would conflict: what it clashes with) · age.
@@ -27,11 +28,12 @@ let lastTab = 'active';
 
 // load({ prs }) → app:lanes-list; forecast() → app:lanes-forecast; prs() → the lanes with a PR from
 // Review's last load (keepPrs); markAgents() reads the setting. onOpen(lane), onReview(lane, base),
-// onMerge(lane, base), onAction(id, lane, base) (rebase, delete, checks), onCleanup(lane?) act on a
-// branch; onNewWorktree() opens New worktree…; onCount(n) gets the number of finished branches (the
-// sidebar badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab`
-// opens on that tab.
-export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, onCleanup, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null }) {
+// onMerge(lane, base), onAction(id, lane, base) (rebase, delete, checks) act on a branch;
+// onNewWorktree() opens New worktree…; onCount(n) gets the number of finished branches (the sidebar
+// badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab` opens on that
+// tab; `only` (a laneKey) opens Finished with just that branch ticked. `cleanup` holds Clean up's
+// own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo, mod).
+export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup }) {
   let lanes = [];
   let byTab = branchTabs([]);
   let shown = [];
@@ -64,7 +66,9 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     empty);
   const paneHost = h('div.review-pane-host');
   const handle = h('div.review-split-handle', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize' });
-  const el = h('div.review-split.split.branches', { tabIndex: 0 }, head, left, handle, paneHost, hint);
+  const panel = cleanupPanel({ ...cleanup, onBack: () => setTab('active') });
+  if (only) { tab = 'finished'; panel.only(only); }
+  const el = h('div.review-split.split.branches', { tabIndex: 0 }, head, left, handle, paneHost, panel.el, hint);
   const w = paneWidth();
   if (w) el.style.setProperty('--pane-w', `${w}px`);
   handle.addEventListener('pointerdown', (e) => {
@@ -87,7 +91,6 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
       const more = l.conflicts.length > 1 ? ` · and ${plural(l.conflicts.length - 1, 'other')}` : '';
       return { text: conflictText(l.conflicts[0], 2) + more, cls: '.warn', title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') };
     }
-    if (tab === 'finished') return { text: [reason(l), branchLine(l)].filter(Boolean).join(' · '), cls: '' };
     return { text: branchLine(l), cls: '' };
   }
 
@@ -114,16 +117,13 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
 
   function render() {
     byTab = branchTabs(lanes, { agents: markAgents() });
+    el.classList.toggle('finished', tab === 'finished');
     const q = filter.value.trim();
     shown = filterBranches(byTab[tab], q);
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
     const rows = [];
     if (tab === 'conflict' && !q) {
       rows.push(h('div.branches-explain', null, h('b', null, 'Would conflict'), ' lists branches that would conflict if they were merged — with ', h('span.mono', null, base || 'main'), ' or with another branch here. GitLanes checks this on your Mac with git, without merging anything.'));
-    }
-    if (tab === 'finished' && byTab.finished.length && !q && onCleanup) {
-      rows.push(h('button.review-finished.branches-cleanup', { onclick: () => onCleanup(), title: `Open Clean up with the finished branches ticked (${keymap.keys('global.cleanup').join('')}). ⌘Z brings them back.` },
-        `${plural(byTab.finished.length, 'finished branch', 'finished branches')} can go · `, h('span.review-finished-link', null, 'Clean up ▸')));
     }
     rows.push(...shown.map(row));
     list.replaceChildren(...rows);
@@ -156,12 +156,17 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   function renderHints() {
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     const id = (x) => keymap.keys(x);
+    if (tab === 'finished') {
+      return hint.replaceChildren(k([...id('cleanup.prev'), ...id('cleanup.next')], 'Move'), k(id('cleanup.toggle'), 'Tick'), k(id('cleanup.expand'), 'Open'), k(id('cleanup.all'), 'Tick all safe'),
+        k(id('cleanup.run'), 'Clean up'), k(['1–5'], 'Tabs'), k(keymap.keys('view.palette'), 'All commands', '.all'));
+    }
     hint.replaceChildren(k([...id('branches.prev'), ...id('branches.next')], 'Move'), k(id('branches.open'), 'Show in Map'), k(id('branches.review'), 'Review'),
       k(id('branches.merge'), 'Merge and tidy'), k(id('branches.delete'), 'Delete'), k(['1–5'], 'Tabs'), k(keymap.keys('view.palette'), 'All commands', '.all'));
   }
 
   // The pane shows the selected branch.
   function syncPane() {
+    if (tab === 'finished') return;
     const l = current();
     if (!l) { paneHost.replaceChildren(h('div.review-none.branches-pane-empty', null, loaded ? 'Select a branch to see it here.' : '')); return; }
     const key = laneKey(l);
@@ -205,8 +210,14 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     if (id === 'review') onReview(l, base);
     else if (id === 'merge') onMerge(l, base);
     else if (id === 'open') onOpen(l);
-    else if (id === 'cleanup') onCleanup(l);
+    else if (id === 'cleanup') showCleanup(l);
     else onAction(id, l, base);
+  }
+
+  // Finished, with just this branch ticked (X, ⌘K, the global Clean up key on a branch).
+  function showCleanup(l = null) {
+    setTab('finished');
+    if (l) panel.only(laneKey(l));
   }
 
   function menu(x, y, l) {
@@ -244,6 +255,14 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     return true;
   }
   el.addEventListener('keydown', (e) => {
+    if (tab === 'finished') {
+      if (e.target !== el && !panel.el.contains(e.target)) return;
+      if (panel.keydown(e)) return;
+      // Only the tab keys besides: the branch keys would act on a row the list isn't showing.
+      const id = keymap.match('branches', e);
+      if (BRANCH_TABS.some((t) => t.keyId === id)) command(e, false);
+      return;
+    }
     if (paneHost.contains(e.target) || e.target === filter || command(e, false)) return;
     if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
@@ -265,6 +284,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     lanes = sortLanes(withConflicts(keepPrs(res.lanes, prs()), conflicts));
     loaded = true;
     onCount(lanes.filter(isFinished).length);
+    panel.update(lanes, base);
     render();
     runForecast(t);
   }
@@ -276,7 +296,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
-  const fail = (e) => { loaded = true; render(); toast('Could not load branches', { kind: 'error', detail: e.message }); };
+  const fail = (e) => { loaded = true; panel.update(lanes, base); render(); toast('Could not load branches', { kind: 'error', detail: e.message }); };
 
   // Repo changes: debounced, local only; window focus recounts the other worktrees.
   function refresh() {
@@ -290,6 +310,6 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   fetchLanes().catch(fail);
   setTimeout(() => el.focus({ preventScroll: true }));
   // The selected branch, for ⌘K's branch commands.
-  const selected = () => { const l = current(); return l ? { lane: l, base } : null; };
-  return { el, refresh, rerender: render, setTab, tab: () => tab, selected, run: (id) => run(id, current()), can: (id) => { const l = current(); return Boolean(l && can(id, l)); } };
+  const selected = () => { if (tab === 'finished') return null; const l = current(); return l ? { lane: l, base } : null; };
+  return { el, refresh, rerender: render, setTab, cleanup: showCleanup, panel, tab: () => tab, selected, run: (id) => run(id, current()), can: (id) => { const l = current(); return Boolean(l && can(id, l)); } };
 }
