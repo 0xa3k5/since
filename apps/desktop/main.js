@@ -17,6 +17,7 @@ const check = require('./ipc');
 const catchupStore = require('./catchup-store');
 const ai = require('./ai');
 const github = require('./github');
+const avatars = require('./avatars');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -498,6 +499,20 @@ handle('app:pr-list', aiCall(async (e) => {
   if (!github.pickRemote(remotes)) return null;
   return github.listPrs({ enabled: true, remotes });
 }));
+
+// PR authors' avatars as data: URLs ({ [login]: url | null }), only while pull requests are on here
+// and the remote is on github.com (avatars.js). Cached on disk in the app's data folder.
+let prAvatars = null; // made on first use, once userData is settled
+handle('app:pr-avatars', async (e, logins) => {
+  if (!Array.isArray(logins) || logins.length > 200) throw new check.IpcArgError('Invalid avatar logins');
+  const list = logins.map((l, i) => check.str(l, `logins[${i}]`, { max: 100 }));
+  const root = session(e).repo.root;
+  if (!(await prEnabled(root))) return {};
+  const remote = github.pickRemote(await git.getRemotes(root).catch(() => []));
+  if (!remote) return {};
+  prAvatars ||= avatars.createAvatars({ dir: path.join(app.getPath('userData'), 'avatars'), fetchImage: (url) => github.avatarImage(url) });
+  return prAvatars(remote.host, list);
+});
 
 // Lanes overview: every local branch and worktree (git.lanes), with open PRs joined on by head
 // branch. Local only unless the caller asks for PRs ({ prs: true }) and pull requests are on
