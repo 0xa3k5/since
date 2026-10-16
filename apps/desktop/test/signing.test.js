@@ -11,6 +11,9 @@ const { execFileSync } = require('node:child_process');
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-sign-')));
 // No agent: keys load from disk, so a passphrase-protected key cannot be unlocked.
 delete process.env.SSH_AUTH_SOCK;
+// Never prompt for the passphrase on the terminal running the tests: ssh-keygen opens /dev/tty otherwise.
+process.env.SSH_ASKPASS = '/usr/bin/false';
+process.env.SSH_ASKPASS_REQUIRE = 'force';
 process.env.GNUPGHOME = path.join(tmp, 'gnupg');
 fs.mkdirSync(process.env.GNUPGHOME, { mode: 0o700 });
 const git = require('../git');

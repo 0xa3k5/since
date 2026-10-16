@@ -8,9 +8,13 @@ const path = require('node:path');
 const os = require('node:os');
 
 // GPG_TTY is dropped so a terminal pinentry never waits on a terminal the user can't see.
+// ssh/ssh-keygen ask through SSH_ASKPASS instead of /dev/tty, so a locked SSH key fails
+// fast; a user's own askpass helper is kept.
 const { GPG_TTY: _tty, ...PARENT_ENV } = process.env;
 const BASE_ENV = {
   ...PARENT_ENV,
+  SSH_ASKPASS: PARENT_ENV.SSH_ASKPASS || '/usr/bin/false',
+  SSH_ASKPASS_REQUIRE: PARENT_ENV.SSH_ASKPASS_REQUIRE || 'force',
   LC_ALL: 'C',
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
