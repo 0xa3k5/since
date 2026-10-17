@@ -79,6 +79,9 @@ const workOps = {
   stashApply: { run: git.stashApply, paths: git.stashPaths, stash: true },
   stashDrop: { run: git.stashDrop, stash: true },
   stashSave: { run: (cwd, message, untracked, opts = {}) => git.stashPush(cwd, { message, untracked, ...opts }), paths: git.stashPushPaths, stash: true },
+  // Unified changes: stage or unstage a file, hunk or lines. Only the index changes.
+  stageChanges: { run: (cwd, file, sel) => git.setStaged(cwd, file, sel, true), paths: git.changePaths, indexOnly: true },
+  unstageChanges: { run: (cwd, file, sel) => git.setStaged(cwd, file, sel, false), paths: git.changePaths, indexOnly: true },
   stashLines: { run: git.stashLines, paths: (cwd, file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])], stash: true },
 };
 
@@ -280,7 +283,7 @@ class Journal {
     return this.lock(() => this.recordNow(label, method, fn, opts));
   }
 
-  async recordNow(label, method, fn, { paths, stash = false } = {}) {
+  async recordNow(label, method, fn, { paths, stash = false, indexOnly = false } = {}) {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
@@ -289,7 +292,7 @@ class Journal {
     let workBefore = null, stashesBefore = null;
     try {
       if (paths) {
-        workBefore = await git.snapshotWork(cwd, await paths());
+        workBefore = await git.snapshotWork(cwd, await paths(), { indexOnly });
         await this.pin(id, { blobs: git.snapshotBlobs(workBefore) });
       }
       if (stash) stashesBefore = await git.getStashes(cwd);
@@ -309,7 +312,7 @@ class Journal {
   runWork(method, label, args) {
     const op = workOps[method];
     const cwd = this.root;
-    return this.record(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash });
+    return this.record(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
   }
 
   // Stash the changes that block switching to `branch`, then switch, as one undoable step.
@@ -427,7 +430,7 @@ class Journal {
     if (autostash) { entry.autostash = autostash; changed = true; }
     if (remote) { entry.remote = remote; changed = true; }
     if (workBefore) {
-      const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path)).catch(() => null);
+      const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path), { indexOnly: !!workBefore.indexOnly }).catch(() => null);
       if (!workAfter || git.workChanges(workBefore, workAfter).length) {
         entry.work = { before: workBefore, after: workAfter };
         changed = true;
@@ -520,13 +523,14 @@ class Journal {
     if (movesRefs && !same(await git.captureRefState(cwd), entry[cur])) throw fail('branches or HEAD have moved since.');
     if (entry.work) {
       const paths = entry.work[next].files.map((f) => f.path);
+      const indexOnly = !!entry.work[next].indexOnly;
       if (!entry.work[cur]) {
         // The snapshot after the operation failed; take it now so redo still works.
-        entry.work[cur] = await git.snapshotWork(cwd, paths);
+        entry.work[cur] = await git.snapshotWork(cwd, paths, { indexOnly });
         await this.pin(entry.id, pins(entry));
         delete entry.pin; // an archived entry now has its own pins again
       } else {
-        const changed = git.workChanges(entry.work[cur], await git.snapshotWork(cwd, paths, { write: false }));
+        const changed = git.workChanges(entry.work[cur], await git.snapshotWork(cwd, paths, { write: false, indexOnly }));
         if (changed.length) throw fail(`${listPaths(changed)} changed since. Commit or stash ${changed.length > 1 ? 'those changes' : 'that change'} first.`);
       }
     }

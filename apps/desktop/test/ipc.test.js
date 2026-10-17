@@ -64,6 +64,11 @@ test('calls the renderer actually makes pass', () => {
     ['createCommit', ['Subject\n\nBody\n', false]],
     ['stageFiles', [['a.txt', 'b/c.txt']]],
     ['stageLines', [file, ['0:1', '0:2']]],
+    ['combinedDiff', [file]],
+    ['combinedDiff', [file, [0, 3]]],
+    ['stageChanges', [file, ['0:1', '2:*']]],
+    ['stageChanges', [file, 'all']],
+    ['unstageChanges', [{ path: 'new.txt', oldPath: 'old.txt', status: 'R' }, 'all']],
     ['discardFiles', [[{ path: 'a.txt', status: '?' }]]],
     ['discardLines', [file, ['1:3']]],
     ['chooseSide', ['conflict.txt', 'theirs']],
@@ -127,6 +132,10 @@ test('argument shapes are enforced', () => {
   rejects(() => check.checkGit('push', [{ force: true, receivePack: 'x' }]), /unexpected field/);
   rejects(() => check.checkGit('discardFiles', [[{ path: 'a', status: 'M', exec: 'x' }]]), /unexpected field/);
   rejects(() => check.checkGit('stageLines', [{ path: 'a' }, ['x']]), /hunk:line/);
+  rejects(() => check.checkGit('stageChanges', [{ path: 'a' }, ['0:x']]), /hunk:\*/);
+  rejects(() => check.checkGit('unstageChanges', [{ path: 'a' }, 'some']), /expected a list/);
+  rejects(() => check.checkGit('combinedDiff', [{ path: '../x' }]));
+  rejects(() => check.checkGit('combinedDiff', [{ path: 'a' }, [-1]]), /non-negative/);
   rejects(() => check.checkGit('restoreHistory', ['1']));
   rejects(() => check.checkGit('setConfig', ['--global', 'x']), /section.name/);
   rejects(() => check.checkGit('setConfig', ['core.sshCommand', 7]));
