@@ -30,7 +30,7 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
   const ready = prs.slice(0, MAX_READY);
   let best = [];
   let complete = true;
-  const tried = new Set(); // sets of merged PRs already explored: a clean set merges to the same tree in any order
+  const tried = new Set(); // sets of merged PRs already explored. Heuristic: assumes a clean set merges to the same tree in any order (true for nearly all text merges)
   async function dfs(tip, done, left) {
     if (done.length > best.length) best = done;
     if (!left.length || best.length === ready.length) return;

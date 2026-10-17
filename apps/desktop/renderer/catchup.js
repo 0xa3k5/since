@@ -6,8 +6,11 @@ import { prDescription } from './pr-review.js';
 // PRs are on). No AI: issue keys and folders only.
 
 // A generic issue key: "AK-12", "WEB2-345".
-export const ISSUE_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
-export const issueKey = (...texts) => texts.map((t) => (t || '').match(ISSUE_KEY)?.[0]).find(Boolean) || null;
+export const ISSUE_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
+// Standards and encodings that look like keys ("read UTF-8 paths", "SHA-256") are never one (AK-287).
+const NOT_KEYS = new Set(['UTF', 'UCS', 'SHA', 'MD', 'ISO', 'IEC', 'HTTP', 'TLS', 'SSL', 'RFC', 'CVE', 'ES', 'ECMA', 'X']);
+const keyIn = (t) => [...(t || '').matchAll(ISSUE_KEY)].map((m) => m[0]).find((k) => !NOT_KEYS.has(k.slice(0, k.lastIndexOf('-'))));
+export const issueKey = (...texts) => texts.map(keyIn).find(Boolean) || null;
 
 // The area a path belongs to: apps/<name> and packages/<name>, else its top-level folder.
 export function areaOf(file) {
@@ -28,6 +31,11 @@ export function mainArea(files = []) {
 // commits: app:catchup commits (newest first); merged: its merged PRs or null. A commit that is a
 // merged PR's merge commit (squash, merge or the last of a rebase) becomes that PR.
 // → [{ id, kind: 'pr' | 'commit', number?, title, branch?, sha, parent, date, author, files, key, area }]
+// A git-only result with the merged PRs and CI of a slower PR load that it overtook (AK-338).
+export function withLateExtra(res, extra) {
+  return res && extra ? { ...res, merged: extra.merged, ci: extra.ci } : res;
+}
+
 export function landedEntries(commits = [], merged = null) {
   const byMerge = new Map((merged || []).filter((p) => p.merge).map((p) => [p.merge, p]));
   return commits.map((c) => {
