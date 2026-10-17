@@ -596,3 +596,83 @@ test('reviewRows keeps a stack’s rows together, bottom first; stackNote and st
   // PR features off: no stacks.
   assert.equal(reviewRows({ prs, prsOn: false, now: NOW }).all.some((r) => r.stack), false);
 });
+
+// ── Change facts and evidence (AK-520) ──
+const FACTS = {
+  size: { files: 14, added: 128, deleted: 12, lines: 140, areas: [{ area: 'apps/desktop', files: 10, lines: 120 }, { area: 'packages/tokens', files: 2, lines: 15 }, { area: '.', files: 2, lines: 5 }], lockfiles: [{ path: 'bun.lock', added: 4, deleted: 4 }], assets: 2, generated: 0 },
+  facts: [
+    { id: 'dependencies', level: 'flag', title: 'Dependencies changed', details: ['next 15.5.21 → 15.5.24 (bun.lock)'] },
+    { id: 'tests-deleted', level: 'flag', title: 'Test files deleted', details: ['apps/desktop/test/inbox.test.js'] },
+    { id: 'tests-changed', level: 'info', title: 'tests: none changed', details: [], count: 0 },
+  ],
+};
+
+test('rowChips: check, review, threads, media, then flag facts; info facts never a chip', async () => {
+  const { rowChips } = await load();
+  const row = { pr: { number: 7, checks: 'failure', failing: ['lint'], checkCounts: { passed: 5, total: 6 }, review: 'changes' } };
+  const ev = { threads: { total: 4, open: 3, outdated: 1 }, media: [{ kind: 'image' }, { kind: 'image' }, { kind: 'video' }] };
+  const chips = rowChips(row, { facts: FACTS, evidence: ev });
+  assert.deepEqual(chips.map((c) => c.text), ['lint', 'changes requested', '3 open threads', '2 images', '1 video', 'deps', 'test deleted']);
+  assert.deepEqual(chips.map((c) => c.kind), ['fail', '', '', '', '', 'fact', 'fact']);
+  assert.match(chips[0].title, /5 of 6 checks passed: lint/);
+  assert.match(chips[5].title, /next 15\.5\.21 → 15\.5\.24/);
+});
+
+test('rowChips: passing counts, several failures, CI that didn’t run, and nothing for absent fields', async () => {
+  const { rowChips } = await load();
+  assert.deepEqual(rowChips({ pr: { number: 1, checks: 'success', checkCounts: { passed: 6, total: 6 }, review: 'approved' } }).map((c) => c.text), ['6/6', 'approved']);
+  assert.equal(rowChips({ pr: { number: 1, checks: 'failure', failing: ['build', 'publish'] } })[0].text, '2 failed');
+  assert.equal(rowChips({ pr: { number: 1 } }, { evidence: { ciMissing: true } })[0].text, 'CI didn’t run');
+  // No checks, no review, no threads, no media, only info facts: no chips at all.
+  assert.deepEqual(rowChips({ pr: { number: 1 } }, { facts: { size: FACTS.size, facts: [FACTS.facts[2]] }, evidence: { threads: { total: 2, open: 0, outdated: 0 } } }), []);
+  assert.deepEqual(rowChips({ lane: { branch: 'x' } }), []);
+  // Your review requested: the line says so, not a review chip.
+  assert.deepEqual(rowChips({ pr: { number: 3, review: 'approved' } }, { requested: new Set([3]) }), []);
+});
+
+test('rowBadges marks the badges the row shows as chips', async () => {
+  const { rowBadges } = await load();
+  const chips = rowBadges({ pr: { checks: 'success', review: 'approved', draft: true } }).filter((b) => b.chip).map((b) => b.text);
+  assert.deepEqual(chips, ['CI passed', 'Approved']);
+});
+
+test('factLines: size and spread, then one line per fact; tests: none changed is a plain line', async () => {
+  const { factLines } = await load();
+  const f = factLines(FACTS);
+  assert.equal(f.added, 128);
+  assert.deepEqual(f.size.map((x) => `${x.n} ${x.label}`), ['14 files', '3 areas', '2 assets', '1 lockfile']);
+  assert.deepEqual(f.lines.map((l) => [l.label, l.detail]), [
+    ['dependency changed', 'next 15.5.21 → 15.5.24 (bun.lock)'],
+    ['test deleted', 'apps/desktop/test/inbox.test.js'],
+    ['tests', 'none changed'],
+  ]);
+  const many = factLines({ size: { files: 1, added: 1, deleted: 0, areas: [{ area: '.' }], lockfiles: [], assets: 0, generated: 0 }, facts: [{ id: 'ci', level: 'flag', title: 'CI or build config changed', details: ['a', 'b', 'and 3 more'] }] });
+  assert.deepEqual(many.size.map((x) => x.label), ['file']);
+  assert.equal(many.lines[0].detail, 'a, b and 3 more');
+  assert.equal(factLines(null), null);
+});
+
+test('evidenceTabs: only tabs with something in them; CI didn’t run is the one absence', async () => {
+  const { evidenceTabs, evidenceDefault, checkTally } = await load();
+  const ev = {
+    head: 'a'.repeat(40),
+    checks: [{ name: 'lint', result: 'failure' }, { name: 'unit', result: 'success' }, { name: 'e2e', result: 'pending' }],
+    annotations: [{ path: 'a.js', line: 4, level: 'failure', message: 'x' }],
+    media: [{ kind: 'image' }], reviews: [{ login: 'sam', state: 'changes' }], threads: { total: 2, open: 1, outdated: 0 },
+  };
+  assert.deepEqual(evidenceTabs(ev).map((t) => t.id), ['checks', 'annotations', 'media', 'reviews', 'threads']);
+  assert.deepEqual(checkTally(ev.checks), { failed: 1, running: 1, passed: 1, total: 3 });
+  assert.equal(evidenceDefault(ev), 'checks');
+  assert.equal(evidenceDefault({ checks: [{ name: 'u', result: 'success' }] }), null);
+  assert.deepEqual(evidenceTabs({ head: null, threads: { total: 3, open: 0, outdated: 0 } }), []);
+  assert.deepEqual(evidenceTabs({ ciMissing: true }).map((t) => [t.id, t.kind]), [['ci', 'absent']]);
+  assert.deepEqual(evidenceTabs(null), []);
+});
+
+test('duration and checkLog', async () => {
+  const { duration, checkLog } = await load();
+  assert.deepEqual([duration(9), duration(72), duration(3725), duration(undefined)], ['9s', '1m 12s', '1h 02m', '']);
+  const logs = [{ run: '42', log: 'Error: boom' }];
+  assert.equal(checkLog({ url: 'https://github.com/o/r/actions/runs/42/job/7' }, logs), 'Error: boom');
+  assert.equal(checkLog({ url: 'https://example.com/ci' }, logs), '');
+});

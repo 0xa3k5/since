@@ -401,7 +401,8 @@ test('landing page app shots (dark)', async ({ sandbox, launch }) => {
     g(['checkout', '-q', 'main']);
     open.push(o);
   };
-  const ok = (name) => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/orbit/actions/runs/9120344101/job/2501' });
+  const ran = (s) => ({ startedAt: iso(NOW - 9 * H), completedAt: iso(NOW - 9 * H + s * 1000) });
+  const ok = (name) => ({ __typename: 'CheckRun', name, status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/orbit/actions/runs/9120344101/job/2501', ...ran(40 + name.length * 9) });
   const greenChecks = [ok('lint'), ok('test (api)'), ok('test (web)'), ok('build')];
   // Stuck: conflicts with main in retry.ts (#225 changed the same lines).
   openPr({ number: 228, branch: 'agent/orb-176-hard-declines', who: PEOPLE.agent, from: mainAt[222], at: NOW - 5 * H,
@@ -416,7 +417,7 @@ test('landing page app shots (dark)', async ({ sandbox, launch }) => {
   // Stuck: failing checks.
   openPr({ number: 230, branch: 'theo/orb-171-invoice-pdf', who: PEOPLE.theo, from: mainAt[224], at: NOW - 7 * H,
     title: 'feat(web): preview invoices as PDF (ORB-171)', merge: 'BLOCKED', mergeable: 'MERGEABLE', review: 'REVIEW_REQUIRED',
-    checks: [ok('lint'), ok('test (api)'), { __typename: 'CheckRun', name: 'test (web)', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/orbit/actions/runs/9120344187/job/2510' }, ok('build')],
+    checks: [ok('lint'), ok('test (api)'), { __typename: 'CheckRun', name: 'test (web)', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/orbit/actions/runs/9120344187/job/2510', ...ran(161) }, ok('build')],
     commits: [['feat(web): invoice PDF preview', { 'apps/web/src/components/InvoicePreview.tsx': "import { Document, Page } from 'react-pdf';\n\nexport function InvoicePreview({ url }: { url: string }) {\n  return (\n    <Document file={url} loading=\"Rendering invoice…\">\n      <Page pageNumber={1} width={640} />\n    </Document>\n  );\n}\n" }]] });
   // Ready to merge.
   openPr({ number: 231, branch: 'theo/orb-163-usage-chart', who: PEOPLE.theo, from: mainAt[225], at: NOW - 20 * H,
@@ -515,6 +516,13 @@ exec '${realGit}' "$@"
       'test (web)\tRun pnpm test\t2026-10-15T09:12:03.3Z   ❯ src/components/InvoicePreview.tsx:5:5',
       'test (web)\tRun pnpm test\t2026-10-15T09:12:03.4Z  Test Files  1 failed | 41 passed (42)',
     ].join('\n'),
+    // PR evidence (AK-520): a description with a screenshot, check annotations and review threads.
+    bodies: { 230: 'Renders the invoice PDF next to the line items.\n\n![Invoice preview](https://github.com/user-attachments/assets/6f1c2d3e-0000-4000-8000-000000000230.png)' },
+    annotations: { 2510: [
+      { path: 'apps/web/src/components/InvoicePreview.test.tsx', start_line: 12, annotation_level: 'failure', message: 'Setting up fake worker failed: Cannot find module pdfjs-dist/build/pdf.worker.mjs' },
+      { path: 'apps/web/src/components/InvoicePreview.tsx', start_line: 5, annotation_level: 'warning', message: 'react-pdf: set pdfjs.GlobalWorkerOptions.workerSrc before the first render' },
+    ] },
+    threads: { 230: { totalCount: 3, nodes: [{ isResolved: false, isOutdated: false }, { isResolved: false, isOutdated: true }, { isResolved: true, isOutdated: false }] } },
   };
   fs.writeFileSync(path.join(bin, 'gh-data.json'), JSON.stringify(data));
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
@@ -535,7 +543,15 @@ if (a[0] === 'pr' && a[1] === 'view') {
   const n = Number(a[2]);
   const p = data.open.find((x) => x.number === n) || data.merged.find((x) => x.number === n);
   if (!p) { process.stderr.write('no pull requests found\\n'); process.exit(1); }
+  if (String(val('--json')).includes('comments')) out({ ...p, body: data.bodies[n] || '', comments: [], reviews: [] });
   out(p);
+}
+if (a[0] === 'api' && has('graphql')) {
+  const n = Number((a.find((x) => x.startsWith('number=')) || '').slice(7));
+  out({ data: { repository: { pullRequest: { reviewThreads: data.threads[n] || { totalCount: 0, nodes: [] } } } } });
+}
+if (a[0] === 'api' && a.some((x) => /check-runs\\/\\d+\\/annotations/.test(x))) {
+  out(data.annotations[/check-runs\\/(\\d+)/.exec(a.find((x) => /check-runs\\//.test(x)))[1]] || []);
 }
 if (a[0] === 'repo' && a[1] === 'view') out(data.repo);
 if (a[0] === 'run' && a[1] === 'list') out(data.runs);
@@ -577,6 +593,33 @@ process.exit(1);
   await page.locator('.review-reload').click(); // stage counts need a PR load (#143)
   await expect(page.locator('.review-tab[data-tab="stuck"] .review-tab-n')).toHaveText('2', { timeout: 40_000 });
   await expect(page.locator('.review-tab[data-tab="ready"] .review-tab-n')).toHaveText('3');
+  // Evidence shots (AK-520), only with EVIDENCE_SHOTS=<dir>: the stuck PR with failing checks in the
+  // pane (facts line, evidence strip open on Checks, chips on the rows), dark then light, and stop.
+  if (process.env.EVIDENCE_SHOTS) {
+    const dir = process.env.EVIDENCE_SHOTS;
+    fs.mkdirSync(dir, { recursive: true });
+    await page.locator('.lanes-row[data-key="pr:230"]').click({ position: { x: 8, y: 8 } });
+    const pane = page.locator('.review-pane');
+    await expect(pane.locator('.evidence .ev-tab.on')).toContainText('Checks', { timeout: 30_000 });
+    await expect(pane.locator('.reader-facts')).toBeVisible({ timeout: 30_000 });
+    await pane.locator('.ev-fold').first().click();
+    await expect(pane.locator('.ev-log')).toBeVisible();
+    for (const theme of ['dark', 'light']) {
+      if (theme === 'light') await app.palette('Theme: Light');
+      await app.settle(500);
+      await page.waitForTimeout(400);
+      await quiet();
+      await page.screenshot({ path: path.join(dir, `evidence-${theme}.png`) });
+      await pane.locator('.ev-tab[data-tab="annotations"]').click();
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: path.join(dir, `evidence-annotations-${theme}.png`) });
+      await pane.locator('.ev-tab[data-tab="checks"]').click();
+    }
+    console.log('\n== rows\n' + (await page.locator('.lanes-list').innerText()).slice(0, 1500));
+    console.log('\n== pane head\n' + (await pane.locator('.review-pane-head').innerText()).slice(0, 1500));
+    return;
+  }
+
   await expect(page.locator('.review-pane .review-row').first()).toBeVisible();
   await shot('review-dark');
 

@@ -1,9 +1,10 @@
-import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate } from './ui.js';
+import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
 import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
-import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey } from './reader.js';
+import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip } from './reader.js';
+import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
 import * as keymap from './keymap.js';
 
 // Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with
@@ -17,6 +18,10 @@ import * as keymap from './keymap.js';
 // ←/→ the previous or next row (ctx.nav), , and . the files, Esc back to the list. A row with a local branch reviews that branch; a
 // PR that isn't here is fetched into FETCH_HEAD only (pr-review.js), never into a worktree.
 // PR features off: rows are lanes, so nothing here touches the network.
+// AK-520: the facts line (change-facts.js, git only) sits under the meta once the diff is known, and a
+// PR's evidence strip (github.evidence: checks, annotations, media, reviews, open threads) under the
+// status strip, loaded when the PR is opened; E opens its next tab. ctx.onFacts() tells the list
+// there's something new for the row's chips.
 
 // Fetched PR heads for this window, so moving back to a PR doesn't fetch it again. Keyed by its
 // last update, so a pushed PR is fetched afresh.
@@ -62,6 +67,9 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   let fixes = [];
   let alive = true;
   let jump = false; // showConflicts() before the review mounted
+  let facts = null; // change facts for the diff, once read
+  let ev; // the PR's evidence: undefined while it loads, null when there's nothing
+  let strip = null;
 
   // Title, meta, status strip and description run across the whole pane and scroll with the files.
   // Labelled buttons for the actions you take most, icon buttons for the rest, the primary one last.
@@ -127,15 +135,17 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       authors,
       branch: pr ? pr.branch : row.branch || null, base: pr ? pr.base : null,
       meta: [
-        size ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
+        size && !facts ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
         draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
         updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null,
       ].filter(Boolean),
-      below: [stackLine(), pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
+      below: [stackLine(), factsBlock(facts), pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
     });
+    strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u) }) : null;
     head.replaceChildren(...[
       top,
       statusStrip([...rest.map(button), rest.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null, ...icons.map(button), github ? button(github) : null, moreBtn, lead ? button(lead) : null].filter(Boolean)),
+      strip,
       pr ? descriptionBlock({ text: prDescription(pr) }) : null,
     ].filter(Boolean));
     // The slim bar once the head scrolls away: avatar, number, title and the primary action.
@@ -195,7 +205,16 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         o.smaller ? [' Smaller first: ', o.smaller.self ? 'this one' : `#${o.number}`, ' (', h('span.add', null, `+${o.smaller.size.additions}`), ' ', h('span.del', null, `−${o.smaller.size.deletions}`), ').'] : null)));
   }
 
+  // E: the evidence strip's next tab (the last one closes it).
+  function nextEvidence() {
+    const s = strip ? head.querySelector('section.evidence') : null;
+    if (s?.next) return s.next();
+    toast(!row.pr ? 'Only pull requests have checks and reviews' : !ctx.prsOn ? 'Turn on PR features to see checks and reviews' : ev === undefined ? 'Still loading checks and reviews' : 'No checks, annotations, media or reviews on this pull request');
+    return true;
+  }
+
   const onKey = (id) => {
+    if (id === 'review.evidence') return nextEvidence();
     const f = fixes.find((x) => x.key === id);
     if (f) { fix(f.id); return true; }
     const a = actions.find((x) => x.key === id);
@@ -204,7 +223,23 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     return true;
   };
 
+  function loadFacts(base, rev) {
+    if (!base || !rev) return;
+    const known = peekFacts(base, rev);
+    if (known !== undefined) { facts = known; return; }
+    factsFor(git, base, rev).then((f) => { if (!alive || !f) return; facts = f; renderHead(); ctx.onFacts?.(); });
+  }
+  function loadEvidence() {
+    const { pr } = row;
+    if (!pr || !ctx.prsOn) return;
+    ev = peekEvidence(ctx.remote, pr);
+    if (ev !== undefined) return;
+    const want = pr;
+    evidenceFor(call, ctx.remote, pr).then((e) => { if (!alive || row.pr?.number !== want.number) return; ev = e; renderHead(); ctx.onFacts?.(); });
+  }
+
   function mount(review) {
+    loadFacts(review.base, review.lane?.rev);
     view = reviewView({ ...review, root, git, store, header: head, embedded: true, onKey, onClose: onBack, checkConflicts: Boolean(ctx.conflicts), onConflicts: (files) => ctx.onConflicts?.(files) });
     const had = wantFocus || el.contains(document.activeElement);
     // The view is the reader's scroll: the slim bar moves into it.
@@ -245,6 +280,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   });
 
   el.prepend(mini.el);
+  loadEvidence();
   renderHead();
   load();
   return {
@@ -252,7 +288,14 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     key: row.key,
     refresh: () => view?.refresh(),
     // The row changed under the pane (approved, CI finished): new header, same diff and ticks.
-    update(r, c) { row = r; ctx = c; renderHead(); },
+    update(r, c) {
+      const moved = r.pr?.head !== row.pr?.head || r.pr?.updatedAt !== row.pr?.updatedAt;
+      row = r; ctx = c;
+      if (moved) loadEvidence();
+      renderHead();
+    },
+    // ⌘K "Show checks and reviews": the evidence strip's next tab.
+    evidence: nextEvidence,
     destroy() { alive = false; ro.disconnect(); mini.destroy(); },
     // The row's "Conflicts in N files" note: jump to the Conflicting group.
     showConflicts,

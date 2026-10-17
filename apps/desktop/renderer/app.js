@@ -3930,6 +3930,7 @@ function openPalette() {
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
+      if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show checks and reviews of ${t}`, () => lanesPage.evidence(), { icon: 'checks', kbd: keymap.keys('review.evidence'), keywords: 'evidence checks ci annotations media screenshots images videos reviews open threads log failed' });
       if (paneSel.row.pr && !paneSel.row.lane) add('Review', `Check out ${t} here`, () => checkoutPr(paneSel.row.pr), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
       for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || x.id === 'updateBranch' || (x.id === 'checks' && !paneSel.row.lane))) {

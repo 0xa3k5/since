@@ -48,6 +48,8 @@ const P = {
   search: '<circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/>',
   plus: '<path d="M8 3v10M3 8h10"/>',
   minus: '<path d="M3 8h10"/>',
+  image: '<rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1.2"/><path d="m2.5 11.5 3.5-3 3 2.5 2-1.5 2.5 2"/>',
+  play: '<path d="M5.5 3.5v9l7-4.5z"/>',
   check: '<path d="m3 8.5 3 3 7-7"/>',
   'check-circle': '<circle cx="8" cy="8" r="6.5"/><path d="m5.2 8.2 2 2 3.6-3.8"/>',
   x: '<path d="m4 4 8 8M12 4l-8 8"/>',
