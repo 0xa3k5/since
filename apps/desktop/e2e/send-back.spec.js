@@ -19,11 +19,11 @@ test('Send back a stuck lane: P opens the sheet, Copy prompt copies it, nothing 
   await expect(page.locator('.lanes-group[data-stage="stuck"]')).toHaveText('Stuck 1');
   const row = page.locator('.review-row', { has: page.locator('.lanes-name', { hasText: 'feature' }) });
   await row.click({ position: { x: 8, y: 8 } });
-  await expect(row.locator('button', { hasText: 'Send back…' })).toBeVisible();
+  await expect(row.locator('button', { hasText: 'Fix prompt…' })).toBeVisible();
   await page.keyboard.press('p');
 
   const sheet = page.locator('.dialog.sendback');
-  await expect(sheet.locator('.dialog-title')).toHaveText('Send back feature');
+  await expect(sheet.locator('.dialog-title')).toHaveText('Fix prompt for feature');
   await expect(sheet.locator('.sendback-reason')).toContainText('conflicts with main in conflict.txt');
   const prompt = sheet.locator('.sendback-prompt');
   await expect(prompt).toHaveValue(/^Branch feature \(→ main\) can't merge/);

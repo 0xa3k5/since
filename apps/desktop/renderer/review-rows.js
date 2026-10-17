@@ -229,7 +229,7 @@ export const STEPS = {
   rebase: { label: 'Rebase', keyId: 'lanes.rebase', icon: 'rebase' },
   checks: { label: 'Open checks', keyId: 'lanes.checks', icon: 'external' },
   open: { label: 'Open', keyId: 'lanes.open', icon: 'worktree' },
-  sendBack: { label: 'Send back…', keyId: 'lanes.sendBack', icon: 'sparkle' },
+  sendBack: { label: 'Fix prompt…', keyId: 'lanes.sendBack', icon: 'sparkle' },
 };
 
 // Small CI and review badges for a row: [{ text, kind, title, signal }], kind '' | 'ok' | 'warn' | 'busy'.
