@@ -568,6 +568,8 @@ const goBack = () => navStep('back');
 const goForward = () => navStep('forward');
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
+// Marks a drag of Commit view file rows, so drops from anywhere else are ignored.
+const CV_DRAG_TYPE = 'application/x-gitlanes-files';
 
 function renderShell() {
   root.replaceChildren();
@@ -1934,6 +1936,11 @@ function createCommitView(container) {
     dragging = { from: list, paths: paths(targets(list, f)) };
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', dragging.paths.join('\n'));
+    e.dataTransfer.setData(CV_DRAG_TYPE, '');
+    // A status refresh can detach the source row mid-drag, so its own dragend never reaches us: clear at the window too.
+    const done = () => { dragging = null; document.querySelectorAll('.cv-section.drop-target').forEach((s) => s.classList.remove('drop-target')); };
+    window.addEventListener('dragend', done, { once: true });
+    window.addEventListener('drop', done, { once: true });
     if (dragging.paths.length > 1) {
       const pill = h('div.drag-pill', null, `${dragging.paths.length} files`);
       document.body.append(pill);
@@ -1943,12 +1950,13 @@ function createCommitView(container) {
   }
   function dropZone(sec, list) {
     if (list === 'conflicts') return sec;
-    const over = () => dragging && dragging.from !== list && dragging.from !== 'conflicts';
-    sec.addEventListener('dragover', (e) => { if (!over()) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
+    // Only our own rows: a stale `dragging` must never turn a drag from Finder into a stage.
+    const over = (e) => dragging && e.dataTransfer.types.includes(CV_DRAG_TYPE) && dragging.from !== list && dragging.from !== 'conflicts';
+    sec.addEventListener('dragover', (e) => { if (!over(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
     sec.addEventListener('dragleave', (e) => { if (!sec.contains(e.relatedTarget)) sec.classList.remove('drop-target'); });
     sec.addEventListener('drop', (e) => {
       sec.classList.remove('drop-target');
-      if (!over()) return;
+      if (!over(e)) return;
       e.preventDefault();
       quiet(list === 'staged' ? 'stageFiles' : 'unstageFiles', dragging.paths);
       dragging = null;
