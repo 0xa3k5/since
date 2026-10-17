@@ -57,3 +57,9 @@ test('inline: snake_case-heavy text parses in linear time (AK-406)', async () =>
   assert.ok(performance.now() - t < 50, 'under 50 ms');
   assert.deepEqual(out, [{ t: 'text', text }]);
 });
+
+test('inline: mailto links stay text, since only web links can open (AK-408)', async () => {
+  const { inline, safeHref } = await load();
+  assert.equal(safeHref('mailto:a@x.dev'), false);
+  assert.deepEqual(inline('[mail me](mailto:a@x.dev)'), [{ t: 'text', text: '[mail me](mailto:a@x.dev)' }]);
+});

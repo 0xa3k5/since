@@ -92,10 +92,11 @@ export function inline(text = '') {
   return out;
 }
 
-// Only web and mail links open; anything else (javascript:, file:, relative paths) stays text.
-export const safeHref = (href) => /^(https?:\/\/|mailto:)/i.test(href);
+// Only web links open (app:external takes http(s) alone); anything else (mailto:, javascript:, file:,
+// relative paths) stays text (AK-408).
+export const safeHref = (href) => /^https?:\/\//i.test(href);
 
-const open = (e, href) => { e.preventDefault(); window.gitlanes?.app('external', href); };
+const open = (e, href) => { e.preventDefault(); window.gitlanes?.app('external', href)?.catch(() => {}); };
 
 function inlineEl(n) {
   switch (n.t) {
