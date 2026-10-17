@@ -89,6 +89,19 @@ export function rowStage(row, { now = Date.now(), previous = null } = {}) {
   return null;
 }
 
+// rowStage for a PR outside Review (the sidebar and graph dots, AK-388): remembers each PR's last
+// stage, so while GitHub is still checking one it keeps that stage, as Review does, instead of
+// falling back to the CI-only rules. Make a new one per repository.
+export function stageMemory() {
+  const last = new Map();
+  return (pr) => {
+    const key = pr.url || pr.number;
+    const stage = rowStage({ pr }, { previous: last.get(key) || null });
+    if (stage) last.set(key, stage);
+    return stage;
+  };
+}
+
 // Sort rank inside a stage, lowest first, so the top row is the most actionable:
 //   stuck      a conflict with the base (a clear fix: rebase onto it), then failing checks, then
 //              the rest (changes requested)
@@ -366,7 +379,8 @@ export function nextSelection(before, staged, acted) {
 // The row line's at-a-glance trouble (AK-411): failing checks as ✕ and a count, a conflict with the
 // base as a marker; { checks: { text, title } | null, conflict: { title } | null }. The count is
 // passed/total when GitHub's counts reach the renderer (pr.checkCounts), else how many are failing.
-export function rowSignals(row) {
+// conflictShown: the row's text already says it conflicts (a stuck row's note), so no marker too.
+export function rowSignals(row, { conflictShown = false } = {}) {
   const { pr } = row;
   let checks = null;
   if (pr?.checks === 'failure') {
@@ -378,7 +392,7 @@ export function rowSignals(row) {
       ? { text: `${c.passed}/${c.total}`, title: `${c.passed} of ${c.total} checks passed${names}` }
       : { text: failing.length ? String(failing.length) : '', title: `${failing.length || 'Some'} ${failing.length === 1 ? 'check is' : 'checks are'} failing${names}` };
   }
-  return { checks, conflict: conflicted(row) ? { title: `Conflicts with ${pr?.base || 'its base'}` } : null };
+  return { checks, conflict: !conflictShown && conflicted(row) ? { title: `Conflicts with ${pr?.base || 'its base'}` } : null };
 }
 
 // Why a row is stuck, in plain words built from facts, or null when it isn't:

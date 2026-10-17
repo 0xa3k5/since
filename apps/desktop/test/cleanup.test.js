@@ -92,6 +92,7 @@ test('cleanup groups: every finished lane by default; age is an opt-in filter; d
   const squash = await tip(dir, 'main'); // the squash commit
   assert.equal(l.squashed.mergedAs, squash);
   assert.equal(reason(l.squashed), `Same change as ${squash.slice(0, 7)}`);
+  assert.equal(reason({ done: { reason: 'key', key: 'AK-7', sha: squash } }), `AK-7 landed in ${squash.slice(0, 7)}`, 'a key match names the key, not the change');
   assert.equal(reason(l.gone), 'Remote gone');
   assert.equal(reason(l.missing), 'Folder missing');
   assert.equal(reason(l.merged), 'Merged');

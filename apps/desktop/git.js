@@ -8,9 +8,13 @@ const path = require('node:path');
 const os = require('node:os');
 
 // GPG_TTY is dropped so a terminal pinentry never waits on a terminal the user can't see.
+// ssh/ssh-keygen ask through SSH_ASKPASS instead of /dev/tty, so a locked SSH key fails
+// fast; a user's own askpass helper is kept.
 const { GPG_TTY: _tty, ...PARENT_ENV } = process.env;
 const BASE_ENV = {
   ...PARENT_ENV,
+  SSH_ASKPASS: PARENT_ENV.SSH_ASKPASS || '/usr/bin/false',
+  SSH_ASKPASS_REQUIRE: PARENT_ENV.SSH_ASKPASS_REQUIRE || 'force',
   LC_ALL: 'C',
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
@@ -742,7 +746,15 @@ async function getRemotes(cwd) {
     const m = /^(\S+)\s+(\S+)\s+\((fetch|push)\)/.exec(l);
     if (m && !map.has(m[1])) map.set(m[1], m[2]);
   }
-  return [...map].map(([name, url]) => ({ name, url, web: remoteWebUrl(url), label: remoteLabel(url) }));
+  // `remote -v` shows URLs after url.<base>.insteadOf rewriting; `setUrl` is the value actually configured.
+  const set = new Map();
+  const cfg = await run(cwd, ['config', '-z', '--get-regexp', '^remote\\..*\\.url$'], { allowCodes: [0, 1] }).catch(() => '');
+  for (const e of cfg.split('\0')) {
+    const i = e.indexOf('\n');
+    const n = i > 0 && e.slice(7, e.lastIndexOf('.', i));
+    if (n && !set.has(n)) set.set(n, e.slice(i + 1));
+  }
+  return [...map].map(([name, url]) => ({ name, url, setUrl: set.get(name) ?? url, web: remoteWebUrl(url), label: remoteLabel(url) }));
 }
 
 // A remote URL as https://host/owner/repo, or null when it is not on a web host
@@ -765,6 +777,74 @@ function remoteLabel(url) {
   const web = remoteWebUrl(url);
   if (web) return web.slice('https://'.length);
   return String(url || '').trim().replace(/^file:\/\//i, '').replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
+}
+
+// Managing remotes (Remotes section, ⌘K): add, change the URL of, rename and remove. journal.runRemote
+// records the returned change so it can be undone; removing saves the remote's config, the upstream
+// settings of branches that track it and its remote-tracking refs, which undo writes back.
+const sub = (key) => key.slice(key.indexOf('.') + 1, key.lastIndexOf('.'));
+
+async function saveRemote(cwd, name) {
+  const cfg = await run(cwd, ['config', '--local', '-z', '--get-regexp', '^(remote|branch)\\.'], { allowCodes: [0, 1] });
+  const entries = cfg.split(SEP).filter(Boolean).map((e) => { const i = e.indexOf('\n'); return i === -1 ? [e, ''] : [e.slice(0, i), e.slice(i + 1)]; });
+  const tracking = new Set(entries.filter(([k, v]) => /^branch\..+\.(remote|pushremote)$/.test(k) && v === name).map(([k]) => sub(k)));
+  const config = entries.filter(([k]) => (k.startsWith('remote.') && sub(k) === name) || (/^branch\..+\.(remote|merge|pushremote)$/.test(k) && tracking.has(sub(k))));
+  const out = await run(cwd, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)', `refs/remotes/${name}/`]);
+  const refs = out.split('\n').filter(Boolean).map((l) => l.split(SEP));
+  return { config, refs };
+}
+
+async function restoreSavedRemote(cwd, { config, refs }) {
+  for (const [k, v] of config) await run(cwd, ['config', '--local', ...(k.startsWith('branch.') ? ['--replace-all'] : ['--add']), k, v]);
+  const lines = refs.filter(([, , sym]) => !sym).map(([n, o]) => `create ${n} ${o}`);
+  if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo remove remote'], { input: lines.join('\n') + '\n' });
+  for (const [n, , sym] of refs) if (sym) await run(cwd, ['symbolic-ref', n, sym]).catch(() => {});
+}
+
+// `op` is add (name, url), url (name, url), rename (name, new name) or remove (name).
+async function changeRemote(cwd, op, name, value) {
+  const remotes = await getRemotes(cwd);
+  const has = (n) => remotes.some((r) => r.name === n);
+  if (op !== 'add' && !has(name)) throw new GitError(`There is no remote named ${name}.`);
+  const taken = op === 'add' ? name : op === 'rename' ? value : null;
+  if (taken && has(taken)) throw new GitError(`A remote named ${taken} already exists.`);
+  if (op === 'add') { await run(cwd, ['remote', 'add', '--', name, value]); return { op, name, url: value }; }
+  if (op === 'url') {
+    const from = remotes.find((r) => r.name === name).setUrl;
+    await run(cwd, ['remote', 'set-url', '--', name, value]);
+    return { op, name, from, url: value };
+  }
+  if (op === 'rename') { await run(cwd, ['remote', 'rename', '--', name, value]); return { op, name, to: value }; }
+  if (op === 'remove') {
+    const saved = await saveRemote(cwd, name);
+    await run(cwd, ['remote', 'remove', '--', name]);
+    return { op, name, saved };
+  }
+  throw new GitError(`Unknown remote operation ${op}`);
+}
+
+// Undo or redo a changeRemote step. Redoing a remove saves the remote again (its refs may have moved).
+async function revertRemote(cwd, change, dir) {
+  const c = change, undo = dir === 'undo';
+  const remotes = await getRemotes(cwd);
+  const has = (n) => remotes.some((r) => r.name === n);
+  const fail = (why) => { throw new GitError(why); };
+  if (c.op === 'add') {
+    if (undo) { if (!has(c.name)) fail(`the remote ${c.name} no longer exists.`); await run(cwd, ['remote', 'remove', '--', c.name]); }
+    else { if (has(c.name)) fail(`a remote named ${c.name} exists again.`); await run(cwd, ['remote', 'add', '--', c.name, c.url]); }
+  } else if (c.op === 'url') {
+    const r = remotes.find((x) => x.name === c.name);
+    if (!r || r.setUrl !== (undo ? c.url : c.from)) fail(`the URL of ${c.name} has changed since.`);
+    await run(cwd, ['remote', 'set-url', '--', c.name, undo ? c.from : c.url]);
+  } else if (c.op === 'rename') {
+    const [from, to] = undo ? [c.to, c.name] : [c.name, c.to];
+    if (!has(from)) fail(`the remote ${from} no longer exists.`);
+    if (has(to)) fail(`a remote named ${to} exists again.`);
+    await run(cwd, ['remote', 'rename', '--', from, to]);
+  } else if (c.op === 'remove') {
+    if (undo) { if (has(c.name)) fail(`a remote named ${c.name} exists again.`); await restoreSavedRemote(cwd, c.saved); }
+    else { if (!has(c.name)) fail(`the remote ${c.name} no longer exists.`); c.saved = await saveRemote(cwd, c.name); await run(cwd, ['remote', 'remove', '--', c.name]); }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -923,22 +1003,43 @@ async function captureRefState(cwd) {
   for (const l of out.split('\n')) { if (!l) continue; const [n, o] = l.split(SEP); refs[n] = o; }
   const sym = (await run(cwd, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] })).trim();
   const oid = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] })).trim();
-  return { refs, head: sym || null, headOid: oid || null };
+  // Each branch's `[branch "x"]` entries (upstream), so a redo that recreates the branch can put them back.
+  const config = {};
+  const cfg = await run(cwd, ['config', '--local', '-z', '--get-regexp', '^branch\\.'], { allowCodes: [0, 1] }).catch(() => '');
+  for (const e of cfg.split('\0')) {
+    const i = e.indexOf('\n');
+    const key = i === -1 ? e : e.slice(0, i);
+    const n = `refs/heads/${key.slice(7, key.lastIndexOf('.'))}`;
+    if (key && n in refs) (config[n] ||= []).push([key, i === -1 ? '' : e.slice(i + 1)]);
+  }
+  return { refs, head: sym || null, headOid: oid || null, config };
 }
 
 async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = {}) {
-  const current = await captureRefState(cwd);
+  let current = await captureRefState(cwd);
   const env = { GIT_OPTIONAL_LOCKS: '1' };
   // Move the working copy first so a dirty tree blocks the restore before any ref changes.
   // `soft` keeps the undone commit's changes staged (undoing a commit). `refsOnly` leaves
   // the index and working tree alone; the caller restores them from a work snapshot.
   if (!refsOnly && state.headOid && state.headOid !== current.headOid) {
     await run(cwd, ['reset', soft ? '--soft' : '--keep', state.headOid], { env });
+    // The reset moved the branch HEAD is on; when HEAD goes back to another branch, that one moves back below.
+    current = await captureRefState(cwd);
   }
   const lines = [];
   for (const [n, o] of Object.entries(state.refs)) if (current.refs[n] !== o) lines.push(`update ${n} ${o}`);
   for (const n of Object.keys(current.refs)) if (!(n in state.refs)) lines.push(`delete ${n}`);
   if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo'], { input: lines.join('\n') + '\n', env });
+  // A deleted branch takes its `[branch "x"]` config (upstream) with it, as `git branch -D` does.
+  for (const n of Object.keys(current.refs)) {
+    if (!(n in state.refs) && n.startsWith('refs/heads/')) await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+  }
+  // A branch brought back (redo, timeline jump) gets the config it had when the state was taken.
+  for (const [n, entries] of Object.entries(state.config || {})) {
+    if (n in current.refs) continue;
+    await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+    for (const [k, v] of entries) await run(cwd, ['config', '--add', k, v], { env });
+  }
   if (state.head) await run(cwd, ['symbolic-ref', 'HEAD', state.head], { env });
   else if (state.headOid) await run(cwd, ['update-ref', '--no-deref', 'HEAD', state.headOid], { env });
 }
@@ -1159,7 +1260,8 @@ async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
   }
   if (paths?.length) args.push('--', ...paths.filter((p) => !gone.includes(p)));
   try {
-    await run(cwd, args, { env: W_ENV });
+    // With GIT_LITERAL_PATHSPECS, `stash -u` saves untracked files but leaves them in place; literal paths only matter with paths.
+    await run(cwd, args, { env: paths?.length ? W_ENV : { GIT_OPTIONAL_LOCKS: '1' } });
     if (gone.length) await run(cwd, ['checkout', 'HEAD', '--', ...gone]);
   } catch (e) {
     // `stash push --staged` arrived in Git 2.35; older git rejects the option with a usage dump.
@@ -1307,7 +1409,8 @@ function resolveWorktreePath(mainPath, dir) {
 
 // Add a worktree. `branch`: an existing local branch is checked out, a new name
 // is created at `base`; no branch gives a detached HEAD at `base`. Returns the path.
-async function addWorktree(cwd, { dir, branch, base } = {}) {
+// `force` moves an existing `branch` to `base` (`-B`), so the move and the new worktree are one step.
+async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
   const main = (await getWorktrees(cwd)).find((w) => w.main);
   const at = base || 'HEAD';
   dir = dir ? resolveWorktreePath(main.path, dir) : defaultWorktreePath(main.path, branch || (await run(cwd, ['rev-parse', '--short', at])).trim());
@@ -1315,6 +1418,7 @@ async function addWorktree(cwd, { dir, branch, base } = {}) {
   const local = branch && (await run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], { allowCodes: [0, 1] })).trim();
   const args = ['worktree', 'add', '-q'];
   if (!branch) args.push('--detach', dir, at);
+  else if (local && force && base) args.push('-B', branch, dir, base);
   else if (local) args.push(dir, branch);
   else args.push('-b', branch, dir, at);
   await run(cwd, args, { env: W_ENV });
@@ -1492,8 +1596,9 @@ async function squashTree(cwd, baseSha, head) {
   let out;
   try {
     out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
-  } catch {
-    throw new GitError('Merging here needs git 2.38 or later.');
+  } catch (err) {
+    if (!(await canForecast(cwd))) throw new GitError('Merging here needs git 2.38 or later.');
+    throw err;
   }
   // A clean merge prints only the tree; a conflicted one lists the conflicted paths after it.
   const [tree, ...rest] = out.split('\0');
@@ -1559,7 +1664,23 @@ const AGENT_HINTS = {
 };
 // Lane commits read for trailers and squash checks, and base commits searched for squash merges.
 const LANE_COMMITS = 5000;
+// Squash merges older than BASE_COMMITS base commits aren't detected: such a branch reads merged: null.
 const BASE_COMMITS = 2000;
+// The base side of the squash checks (its log and patch ids) only depends on the base tip: one entry
+// per repo, replaced when the base moves.
+const baseSquash = new Map();
+function baseSquashData(cwd, sha) {
+  const hit = baseSquash.get(cwd);
+  if (hit?.sha === sha) return hit.data;
+  const data = Promise.all([
+    run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', sha, '--']),
+    patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', sha, '--']).then(newestBy),
+  ]);
+  baseSquash.set(cwd, { sha, data });
+  // A failure, or patch ids cut short (size or time limit: empty), is not kept.
+  data.then(([, ids]) => { if (!ids.size && baseSquash.get(cwd)?.data === data) baseSquash.delete(cwd); }, () => { if (baseSquash.get(cwd)?.data === data) baseSquash.delete(cwd); });
+  return data;
+}
 // Lanes further ahead than this skip the per-commit (cherry) check: too much diff for too little.
 const CHERRY_MAX = 100;
 // Commits that say nothing about a lane's work: the empty commit an agent's task worktree starts
@@ -1675,9 +1796,27 @@ async function landed(cwd, { base, since = {}, limit = 300 } = {}) {
 // The key matches "(AK-12)" anywhere or "AK-12:" leading a base subject.
 // Batched: one merge-base per lane, one log, one diff-tree, one patch-id, then merge-tree only for
 // lanes still open.
-async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) {
+async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, commits = new Map() }) {
   if (!b || !lanes.length) return;
   const heads = new Map((prHeads || []).filter((p) => p && /^[0-9a-f]{40}$/.test(p.sha)).map((p) => [p.sha, p]));
+  // A merged PR's head below the tip only ships the lane when everything on top of it is
+  // bookkeeping: baselines and merges from base. A branch stacked on a merged PR, or new commits
+  // after the merge, still have work to ship.
+  const prBelow = (l) => (l.commits || []).filter((c) => c !== l.head && heads.has(c)).map((c) => heads.get(c)).find((p) => {
+    const under = new Set();
+    const stack = [p.sha];
+    while (stack.length) {
+      const sha = stack.pop();
+      const c = commits.get(sha);
+      if (under.has(sha) || !c) continue;
+      under.add(sha);
+      stack.push(...c.parents);
+    }
+    return l.commits.every((sha) => {
+      const c = commits.get(sha);
+      return under.has(sha) || !c || BASELINE.test(c.subject) || (c.parents.length > 1 && c.parents.slice(1).every((x) => !commits.has(x)));
+    });
+  });
   // Key and subject matches only count on base commits newer than the lane's merge-base (the
   // base log is newest first), so a subject the lane forked from never marks it shipped.
   const rowAt = new Map(baseRows.map((r, i) => [r.sha, i]));
@@ -1704,7 +1843,7 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
     l.mergeBase = mbs[i];
     l.netEmpty = l.mergeBase != null && mbTrees.get(l.mergeBase) === l.tree;
     if (l.netEmpty || l.noWork) return;
-    const pr = heads.get(l.head) || (l.commits || []).map((c) => heads.get(c)).find(Boolean);
+    const pr = heads.get(l.head) || prBelow(l);
     // The key in the branch name, else the one leading its newest subject ("AK-48: …").
     const key = branchKey(l.branch) || (/^([a-z][a-z0-9]{0,9}-\d+):/i.exec(l.subject || '')?.[1] || '').toUpperCase() || null;
     const subject = plainSubject(l.subject);
@@ -1721,7 +1860,7 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree }) 
   // Net patch: the lane's whole change since its merge-base (merges of base and the empty baseline
   // drop out) is a base commit's patch, or merging the lane into base changes nothing.
   const lines = [...new Set(open.map((l) => `${l.head} ${l.mergeBase}`))];
-  const ids = await patchIds(cwd, await run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${lines.join('\n')}\n` }));
+  const ids = await patchIds(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${lines.join('\n')}\n` });
   const rest = open.filter((l) => {
     if (!baseIds.has(ids.get(l.head))) return true;
     l.done = { reason: 'net-patch', sha: baseIds.get(ids.get(l.head)) };
@@ -1781,7 +1920,6 @@ async function mapLimit(items, n, fn) {
   return out;
 }
 
-// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
 // The base commit a key or subject match points at: its sha and, for a squash-merged PR ("… (#12)"), the number.
 function squashOf(row) {
   if (!row) return {};
@@ -1792,10 +1930,47 @@ function squashOf(row) {
 // patch id → newest commit with it, from patchIds over a newest-first log.
 const newestBy = (m) => { const out = new Map(); for (const [sha, id] of m) if (!out.has(id)) out.set(id, sha); return out; };
 
-async function patchIds(cwd, diff) {
-  if (!diff.trim()) return new Map();
-  const out = await run(cwd, ['patch-id', '--stable'], { input: diff });
-  return new Map(out.split('\n').filter(Boolean).map((l) => l.split(' ').reverse()));
+// Patch ids of a diff stream ("commit <sha>" headers) as Map(sha → patch id).
+// For a diff-producing git command. Its output is piped straight into
+// `git patch-id --stable`, so a huge diff (an icon repo's SVG history runs to hundreds of MB) never
+// becomes a JS string. Past maxBytes or timeout both are killed and the result is empty: squash
+// detection degrades, the main process keeps its heap.
+const PATCH_MAX_BYTES = 1024 * 1024 * 1024;
+const PATCH_TIMEOUT = 30000;
+function patchIds(cwd, args, { input, maxBytes = PATCH_MAX_BYTES, timeout = PATCH_TIMEOUT } = {}) {
+  return new Promise((resolve, reject) => {
+    const opts = { cwd, env: BASE_ENV, detached: process.platform !== 'win32' };
+    const src = spawn('git', args, opts);
+    const ids = spawn('git', ['patch-id', '--stable'], opts);
+    let bytes = 0; let out = ''; let err = ''; let capped = null; let failed = null; let open = 2;
+    const codes = {};
+    const stop = (why) => { if (capped) return; capped = why; src.kill(); ids.kill(); };
+    const timer = setTimeout(() => stop(`took over ${timeout / 1000}s`), timeout);
+    const finish = () => {
+      clearTimeout(timer);
+      if (capped) {
+        console.warn(`lanes: squash detection skipped, git ${args[0]} ${capped}`);
+        resolve(new Map());
+      } else if (failed || codes.src !== 0 || codes.ids !== 0) {
+        const msg = (err || failed?.message || '').trim().split('\n').slice(-6).join('\n');
+        reject(new GitError(msg || `git ${args[0]} failed`, { code: codes.src || codes.ids || 1, stderr: err, args }));
+      } else {
+        resolve(new Map(out.split('\n').filter(Boolean).map((l) => l.split(' ').reverse())));
+      }
+    };
+    src.stdout.on('data', (d) => { bytes += d.length; if (bytes > maxBytes) stop(`passed ${maxBytes} bytes`); });
+    src.stdout.pipe(ids.stdin);
+    src.stdin.on('error', () => {});
+    ids.stdin.on('error', () => {}); // EPIPE once a cap kills patch-id
+    for (const c of [src, ids]) {
+      c.stderr.setEncoding('utf8'); c.stderr.on('data', (d) => { err += d; });
+      c.on('error', (e) => { failed = failed || e; });
+    }
+    ids.stdout.setEncoding('utf8'); ids.stdout.on('data', (d) => { out += d; });
+    src.on('close', (code) => { codes.src = code; if (!--open) finish(); });
+    ids.on('close', (code) => { codes.ids = code; if (!--open) finish(); });
+    src.stdin.end(input ?? undefined);
+  });
 }
 
 // Newest mtime among a worktree's dirty files (capped), or 0.
@@ -1892,17 +2067,16 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
     // lane descends from the base tip (any freshly branched lane).
     const cherryTips = [...new Set(candidates.filter((l) => l.ahead <= CHERRY_MAX).map((l) => l.head))];
     const squashLines = [...new Set(candidates.filter((l) => l.forkPoint).map((l) => `${l.head} ${l.forkPoint}`))];
-    const [trees, baseDiff, laneDiff, squashDiff] = await Promise.all([
-      run(cwd, ['log', `--max-count=${BASE_COMMITS}`, '--format=%H%x00%T%x00%s', b.sha, '--']),
-      run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', `--max-count=${BASE_COMMITS}`, '--format=commit %H', b.sha, '--']),
-      cherryTips.length ? run(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : '',
-      squashLines.length ? run(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : '',
+    let trees;
+    [[trees, baseIds], laneIds, squashIds] = await Promise.all([
+      baseSquashData(cwd, b.sha),
+      cherryTips.length ? patchIds(cwd, ['log', '-p', '--no-merges', '--no-color', '--no-ext-diff', '--format=commit %H', ...cherryTips, '--not', b.sha, '--']) : new Map(),
+      squashLines.length ? patchIds(cwd, ['diff-tree', '--stdin', '-p', '--no-color', '--no-ext-diff'], { input: `${squashLines.join('\n')}\n` }) : new Map(),
     ]);
     const rows = trees.split('\n').filter(Boolean).map((r) => r.split('\0'));
     baseTrees = new Set(rows.map((r) => r[1]));
     baseTree = rows[0]?.[1] || null;
     baseRows = rows.map((r) => ({ sha: r[0], subject: r[2] || '' }));
-    [baseIds, laneIds, squashIds] = await Promise.all([patchIds(cwd, baseDiff).then(newestBy), patchIds(cwd, laneDiff), patchIds(cwd, squashDiff)]);
   }
 
   for (const l of list) {
@@ -1916,7 +2090,7 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
       }
     }
   }
-  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree });
+  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree, commits });
 
   const result = await Promise.all(list.map(async (l) => {
     const merged = l.merged;
@@ -2263,16 +2437,17 @@ function parseBlame(out) {
 }
 
 module.exports = {
+  clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
-  getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, rewriteRange, rewrite, captureRefState, restoreRefState,
+  getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,

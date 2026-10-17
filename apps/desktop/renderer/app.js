@@ -3,7 +3,8 @@ import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
-import { isRowControl } from './keys.js';
+import { isRowControl, rowDoubleClick } from './keys.js';
+import { checkoutPlan } from './checkout-plan.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -11,7 +12,7 @@ import { fileHistoryView } from './file-history-view.js';
 import { lanesView, reviewCounts, prefetchReview, cachedPrs } from './lanes-view.js';
 import { branchesView } from './branches-view.js';
 import { isFinished, BRANCH_TABS } from './branches.js';
-import { rowStage, STAGES } from './review-rows.js';
+import { stageMemory, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
@@ -23,15 +24,20 @@ import { openMergePlan } from './merge-plan-view.js';
 import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
-import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageLabel, orderedSections, moveSection, showSection } from './sidebar.js';
+import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
+import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
+import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
+import { prefsWindow } from './prefs-view.js';
+import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
-import { prsByRef, prRef, prTitle, refKey, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -45,6 +51,7 @@ const state = {
   view: 'map',
   // expanded: saved choice for wide windows; pinned/hover: the overlay on narrow ones (see sidebar.js).
   sidebar: { expanded: loadPref('sidebar', { expanded: true }).expanded, pinned: false, hover: false },
+  panes: null, // pane widths in px (pane-size.js), saved for every repository
   refs: [],
   head: { branch: null, oid: null, detached: false },
   hist: createHistory(), // the history on screen; commits/index/graph below are its parts
@@ -68,13 +75,13 @@ const state = {
   snapSel: null, // selected row in the Snapshots view (journal entry id)
   reflog: [],
   config: [],
-  configFilter: '',
   remotes: [],
   worktrees: [],
   submodules: [], // see git.getSubmodules
   cv: { list: 'unstaged', path: null, sel: new Set(), anchor: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
+  sections: loadPref('sidebarSections', {}), // which refs-tree sections show, in what order (Preferences → Sidebar)
   theme: 'system',
   licence: null,
   prs: null, // pull requests from GitHub (see loadPrs); null until known
@@ -85,6 +92,7 @@ setSwatches(state.show.swatches);
 
 function loadPref(k, d) { try { return { ...d, ...JSON.parse(localStorage.getItem('pref:' + k)) }; } catch { return d; } }
 function savePref(k, v) { try { localStorage.setItem('pref:' + k, JSON.stringify(v)); } catch { /* ignore */ } }
+state.panes = loadSizes(loadPref('panes', {}));
 
 // ---------------------------------------------------------------------------
 // Git bridge
@@ -192,6 +200,8 @@ const refreshHistory = coalesce(async () => {
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
+  // Ref pages rebuild only when their rows changed, so a refresh keeps the selection and focus.
+  if (REF_LISTS[state.view] && !state.review && !state.quick && !state.split && !state.fileHistory && refListKey(state.view) !== refListShown) renderView();
 });
 
 function tipsKey(refs, head, worktrees = []) {
@@ -413,14 +423,14 @@ async function refreshAux() {
   if (!state.repo) return;
   refreshRemotes();
   // Re-render only when the data changed: a rebuild drops filters, selection and in-flight clicks.
-  const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog, state.view === 'config' && state.config]);
+  const shown = () => JSON.stringify([state.stashes, state.view === 'reflog' && state.reflog]);
   const before = shown();
   state.stashes = await git('stashes').catch(() => []);
   refreshLfs();
   if (state.view === 'reflog') state.reflog = await git('reflog').catch(() => []);
-  if (state.view === 'config') state.config = await git('config').catch(() => []);
-  renderNavCounts();
-  if (['stashes', 'reflog', 'config'].includes(state.view) && shown() !== before) renderView(true);
+  if (prefs && state.repo) { state.config = await git('config').catch(() => []); prefs.refresh(); }
+  if (shown() !== before) renderSidebar(); else renderNavCounts();
+  if (['stashes', 'reflog'].includes(state.view) && shown() !== before) renderView(true);
 }
 
 async function refreshLfs() {
@@ -485,6 +495,8 @@ let sidebarEl, topbarEl, bannerEl, contentEl;
 let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
 let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
+let stashFocus = null; // the stash a sidebar click asked the Stashes page to select
+let stashShown = null; // the stash selected on the Stashes page (for ⌘K)
 
 // ---------------------------------------------------------------------------
 // Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
@@ -543,7 +555,7 @@ async function navStep(dir) {
     renderTopbar();
     renderView();
     if (to.view === 'map' && !to.quick && !to.review && !to.fileHistory && to.selected) selectCommit(to.selected, 'center');
-    if (to.view === 'reflog' || to.view === 'config' || to.view === 'stashes') refreshAux();
+    if (to.view === 'reflog' || to.view === 'stashes') refreshAux();
     if (to.view === 'worktrees') refreshHistory();
   } finally { navigating = false; }
 }
@@ -559,7 +571,8 @@ function renderShell() {
   topbarEl = h('header.topbar');
   bannerEl = h('div.banner-slot');
   contentEl = h('div.content');
-  root.append(sidebarEl, h('main.main', null, topbarEl, bannerEl, contentEl));
+  root.append(sidebarEl, paneHandle('sidebar', () => root), h('main.main', null, topbarEl, bannerEl, contentEl));
+  applyPanes();
   sidebarEl.addEventListener('mouseenter', () => sidebarHover(true));
   sidebarEl.addEventListener('mouseleave', () => sidebarHover(false));
   root.querySelector('.main').addEventListener('mousedown', () => { if (sidebarMode(sbState()) === 'overlay') setSidebar({ ...state.sidebar, pinned: false, hover: false }); });
@@ -574,17 +587,12 @@ function renderShell() {
 // (GITLANES_START_VIEW=map, main.js), which the end-to-end tests do.
 let startView = 'lanes';
 
+// The activities at the top of the sidebar (keys 1–4). The refs tree's pages are SECTION_PAGES (sidebar.js).
 const VIEWS = [
   { id: 'catchup', label: 'Catch up', icon: 'catchup', key: '1' },
   { id: 'lanes', label: 'Review', icon: 'lanes', key: '2' },
-  { id: 'branches', label: 'Branches', icon: 'branch', key: '3' },
-  { id: 'map', label: 'Map', icon: 'map', key: '4' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '5' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '6' },
-  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '7' },
-  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '8' },
-  { id: 'config', label: 'Config', icon: 'config', key: '9' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '0' },
+  { id: 'map', label: 'Map', icon: 'map', key: '3' },
+  { id: 'commit', label: 'Commit', icon: 'commit', key: '4' },
 ];
 
 function setView(v) {
@@ -600,7 +608,7 @@ function showView(v) {
   renderSidebar();
   renderTopbar();
   renderView();
-  if (v === 'reflog' || v === 'config' || v === 'stashes') refreshAux();
+  if (v === 'reflog' || v === 'stashes') refreshAux();
   if (v === 'worktrees') refreshHistory();
 }
 
@@ -621,6 +629,7 @@ async function refreshRemotes() {
   if (JSON.stringify(remotes) === JSON.stringify(state.remotes)) return;
   state.remotes = remotes;
   $('.sb-origin')?.replaceChildren(...[originLink()].filter(Boolean));
+  renderSidebar();
 }
 
 // A person in the commit details; a link to their GitHub profile when we can place them.
@@ -659,16 +668,33 @@ function renderSidebar() {
   const groups = new Map();
   for (const r of remotes) { const n = r.short.split('/')[0]; if (!groups.has(n)) groups.set(n, []); groups.get(n).push(r); }
 
-  const section = (id, title, items, renderItem) => {
+  // A section of the refs tree. A click folds it; ⤢ or a double-click (the second click folds it back) opens its
+  // full page, and the header stays highlighted while that page is on screen.
+  const onPage = (id) => sectionOf(state.view) === id && !state.review && !state.quick && !state.split && !state.fileHistory;
+  const section = (id, title, items, renderItem, count = items.length) => {
     const collapsed = state.collapsed[id];
+    const page = SECTION_PAGES.find((p) => p.id === id);
+    const fold = () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); };
     return h('div.sb-section', { 'data-section': id },
-      h('button.sb-section-head', { onclick: () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); } },
-        h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, items.length)),
+      h('div.sb-section-row' + (onPage(id) ? '.active' : ''), null,
+        h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2 && page) setView(page.view); }, oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, id); }, 'aria-expanded': String(!collapsed) },
+          h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, count), h('span.nav-badge')),
+        page ? h('button.icon-btn.tiny.sb-page', { onclick: () => setView(page.view), 'data-view': page.view, title: tip(`Open ${page.label} page`, `view.${page.view}`), 'aria-label': `Open ${page.label} page` }, icon('expand', 12)) : null),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
     );
   };
 
-  const refItem = (r, label = r.short) => h('div.sb-item' + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
+  const sections = {
+    branches: () => section('branches', 'Branches', branches, (r) => refItem(r)),
+    remotes: () => section('remotes', 'Remotes', [...remoteRows, addRemoteItem], (el) => el, state.remotes.length),
+    tags: () => section('tags', 'Tags', tags, (r) => refItem(r)),
+    worktrees: () => section('worktrees', 'Worktrees', state.worktrees, worktreeItem),
+    prs: () => section('prs', 'Pull requests', state.prs.data?.prs || [], prItem),
+    stashes: () => section('stashes', 'Stashes', state.stashes, stashItem),
+    submodules: () => section('submodules', 'Submodules', state.submodules, submoduleItem),
+  };
+
+  const refItem = (r, label = r.short, nested = false) => h('div.sb-item' + (nested ? '.sb-nested' : '') + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
     title: r.short,
     onclick: () => jumpTo(r.target),
     ondblclick: () => r.kind === 'branch' ? checkout(r.short) : null,
@@ -711,6 +737,33 @@ function renderSidebar() {
     m.state === 'clean' ? null : h(m.state === 'uninitialized' ? 'span.sb-track' : 'span.sb-gone', null, sentence(SUBMODULE_STATES[m.state][0])),
   );
 
+  const remoteItem = (r) => h('div.sb-item', {
+    title: `${r.name}\n${r.label}`,
+    ondblclick: () => editRemoteUrl(r),
+    oncontextmenu: (e) => { e.preventDefault(); remoteMenu(e.clientX, e.clientY, r); },
+  },
+    icon('cloud', 14),
+    h('span.sb-label', null, r.name),
+    h('span.sb-track.sb-url', null, r.label),
+  );
+  // A stash: its row on the Stashes page; right-click for Apply, Pop and Drop.
+  const stashItem = (s) => h('div.sb-item', {
+    title: `${s.ref}\n${s.message}`,
+    onclick: () => { stashFocus = s.ref; setView('stashes'); },
+    oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
+  },
+    icon('stash', 14),
+    h('span.sb-label', null, s.message),
+    h('span.sb-track', null, timeAgo(s.time)),
+  );
+  // Remotes: each remote, then its branches under it.
+  const names = [...new Set([...state.remotes.map((r) => r.name), ...groups.keys()])];
+  const remoteRows = names.flatMap((name) => {
+    const r = state.remotes.find((x) => x.name === name);
+    return [r ? remoteItem(r) : null, ...(groups.get(name) || []).map((b) => refItem(b, b.short.slice(name.length + 1), true))];
+  }).filter(Boolean);
+  const addRemoteItem = h('div.sb-item.sb-add', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), h('span.sb-label', null, 'Add remote…'));
+
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
       h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
@@ -724,22 +777,9 @@ function renderSidebar() {
     h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: tip(v.label, `view.${v.id}`), 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
     h('div.sb-scroll', null,
-      state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
-      section('branches', 'Branches', branches, (r) => refItem(r)),
-      [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
-      section('tags', 'Tags', tags, (r) => refItem(r)),
-      state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
-      state.prs?.active ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
-    ),
+      shownSections().map((p) => sections[p.id]())),
     // Icons-only stand-ins for the sections above, shown in the rail.
-    h('div.sb-rail-items', null,
-      state.worktrees.length > 1 ? railItem('worktrees', 'Worktrees', 'worktree') : null,
-      railItem('branches', 'Branches', 'branch'),
-      [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
-      railItem('tags', 'Tags', 'tag'),
-      state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
-      state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
-    ),
+    h('div.sb-rail-items', null, shownSections().map((p) => railItem(p.id, p.label, p.icon))),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: tip('Fetch all', 'repo.fetch'), 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
       h('button.sb-action', { onclick: pull, title: tip('Pull', 'repo.pull'), 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
@@ -750,6 +790,34 @@ function renderSidebar() {
   applySidebar();
 }
 
+// The refs-tree sections on screen, in the saved order: not hidden in Preferences → Sidebar, and Pull requests /
+// Submodules only when the repository has them.
+const shownSections = () => orderedSections(state.sections)
+  .filter((p) => !p.hidden && (p.id !== 'prs' || state.prs?.active) && (p.id !== 'submodules' || state.submodules.length));
+function setSections(next) {
+  state.sections = next;
+  savePref('sidebarSections', next);
+  renderSidebar();
+}
+// Right-click on a section header: move or hide it, or open Preferences → Sidebar.
+function sectionMenu(x, y, id) {
+  const shown = shownSections().map((p) => p.id), i = shown.indexOf(id);
+  // Moves step over sections that aren't on screen, so one move always changes what you see.
+  const move = (dir) => {
+    const at = (s, x) => orderedSections(s).findIndex((p) => p.id === x);
+    let s = state.sections;
+    const target = shown[i + dir];
+    while (dir < 0 ? at(s, id) > at(s, target) : at(s, id) < at(s, target)) s = moveSection(s, id, dir);
+    setSections(s);
+  };
+  contextMenu(x, y, [
+    { label: 'Move Up', icon: 'chevronUp', disabled: i <= 0, run: () => move(-1) },
+    { label: 'Move Down', icon: 'chevronDown', disabled: i < 0 || i >= shown.length - 1, run: () => move(1) },
+    { label: 'Hide Section', icon: 'eye', run: () => { setSections(showSection(state.sections, id, false)); toast(`${SECTION_PAGES.find((p) => p.id === id).label} hidden. Bring it back in Preferences → Sidebar.`); } },
+    { label: 'Sidebar Preferences…', icon: 'config', run: () => openPrefs('sidebar') },
+  ]);
+}
+
 function railItem(id, label, ic) {
   return h('button.icon-btn.sb-rail-item', { title: label, 'aria-label': label, onclick: () => openSidebarAt(id) }, icon(ic));
 }
@@ -757,21 +825,19 @@ function railItem(id, label, ic) {
 function renderNavCounts() {
   if (!sidebarEl) return;
   const n = state.status.staged.length + state.status.unstaged.length + state.status.conflicts.length;
-  const set = (id, v, cls) => { const b = sidebarEl.querySelector(`[data-view="${id}"] .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
+  const set = (id, v, cls) => { const b = sidebarEl.querySelector(`.sb-nav [data-view="${id}"] .nav-badge, [data-section="${id}"] .sb-section-head .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
-  set('stashes', state.stashes.length);
   set('catchup', catchupCount, 'accent');
   set('branches', finishedCount ? `${finishedCount} to clean` : '', 'quiet');
 }
 
 function renderTopbar() {
   if (!topbarEl) return;
-  const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
     h('div.nav-btns', null,
       h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
       h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : pageLabel(state.view, VIEWS)),
     state.head.branch ? h('button.head-chip.branch-chip', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, icon('branch', 12), state.head.branch) : state.head.oid ? h('button.head-chip.branch-chip.detached', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
@@ -856,6 +922,59 @@ function isMenuKey(id, e) {
   const b = keymap.bindings(id).find((x) => !x.includes(' '));
   const k = keymap.fromEvent(e);
   return !!b && !!k && keymap.normalize(b) === keymap.normalize(k);
+}
+
+// Resizable panes (AK-454): a focusable separator on the pane's edge. Drag it, or focus it and use the arrow keys
+// (⇧ for bigger steps, Home/End for the limits); double-click or Enter resets it. The limits live in pane-size.js.
+function applyPanes() {
+  root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
+  root.style.setProperty('--cv-w', `${state.panes.commit}px`);
+  root.style.setProperty('--st-w', `${state.panes.stash}px`);
+  root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
+}
+function setPane(id, px, save = true) {
+  state.panes = { ...state.panes, [id]: px };
+  applyPanes();
+  if (save) savePref('panes', state.panes);
+}
+function resetPanes() {
+  state.panes = defaultSizes();
+  applyPanes();
+  savePref('panes', state.panes);
+}
+// `box()` is the element the pane starts at the left edge of and shares its width with.
+function paneHandle(id, box) {
+  const p = PANES[id];
+  const el = h('div.pane-handle', { role: 'separator', tabindex: 0, 'aria-orientation': 'vertical', 'aria-label': p.label, 'aria-valuemin': p.min, 'aria-valuemax': p.max, 'aria-valuenow': state.panes[id], 'data-pane': id, title: tip('Drag to resize, double-click to reset', 'global.resetPanes') });
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    const b = box().getBoundingClientRect();
+    document.body.classList.add('pane-resizing');
+    const onMove = (m) => setPane(id, clampPane(id, m.clientX - b.left, b.width), false);
+    const onUp = () => {
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+      document.body.classList.remove('pane-resizing');
+      savePref('panes', state.panes);
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+  });
+  el.addEventListener('dblclick', () => setPane(id, p.def));
+  el.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const px = stepPane(id, state.panes[id], e.key, e.shiftKey, box().getBoundingClientRect().width);
+    // Keys that act on the list the handle sits beside (discard, stage) never reach it from here.
+    if (px == null) { if (['Backspace', 'Delete', ' '].includes(e.key)) e.stopPropagation(); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    setPane(id, px);
+  });
+  return el;
 }
 
 function toggleSidebar() {
@@ -977,8 +1096,8 @@ function renderView(soft = false) {
     case 'stashes': contentEl.append(stashesView()); break;
     case 'snapshots': contentEl.append(snapshotsView()); break;
     case 'reflog': contentEl.append(reflogView()); break;
-    case 'config': contentEl.append(configView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
+    case 'remoteList': case 'tagList': case 'submoduleList': contentEl.append(refListView(state.view)); break;
     case 'lanes': contentEl.append(openLanes().el); break;
     case 'catchup': contentEl.append(openCatchup().el); break;
     case 'branches': contentEl.append(openBranches().el); break;
@@ -1007,7 +1126,13 @@ function selectCommit(sha, align = 'nearest') {
 function createMapView(container) {
   const wrap = h('div.map-wrap');
   const listWrap = h('div.map-list-wrap');
-  const scroller = h('div.map-list', { tabIndex: 0 });
+  // Double-click checks out a row. The list handles it: the row itself is redrawn mid-click.
+  const dbl = rowDoubleClick();
+  const scroller = h('div.map-list', {
+    tabIndex: 0,
+    onmousedown: (e) => dbl.listDown(e),
+    ondblclick: (e) => { const c = dbl.dblclick(e); if (c) checkoutSelected(c, [e.clientX, e.clientY]); },
+  });
   const canvas = h('canvas.graph-canvas');
   const detail = h('div.detail');
   listWrap.append(scroller, canvas);
@@ -1028,8 +1153,11 @@ function createMapView(container) {
     const pending = c.subject === null;
     if (pending) wantDetails(c.sha);
     const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
-      onmousedown: (e) => { if (e.button === 0) { if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha); } },
-      ondblclick: (e) => { if (!isRowControl(e.target)) checkoutSelected(c); },
+      onmousedown: (e) => {
+        if (e.button !== 0) return;
+        dbl.rowDown(e, c);
+        if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha);
+      },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
     },
       results ? null : h('span.graph-space', { style: { width: gw + 'px' } }),
@@ -1590,19 +1718,100 @@ function refMenu(x, y, r) {
 
 async function copy(text, msg) { await api.app('copy', text); toast(msg); }
 
-function checkout(branch) {
+async function checkout(branch) {
   const wt = worktreeOf(branch);
   if (wt) return toast(`${branch} is checked out in worktree “${wt.name}”`, { kind: 'error', detail: 'A branch can only be checked out in one worktree at a time.', action: { label: 'Switch', run: () => switchWorktree(wt) } });
-  return act(`Checkout ${branch}`, 'checkout', [branch], { success: `Switched to ${branch}` });
+  const label = `Checkout ${branch}`;
+  closeMenu();
+  try {
+    await git('checkout', branch, { __label: label });
+  } catch (e) {
+    // Only when local changes are in the way: offer to stash them and switch.
+    const blocked = !e.readOnly && blockedCheckout(`${e.stderr || ''}\n${e.message}`);
+    if (blocked) return autostashCheckout(branch, blocked);
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    await refreshAll();
+    return false;
+  }
+  toast(`Switched to ${branch}`, { kind: 'success', action: { label: 'Undo', run: undo } });
+  await refreshAll();
+  offerAutostash(branch);
+  return true;
+}
+
+// Stash, then switch (one undoable step). Asks first unless "Don't ask again" was ticked.
+async function autostashCheckout(branch, blocked) {
+  const from = state.head.branch;
+  const plan = autostashPlan(loadPref('autostash', AUTOSTASH_DEFAULT), blocked);
+  let message = stashMessage(from, branch), untracked = plan.untracked;
+  if (plan.ask) {
+    const v = await dialog({
+      title: `Stash your current changes before checking out ${branch}?`,
+      description: 'Your changes would be overwritten by this checkout. GitLanes offers them back when you return to this branch.',
+      submit: 'Stash and switch',
+      fields: [
+        { name: 'msg', label: 'Message', value: message },
+        { name: 'u', type: 'checkbox', label: 'Include untracked files', value: untracked },
+        { name: 'never', type: 'checkbox', label: 'Don’t ask again', value: false },
+      ],
+    });
+    if (!v) return false;
+    message = v.msg.trim() || message;
+    untracked = v.u || !!blocked.untracked;
+    if (v.never) savePref('autostash', { ask: false, untracked: v.u });
+  }
+  return act(`Checkout ${branch}`, 'autostashCheckout', [branch, message, untracked], {
+    success: `Stashed changes and switched to ${branch}`,
+    then: (a) => { if (a?.branch) savePref('autostashes', { list: [...loadPref('autostashes', { list: [] }).list, { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
+  });
+}
+
+// Back on a branch that was auto-stashed: offer its stash back.
+async function pendingAutostash(branch) {
+  const stashes = await git('stashes').catch(() => null);
+  if (!stashes || !state.repo) return null;
+  const { offer, records } = returnOffer(loadPref('autostashes', { list: [] }).list, state.repo.root, branch, stashes);
+  savePref('autostashes', { list: records });
+  return offer;
+}
+// Resolve the ref from the sha at click time: the toast lives 15 s and positions shift if something else is stashed.
+async function applyAutostash(o, drop) {
+  const ref = stashRefBySha(await git('stashes').catch(() => null), o.sha);
+  if (!ref) return toast('That auto-stash is gone');
+  return act(drop ? `Apply and drop ${ref}` : `Apply ${ref}`, 'stashApply', [ref, drop]);
+}
+async function offerAutostash(branch) {
+  const o = await pendingAutostash(branch);
+  if (o) toast(['Changes stashed on ', h('span.toast-ref', { title: branch }, branch)], {
+    detail: 'Saved when you switched away. Bring them back?',
+    timeout: 15000,
+    actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply and keep', run: () => applyAutostash(o, false) }],
+  });
 }
 function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
   if (b) return checkout(b.short);
   return act(`Checkout ${c.sha.slice(0, 7)}`, 'checkout', [c.sha], { success: `HEAD detached at ${c.sha.slice(0, 7)}` });
 }
-// ⌘↵ / double-click on a map row. Already at HEAD: nothing to do.
-function checkoutSelected(c) {
-  if (c.sha !== state.head.oid) return checkoutCommit(c);
+// ⌘↵ / double-click on a map row (see checkoutPlan): a branch tip switches to it; a remote-only
+// branch or a plain commit opens a small popover at `at` (or the selected row), Enter = default,
+// Esc = cancel. Every choice is an undoable act. Never throws: a failure is a toast.
+async function checkoutSelected(c, at) {
+  try {
+    const plan = checkoutPlan(c, state.refs, state.head);
+    if (!plan) return;
+    if (plan.kind === 'switch') return await checkout(plan.branch);
+    const short = c.sha.slice(0, 7);
+    const detached = { label: 'Check out detached', icon: 'checkout', run: () => act(`Checkout ${short}`, 'checkout', [c.sha], { success: `HEAD detached at ${short}` }) };
+    const first = plan.kind === 'remote'
+      ? { label: `Create local branch ${plan.local} tracking ${plan.remote}`, icon: 'branch', kbd: '↵', run: () => act(`Checkout ${plan.remote}`, 'checkoutTracking', [plan.remote], { success: `Switched to ${plan.local} tracking ${plan.remote}` }) }
+      : { label: 'New branch here…', icon: 'branch', kbd: '↵', run: () => createBranch(c.sha) };
+    const row = document.querySelector('.map-list .row.selected')?.getBoundingClientRect();
+    const [x, y] = at || (row ? [row.left + 48, row.bottom + 2] : [innerWidth / 3, innerHeight / 3]);
+    contextMenu(x, y, [{ section: plan.kind === 'remote' ? `Check out ${plan.remote}` : `Check out ${short}` }, first, detached], { focus: 0 });
+  } catch (e) {
+    toast('Checkout failed', { kind: 'error', detail: e?.message || String(e) });
+  }
 }
 async function createBranch(sha) {
   const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch' }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
@@ -1681,7 +1890,7 @@ function createCommitView(container) {
   const aiBtn = h('button.icon-btn.ai-btn', { title: tip('Write message with AI', 'repo.aiMessage'), hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
   const composer = h('div.composer', null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
   side.append(lists, composer);
-  el.append(side, diffPane);
+  el.append(side, paneHandle('commit', () => el), diffPane);
   container.append(el);
 
   function updateCommitBtn() {
@@ -2013,9 +2222,11 @@ function stashesView() {
   const el = h('div.split-view');
   const list = h('div.list-pane');
   const detail = h('div.detail-pane');
-  el.append(list, detail);
-  let current = state.stashes[0]?.ref;
+  el.append(list, paneHandle('stash', () => el), detail);
+  let current = state.stashes.some((x) => x.ref === stashFocus) ? stashFocus : state.stashes[0]?.ref;
+  stashFocus = null;
   function renderList() {
+    stashShown = current;
     list.replaceChildren(
       h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: () => stashSave() }, icon('plus', 13), 'Stash changes')),
       state.stashes.length ? h('div', null, state.stashes.map((s) => h('div.list-row' + (s.ref === current ? '.active' : ''), {
@@ -2034,24 +2245,24 @@ function stashesView() {
     detail.replaceChildren(
       h('div.diff-head', null, h('span.title', null, s.message), h('span.spacer'),
         h('button.btn.ghost.small', { onclick: () => dropStash(s) }, 'Drop'),
-        h('button.btn.subtle.small', { onclick: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) }, 'Apply'),
+        h('button.btn.subtle.small', { onclick: () => applyStash(s) }, 'Apply', kbd(...keymap.keys('stashes.apply'))),
         h('button.btn.primary.small', { onclick: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) }, 'Pop')),
       h('div.diff-scroll', null, diffs.length ? diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d))) : h('div.empty', null, 'Untracked files only')),
     );
   }
-  function stashMenu(x, y, s) {
-    contextMenu(x, y, [
-      { label: 'Apply', icon: 'check', run: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) },
-      { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) },
-      '-',
-      { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
-    ]);
-  }
-  // ↑/↓ move the selection through the list.
+  // ↑/↓ move the selection through the list; ↵ applies the selected stash (keeps it).
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
-    const step = { 'stashes.next': 1, 'stashes.prev': -1 }[keymap.match('stashes', e)];
-    if (!step || isEditable(e.target) || !state.stashes.length) return;
+    const id = keymap.match('stashes', e);
+    if (!id || isEditable(e.target) || !state.stashes.length) return;
+    if (id === 'stashes.apply') {
+      const s = state.stashes.find((x) => x.ref === current);
+      if (!s || document.activeElement?.tagName === 'BUTTON') return;
+      e.preventDefault();
+      return applyStash(s);
+    }
+    const step = { 'stashes.next': 1, 'stashes.prev': -1 }[id];
+    if (!step) return;
     e.preventDefault();
     const i = state.stashes.findIndex((x) => x.ref === current);
     const n = state.stashes[Math.max(0, Math.min(state.stashes.length - 1, i < 0 ? 0 : i + step))];
@@ -2065,6 +2276,17 @@ function stashesView() {
   renderDetail();
   setTimeout(() => el.focus({ preventScroll: true }));
   return el;
+}
+
+const applyStash = (s) => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]);
+
+function stashMenu(x, y, s) {
+  contextMenu(x, y, [
+    { label: 'Apply', icon: 'check', kbd: keymap.keys('stashes.apply'), run: () => applyStash(s) },
+    { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) },
+    '-',
+    { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
+  ]);
 }
 
 async function dropStash(s) {
@@ -2085,6 +2307,11 @@ async function stashSave({ staged = false, paths = null, untracked = false } = {
 // ---------------------------------------------------------------------------
 // Snapshots (undo history)
 
+// History & recovery: Snapshots (the undo timeline) and the reflog on one page, a tab each (AK-463).
+function historyTabs(on) {
+  const tab = (id, label) => h('button.review-tab', { role: 'tab', onclick: () => on !== id && setView(id), title: tip(label, `view.${id}`), 'aria-selected': String(on === id) }, label);
+  return h('div.history-tabs', { role: 'tablist', 'aria-label': 'History & recovery' }, tab('snapshots', 'Snapshots'), tab('reflog', 'Reflog'));
+}
 function snapshotsView() {
   const { undo: u, redo: r, undoCount, redoCount } = state.history;
   const entries = [...[...r].map((e) => ({ ...e, redo: true })), ...[...u].reverse()];
@@ -2092,7 +2319,7 @@ function snapshotsView() {
   const more = () => { state.historyLimit += 500; refreshHistory(); };
   return h('div.page', null,
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
+      h('div', null, h('h1', null, 'History & recovery'), historyTabs('snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
       h('div.page-actions', null,
         h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(...keymap.keys('edit.undo'))),
         h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(...keymap.keys('edit.redo')))),
@@ -2158,7 +2385,7 @@ async function restoreSnapshot(e) {
 
 function reflogView() {
   const el = h('div.page.flush');
-  el.append(h('div.page-head', null, h('div', null, h('h1', null, 'Unified Reflog'), h('p.muted', null, 'Recover lost commits from every ref’s history.'))));
+  el.append(h('div.page-head', null, h('div', null, h('h1', null, 'History & recovery'), historyTabs('reflog'), h('p.muted', null, 'Recover lost commits from every ref’s history.'))));
   const rows = h('div.table');
   for (const e of state.reflog) {
     rows.append(h('div.table-row', {
@@ -2184,47 +2411,6 @@ function reflogView() {
   if (!state.reflog.length) rows.append(h('div.empty', null, 'Reflog is empty'));
   el.append(rows);
   return el;
-}
-
-// ---------------------------------------------------------------------------
-// Config
-
-function configView() {
-  const el = h('div.page.flush');
-  const table = h('div.table');
-  const render = () => {
-    table.replaceChildren();
-    const filter = state.configFilter.toLowerCase();
-    for (const c of state.config) {
-      if (filter && !(c.key + ' ' + c.value).toLowerCase().includes(filter)) continue;
-      table.append(h('div.table-row.config-row', {
-        ondblclick: () => c.scope === 'local' && editConfig(c),
-        oncontextmenu: (e) => {
-          e.preventDefault();
-          contextMenu(e.clientX, e.clientY, [
-            { label: 'Edit…', icon: 'edit', disabled: c.scope !== 'local', run: () => editConfig(c) },
-            { label: 'Copy Value', icon: 'copy', run: () => copy(c.value, 'Copied') },
-            { label: 'Delete', icon: 'trash', danger: true, disabled: c.scope !== 'local', run: () => act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false }) },
-          ]);
-        },
-      }, h('span.badge.' + c.scope, null, sentence(c.scope)), h('span.mono', null, c.key), h('span.config-val', null, c.value)));
-    }
-  };
-  el.append(
-    h('div.page-head', null,
-      h('div', null, h('h1', null, 'Configuration'), h('p.muted', null, 'Effective git config. Local values can be edited.')),
-      h('div.page-actions', null,
-        h('input.input.small', { placeholder: 'Filter…', value: state.configFilter, oninput: (e) => { state.configFilter = e.target.value; render(); } }),
-        h('button.btn.subtle', { onclick: () => editConfig(null) }, icon('plus', 14), 'Add option'))),
-    table,
-  );
-  render();
-  return el;
-}
-
-async function editConfig(c) {
-  const v = await dialog({ title: c ? 'Edit option' : 'Add option', submit: 'Save', fields: [{ name: 'k', label: 'Key', value: c?.key || '', placeholder: 'user.name' }, { name: 'v', label: 'Value', value: c?.value || '' }] });
-  if (v && v.k.trim()) act(`Set ${v.k.trim()}`, 'setConfig', [v.k.trim(), v.v], { undoable: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -2305,7 +2491,68 @@ async function openIdentity() {
 // ---------------------------------------------------------------------------
 // Remote operations
 
-function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => refreshPrs().then(prefetchOnOpen) }); }
+// Managing remotes: add, edit URL, rename, remove (Remotes section, ⌥⇧⌘R, ⌘K, Preferences → Repository).
+// Each is one undoable step (journal.runRemote); removing a remote that has branches asks first.
+const remoteDone = { then: () => refreshRemotes() };
+async function addRemote() {
+  if (!state.repo) return;
+  const v = await dialog({
+    title: 'Add remote',
+    fields: [
+      { name: 'name', label: 'Name', value: state.remotes.length ? '' : 'origin', placeholder: 'upstream' },
+      { name: 'url', label: 'URL', placeholder: 'git@github.com:owner/repo.git' },
+    ],
+    submit: 'Add',
+  });
+  if (!v) return;
+  const name = v.name.trim(), url = v.url.trim(), bad = remoteNameError(name, state.remotes) || (url ? null : 'Enter a URL');
+  if (bad) return toast(bad, { kind: 'error' });
+  return act(`Add remote ${name}`, 'addRemote', [name, url], { success: `Added remote ${name}`, ...remoteDone });
+}
+async function editRemoteUrl(r) {
+  const v = await dialog({ title: `Edit URL of ${r.name}`, fields: [{ name: 'url', label: 'URL', value: r.setUrl ?? r.url }], submit: 'Save' });
+  const url = v?.url.trim();
+  if (!url || url === (r.setUrl ?? r.url)) return;
+  return act(`Edit URL of ${r.name}`, 'setRemoteUrl', [r.name, url], { success: `Changed the URL of ${r.name}`, ...remoteDone });
+}
+async function renameRemote(r) {
+  const v = await dialog({ title: `Rename ${r.name}`, description: 'Its remote branches and the upstreams that point at it are renamed too.', fields: [{ name: 'name', label: 'New name', value: r.name }], submit: 'Rename' });
+  const name = v?.name.trim();
+  if (!v || name === r.name) return;
+  const bad = remoteNameError(name, state.remotes, r.name);
+  if (bad) return toast(bad, { kind: 'error' });
+  return act(`Rename remote ${r.name} to ${name}`, 'renameRemote', [r.name, name], { success: `Renamed ${r.name} to ${name}`, ...remoteDone });
+}
+async function removeRemote(r) {
+  const warn = removeRemoteWarning(remoteUsage(state.refs, r.name), keyText('edit.undo'));
+  if (warn && !(await confirm(`Remove remote ${r.name}?`, warn, { submit: 'Remove' }))) return;
+  return act(`Remove remote ${r.name}`, 'removeRemote', [r.name], { success: `Removed remote ${r.name}`, ...remoteDone });
+}
+const remoteItems = (r, group = `Remote ${r.name}`) => [
+  { group, label: `Edit URL of ${r.name}…`, icon: 'edit', detail: r.label, keywords: 'remote url change set-url', run: () => editRemoteUrl(r) },
+  { group, label: `Rename ${r.name}…`, icon: 'edit', keywords: 'remote rename', run: () => renameRemote(r) },
+  { group, label: `Remove ${r.name}…`, icon: 'trash', keywords: 'remote remove delete', run: () => removeRemote(r) },
+];
+function remoteMenu(x, y, r) {
+  contextMenu(x, y, [
+    ...remoteItems(r).map(({ group, detail, keywords, ...i }) => ({ ...i, danger: i.icon === 'trash' })),
+    '-',
+    { label: 'Copy URL', icon: 'copy', run: () => copy(r.url, 'Copied URL') },
+    r.web ? { label: 'Open on Hosting Service', icon: 'external', run: () => api.app('external', r.web) } : null,
+    { label: 'Add Remote…', icon: 'plus', run: () => addRemote() },
+  ].filter(Boolean));
+}
+// ⌥⇧⌘R: every remote action in one searchable list.
+function remotesSwitcher() {
+  if (!state.repo) return;
+  palette(() => [
+    { group: 'Remotes', label: 'Add remote…', icon: 'plus', keywords: 'remote new origin upstream fork', run: () => addRemote() },
+    ...state.remotes.flatMap((r) => remoteItems(r)),
+  ], { placeholder: 'Manage remotes…' });
+}
+
+// PRs refresh in the background, so Fetch resolves without waiting on `gh`.
+function fetchAll() { return act('Fetch', 'fetch', [], { busy: 'Fetching all remotes…', success: 'Fetched all remotes', undoable: false, then: () => { refreshPrs().then(prefetchOnOpen); } }); }
 function pull() { return act('Pull', 'pull', [], { busy: `Pulling ${state.head.branch || ''}…`, success: 'Pulled' }); }
 async function push(force) { return act('Push', 'push', [{ force: force === true }], { busy: `Pushing ${state.head.branch || ''}…`, success: `Pushed ${state.head.branch || ''}`, undoable: false }); }
 
@@ -2315,6 +2562,68 @@ async function push(force) { return act('Push', 'push', [{ force: force === true
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 const parentDir = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
+
+// The Remotes, Tags and Submodules pages (AK-463): a sidebar section at full width. ↑/↓ move, ↵ opens the row
+// (a tag or remote branch shows in the Map, a remote edits its URL, a submodule opens), right-click for its menu.
+const REF_LISTS = {
+  remoteList: { lede: 'Every remote and its branches.', empty: 'No remotes yet.' },
+  tagList: { lede: 'Every tag, newest first.', empty: 'No tags yet.' },
+  submoduleList: { lede: 'The repositories nested in this one.', empty: 'No submodules.' },
+};
+function refListRows(view) {
+  const refRow = (r, label, nested) => ({ icon: r.kind === 'tag' ? 'tag' : 'branch', label, nested, when: r.date ? timeAgo(r.date) : '', open: () => jumpTo(r.target), menu: (x, y) => refMenu(x, y, r) });
+  if (view === 'tagList') return state.refs.filter((r) => r.kind === 'tag').sort((a, b) => b.date - a.date).map((r) => refRow(r, r.short));
+  if (view === 'submoduleList') return state.submodules.map((m) => ({ icon: 'submodule', label: m.path, sub: [sentence(SUBMODULE_STATES[m.state][0]), m.url].filter(Boolean).join(' · '), open: () => openSubmodule(m), menu: (x, y) => submoduleMenu(x, y, m) }));
+  const remote = state.refs.filter((r) => r.kind === 'remote');
+  const names = [...new Set([...state.remotes.map((r) => r.name), ...remote.map((r) => r.short.split('/')[0])])];
+  return names.flatMap((name) => {
+    const r = state.remotes.find((x) => x.name === name);
+    return [
+      r ? { icon: 'cloud', label: name, sub: r.label, open: () => editRemoteUrl(r), menu: (x, y) => remoteMenu(x, y, r) } : null,
+      ...remote.filter((b) => b.short.startsWith(name + '/')).map((b) => refRow(b, b.short.slice(name.length + 1), true)),
+    ];
+  }).filter(Boolean);
+}
+let refListShown = '';
+const refListSel = {};
+const refListKey = (view, rows = refListRows(view)) => view + '\n' + rows.map((r) => `${r.label}\t${r.sub || ''}`).join('\n');
+
+function refListView(view) {
+  const page = SECTION_PAGES.find((p) => p.view === view);
+  const rows = refListRows(view);
+  refListShown = refListKey(view, rows);
+  const el = h('div.page.flush', { tabIndex: 0 });
+  const list = h('div.ref-list');
+  let idx = Math.max(0, rows.findIndex((r) => r.label === refListSel[view]));
+  const mark = () => {
+    refListSel[view] = rows[idx]?.label;
+    list.querySelectorAll('.ref-row').forEach((row, i) => row.classList.toggle('selected', i === idx));
+  };
+  rows.forEach((r, i) => list.append(h('div.ref-row' + (r.nested ? '.nested' : ''), {
+    onclick: () => { idx = i; mark(); },
+    ondblclick: r.open,
+    oncontextmenu: (e) => { e.preventDefault(); idx = i; mark(); r.menu(e.clientX, e.clientY); },
+  }, icon(r.icon, 14), h('span.ref-name', null, r.label), h('span.ref-sub', null, r.sub || ''), h('span.when', null, r.when || ''))));
+  el.append(
+    h('div.page-head', null,
+      h('div', null, h('h1', null, page.label), h('p.muted', null, REF_LISTS[view].lede)),
+      view === 'remoteList' ? h('div.page-actions', null, h('button.btn.subtle', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), 'Add remote…')) : null),
+    rows.length ? list : h('div.empty', null, REF_LISTS[view].empty),
+    rows.length ? h('div.diff-hint.wt-hint', null, `${keyText('list.open')} Open · right-click for more`) : null,
+  );
+  el.addEventListener('keydown', (e) => {
+    const id = keymap.match('list', e);
+    if (!id || isEditable(e.target) || !rows.length) return;
+    e.preventDefault();
+    if (id === 'list.open') return rows[idx].open();
+    idx = Math.max(0, Math.min(rows.length - 1, idx + { 'list.next': 1, 'list.prev': -1 }[id]));
+    mark();
+    list.querySelector('.ref-row.selected')?.scrollIntoView({ block: 'nearest' });
+  });
+  mark();
+  setTimeout(() => el.focus({ preventScroll: true }));
+  return el;
+}
 
 function worktreesView() {
   const el = h('div.page.flush', { tabIndex: 0 });
@@ -2353,7 +2662,7 @@ function worktreesView() {
 
   el.append(
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own folder.')),
+      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own branch.')),
       h('div.page-actions', null,
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
         h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
@@ -2386,6 +2695,7 @@ function worktreesView() {
 
 // Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
 function openLanes() {
+  lanesPage?.destroy();
   lanesPage = lanesView({
     repo: state.repo.root,
     git,
@@ -2394,7 +2704,7 @@ function openLanes() {
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
-    onCheckout: (pr) => checkoutPr(pr, { worktree: true }),
+    onCheckout: (pr, opts) => checkoutPr(pr, opts),
     onPrReview: (pr, remote) => openPrReview(pr, remote),
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
@@ -2531,8 +2841,9 @@ function openReviewNow(lane, base = null) {
 // Review a pull request from the Inbox (pr-review.js): its head is fetched into FETCH_HEAD and
 // diffed locally, with the PR's actions on the page. Esc goes back to the Inbox row.
 function openPrReview(...args) { return go(() => openPrReviewNow(...args)); }
-async function openPrReviewNow(pr, remote = prRemote()) {
+async function openPrReviewNow(pr, given = null) {
   if (!state.repo || !pr) return;
+  const remote = prRemote(pr, given);
   if (!state.prs?.active) return setupPrs();
   const t = toast(`Fetching #${pr.number}…`, { kind: 'busy', timeout: 0 });
   const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
@@ -2567,7 +2878,9 @@ function prDeskAction(id) {
 // approve and close happen on GitHub (their dialogs say so); then the row re-stages and the
 // selection moves to the next row that needs you. Merge on a local branch is merge and tidy.
 function paneAction(id, row, ctx) {
-  const { pr, lane } = row;
+  const { lane } = row;
+  // The Inbox row's PR doesn't carry its remote; the page's context does.
+  const pr = row.pr && { ...row.pr, remote: prRemote(row.pr, ctx?.remote) };
   const done = () => lanesPage?.afterAction(row.key, id);
   const local = lane?.branch && !lane.isBase ? (pr && !lane.pr ? { ...lane, pr } : lane) : null;
   if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
@@ -2577,6 +2890,7 @@ function paneAction(id, row, ctx) {
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
   if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
+  if (id === 'updateBranch' && pr) return updatePrBranch(pr, done);
   if (id === 'sendBack') return sendBackRow(row, ctx);
   toast(`That doesn’t apply to ${row.title}`);
 }
@@ -2584,7 +2898,7 @@ function paneAction(id, row, ctx) {
 // Send back (send-back-view.js): the sheet for a stuck row. sendBackPr(number) opens it for that
 // PR from anywhere (Merge plan links to it), going to Review first.
 function sendBackRow(row, ctx) {
-  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: ctx?.remote || null, call: (...a) => api.app(...a), git });
+  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: prRemote(row.pr, ctx?.remote), call: (...a) => api.app(...a), git });
 }
 function sendBackPr(number) {
   if (!state.repo) return;
@@ -2602,7 +2916,7 @@ async function mergeLane(lane, base = null, onDone = null) {
   let plan;
   try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
-  const pr = state.prs?.active && prRemote() ? lane.pr : null;
+  const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   if (plan.mergeBlocker && !pr && plan.commits.length) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
   const n = plan.commits.length;
   const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
@@ -2620,7 +2934,7 @@ async function mergeLane(lane, base = null, onDone = null) {
     fields: [
       pr ? { name: 'via', type: 'select', label: 'Merge', value: plan.mergeBlocker && n ? 'github' : 'here', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }] } : null,
       n ? { name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message } : null,
-      remote || pr ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
+      remote ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
     ].filter(Boolean),
   });
   if (!v) return;
@@ -2636,6 +2950,8 @@ async function mergeLane(lane, base = null, onDone = null) {
     toast(`Merged #${pr.number} on GitHub`, { kind: 'success', detail: 'The merge on GitHub can’t be undone.' });
     onDone?.();
     await fetchAll();
+    // Local commits GitHub never saw would go with the branch: keep it and say so.
+    if (info.ok.headOid && plan.head && info.ok.headOid !== plan.head) return toast(`Kept ${lane.branch}`, { detail: `It has commits that aren’t in #${pr.number}. Push or move them, then delete the branch.` });
     return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
@@ -2934,8 +3250,9 @@ const openPrOnGitHub = (pr) => pr.url && api.app('external', pr.url);
 // Draft and review marks plus the PR's Review stage dot (AK-385: the same stage and colour as Review,
 // from GitHub's merge box, so a failing check GitHub doesn't require stays green), shared by graph
 // badges and the sidebar list.
+let prStage = stageMemory(); // new per repository
 const prMarks = (pr) => {
-  const stage = rowStage({ pr });
+  const stage = prStage(pr);
   const label = STAGES.find((x) => x.id === stage)?.label || 'In progress';
   return [
     pr.draft ? h('span.pr-draft', null, 'draft') : null,
@@ -2989,7 +3306,7 @@ async function checkoutPr(pr, { worktree = false } = {}) {
     const main = state.worktrees.find((w) => w.main);
     const v = await dialog({
       title: `Check out #${pr.number} in a new worktree`,
-      description: `Fetches ${pr.branch} from GitHub and checks it out in its own folder, as a new worktree.`,
+      description: `Fetches ${pr.branch} from GitHub and checks it out on a new branch in its own worktree.`,
       submit: 'Create worktree',
       fields: [
         { name: 'dir', label: 'Location (optional)', placeholder: main ? `${tildify(parentDir(main.path))}/${main.name}-${pr.branch.replace(/\//g, '-')}` : '' },
@@ -3167,6 +3484,27 @@ async function hidePrs(hide) {
   toast(hide ? 'Hidden in this repository' : 'Shown in this repository', { action: { label: 'Undo', run: () => hidePrs(!hide) } });
 }
 
+// Which remote the PR features use here (AK-461): Automatic or one GitHub remote by name. Saved per repository
+// in settings.json; switching reloads the PR list from the new remote.
+async function setPrRemote(name) {
+  const prev = state.prs?.chosen ?? null;
+  const next = await api.app('pr-remote', name).catch((err) => { toast('Couldn’t change the remote', { kind: 'error', detail: err.message }); return null; });
+  if (!next) return;
+  // The cached list came from the old remote.
+  if (state.repo) localStorage.removeItem(prCacheKey(state.repo.root));
+  setPrState(next);
+  if (next.active) refreshPrs();
+  toast(next.remote ? `Pull requests use ${next.remote.name}` : 'Pull requests use the default remote', { detail: next.remote ? `${next.remote.owner}/${next.remote.repo}` : null, action: { label: 'Undo', run: () => setPrRemote(prev) } });
+}
+function pickPrRemote() {
+  const st = state.prs;
+  if (!st?.choices?.length) return toast('This repository has no GitHub remote');
+  palette(() => [
+    { group: 'Remote for pull requests', label: 'Automatic', detail: 'origin when it is on GitHub, else the first GitHub remote', icon: st.chosen ? 'cloud' : 'check', run: () => setPrRemote(null) },
+    ...st.choices.map((c) => ({ group: 'Remote for pull requests', label: c.name, detail: `${c.owner}/${c.repo}`, icon: st.chosen === c.name ? 'check' : 'cloud', run: () => setPrRemote(c.name) })),
+  ], { placeholder: 'Remote for pull requests…' });
+}
+
 // ⌘⌥P: open PRs, newest update first; pick one to jump to its branch.
 function prList() {
   if (!state.prs?.active) return setupPrs();
@@ -3187,7 +3525,7 @@ function prList() {
 // Approve, merge and close. These happen on GitHub, so ⌘Z can't undo them, and each sheet says
 // so. What follows locally (fetch, deleting the merged branch) goes through the journal as usual.
 const REMOTE_NOTE = 'This happens on GitHub. ⌘Z can’t undo it.';
-const prRemote = () => state.prs?.data?.remote?.name;
+const prRemote = (pr, fallback) => prActionRemote(pr, state.prs, fallback);
 
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
 function withPr(pr, verb, fn) {
@@ -3203,7 +3541,7 @@ function withPr(pr, verb, fn) {
 
 async function prCall(channel, pr, opts, busy) {
   const t = toast(busy, { kind: 'busy', timeout: 0 });
-  const res = await api.app(channel, prRemote(), pr.number, opts).catch((e) => ({ error: { message: e.message } }));
+  const res = await prActionCall((...a) => api.app(...a), channel, pr, opts, { prs: state.prs });
   t.close();
   return res;
 }
@@ -3298,6 +3636,27 @@ const closePr = (given, onDone) => withPr(given, 'Close', async (pr) => {
   refreshPrs();
 });
 
+// Update branch (AK-364): bring a PR that isn't checked out here up to date with its base on
+// GitHub (`gh pr update-branch`), with a merge commit or a rebase. GitHub refuses when the two
+// conflict; then the PR has to be checked out and fixed here.
+const updatePrBranch = (given, onDone) => withPr(given, 'Update branch of', async (pr) => {
+  const base = pr.base || 'its base';
+  const v = await dialog({
+    title: `Update #${pr.number} with ${base}?`,
+    description: `${pr.title}\n${REMOTE_NOTE}`,
+    submit: 'Update branch',
+    fields: [{ name: 'how', type: 'select', label: 'How', value: 'merge', options: [{ value: 'merge', label: `Merge ${base} into it` }, { value: 'rebase', label: `Rebase it onto ${base} (rewrites its commits)` }] }],
+  });
+  if (!v) return;
+  const res = await prCall('pr-update-branch', pr, { rebase: v.how === 'rebase' }, `Updating #${pr.number}…`);
+  if (res.error) return pr.mergeState === 'dirty' || pr.mergeable === false
+    ? toast(`Couldn’t update #${pr.number}`, { kind: 'error', detail: `GitHub can’t update a branch that conflicts with ${base}. Check it out (${keyText('lanes.checkout')}) to fix it here.` })
+    : prError(`Couldn’t update #${pr.number}`, res.error);
+  toast(`Updated #${pr.number} with ${base}`, { kind: 'success' });
+  onDone?.();
+  refreshPrs();
+});
+
 // The inbox's Ready bucket, squash-merged on GitHub one at a time after one confirmation. Stops
 // at the first failure and says what merged. The branches stay; deleting them is up to you.
 async function mergeReadyPrs(prs, remote) {
@@ -3312,7 +3671,7 @@ async function mergeReadyPrs(prs, remote) {
   const merged = [];
   for (const pr of prs) {
     const t = toast(`Merging #${pr.number} (${merged.length + 1} of ${prs.length})…`, { kind: 'busy', timeout: 0 });
-    const res = await api.app('pr-merge', remote, pr.number, { method: 'squash', deleteBranch: false, admin: false }).catch((e) => ({ error: { message: e.message } }));
+    const res = await prActionCall((...a) => api.app(...a), 'pr-merge', pr, { method: 'squash', deleteBranch: false, admin: false }, { prs: state.prs, remote });
     t.close();
     if (res.error) {
       prError(`Couldn’t merge #${pr.number}${merged.length ? ` · merged ${merged.map((n) => `#${n}`).join(', ')}` : ''}`, res.error);
@@ -3371,6 +3730,11 @@ function openPalette() {
     const items = [];
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
     VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: keymap.keys(`view.${v.id}`) }));
+    SECTION_PAGES.forEach((p) => add('Navigation', `Open ${p.label} page`, () => setView(p.view), { icon: p.icon, kbd: keymap.keys(`view.${p.view}`), keywords: 'sidebar section full page' }));
+    orderedSections(state.sections).forEach((p) => add('View', `${p.hidden ? 'Show' : 'Hide'} ${p.label} in the sidebar`, () => setSections(showSection(state.sections, p.id, p.hidden)), { icon: p.icon, keywords: 'sidebar section show hide refs tree' }));
+    add('View', 'Reorder sidebar sections…', () => openPrefs('sidebar'), { icon: 'sidebar', kbd: keymap.keys('app.settings'), keywords: 'sidebar section order move show hide preferences' });
+    add('Navigation', 'Open History & recovery', () => setView('snapshots'), { icon: 'history', kbd: keymap.keys('view.snapshots'), keywords: 'snapshots undo timeline restore recover lost' });
+    add('Navigation', 'Open Reflog (History & recovery)', () => setView('reflog'), { icon: 'reflog', kbd: keymap.keys('view.reflog'), keywords: 'reflog recover lost commits' });
     add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: keymap.keys('repo.fetch') });
     add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: keymap.keys('repo.pull') });
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });
@@ -3381,32 +3745,42 @@ function openPalette() {
     add('Repository', 'New pull request…', () => createPr(), { icon: 'plus', kbd: keymap.keys('repo.prCreate'), keywords: 'pr github gh create open push' });
     add('Repository', 'New pull request from branch…', pickPrBranch, { icon: 'plus', keywords: 'pr github gh create open branch' });
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
-    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh lane review' });
+    add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh branch review' });
     if (state.prs?.active) {
       add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
       add('Repository', 'Request changes on pull request…', () => requestChangesPr(), { icon: 'edit', kbd: keymap.keys(state.review?.pr ? 'review.changes' : 'repo.prChanges'), keywords: 'pr github gh review request changes reject' });
       add('Repository', 'Review pull request…', pickPrReview, { icon: 'diff', keywords: 'pr github gh review diff files inbox' });
-      if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} in a new worktree`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree lane checkout' });
+      if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} in a new worktree`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree branch checkout' });
       add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
       add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
     add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
     if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
+    if (state.prs?.choices?.length > 1) add('Repository', 'Choose remote for pull requests…', pickPrRemote, { icon: 'cloud', kbd: keymap.keys('global.prRemote'), keywords: 'pr github gh remote origin fork upstream push' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
+    add('Repository', 'Manage remotes…', remotesSwitcher, { icon: 'cloud', kbd: keymap.keys('repo.remotes'), keywords: 'remote origin upstream fork url' });
+    add('Repository', 'Add remote…', () => addRemote(), { icon: 'plus', keywords: 'remote new origin upstream fork' });
+    for (const it of state.remotes.flatMap((r) => remoteItems(r, 'Repository'))) items.push(it);
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: keymap.keys('repo.stash') });
+    if (!loadPref('autostash', AUTOSTASH_DEFAULT).ask) add('Repository', 'Ask before auto-stashing on checkout', () => { savePref('autostash', AUTOSTASH_DEFAULT); toast('GitLanes will ask before stashing on checkout'); }, { icon: 'stash', keywords: 'autostash auto stash checkout switch dont ask again' });
+    if (state.head?.branch && loadPref('autostashes', { list: [] }).list.some((x) => x.root === state.repo?.root && x.branch === state.head.branch)) {
+      add('Repository', `Apply auto-stash for ${state.head.branch}`, async () => { const o = await pendingAutostash(state.head.branch); if (o) applyAutostash(o, true); else toast('That auto-stash is gone'); }, { icon: 'stash', keywords: 'autostash auto stash pop apply drop' });
+    }
     add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
     if (nav.canBack) add('View', 'Back', goBack, { icon: 'chevronLeft', kbd: keymap.keys('view.back'), keywords: 'previous history return navigate' });
     if (nav.canForward) add('View', 'Forward', goForward, { icon: 'chevron', kbd: keymap.keys('view.forward'), keywords: 'next history navigate' });
     const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
+    const shownStash = state.view === 'stashes' && state.stashes.find((x) => x.ref === stashShown);
+    if (shownStash) add('Repository', `Apply ${shownStash.ref}`, () => applyStash(shownStash), { icon: 'stash', kbd: keymap.keys('stashes.apply'), detail: shownStash.message, keywords: 'stash apply unstash restore changes' });
     if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: keymap.keys('snapshots.restore'), keywords: 'snapshot undo history timeline jump back restore' });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: keymap.keys('repo.lfs'), detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
-    add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base lane files progress' });
+    add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base branch files progress' });
     add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: keymap.keys('repo.fileHistory'), detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: keymap.keys('repo.difftool'), keywords: 'difftool external diff tool compare kaleidoscope beyond' });
     if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
@@ -3455,16 +3829,16 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
-    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'lane squash merge tidy cleanup remove worktree delete branch land' });
+    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'squash merge tidy cleanup remove worktree delete branch land' });
     if (laneSel && !state.review) {
       const l = laneSel.lane;
       const t = laneTitle(l);
       const next = laneSel.step;
-      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'lane review next step primary button' });
-      if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'lane conflicts update base' });
-      if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'lane ci failing pull request github' });
-      if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} lane ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'lane remove worktree branch discard stalled abandon' });
-      if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'lane merged shipped tidy remove' });
+      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'branch review next step primary button' });
+      if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'branch conflicts update base' });
+      if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'branch ci failing pull request github' });
+      if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} branch ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'remove worktree branch discard stalled abandon' });
+      if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'branch merged shipped tidy remove' });
     }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue' });
@@ -3476,12 +3850,14 @@ function openPalette() {
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
+      if (paneSel.row.pr && !paneSel.row.lane) add('Review', `Check out ${t} here`, () => checkoutPr(paneSel.row.pr), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
-      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || (x.id === 'checks' && !paneSel.row.lane))) {
-        add('Review', `${a.id === 'checks' ? 'Open failing checks of' : 'Show conflicts in'} ${t}`, () => (a.id === 'checks' ? paneAction('checks', paneSel.row, paneSel.ctx) : lanesPage.showRowConflicts()), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase' });
+      for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || x.id === 'updateBranch' || (x.id === 'checks' && !paneSel.row.lane))) {
+        const label = a.id === 'checks' ? 'Open failing checks of' : a.id === 'updateBranch' ? 'Update branch of' : 'Show conflicts in';
+        add('Review', `${label} ${t}${a.id === 'updateBranch' ? ' on GitHub…' : ''}`, () => (a.id === 'showConflicts' ? lanesPage.showRowConflicts() : paneAction(a.id, paneSel.row, paneSel.ctx)), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase update branch behind merge base github' });
       }
     }
-    add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'lanes prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
+    add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
     if (state.view === 'branches' && branchesPage?.tab() === 'finished' && !state.review) {
       const n = branchesPage.panel.count();
       if (n) add('Branches', `Clean up ${n} ticked branch${n === 1 ? '' : 'es'}…`, () => branchesPage.panel.go(), { icon: 'trash', kbd: keymap.keys('cleanup.run'), keywords: 'clean up finished remove delete merged worktrees undo' });
@@ -3495,7 +3871,7 @@ function openPalette() {
       if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
       add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
     }
-    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap lanes worktrees' });
+    add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap worktrees' });
     if (state.view === 'branches' && branchesPage && !state.review) {
       for (const t of BRANCH_TABS) add('Branches', `Show ${t.label}`, () => branchesPage.setTab(t.id), { icon: 'branch', kbd: keymap.keys(t.keyId), detail: branchesPage.tab() === t.id ? 'current' : null, keywords: 'branches tab active agent made would conflict idle finished clean up worktrees' });
       const sel = branchesPage.selected();
@@ -3520,9 +3896,10 @@ function openPalette() {
         add('Review', `Show ${label}`, () => lanesPage.setTab(id), { icon: 'lanes', kbd: keymap.keys(keyId), detail: lanesPage.tab() === id ? 'current' : null, keywords: 'review tab list stuck ready merge in progress open pull requests needs you' });
       }
     }
-    add('View', state.show.agentLanes !== false ? 'Stop marking agent-made branches' : 'Mark branches that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge lanes worktree settings' });
+    add('View', state.show.agentLanes !== false ? 'Stop marking agent-made branches' : 'Mark branches that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge branch worktree settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
+    add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list stash panel pane default restore drag' });
     add('View', sidebarToggleLabel(sbState()), toggleSidebar, { icon: 'sidebar', kbd: keymap.keys('view.sidebar'), keywords: 'toggle sidebar collapse minimize expand rail' });
     THEMES.forEach((t) => add('View', `Theme: ${t.label}`, () => setTheme(t.id), { icon: t.icon, detail: state.theme === t.id ? 'current' : null, keywords: 'appearance light dark mode system' }));
     add('View', 'Cycle theme', cycleTheme, { icon: 'theme', kbd: THEME_KBD, keywords: 'appearance light dark mode' });
@@ -3538,13 +3915,15 @@ function openPalette() {
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
     add('App', 'Close repository', closeRepo, { icon: 'x' });
-    add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
-    if (state.licence?.mode !== 'licensed') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
+    if (state.licence?.mode !== 'beta') add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
+    if (state.licence?.mode !== 'licensed' && state.licence?.mode !== 'beta') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
     add('App', 'Export shortcuts…', exportShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom save file json' });
     add('App', 'Import shortcuts…', importShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom load file json' });
     add('App', 'Reset all shortcuts to defaults', resetShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom restore default' });
+    add('App', 'Preferences…', () => openPrefs(), { icon: 'config', kbd: keymap.keys('app.settings'), keywords: 'settings options config general appearance sidebar git' });
+    if (state.repo) add('Repository', 'Repository settings…', () => openPrefs('repository'), { icon: 'config', kbd: keymap.keys('view.config'), keywords: 'git config configuration option local' });
     add('App', 'Keyboard shortcuts', openShortcuts, { icon: 'command', kbd: keymap.keys('help.shortcuts'), keywords: 'keys keymap bindings hotkeys cheat sheet help' });
     add('App', 'Choose defaults…', openSetup, { icon: 'check', kbd: keymap.keys('global.setup'), keywords: 'settings preferences setup onboarding defaults features welcome' });
     add('App', update.auto === false ? 'Turn on automatic update checks' : 'Turn off automatic update checks', toggleAutoUpdate, { icon: 'update', keywords: 'update automatic auto check daily settings' });
@@ -3611,7 +3990,7 @@ async function setupFeature(id, on) {
 // The PR row: a switch once GitHub CLI is installed and logged in, else Set up…. Without a
 // repository the main process can't answer yet, so the row offers Set up….
 async function prSetup() {
-  const st = state.repo ? await api.app('pr-state').catch(() => null) : null;
+  const st = await api.app('pr-state').catch(() => null);
   if (!st) return { on: false, setup: true };
   return { on: st.enabled, setup: !st.enabled && (st.gh === 'missing' || prLoggedOut) };
 }
@@ -3651,6 +4030,7 @@ function shortcutsScope() {
   if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
+  if (['remoteList', 'tagList', 'submoduleList'].includes(state.view)) return 'list';
   return ['commit', 'stashes', 'snapshots', 'worktrees', 'catchup', 'branches'].includes(state.view) ? state.view : 'map';
 }
 function openShortcuts() {
@@ -3678,6 +4058,89 @@ async function resetShortcuts() {
   if (!await confirm('Reset every shortcut to its default?', 'Your custom shortcuts are removed.', { submit: 'Reset All' })) return;
   await api.app('set-keymap', {});
   toast('Shortcuts reset to the defaults', { kind: 'success' });
+}
+
+// ---------------------------------------------------------------------------
+// Preferences window (⌘,; prefs.js / prefs-view.js). No new store: each row reads and writes the same saved
+// value as ⌘K and the menus (settings.json in the main process, or the renderer's prefs), and acts the same way.
+
+let prefs = null;
+const prefState = () => ({
+  autoUpdate: update.auto,
+  licence: state.licence && state.licence.mode !== 'beta' ? { licensed: state.licence.mode === 'licensed', detail: trialLine(state.licence) } : null,
+  autostash: loadPref('autostash', AUTOSTASH_DEFAULT),
+  ai: aiLabel(),
+  theme: state.theme,
+  themes: THEMES,
+  show: state.show,
+  sidebarExpanded: state.sidebar.expanded,
+  sections: orderedSections(state.sections),
+  prs: prefPrs,
+  repo: Boolean(state.repo),
+  config: state.config,
+  remotes: state.remotes,
+});
+let prefPrs = null;
+async function loadPrefState() {
+  const [ai, pr, config] = await Promise.all([
+    api.app('ai-settings').catch(() => null),
+    api.app('pr-state').catch(() => null),
+    state.repo ? git('config').catch(() => []) : [],
+  ]);
+  if (ai) state.ai = ai;
+  prefPrs = pr;
+  state.config = config;
+}
+async function openPrefs(section) {
+  if (prefs) return prefs.show(section || 'general');
+  if (document.querySelector('.overlay:not(.closing)')) return;
+  await loadPrefState();
+  if (prefs || document.querySelector('.overlay:not(.closing)')) return;
+  prefs = prefsWindow({ section, rows: () => prefRows(prefState()), act: prefAct, onClose: () => { prefs = null; } });
+}
+// Rows that open their own window close Preferences first.
+const leavePrefs = (then) => { prefs?.close(); setTimeout(then, 120); };
+async function prefAct(row, value) {
+  const id = row.id;
+  if (row.kind === 'config') return configAct(row.value, value);
+  if (id === 'autoUpdate') { const s = await api.app('set-auto-update', value); update = { ...update, auto: s.auto }; }
+  else if (id === 'checkUpdates') await api.app('check-updates');
+  else if (id === 'licence') leavePrefs(() => openLicence());
+  else if (id === 'setup') leavePrefs(openSetup);
+  else if (id === 'autostashAsk' || id === 'autostashUntracked') {
+    const a = loadPref('autostash', AUTOSTASH_DEFAULT);
+    savePref('autostash', id === 'autostashAsk' ? { ...a, ask: value } : { ...a, untracked: value });
+  }
+  else if (id === 'identity') leavePrefs(openIdentity);
+  else if (id === 'ai') await setupAi();
+  else if (id === 'theme') { state.theme = value; await setTheme(value); }
+  else if (id in state.show) { if (state.show[id] !== value) { if (state.repo) toggleShow(id); else { state.show[id] = value; savePref('show', state.show); if (id === 'swatches') setSwatches(value); } } }
+  else if (id === 'sidebarExpanded') setSidebar({ ...state.sidebar, expanded: value });
+  else if (id === 'resetPanes') resetPanes();
+  else if (id.startsWith('section:')) { const sec = id.slice(8); setSections(value === 'up' || value === 'down' ? moveSection(state.sections, sec, value === 'up' ? -1 : 1) : showSection(state.sections, sec, value)); }
+  else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prRemote') { await setPrRemote(prRemoteChoice(value)); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'shortcuts') leavePrefs(openShortcuts);
+  else if (id === 'importShortcuts') await importShortcuts();
+  else if (id === 'exportShortcuts') await exportShortcuts();
+  else if (id === 'resetShortcuts') await resetShortcuts();
+  else if (id === 'addConfig') return configAct(null);
+  else if (id === 'addRemote') await addRemote();
+  else if (id.startsWith('remote:')) { const r = state.remotes.find((x) => `remote:${x.name}` === id); if (r) leavePrefs(() => palette(() => remoteItems(r), { placeholder: `Remote ${r.name}…` })); }
+}
+// One git config entry of the open repository: edit (local only), copy or unset. Moved here from the old
+// Config view; the table refreshes once git has the new value.
+async function configAct(c, how) {
+  if (how === 'copy') return copy(c.value, 'Copied');
+  if (c && c.scope !== 'local') return toast(`${c.key} is set in your ${c.scope} git config`, { detail: 'Only this repository’s local values can be edited here.' });
+  if (how === 'unset') await act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false });
+  else {
+    const v = await dialog({ title: c ? 'Edit option' : 'Add option', submit: 'Save', fields: [{ name: 'k', label: 'Key', value: c?.key || '', placeholder: 'user.name' }, { name: 'v', label: 'Value', value: c?.value || '' }] });
+    if (!v || !v.k.trim()) return;
+    await act(`Set ${v.k.trim()}`, 'setConfig', [v.k.trim(), v.v], { undoable: false });
+  }
+  state.config = await git('config').catch(() => state.config);
 }
 
 async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
@@ -3747,10 +4210,10 @@ async function loadRepo(repo) {
   state.fileHistory = null;
   state.review = null;
   state.search = '';
-  state.configFilter = '';
   commitCache.clear();
   state.remotes = [];
   state.prs = null;
+  prStage = stageMemory();
   document.title = repo.name;
   if (from) nav.record(from, placeKey());
   renderShell();
@@ -3799,7 +4262,8 @@ const commands = {
   redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); else tour?.redo(); },
   search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
-  view: (v) => setView(v),
+  view: (v) => (v === 'config' ? openPrefs('repository') : setView(v)),
+  preferences: (section) => openPrefs(section),
   back: goBack,
   forward: goForward,
   sidebar: toggleSidebar,
@@ -3828,6 +4292,7 @@ const commands = {
   fileHistory: () => openFileHistory(),
   review: () => openReview(),
   identity: () => openIdentity(),
+  remotes: () => remotesSwitcher(),
   aiMessage: () => writeMessageWithAi(),
   aiSetup: () => state.repo && setupAi(),
   prs: () => state.repo && prList(),
@@ -3847,6 +4312,9 @@ api.on('command', (cmd, ...args) => {
   // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
   if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
   if (shortcuts && cmd === 'search') return shortcuts.find();
+  // With Preferences open, ⌘, closes it, ⌘9 jumps to Repository and ⌘F goes to its search.
+  if (prefs && cmd === 'preferences') return openPrefsCommand(args[0]) === 'show' ? prefs.show(args[0]) : prefs.close();
+  if (prefs && cmd === 'search') return prefs.find();
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
   commands[cmd]?.(...args);
 });
@@ -3983,8 +4451,6 @@ window.addEventListener('keydown', (e) => {
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
   // ⌘S toggles the sidebar from the View menu; its other keys (⌘\) have no menu accelerator, so handle them here
   if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
-  // ⌘3: Branches. The View menu doesn't list it yet, so its key is handled here.
-  if (state.repo && keymap.match('menu', e) === 'view.branches') { e.preventDefault(); setView('branches'); return; }
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }
@@ -4001,7 +4467,9 @@ window.addEventListener('keydown', (e) => {
     if (state.view === 'snapshots' && !state.fileHistory && !state.quick && !state.split && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
   if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
+  if (state.repo && id === 'global.resetPanes') { e.preventDefault(); resetPanes(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
+  if (state.repo && id === 'global.prRemote') { e.preventDefault(); pickPrRemote(); return; }
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
     e.preventDefault();
@@ -4028,6 +4496,7 @@ api.on('theme', (mode, { announce } = {}) => {
   state.theme = mode;
   if (announce) toast(`Theme: ${themeLabel(mode)}`);
   setTimeout(() => mapView?.refresh(), 50);
+  prefs?.refresh();
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 

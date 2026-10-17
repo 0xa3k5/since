@@ -62,6 +62,7 @@ const P = {
   redo: '<path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a4 4 0 0 0 0 8H9"/>',
   folder: '<path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/>',
   terminal: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="m4.8 6.2 2 1.8-2 1.8M8.5 10h2.7"/>',
+  expand: '<path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9"/>',
   external: '<path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"/>',
   copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5"/>',
   trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.5"/>',
@@ -139,12 +140,19 @@ export const loading = (label = 'Loading…') => h('div.loading-state', { role: 
 export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd', null, k)));
 
 // --- Toasts --------------------------------------------------------------------
-export function toast(message, { kind = 'info', action, timeout = 4200, detail } = {}) {
+// `action` is one inline text link (Undo). `actions` is a choice: a row of buttons under the text
+// (the first, or any with `primary`, is the primary one) plus a dismiss button; the title stays on one line.
+export function toast(message, { kind = 'info', action, actions = [], timeout = 4200, detail } = {}) {
   let root = $('#toasts');
-  const el = h('div.toast.' + kind, null,
+  const run = (a) => () => { a.run(); close(); };
+  const choice = actions.length > 0;
+  const primary = actions.find((a) => a.primary) || actions[0];
+  const el = h('div.toast.' + kind + (choice ? '.choice' : ''), null,
     kind === 'error' ? icon('warning') : kind === 'success' ? icon('check') : kind === 'busy' ? h('span.spinner') : null,
-    h('div.toast-body', null, h('div.toast-title', null, message), detail ? h('div.toast-detail', null, detail) : null),
-    action ? h('button.toast-action', { onclick: () => { action.run(); close(); } }, action.label) : null,
+    h('div.toast-body', null, h('div.toast-title', null, message), detail ? h('div.toast-detail', null, detail) : null,
+      choice ? h('div.toast-actions', null, actions.map((a) => h('button.btn.small.' + (a === primary ? 'primary' : 'subtle'), { onclick: run(a) }, a.label))) : null),
+    action ? h('button.toast-action', { onclick: run(action) }, action.label) : null,
+    choice ? h('button.icon-btn.tiny.toast-close', { 'aria-label': 'Dismiss', title: 'Dismiss', onclick: () => close() }, icon('x', 12)) : null,
   );
   root.append(el);
   requestAnimationFrame(() => el.classList.add('in'));
@@ -220,7 +228,8 @@ export const prompt = (title, { label, value, placeholder, submit = 'Create', de
 
 // --- Context menu ---------------------------------------------------------------
 let openMenu = null;
-export function contextMenu(x, y, items) {
+// `focus`: index of the actionable item highlighted on open, so Enter picks it (a popover's default).
+export function contextMenu(x, y, items, { focus = -1 } = {}) {
   closeMenu();
   const flat = items.filter(Boolean);
   const menu = h('div.menu', { role: 'menu' });
@@ -242,6 +251,7 @@ export function contextMenu(x, y, items) {
   menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
   let idx = -1;
   function focusItem(i) { actionable.forEach((a) => a.classList.remove('active')); idx = i; if (actionable[i]) actionable[i].classList.add('active'); }
+  if (focus >= 0) focusItem(focus);
   const onKey = (e) => {
     const id = keymap.match('dialog', e);
     if (id === 'dialog.cancel') { e.preventDefault(); e.stopPropagation(); closeMenu(); }

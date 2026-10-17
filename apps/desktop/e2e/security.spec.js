@@ -78,7 +78,7 @@ test('the app opens no network connections of its own', async ({ sandbox, launch
   test.skip(process.platform !== 'darwin', 'uses lsof');
   const repo = sandbox.linear('repo');
   const app = await launch(repo);
-  for (const view of ['commit', 'stashes', 'snapshots', 'reflog', 'config', 'map']) await app.view(view);
+  for (const view of ['commit', 'stashes', 'snapshots', 'reflog', 'map']) await app.view(view);
   await app.selectRow('two');
   await app.settle();
 

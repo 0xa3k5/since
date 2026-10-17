@@ -54,6 +54,14 @@ test('checks: failure wins, then pending; no checks is null', () => {
   assert.equal(github.checksState([run('COMPLETED', 'TIMED_OUT')]), 'failure');
 });
 
+test('checkCounts: skipped and neutral pass, like the merge box; null with no checks', () => {
+  const run = (status, conclusion = '') => ({ status, conclusion });
+  const ctx = (state) => ({ state });
+  assert.equal(github.checkCounts([]), null);
+  assert.equal(github.checkCounts(undefined), null);
+  assert.deepEqual(github.checkCounts([run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'SKIPPED'), run('COMPLETED', 'NEUTRAL'), run('COMPLETED', 'FAILURE'), run('IN_PROGRESS'), ctx('SUCCESS'), ctx('PENDING')]), { passed: 4, total: 7 });
+});
+
 test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', () => {
   const out = JSON.stringify([
     PR({ number: 1, updatedAt: '2026-10-01T00:00:00Z', isDraft: true, reviewDecision: '', statusCheckRollup: [{ status: 'QUEUED' }] }),
@@ -62,7 +70,7 @@ test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', ()
   ]);
   const prs = github.parsePrs(out);
   assert.deepEqual(prs.map((p) => p.number), [2, 1]);
-  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], checkCounts: { passed: 0, total: 1 }, author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
   assert.equal(prs[0].review, 'changes');
   assert.equal(prs[0].url, null, 'only https links');
   assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
@@ -102,6 +110,11 @@ test('listPrs / detect: missing gh, logged out and other errors', async () => {
   const { calls, exec } = recorder('');
   assert.equal((await github.detect({ remotes: [ORIGIN], dirs: [fakeGh()], exec })).gh, 'ready');
   assert.deepEqual(calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  // No repository open: the github.com login only, no remote needed.
+  const none = recorder('');
+  assert.deepEqual(await github.detect({ remotes: null, dirs: [fakeGh()], exec: none.exec }), { gh: 'ready', remote: null });
+  assert.deepEqual(none.calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  await assert.rejects(github.detect({ remotes: [], dirs: [fakeGh()], exec: none.exec }), { code: 'gh-no-remote' });
 });
 
 test('settings: one user-wide flag, a per-repository hide, and the old per-repository keys migrated', () => {
@@ -109,7 +122,7 @@ test('settings: one user-wide flag, a per-repository hide, and the old per-repos
   assert.deepEqual(github.normalize({ on: false, hidden: ['/a', 3] }), { on: false, hidden: ['/a'] });
   // Upgrades: on if any repository had it on; the old `repos` key is dropped.
   assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { on: true, hidden: [] });
-  assert.deepEqual(github.normalize({ repos: [] }), { on: null, hidden: [] });
+  assert.deepEqual(github.normalize({ repos: [] }), { on: false, hidden: [] }, 'turned off in the last repository stays off');
   assert.equal(github.normalize({ on: false, repos: ['/a'] }).on, false, 'an explicit choice wins');
   let s = github.setEnabled(undefined, true);
   assert.ok(github.isEnabled(s, '/a') && github.isEnabled(s, '/b'), 'on for every repository');
@@ -177,8 +190,14 @@ test('parsePrHead: refuses odd output, wrong PR, bad shas and unsafe branch name
   assert.throws(() => github.parsePrHead('[]', 12), { code: 'gh-failed' });
   assert.throws(() => github.parsePrHead(HEAD(), 13), { code: 'gh-failed' });
   assert.throws(() => github.parsePrHead(HEAD({ headRefOid: 'HEAD' }), 12), /no head commit/);
-  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'semi;colon']) {
+  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'a/.b', 'a~b', 'a:b', 'a?b', 'a[b', 'a\\b', '@', 'x@{1}', 'dot.']) {
     assert.throws(() => github.parsePrHead(HEAD({ headRefName: name }), 12), { code: 'gh-failed' }, name);
+  }
+});
+
+test('parsePrHead: takes any branch name git accepts', () => {
+  for (const name of ['fix+x', 'issue#12', 'me@work', 'café/ñ', 'semi;colon', 'a.b/c-d_e']) {
+    assert.equal(github.parsePrHead(HEAD({ headRefName: name }), 12).local, name);
   }
 });
 
@@ -250,6 +269,8 @@ test('PR actions: gh arguments', async () => {
   assert.deepEqual(await run('mergePr', { method: 'rebase', deleteBranch: true, admin: true }), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--rebase', '--delete-branch', '--admin']);
   assert.deepEqual(await run('approvePr'), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve']);
   assert.deepEqual(await run('approvePr', { body: ' --admin looks good ' }), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve', '--body=--admin looks good']);
+  assert.deepEqual(await run('updatePrBranch'), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app']);
+  assert.deepEqual(await run('updatePrBranch', { rebase: true }), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app', '--rebase']);
   assert.deepEqual(await run('closePr', { body: 'superseded' }), ['pr', 'close', '7', '--repo', 'github.com/acme/app', '--comment=superseded']);
   const fail = async () => { throw new Error('HTTP 401: Bad credentials'); };
   await assert.rejects(github.closePr({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: fail }), { code: 'gh-auth' });
@@ -277,7 +298,7 @@ test('toggle off: no PR call spawns gh, with the real runner', async () => {
   fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\n/usr/bin/touch '${mark}'\necho '[]'\n`, { mode: 0o755 });
   const off = { enabled: false, remotes: [ORIGIN], number: 7, dirs: [dir] };
   assert.equal(await github.listPrs(off), null);
-  for (const fn of ['mergeInfo', 'approvePr', 'mergePr', 'closePr']) await assert.rejects(github[fn](off), { code: 'gh-off' }, fn);
+  for (const fn of ['mergeInfo', 'approvePr', 'mergePr', 'closePr', 'updatePrBranch']) await assert.rejects(github[fn](off), { code: 'gh-off' }, fn);
   assert.equal(fs.existsSync(mark), false, 'gh ran while pull requests were off');
   // The same gh does run once the toggle is on, so the mark would have shown up.
   await github.listPrs({ ...off, enabled: true });
@@ -448,4 +469,36 @@ test('normalizePr: bot authors, names, drafts, mixed reviews and pending request
   assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: '', team: false }, { login: 'core', name: 'Core', team: true }]);
   assert.ok(!JSON.stringify(p).includes('secret'));
   assert.ok(github.PR_FIELDS.includes('reviewRequests'));
+});
+
+test('AK-461: the PR remote can be chosen per repository, and non-GitHub hosts never are', () => {
+  const fork = remote('fork', 'https://github.com/kim/app');
+  const lab = remote('origin', 'https://gitlab.com/acme/app');
+  // Default: origin on GitHub, else the first GitHub remote; GitLab and friends are skipped.
+  assert.equal(github.pickRemote([fork, ORIGIN]).name, 'origin');
+  assert.equal(github.pickRemote([lab, fork]).name, 'fork');
+  assert.equal(github.pickRemote([lab]), null);
+  assert.deepEqual(github.prCandidates([lab, fork, ORIGIN]).map((r) => r.name), ['fork', 'origin']);
+  // The chosen remote (main.js marks it `pr: true`) wins, unless it isn't a GitHub remote.
+  assert.equal(github.pickRemote([ORIGIN, { ...fork, pr: true }]).name, 'fork');
+  assert.equal(github.pickRemote([{ ...lab, pr: true }, fork]).name, 'fork');
+  // Saved per repository; null goes back to the default and drops the key.
+  let s = github.setChosenRemote({ on: true, hidden: [] }, '/a', 'fork');
+  assert.equal(github.chosenRemote(s, '/a'), 'fork');
+  assert.equal(github.chosenRemote(s, '/b'), null);
+  assert.ok(github.isEnabled(s, '/a'), 'other settings survive');
+  s = github.setChosenRemote(s, '/a', null);
+  assert.deepEqual(s, { on: true, hidden: [] });
+  assert.deepEqual(github.normalize({ on: true, remotes: { '/a': 'fork', '/b': 3, '/c': '' } }).remotes, { '/a': 'fork' });
+});
+
+test('AK-198: a branch tracking a non-GitHub origin pushes its new PR to the GitHub remote', () => {
+  const lab = remote('origin', 'https://gitlab.com/acme/app');
+  const gh = remote('github', 'https://github.com/acme/app');
+  const remotes = [lab, gh];
+  const target = github.pickRemote(remotes);
+  assert.equal(target.name, 'github');
+  const p = github.prPushPlan({ branch: 'feat', upRemote: 'origin', upRef: 'refs/heads/feat', track: '', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  assert.equal(p.head, 'feat');
 });

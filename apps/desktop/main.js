@@ -1,12 +1,12 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, session: electronSession } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const git = require('./git');
-const { Journal, workOps, worktreeOps, laneOps } = require('./journal');
+const { Journal, workOps, worktreeOps, laneOps, remoteOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
 const { loadConfig } = require('./licence/config');
@@ -302,7 +302,7 @@ async function cleanupLanes(s, items, label) {
     if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another window. Close that window first.`);
   }
   const onProgress = (p) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
-  return s.journal.runCleanup(label || `Clean up ${items.length} lane${items.length === 1 ? '' : 's'}`, items, { onProgress });
+  return s.journal.runCleanup(label || `Clean up ${items.length} branch${items.length === 1 ? '' : 'es'}`, items, { onProgress });
 }
 
 // The window showing a repository root, if any.
@@ -360,6 +360,8 @@ handle('git', async (e, method, ...args) => {
     try {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
+      if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
+      if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (worktreeOps[method]) {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
@@ -423,7 +425,7 @@ async function aiPrompt(e) {
   const branch = (await git.run(root, ['branch', '--show-current']).catch(() => '')).trim();
   return ai.stagedChanges(git.run, root, branch);
 }
-const aiCall = (fn) => async (e, ...args) => {
+const okCall = (fn) => async (e, ...args) => {
   try { return { ok: await fn(e, ...args) }; } catch (err) { return { error: serializeError(err) }; }
 };
 handle('app:ai-settings', () => aiState());
@@ -432,13 +434,13 @@ handle('app:ai-configure', (_e, provider, model) => {
   writeSettings({ ai: { ...aiSettings(), provider, model: check.str(model ?? '', 'model', { max: 200, empty: true }).trim() } });
   return aiState();
 });
-handle('app:ai-preview', aiCall(async (e) => {
+handle('app:ai-preview', okCall(async (e) => {
   const prompt = await aiPrompt(e);
   return { ...aiState(), prompt, hash: ai.promptHash(prompt) };
 }));
 // The first send to a provider carries the hash of the previewed text; if staging changed while
 // the preview was open, nothing is sent and the renderer shows the new text instead.
-handle('app:ai-generate', aiCall(async (e, consent, hash) => {
+handle('app:ai-generate', okCall(async (e, consent, hash) => {
   const a = aiSettings();
   if (a.provider === 'off') throw new Error('AI commit messages are off.');
   const prompt = await aiPrompt(e);
@@ -466,17 +468,30 @@ const prSettings = () => (prInit ||= (async () => {
   if (JSON.stringify(saved) !== JSON.stringify(s)) writeSettings({ github: s });
 })().catch(() => { prInit = null; }));
 const prEnabled = async (root) => { await prSettings(); return github.isEnabled(readSettings().github, root); };
+// The repository's remotes with the one chosen for PRs (Preferences → Pull requests) marked `pr: true`,
+// which github.pickRemote prefers. Every PR path reads remotes through here (AK-461).
+async function prRemotes(root) {
+  const chosen = github.chosenRemote(readSettings().github, root);
+  return (await git.getRemotes(root)).map((r) => (r.name === chosen ? { ...r, pr: true } : r));
+}
+// The user-wide switch works before a repository is open (the welcome screen's setup step).
 async function prState(e) {
-  const root = session(e).repo.root;
+  const root = sessions.get(e.sender.id)?.repo.root;
   await prSettings();
   const saved = readSettings().github;
-  const remote = github.pickRemote(await git.getRemotes(root).catch(() => []));
+  const remotes = root ? await prRemotes(root).catch(() => []) : [];
+  const remote = github.pickRemote(remotes);
+  const choices = github.prCandidates(remotes);
+  const chosen = root ? github.chosenRemote(saved, root) : null;
   const enabled = github.normalize(saved).on === true;
-  const hidden = github.isHidden(saved, root);
-  return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
+  const hidden = root ? github.isHidden(saved, root) : false;
+  return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, choices, chosen: choices.some((c) => c.name === chosen) ? chosen : null, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
 }
 handle('app:pr-state', (e) => prState(e));
-handle('app:pr-detect', aiCall(async (e) => github.detect({ remotes: await git.getRemotes(session(e).repo.root) })));
+handle('app:pr-detect', okCall(async (e) => {
+  const s = sessions.get(e.sender.id);
+  return github.detect({ remotes: s ? await prRemotes(s.repo.root) : null });
+}));
 handle('app:pr-enable', async (e, on) => {
   const v = check.bool(on, 'pull requests on');
   await prSettings();
@@ -489,11 +504,22 @@ handle('app:pr-hide', async (e, hide) => {
   writeSettings({ github: github.setHidden(readSettings().github, session(e).repo.root, v) });
   return prState(e);
 });
-handle('app:pr-list', aiCall(async (e) => {
+// The remote the PR features use in this repository; null goes back to the default.
+handle('app:pr-remote', async (e, name) => {
+  const root = session(e).repo.root;
+  if (name !== null) {
+    check.str(name, 'remote');
+    if (!github.prCandidates(await git.getRemotes(root)).some((r) => r.name === name)) throw new check.IpcArgError('Unknown remote');
+  }
+  await prSettings();
+  writeSettings({ github: github.setChosenRemote(readSettings().github, root, name) });
+  return prState(e);
+});
+handle('app:pr-list', okCall(async (e) => {
   const root = session(e).repo.root;
   // Checked before anything else, so nothing runs while it's off or hidden here.
   if (!(await prEnabled(root))) return null;
-  const remotes = await git.getRemotes(root);
+  const remotes = await prRemotes(root);
   // No GitHub remote: no PRs, quietly.
   if (!github.pickRemote(remotes)) return null;
   return github.listPrs({ enabled: true, remotes });
@@ -516,7 +542,7 @@ handle('app:lanes-list', async (e, opts) => {
   let inboxError = null;
   let prHeads = [];
   if (withPrs && (await prEnabled(root))) {
-    const remotes = await git.getRemotes(root);
+    const remotes = await prRemotes(root);
     if (github.pickRemote(remotes)) {
       // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
       // lane badges; merged PRs only add the "shipped" check.
@@ -593,7 +619,7 @@ handle('app:catchup', async (e, opts) => {
   let ci = null;
   let prError = null;
   if (withPrs && (await prEnabled(root))) {
-    const remotes = await git.getRemotes(root);
+    const remotes = await prRemotes(root);
     if (github.pickRemote(remotes)) {
       const remote = remotes.find((r) => res.base.startsWith(`${r.name}/`));
       const branch = remote ? res.base.slice(remote.name.length + 1) : res.base;
@@ -612,9 +638,9 @@ handle('app:catchup-mark', (e, to) => {
   return catchupStore.mark(catchupFile(), session(e).repo.root, to);
 });
 
-// Approve, merge and close: remote actions on GitHub, not journaled (⌘Z can't undo them). The
+// Approve, merge, close and update branch: remote actions on GitHub, not journaled (⌘Z can't undo them). The
 // renderer names the PR and the remote it came from; both are checked before `gh` runs.
-const prAction = (fn) => aiCall(async (e, remoteName, number, opts) => {
+const prAction = (fn) => okCall(async (e, remoteName, number, opts) => {
   const root = session(e).repo.root;
   check.prNumber(number);
   const remote = check.knownRemote(await git.getRemotes(root), remoteName);
@@ -630,6 +656,7 @@ handle('app:pr-merge', prAction((t, o) => github.mergePr({
   admin: check.bool(o?.admin, 'merge as admin'),
 })));
 handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, rebase: check.bool(o?.rebase ?? false, 'rebase') })));
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on
 // an explicit click in the sheet, and only while pull requests are on (target() checks).
 handle('app:pr-failed-log', prAction((t) => github.failedLog(t)));
@@ -656,7 +683,7 @@ async function remoteBase(s, remote, base) {
   if (!/^[0-9a-f]{40,64}$/.test(oid)) throw planErr(`${base} isn’t on ${remote.name}.`);
   return oid;
 }
-handle('app:merge-plan', aiCall(async (e, remoteName, baseName, ready, others) => {
+handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   if (!Array.isArray(ready) || !Array.isArray(others)) throw new check.IpcArgError('Invalid merge plan');
   const numbers = ready.slice(0, mergePlan.MAX_READY).map((n) => check.prNumber(n));
@@ -681,7 +708,7 @@ handle('app:merge-plan', aiCall(async (e, remoteName, baseName, ready, others) =
 }));
 // One PR of a plan: { snap, baseSha } from the plan (or the previous merge's squash commit).
 // → { stop: reason } when something changed, else { merged: true, commit }.
-handle('app:merge-plan-merge', aiCall(async (e, remoteName, baseName, number, o) => {
+handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   check.prNumber(number);
   const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
@@ -711,7 +738,7 @@ handle('app:sendback-template-save', (e, id, text, scope) => {
 // Review a PR in the inbox: fetch its head into FETCH_HEAD only (no ref moves, so nothing to
 // journal) and diff it locally against the base's remote-tracking branch. Plain `git fetch`, no
 // `gh`, and only while pull requests are on here.
-handle('app:pr-review-head', aiCall(async (e, remoteName, number, base) => {
+handle('app:pr-review-head', okCall(async (e, remoteName, number, base) => {
   const s = session(e);
   const root = s.repo.root;
   check.prNumber(number);
@@ -731,13 +758,13 @@ const prCheckoutOpts = (v) => {
   if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
   return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update') };
 };
-handle('app:pr-checkout', aiCall(async (e, number, opts) => {
+handle('app:pr-checkout', okCall(async (e, number, opts) => {
   check.prNumber(number);
   const { worktree, dir, update } = prCheckoutOpts(opts);
   const s = session(e);
   const root = s.repo.root;
   if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
-  const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await git.getRemotes(root), number });
+  const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await prRemotes(root), number });
   const local = head.local;
   s.busy++;
   try {
@@ -756,8 +783,8 @@ handle('app:pr-checkout', aiCall(async (e, number, opts) => {
       await track();
       return { branch: local, sha };
     }
-    if (tip && tip !== sha) await s.journal.record(`Update ${local} to #${number}`, 'setBranchTip', () => r(s, ['branch', '-f', local, sha]));
-    const wt = await s.journal.runWorktree('addWorktree', `New worktree for #${number}`, [{ dir, branch: local, base: tip ? null : sha }]);
+    // Moving an existing branch and adding its worktree are one journal step, so one ⌘Z undoes both.
+    const wt = await s.journal.runWorktree('addWorktree', `New worktree for #${number}`, [{ dir, branch: local, base: tip === sha ? null : sha, force: Boolean(tip) && tip !== sha }]);
     await track();
     return { branch: local, sha, worktree: wt };
   } finally {
@@ -774,7 +801,7 @@ handle('app:pr-checkout', aiCall(async (e, number, opts) => {
 async function prBranch(s, branch) {
   check.rev(branch, 'branch');
   const root = s.repo.root;
-  const remotes = await git.getRemotes(root);
+  const remotes = await prRemotes(root);
   const enabled = await prEnabled(root);
   const target = github.pickRemote(remotes);
   if (!enabled) throw Object.assign(new Error('Pull requests are off.'), { code: 'gh-off' });
@@ -785,7 +812,7 @@ async function prBranch(s, branch) {
   const { dest, head, push, pushArgs } = github.prPushPlan({ branch, upRemote, upRef, track, remotes, target });
   return { enabled, remotes, target, dest, head, push, pushArgs };
 }
-handle('app:pr-create-info', aiCall(async (e, branch) => {
+handle('app:pr-create-info', okCall(async (e, branch) => {
   const s = session(e);
   const b = await prBranch(s, branch);
   const base = await github.defaultBranch({ enabled: b.enabled, remotes: b.remotes });
@@ -797,7 +824,7 @@ handle('app:pr-create-info', aiCall(async (e, branch) => {
 }));
 // "Draft with AI": the provider set up for commit messages, and only once the user has agreed
 // to send it diffs (the commit composer asks); this sheet never widens that consent.
-handle('app:pr-ai-draft', aiCall(async (e, branch, base) => {
+handle('app:pr-ai-draft', okCall(async (e, branch, base) => {
   const a = aiSettings();
   if (a.provider === 'off' || !a.consent.includes(a.provider)) throw Object.assign(new Error('Set up AI commit messages first.'), { code: 'ai-off' });
   const s = session(e);
@@ -820,7 +847,7 @@ const prCreateOpts = (v) => check.obj(v, 'pull request', {
   draft: check.bool,
   push: check.bool,
 });
-handle('app:pr-create', aiCall(async (e, branch, opts) => {
+handle('app:pr-create', okCall(async (e, branch, opts) => {
   const o = prCreateOpts(opts);
   const s = session(e);
   const b = await prBranch(s, branch);
@@ -1084,6 +1111,7 @@ const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webConten
 
 
 function licenceItems() {
+  if (licensing?.disabled) return [];
   const licensed = licensing?.status().mode === 'licensed';
   return [
     { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: acc('app.licence'), click: send('licence') },
@@ -1103,7 +1131,7 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), { type: 'separator' }, item('Settings…', acc('app.settings'), 'view', 'config'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), ...(licensing?.disabled ? [] : [{ type: 'separator' }]), item('Settings…', acc('app.settings'), 'preferences'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -1144,11 +1172,15 @@ function buildMenu() {
         item('Review', acc('view.lanes'), 'view', 'lanes'),
         item('Map', acc('view.map'), 'view', 'map'),
         item('Commit', acc('view.commit'), 'view', 'commit'),
-        item('Stashes', acc('view.stashes'), 'view', 'stashes'),
-        item('Snapshots', acc('view.snapshots'), 'view', 'snapshots'),
-        item('Reflog', acc('view.reflog'), 'view', 'reflog'),
-        item('Configuration', acc('view.config'), 'view', 'config'),
+        { type: 'separator' },
+        item('Branches', acc('view.branches'), 'view', 'branches'),
+        item('Remotes', acc('view.remoteList'), 'view', 'remoteList'),
+        item('Tags', acc('view.tagList'), 'view', 'tagList'),
         item('Worktrees', acc('view.worktrees'), 'view', 'worktrees'),
+        item('Stashes', acc('view.stashes'), 'view', 'stashes'),
+        item('Submodules', acc('view.submoduleList'), 'view', 'submoduleList'),
+        { type: 'separator' },
+        item('Repository Settings…', acc('view.config'), 'preferences', 'repository'),
         { type: 'separator' },
         item('Toggle Sidebar', acc('view.sidebar'), 'sidebar'),
         item('Show Tags', acc('view.tags'), 'toggle', 'tags'),
@@ -1165,6 +1197,13 @@ function buildMenu() {
         },
         { type: 'separator' },
         { role: 'reload' }, ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' }]), { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'History',
+      submenu: [
+        item('History & Recovery', acc('view.snapshots'), 'view', 'snapshots'),
+        item('Reflog', acc('view.reflog'), 'view', 'reflog'),
       ],
     },
     {
@@ -1193,6 +1232,7 @@ function buildMenu() {
         item('File History & Blame…', acc('repo.fileHistory'), 'fileHistory'),
         item('Review Branch…', acc('repo.review'), 'review'),
         item('Commit Identity…', acc('repo.identity'), 'identity'),
+        item('Remotes…', acc('repo.remotes'), 'remotes'),
         item('Write Commit Message with AI', acc('repo.aiMessage'), 'aiMessage'),
         item('AI Commit Messages…', undefined, 'aiSetup'),
         { type: 'separator' },
@@ -1260,6 +1300,11 @@ app.on('open-file', (ev, p) => {
 
 app.whenReady().then(() => {
   app.setName('GitLanes');
+  // Packaged builds carry build/icon.icns; `pnpm start` would show Electron's icon in the Dock.
+  if (!app.isPackaged && isMac) {
+    const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.icns'));
+    if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
+  }
   lockDownSession(electronSession.defaultSession);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
@@ -1267,8 +1312,9 @@ app.whenReady().then(() => {
   initLicensing();
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
-    feed: pkg.updates?.feed,
-    page: pkg.updates?.page,
+    // The beta profile carries its own feed (the beta bucket); every other build uses package.json's.
+    feed: licensing.config.updates?.feed || pkg.updates?.feed,
+    page: licensing.config.updates?.page || pkg.updates?.page,
     devFeed: app.isPackaged ? null : process.env.GITLANES_UPDATE_FEED,
     onChange: (state) => {
       buildMenu();
