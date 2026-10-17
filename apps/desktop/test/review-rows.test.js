@@ -504,6 +504,7 @@ test('authors: person + agent, a bot alone, agents only while marks are on (AK-3
   assert.deepEqual(names(authorsOf({ person: { name: 'Codex' }, agent: { reason: 'branch prefix', match: 'codex/' } })), ['person:Codex'], 'the same name once');
   const msg = 'Fix it\n\nBody\n\nCo-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>';
   assert.deepEqual(names(authorsOf({ person: { name: 'AK' }, agent: messageAgent(msg) })), ['person:AK', 'agent:Claude Opus 5.5']);
+  assert.deepEqual(names(authorsOf({ person: { name: 'AK' }, agent: messageAgent(msg), agents: false })), ['person:AK'], 'Catch up with marks off (AK-392)');
   assert.equal(messageAgent('Fix\n\nCo-authored-by: Ana <ana@example.com>'), null);
 });
 

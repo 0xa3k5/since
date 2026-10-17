@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, dialog, toast } from './ui.js';
 import { laneKey } from './lanes.js';
-import { groupLanes, blocked, dirty, preselect, remoteOf, reason, cleanupItem, summarize, plural } from './cleanup.js';
+import { groupLanes, blocked, dirty, preselect, remoteOf, reason, cleanupItem, summarize, plural, daysValue } from './cleanup.js';
 import * as keymap from './keymap.js';
 
 // Clean up, the Finished tab of Branches (AK-396): finished branches and worktrees (merged, shipped,
@@ -16,11 +16,12 @@ const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 const SHOWN = 50; // rows a card lists before "+ N more"
 const lower = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
 
-// run(items, label) and runRemote(names) call git; days: the "untouched for N days" card;
+// run(items, label) and runRemote(names) call git; days: the "untouched for N days" card, set in
+// the action bar (onDays(n) saves it);
 // onProgress(fn) subscribes to progress and returns an unsubscribe; onDone() refreshes the app (and
 // with it the lanes); onUndo() undoes the last step; onBack() leaves the tab. mod: ⌘ or Ctrl.
 // The panel doesn't load: Branches hands it the lanes (update(lanes, base)).
-export function cleanupPanel({ run, runRemote, days = 30, onProgress, onDone, onUndo, onBack, mod = '⌘' }) {
+export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack, mod = '⌘' }) {
   let lanes = [];
   let groups = [];
   let items = []; // the keyboard's stops: { kind: 'group', id } or { kind: 'lane', key }
@@ -43,7 +44,15 @@ export function cleanupPanel({ run, runRemote, days = 30, onProgress, onDone, on
   const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': `Also delete them on GitHub (${keymap.keys('cleanup.remote').join('')}). You confirm it once more.` }, remoteBox, h('span', null, 'Also delete them on GitHub (can’t be undone)'));
   const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), h('span'));
   const undoNote = h('span.cleanup-undo', null, `${mod}Z brings local branches and worktrees back`);
-  const bar = h('div.cleanup-actionbar', null, goBtn, counts, remoteLabel, progress, undoNote);
+  const daysBox = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
+    onkeydown: (e) => { if (e.key !== 'Escape') e.stopPropagation(); },
+    onchange: () => {
+      const n = daysValue(daysBox.value);
+      if (n == null) { daysBox.value = String(days); return; }
+      if (n !== days) { days = n; onDays(n); render(); }
+    } });
+  const daysLabel = h('label.cleanup-days', { 'data-tip': 'Branches with no commits for this many days show under Untouched' }, h('span', null, 'Untouched after'), daysBox, h('span', null, 'days'));
+  const bar = h('div.cleanup-actionbar', null, goBtn, counts, remoteLabel, progress, daysLabel, undoNote);
   const el = h('div.cleanup-panel', null, verdict, cards, bar);
 
   const isOn = (l) => ticked.has(laneKey(l));
