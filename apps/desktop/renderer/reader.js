@@ -319,7 +319,7 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null,
 }
 
 // One row of the Annotations or Open threads tab: a button (↵ runs onOpen), then Go to line and
-// Open on GitHub. ↑/↓ move between rows, G and O run the two buttons (keymap scope "evidence").
+// Open on GitHub. ↑/↓ move between rows, L and O run the two buttons (keymap scope "evidence").
 function evRow({ k, where, cls, label, main, title = null, expanded = null, onOpen = null, goto = null, github = null }) {
   const btn = h('button.ev-item', {
     type: 'button', 'data-k': k, 'aria-label': label, ...(expanded == null ? {} : { 'aria-expanded': String(expanded) }), ...(title ? { title } : {}),
