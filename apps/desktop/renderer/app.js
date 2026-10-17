@@ -3660,7 +3660,7 @@ const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   const now = state.refs.find((r) => r.kind === 'branch' && r.short === local.short);
   if (!now) return;
   // Only delete what was merged: local commits that never reached the PR stay.
-  if (!headOid || now.target !== headOid) return toast(`Kept ${local.short}`, { detail: 'It has commits that weren’t in the pull request.' });
+  if (!headOid || now.target !== headOid) return toast(`Kept ${local.short}`, { detail: 'It doesn’t match the merged pull request, so it may hold other work.' });
   deleteBranch(now);
 });
 
