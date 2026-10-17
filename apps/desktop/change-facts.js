@@ -58,20 +58,21 @@ const area = (p) => {
 // ---------------------------------------------------------------------------
 // Parsing git's output
 
-// "apps/{a => b}/x.js" or "a => b": the new path.
-function newPath(p) {
+// "apps/{a => b}/x.js" or "a => b": the old and the new path.
+function renamePaths(p) {
   const brace = /^(.*)\{(.*) => (.*)\}(.*)$/.exec(p);
-  if (brace) return (brace[1] + brace[3] + brace[4]).replace(/\/\//g, '/');
+  if (brace) return [brace[1] + brace[2] + brace[4], brace[1] + brace[3] + brace[4]].map((x) => x.replace(/\/\//g, '/'));
   const plain = /^(.*) => (.*)$/.exec(p);
-  return plain ? plain[2] : p;
+  return plain ? [plain[1], plain[2]] : [p, p];
 }
 
-// `git diff --numstat`: [{ path, added, deleted, binary }]
+// `git diff --numstat`: [{ path, from, added, deleted, binary }] (`from` is the old path of a rename)
 function parseNumstat(text) {
   return text.split('\n').filter(Boolean).map((line) => {
     const [a, d, ...rest] = line.split('\t');
     const binary = a === '-';
-    return { path: newPath(rest.join('\t')), added: binary ? 0 : +a, deleted: binary ? 0 : +d, binary };
+    const [from, path] = renamePaths(rest.join('\t'));
+    return { path, from, added: binary ? 0 : +a, deleted: binary ? 0 : +d, binary };
   });
 }
 
@@ -433,13 +434,16 @@ async function changeFacts(root, base, head) {
   const range = [mergeBase, headSha];
   const diff = (...args) => git.run(root, ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '-M', ...args, ...range]);
   const [numstat, summary] = await Promise.all([diff('--numstat'), diff('--summary')]);
-  const paths = parseNumstat(numstat).map((f) => f.path).filter((p) => !IGNORED.test(p));
-  // The patch is only read for files whose content matters (lockfiles and tests).
-  const patched = paths.filter((p) => LOCKFILE.test(p) || isTest(p));
+  const changed = parseNumstat(numstat).filter((f) => !IGNORED.test(f.path));
+  const paths = changed.map((f) => f.path);
+  const oldPath = new Map(changed.map((f) => [f.path, f.from]));
+  // The patch is only read for files whose content matters (lockfiles and tests). A rename needs
+  // both sides in the pathspec, or git shows the new path as a whole added file.
+  const patched = paths.filter((p) => LOCKFILE.test(p) || isTest(p)).flatMap((p) => [...new Set([oldPath.get(p), p])]);
   const manifestPaths = paths.filter((p) => MANIFEST.test(p));
   const [patch, manifestBlobs, tree, baseTime] = await Promise.all([
     patched.length ? diff('-U3', '--', ...patched.map((p) => `:(literal)${p}`)) : '',
-    readBlobs(root, manifestPaths.flatMap((p) => [`${mergeBase}:${p}`, `${headSha}:${p}`])),
+    readBlobs(root, manifestPaths.flatMap((p) => [`${mergeBase}:${oldPath.get(p)}`, `${headSha}:${p}`])),
     git.run(root, ['ls-tree', '-r', '--name-only', '-z', headSha]),
     git.run(root, ['log', '-1', '--format=%ct', mergeBase]),
   ]);
