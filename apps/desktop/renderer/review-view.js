@@ -4,7 +4,7 @@ import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary
 import * as keymap from './keymap.js';
 import { prStatusLine } from './prs.js';
 import { PR_ACTIONS, prActionFor } from './pr-review.js';
-import { fileCard } from './reader.js';
+import { fileCard, foldShut } from './reader.js';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).
@@ -245,7 +245,10 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   function reblock(path) {
     const old = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
     const f = review?.files.find((x) => x.path === path);
-    if (old && f) old.replaceWith(fileBlock(f));
+    if (!old || !f) return null;
+    const block = fileBlock(f);
+    old.replaceWith(block);
+    return block;
   }
   function fold(path) {
     const f = review?.files.find((x) => x.path === path);
@@ -342,9 +345,19 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     const was = current;
     if (stacked) {
       // Ticking folds the file's code; unticking shows it again. Delta mode drops it from the list.
+      // The ticked header stays put and the next file comes up under it (AK-523), so V reads on.
+      const card = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+      const shut = ticked && !delta && card && !card.classList.contains('folded');
       folds.delete(path);
-      if (delta) renderStack(); else { reblock(path); renderMeta(); }
-      if (next && next.path !== current) { select(next.path); }
+      if (delta) renderStack(); else { if (!shut) reblock(path); renderMeta(); }
+      if (!next || next.path === current) { if (shut) foldShut(card, el, () => reblock(path)); return; }
+      if (!shut) return select(next.path);
+      select(next.path, false);
+      foldShut(card, el, () => {
+        const block = reblock(path);
+        stack.querySelector('.review-file.active > .review-file-head')?.scrollIntoView({ block: 'nearest' });
+        return block;
+      });
       return;
     }
     const focused = el.contains(document.activeElement);
