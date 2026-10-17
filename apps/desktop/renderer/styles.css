@@ -1406,9 +1406,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .reader-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
 .reader-meta .mono { font-size: 11.5px; color: var(--text-2); }
 .reader-author { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
-/* Who made it (AK-390): "(AK) AK + (CO) Claude Opus 5.5". */
+/* Who made it (AK-390): one person is "(AK) AK"; two or more are an avatar group, names in its tooltip (AK-533). */
 .reader-authors { display: inline-flex; align-items: center; gap: 6px; min-width: 0; vertical-align: middle; }
-.reader-authors-plus { color: var(--text-4); }
 .reader-authors .reader-author { min-width: 0; }
 .reader-author-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-arrow { color: var(--text-4); }
@@ -1423,9 +1422,11 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-signal { display: inline-flex; align-items: center; gap: 2px; }
 .review-signal .icon { flex: none; }
 .review-signal-count { font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
-/* The slim bar keeps the avatars; the names stay in their tooltips. */
+/* The slim bar keeps the avatar; the name stays in its tooltip. */
 .reader-mini-authors { flex: none; gap: 4px; }
 .reader-mini-authors .reader-author-name { display: none; }
+/* A group overlaps its avatars (.avatar-stack), so no gap between them. */
+.reader-authors.avatar-stack { gap: 0; }
 /* The description: clamped to four lines with "… Show more" over the cut; Show less after the text. */
 .reader-desc { --reader-bg: var(--bg-content); margin: 0 22px 14px; padding: 10px 14px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
 .reader-desc-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
