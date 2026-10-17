@@ -201,7 +201,7 @@ export function foldShut(card, scroller, replace) {
   body.scrollTop = lift;
   let over = false;
   const end = () => { if (over) return; over = true; if (card.isConnected) done(); };
-  body.addEventListener('transitionend', end, { once: true });
+  body.addEventListener('transitionend', (e) => { if (e.target === body && e.propertyName === 'height') end(); });
   setTimeout(end, 400); // in case the transition never runs
   requestAnimationFrame(() => requestAnimationFrame(() => { body.style.height = '0px'; body.style.opacity = '0'; }));
 }
