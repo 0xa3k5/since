@@ -11,6 +11,8 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 - A network call beyond the ones documented in `docs/security.md`.
 - Breaking the update feed, its signature checks, or the licence checks.
 - A keyboard trap, or an action without a shortcut and a ⌘K entry.
+- A diff to `CLAUDE.md` or `REVIEW.md` that the issue didn't ask for (agent runtimes write their own
+  `CLAUDE.md` into worktrees; it must never be committed over the repo's file).
 
 ## Findings
 

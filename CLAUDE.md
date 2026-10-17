@@ -11,7 +11,7 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 - `apps/desktop`: the app.
   - `main.js` (window, menus, session lock-down), `ipc.js` (argument checks for every IPC call),
     `git.js` (all git calls), `journal.js` (undo/redo), `updater.js`, `licence/`
-  - `renderer/`: buildless UI (`app.js`, `graph.js`, `keymap.js`, views), `tokens/`
+  - `renderer/`: buildless UI (`app.js`, `graph.js`, `keymap.js`, views)
   - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
 - `apps/web`: the website (Astro).
 - `packages/tokens`: design tokens (`tokens.json` → `tokens.css`), the source of truth for colours.
