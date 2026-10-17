@@ -126,13 +126,15 @@ export function avatar(name, email, size = 18) {
   return h('span.avatar', { title: `${name} <${email}>`, style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px', background: `var(--lane-${hash(email || name) % 10})` } }, initials);
 }
 
-// Overlapping avatars for [{ name, email }], at most `max`, then a +N chip.
+// Overlapping avatars for [{ name, email }], at most `max`, then a +N chip. Who they are is in
+// the group's tooltip, one per line (AK-533).
 export function avatarStack(people, size = 18, max = 3) {
   const label = (p) => `${p.name} <${p.email}>`;
   const rest = people.slice(max);
-  return h('span.avatar-stack', { title: people.map(label).join('\n') },
-    people.slice(0, max).map((p) => avatar(p.name, p.email, size)),
-    rest.length ? h('span.avatar.more', { title: rest.map(label).join('\n'), style: { height: size + 'px', minWidth: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } }, `+${rest.length}`) : null);
+  const quiet = (el) => { el.title = ''; return el; };
+  return h('span.avatar-stack', { role: 'img', 'aria-label': people.map((p) => p.name).join(' and '), 'data-tip': people.map(label).join('\n') },
+    people.slice(0, max).map((p) => quiet(avatar(p.name, p.email, size))),
+    rest.length ? h('span.avatar.more', { 'aria-hidden': 'true', style: { height: size + 'px', minWidth: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } }, `+${rest.length}`) : null);
 }
 
 // Quiet placeholder for slow loads (huge commits, big diffs). It fades in after a short delay,
