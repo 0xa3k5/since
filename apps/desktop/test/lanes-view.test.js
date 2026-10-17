@@ -183,5 +183,5 @@ test('Catch up recounts Review lines from local lanes once the commits move (AK-
   forgetCounts('/r');
   const counts = await reviewCounts({ repo: '/r', load, prsOn: () => false });
   assert.equal(calls, 1);
-  assert.deepEqual(counts, { repo: '/r', stuck: 0, ready: 0 });
+  assert.deepEqual(counts, { repo: '/r', stuck: 0, ready: 0, needs: 0 });
 });
