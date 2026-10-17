@@ -29,6 +29,8 @@ function str(v, what, { max = MAX_STR, empty = false } = {}) {
 
 const text = (v, what) => str(v, what, { max: MAX_TEXT, empty: true });
 const bool = (v, what) => { if (typeof v !== 'boolean') fail(what, 'expected a boolean'); return v; };
+// A PR media item's id from the evidence call (pr-media.js): 32 hex characters.
+const mediaId = (v, what = 'media id') => { if (typeof v !== 'string' || !/^[0-9a-f]{32}$/.test(v)) fail(what, 'expected a media id'); return v; };
 const prNumber = (v, what = 'pull request number') => { if (!Number.isSafeInteger(v) || v <= 0) fail(what, 'expected a positive integer'); return v; };
 // A remote name the renderer sends must be one of this repository's remotes (git.getRemotes).
 function knownRemote(remotes, name, what = 'remote') {
@@ -331,7 +333,8 @@ function absDir(v, what = 'directory') {
 
 // The network requests a session may make: its own files and inline data, plus exactly the
 // https origins in `allow` (the update feed, for the updater's private session).
-const LOCAL_SCHEMES = new Set(['file:', 'data:', 'devtools:', 'chrome-extension:']);
+// gitlanes-media: is served by the main process (pr-media.js), not the network.
+const LOCAL_SCHEMES = new Set(['file:', 'data:', 'devtools:', 'chrome-extension:', 'gitlanes-media:']);
 function requestAllowed(url, allow = []) {
   let u;
   try { u = new URL(url); } catch { return false; }
@@ -349,4 +352,4 @@ function insideRepo(root, rel) {
 
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote, remoteName, obj };
+module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, mediaId, knownRemote, remoteName, obj };

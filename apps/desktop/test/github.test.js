@@ -505,3 +505,105 @@ test('AK-198: a branch tracking a non-GitHub origin pushes its new PR to the Git
   assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
   assert.equal(p.head, 'feat');
 });
+
+// AK-519: PR evidence for the reader, from recorded `gh` output (test/fixtures/evidence).
+const FIX = (f) => fs.readFileSync(path.join(__dirname, 'fixtures', 'evidence', f), 'utf8');
+const evidenceGh = (over = {}) => recorder((args) => {
+  if (args[0] === 'pr') return over.pr ?? FIX('pr-view.json');
+  if (args[0] === 'run') return FIX('log-failed.txt');
+  if (args.includes('graphql')) return over.threads ?? FIX('threads.json');
+  if (args.some((a) => a.includes('/annotations'))) return FIX('annotations.json');
+  throw new Error(`unexpected gh ${args.join(' ')}`);
+});
+
+test('evidence: checks, failed log lines, annotations, media, approvals and open threads', async () => {
+  const dir = fakeGh();
+  const { calls, exec } = evidenceGh();
+  const ev = await github.evidence({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [dir], exec });
+  assert.deepEqual(calls.map((c) => c.args), [
+    ['pr', 'view', '12', '--repo', 'github.com/acme/app', '--json', github.EVIDENCE_FIELDS],
+    ['run', 'view', '55', '--repo', 'github.com/acme/app', '--log-failed'],
+    ['api', '--hostname', 'github.com', 'repos/acme/app/check-runs/901/annotations?per_page=50'],
+    ['api', '--hostname', 'github.com', 'graphql', '-f', calls[3].args[5], '-F', 'owner=acme', '-F', 'name=app', '-F', 'number=12'],
+  ]);
+  assert.match(calls[3].args[5], /reviewThreads\(first:100\)\{totalCount nodes\{isResolved isOutdated\}\}/);
+  assert.equal(ev.head, '1111111111111111111111111111111111111111');
+  assert.deepEqual(ev.checks, [
+    { name: 'test', result: 'failure', duration: 200, url: 'https://github.com/acme/app/actions/runs/55/job/901' },
+    { name: 'lint', result: 'success', duration: 60, url: 'https://github.com/acme/app/actions/runs/55/job/902' },
+    { name: 'e2e', result: 'pending', url: 'https://github.com/acme/app/actions/runs/56/job/903' },
+    { name: 'ci/external', result: 'success', url: 'https://ci.example.com/build/1' },
+  ]);
+  assert.deepEqual(ev.logs, [{ run: '55', log: 'not ok 1 - lanes\nAssertionError: expected 3 to equal 2' }]);
+  assert.deepEqual(ev.annotations, [
+    { check: 'test', path: 'apps/desktop/github.js', line: 42, level: 'failure', message: 'AssertionError: expected 3 to equal 2' },
+    { check: 'test', path: '.github', line: 1, level: 'warning', message: 'Node.js 16 actions are deprecated.' },
+  ]);
+  assert.deepEqual(ev.media, [
+    { url: 'https://github.com/user-attachments/assets/0b6c1a7e-1111-4c1e-9d8f-aaaaaaaaaaaa', kind: 'image', alt: 'lanes in dark', from: 'description', author: 'kim' },
+    { url: 'https://github.com/user-attachments/assets/0b6c1a7e-2222-4c1e-9d8f-bbbbbbbbbbbb', kind: 'image', alt: 'light theme', from: 'description', author: 'kim' },
+    { url: 'https://github.com/user-attachments/assets/0b6c1a7e-3333-4c1e-9d8f-cccccccccccc', kind: 'video', from: 'description', author: 'kim' },
+    { url: 'https://user-images.githubusercontent.com/1/before.mov', kind: 'video', from: 'comment', author: 'sam' },
+    { url: 'https://user-images.githubusercontent.com/2/spacing.png', kind: 'image', alt: 'spacing', from: 'review', author: 'lee' },
+  ]);
+  assert.deepEqual(ev.reviews, [{ login: 'sam', state: 'approved' }]);
+  assert.deepEqual(ev.threads, { total: 3, open: 2, outdated: 1 });
+  assert.equal('ciMissing' in ev, false);
+  // No comment or review text reaches the evidence.
+  assert.doesNotMatch(JSON.stringify(ev), /Thanks, fixed|Spacing looks off|Adds the lanes view/);
+
+  // Cached per head: the same head runs nothing; another head fetches again.
+  calls.length = 0;
+  assert.equal(await github.evidence({ enabled: true, remotes: [ORIGIN], number: 12, head: ev.head, dirs: [dir], exec }), ev);
+  assert.equal(calls.length, 0);
+  await github.evidence({ enabled: true, remotes: [ORIGIN], number: 12, head: '2'.repeat(40), dirs: [dir], exec });
+  assert.equal(calls[0].args[0], 'pr');
+});
+
+test('evidence: only what is there; "CI didn’t run" only when the head has CI set up', async () => {
+  const dir = fakeGh();
+  const bare = JSON.stringify({ headRefOid: '3'.repeat(40), statusCheckRollup: [], latestReviews: [], body: 'No pictures. https://example.com/a.png', comments: [], reviews: [] });
+  const noThreads = JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { totalCount: 0, nodes: [] } } } } });
+  const { calls, exec } = evidenceGh({ pr: bare, threads: noThreads });
+  const asked = [];
+  const ev = await github.evidence({ enabled: true, remotes: [ORIGIN], number: 13, dirs: [dir], exec, ciConfigured: async (h) => { asked.push(h); return false; } });
+  assert.deepEqual(ev, { head: '3'.repeat(40) });
+  assert.deepEqual(asked, ['3'.repeat(40)]);
+  assert.deepEqual(calls.map((c) => c.args[0]), ['pr', 'api']);
+  const withCi = await github.evidence({ enabled: true, remotes: [ORIGIN], number: 14, dirs: [dir], exec, ciConfigured: async () => true });
+  assert.deepEqual(withCi, { head: '3'.repeat(40), ciMissing: true });
+  // A failing optional call leaves its field out instead of failing the evidence.
+  const flaky = recorder((args) => { if (args[0] === 'pr') return FIX('pr-view.json'); throw new Error('HTTP 502'); });
+  const partial = await github.evidence({ enabled: true, remotes: [ORIGIN], number: 15, dirs: [dir], exec: flaky.exec });
+  assert.deepEqual(Object.keys(partial), ['head', 'checks', 'media', 'reviews']);
+});
+
+test('evidence: with pull requests off, nothing runs and no token is read', async () => {
+  const dir = fakeGh();
+  const { calls, exec } = evidenceGh();
+  await assert.rejects(github.evidence({ enabled: false, remotes: [ORIGIN], number: 12, dirs: [dir], exec }), { code: 'gh-off' });
+  await assert.rejects(github.evidence({ enabled: true, remotes: [ORIGIN], number: 0, dirs: [dir], exec }), { code: 'gh-failed' });
+  assert.equal(await github.authToken({ host: 'github.com --x', dirs: [dir], exec }), '');
+  assert.equal(calls.length, 0);
+  const tok = recorder('gho_abc\n');
+  assert.equal(await github.authToken({ host: 'github.com', dirs: [dir], exec: tok.exec }), 'gho_abc');
+  assert.deepEqual(tok.calls[0].args, ['auth', 'token', '--hostname', 'github.com']);
+});
+
+test('findMedia: markdown, img, video/source and bare attachment links; https only, deduplicated, capped', () => {
+  const body = [
+    '![a](https://github.com/x.png "title") ![b](<https://github.com/y.gif>)',
+    '<img src=\'https://github.com/x.png\'> <img data-src="https://github.com/no.png">',
+    '<video><source src="https://github.com/v.webm" type="video/webm"></video>',
+    'https://private-user-images.githubusercontent.com/9/shot.jpg?jwt=a&amp;b=1',
+    '![c](http://github.com/plain.png) ![d](javascript:alert(1))',
+  ].join('\n');
+  assert.deepEqual(github.findMedia([{ from: 'description', body }]).map((m) => [m.url, m.kind, m.alt]), [
+    ['https://github.com/x.png', 'image', 'a'],
+    ['https://github.com/y.gif', 'image', 'b'],
+    ['https://github.com/v.webm', 'video', undefined],
+    ['https://private-user-images.githubusercontent.com/9/shot.jpg?jwt=a&b=1', 'image', undefined],
+  ]);
+  const many = Array.from({ length: 80 }, (_, i) => `![${i}](https://github.com/${i}.png)`).join(' ');
+  assert.equal(github.findMedia([{ from: 'comment', body: many }]).length, 50);
+});
