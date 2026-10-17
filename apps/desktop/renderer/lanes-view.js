@@ -17,7 +17,7 @@ const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s
 // Clean up, live in Branches (branches-view.js); S, A and C open it on Active, Agent-made and Would conflict.
 // Rows carry no buttons (AK-379); the line under the title starts with who made it
 // (AK-390): a small initials avatar and name, "+" the agent when the lane looks agent-made, or the bot alone.
-// Keyboard-first (AK-381): ↑/↓ and ←/→ move, Space runs the row's primary step (the pane's status strip
+// Keyboard-first (AK-381): ↑/↓ and ←/→ move, ⌘K "Next step" runs the row's primary step (the pane's status strip
 // shows it as its last button), ↵ (or R) moves focus into the pane, the reader shared with Catch up
 // (reader.js: there ↑/↓ scroll, ←/→ still step the list, Esc comes back), M merges, D shows its details (branch, commits, worktree,
 // uncommitted changes, Show in Map), E shows In progress, typing filters every row.
@@ -201,7 +201,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const step = (r) => primaryAction(r, { base, requested: requested() });
 
   // A row (AK-379): status dot · #number · the title over one quiet line (why it's stuck, in red; else
-  // its tags, who and where) · age. No buttons: Space runs the primary step, the pane's status strip
+  // its tags, who and where) · age. No buttons: ⌘K "Next step" runs the primary step, the pane's status strip
   // has the rest, and the context menu has them all. Details (D) open under the title.
   function stagedRow(r) {
     const active = r.key === selKey;
@@ -432,7 +432,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const reading = paneHost.contains(document.activeElement) && paneObj;
     hint.replaceChildren(...(reading
       ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(fastKeys(), 'Faster'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
-      : [k([...id('lanes.prev'), ...id('lanes.next')], 'Move'), k(['Space'], 'Main action'), k(id('lanes.open'), 'Read'), k(id('lanes.merge'), 'Merge'), k(['1–5'], 'Tabs'),
+      : [k([...id('lanes.prev'), ...id('lanes.next')], 'Move'), k(id('lanes.open'), 'Read'), k(id('lanes.merge'), 'Merge'), k(['1–5'], 'Tabs'),
         !pane && readyPrs().length > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
     k(keymap.keys('view.palette'), 'All commands', '.all'));
   }
@@ -536,7 +536,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     else if (id === 'lanes.mergeReady') mergeReady();
     else if (id === 'lanes.mergePlan') mergePlan();
     else if (!x) return false;
-    else if (id === 'lanes.step') act(step(x), x);
     else if (id === 'lanes.review') act('review', x);
     else if (id === 'lanes.merge') act('merge', x);
     else if (id === 'lanes.details') act('details', x);

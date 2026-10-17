@@ -224,7 +224,6 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.conflicts', 'Show branches that would conflict (opens Branches)', 'c'),
   c('lanes', null, 'lanes.review', 'Review the pull request, or the branch', 'r'),
   c('lanes', null, 'lanes.merge', 'Merge the pull request, or merge and tidy the branch', 'm'),
-  c('lanes', null, 'lanes.step', 'Run the row’s primary action', 'Space'),
   c('lanes', null, 'lanes.rebase', 'Rebase the branch onto the base branch', 'b'),
   c('lanes', null, 'lanes.checks', 'Open the checks of the pull request', 'o'),
   c('lanes', null, 'lanes.sendBack', 'Send back a stuck row with a ready-made prompt', 'p'),
