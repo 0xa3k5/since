@@ -24,7 +24,7 @@ import { openMergePlan } from './merge-plan-view.js';
 import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
-import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow } from './sidebar.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageLabel } from './sidebar.js';
 import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
 import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile } from './profile.js';
@@ -199,6 +199,7 @@ const refreshHistory = coalesce(async () => {
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
+  if (REF_LISTS[state.view] && !state.review && !state.quick && !state.split && !state.fileHistory) renderView();
 });
 
 function tipsKey(refs, head, worktrees = []) {
@@ -426,7 +427,7 @@ async function refreshAux() {
   refreshLfs();
   if (state.view === 'reflog') state.reflog = await git('reflog').catch(() => []);
   if (prefs && state.repo) { state.config = await git('config').catch(() => []); prefs.refresh(); }
-  renderNavCounts();
+  if (shown() !== before) renderSidebar(); else renderNavCounts();
   if (['stashes', 'reflog'].includes(state.view) && shown() !== before) renderView(true);
 }
 
@@ -492,6 +493,7 @@ let sidebarEl, topbarEl, bannerEl, contentEl;
 let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
 let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
+let stashFocus = null; // the stash a sidebar click asked the Stashes page to select
 
 // ---------------------------------------------------------------------------
 // Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
@@ -582,16 +584,12 @@ function renderShell() {
 // (GITLANES_START_VIEW=map, main.js), which the end-to-end tests do.
 let startView = 'lanes';
 
+// The activities at the top of the sidebar (keys 1–4). The refs tree's pages are SECTION_PAGES (sidebar.js).
 const VIEWS = [
   { id: 'catchup', label: 'Catch up', icon: 'catchup', key: '1' },
   { id: 'lanes', label: 'Review', icon: 'lanes', key: '2' },
-  { id: 'branches', label: 'Branches', icon: 'branch', key: '3' },
-  { id: 'map', label: 'Map', icon: 'map', key: '4' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '5' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', key: '6' },
-  { id: 'snapshots', label: 'Snapshots', icon: 'history', key: '7' },
-  { id: 'reflog', label: 'Reflog', icon: 'reflog', key: '8' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', key: '0' },
+  { id: 'map', label: 'Map', icon: 'map', key: '3' },
+  { id: 'commit', label: 'Commit', icon: 'commit', key: '4' },
 ];
 
 function setView(v) {
@@ -667,16 +665,23 @@ function renderSidebar() {
   const groups = new Map();
   for (const r of remotes) { const n = r.short.split('/')[0]; if (!groups.has(n)) groups.set(n, []); groups.get(n).push(r); }
 
-  const section = (id, title, items, renderItem) => {
+  // A section of the refs tree. A click folds it; ⤢ or a double-click (the second click folds it back) opens its
+  // full page, and the header stays highlighted while that page is on screen.
+  const onPage = (id) => sectionOf(state.view) === id && !state.review && !state.quick && !state.split && !state.fileHistory;
+  const section = (id, title, items, renderItem, count = items.length) => {
     const collapsed = state.collapsed[id];
+    const page = SECTION_PAGES.find((p) => p.id === id);
+    const fold = () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); };
     return h('div.sb-section', { 'data-section': id },
-      h('button.sb-section-head', { onclick: () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); } },
-        h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, items.length)),
+      h('div.sb-section-row' + (onPage(id) ? '.active' : ''), null,
+        h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2 && page) setView(page.view); }, 'aria-expanded': String(!collapsed) },
+          h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, count), h('span.nav-badge')),
+        page ? h('button.icon-btn.tiny.sb-page', { onclick: () => setView(page.view), 'data-view': page.view, title: tip(`Open ${page.label} page`, `view.${page.view}`), 'aria-label': `Open ${page.label} page` }, icon('expand', 12)) : null),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
     );
   };
 
-  const refItem = (r, label = r.short) => h('div.sb-item' + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
+  const refItem = (r, label = r.short, nested = false) => h('div.sb-item' + (nested ? '.sb-nested' : '') + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
     title: r.short,
     onclick: () => jumpTo(r.target),
     ondblclick: () => r.kind === 'branch' ? checkout(r.short) : null,
@@ -728,6 +733,22 @@ function renderSidebar() {
     h('span.sb-label', null, r.name),
     h('span.sb-track.sb-url', null, r.label),
   );
+  // A stash: its row on the Stashes page; right-click for Apply, Pop and Drop.
+  const stashItem = (s) => h('div.sb-item', {
+    title: `${s.ref}\n${s.message}`,
+    onclick: () => { stashFocus = s.ref; setView('stashes'); },
+    oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
+  },
+    icon('stash', 14),
+    h('span.sb-label', null, s.message),
+    h('span.sb-track', null, timeAgo(s.time)),
+  );
+  // Remotes: each remote, then its branches under it.
+  const names = [...new Set([...state.remotes.map((r) => r.name), ...groups.keys()])];
+  const remoteRows = names.flatMap((name) => {
+    const r = state.remotes.find((x) => x.name === name);
+    return [r ? remoteItem(r) : null, ...(groups.get(name) || []).map((b) => refItem(b, b.short.slice(name.length + 1), true))];
+  }).filter(Boolean);
   const addRemoteItem = h('div.sb-item.sb-add', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), h('span.sb-label', null, 'Add remote…'));
 
   sidebarEl.replaceChildren(
@@ -743,24 +764,18 @@ function renderSidebar() {
     h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: tip(v.label, `view.${v.id}`), 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
     h('div.sb-scroll', null,
-      state.worktrees.length > 1 ? section('worktrees', 'Worktrees', state.worktrees, worktreeItem) : null,
       section('branches', 'Branches', branches, (r) => refItem(r)),
-      [...groups].map(([name, list]) => section('remote:' + name, name, list, (r) => refItem(r, r.short.slice(name.length + 1)))),
+      section('remotes', 'Remotes', [...remoteRows, addRemoteItem], (el) => el, state.remotes.length),
       section('tags', 'Tags', tags, (r) => refItem(r)),
-      section('remotes', 'Remotes', [...state.remotes, null], (r) => (r ? remoteItem(r) : addRemoteItem)),
-      state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
+      section('worktrees', 'Worktrees', state.worktrees, worktreeItem),
       state.prs?.active ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
+      section('stashes', 'Stashes', state.stashes, stashItem),
+      state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
     ),
     // Icons-only stand-ins for the sections above, shown in the rail.
     h('div.sb-rail-items', null,
-      state.worktrees.length > 1 ? railItem('worktrees', 'Worktrees', 'worktree') : null,
-      railItem('branches', 'Branches', 'branch'),
-      [...groups.keys()].map((name) => railItem('remote:' + name, `Remote ${name}`, 'cloud')),
-      railItem('tags', 'Tags', 'tag'),
-      railItem('remotes', 'Remotes', 'cloud'),
-      state.submodules.length ? railItem('submodules', 'Submodules', 'submodule') : null,
-      state.prs?.active ? railItem('prs', 'Pull requests', 'merge') : null,
-    ),
+      SECTION_PAGES.filter((p) => (p.id !== 'prs' || state.prs?.active) && (p.id !== 'submodules' || state.submodules.length))
+        .map((p) => railItem(p.id, p.label, p.icon))),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: tip('Fetch all', 'repo.fetch'), 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
       h('button.sb-action', { onclick: pull, title: tip('Pull', 'repo.pull'), 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
@@ -778,21 +793,19 @@ function railItem(id, label, ic) {
 function renderNavCounts() {
   if (!sidebarEl) return;
   const n = state.status.staged.length + state.status.unstaged.length + state.status.conflicts.length;
-  const set = (id, v, cls) => { const b = sidebarEl.querySelector(`[data-view="${id}"] .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
+  const set = (id, v, cls) => { const b = sidebarEl.querySelector(`.sb-nav [data-view="${id}"] .nav-badge, [data-section="${id}"] .sb-section-head .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
-  set('stashes', state.stashes.length);
   set('catchup', catchupCount, 'accent');
   set('branches', finishedCount ? `${finishedCount} to clean` : '', 'quiet');
 }
 
 function renderTopbar() {
   if (!topbarEl) return;
-  const v = VIEWS.find((x) => x.id === state.view);
   const crumbs = h('div.crumbs', null,
     h('div.nav-btns', null,
       h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
       h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : v.label),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : pageLabel(state.view, VIEWS)),
     state.head.branch ? h('button.head-chip.branch-chip', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, icon('branch', 12), state.head.branch) : state.head.oid ? h('button.head-chip.branch-chip.detached', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
@@ -1052,6 +1065,7 @@ function renderView(soft = false) {
     case 'snapshots': contentEl.append(snapshotsView()); break;
     case 'reflog': contentEl.append(reflogView()); break;
     case 'worktrees': contentEl.append(worktreesView()); break;
+    case 'remoteList': case 'tagList': case 'submoduleList': contentEl.append(refListView(state.view)); break;
     case 'lanes': contentEl.append(openLanes().el); break;
     case 'catchup': contentEl.append(openCatchup().el); break;
     case 'branches': contentEl.append(openBranches().el); break;
@@ -2168,7 +2182,8 @@ function stashesView() {
   const list = h('div.list-pane');
   const detail = h('div.detail-pane');
   el.append(list, paneHandle('stash', () => el), detail);
-  let current = state.stashes[0]?.ref;
+  let current = state.stashes.some((x) => x.ref === stashFocus) ? stashFocus : state.stashes[0]?.ref;
+  stashFocus = null;
   function renderList() {
     list.replaceChildren(
       h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: () => stashSave() }, icon('plus', 13), 'Stash changes')),
@@ -2193,14 +2208,6 @@ function stashesView() {
       h('div.diff-scroll', null, diffs.length ? diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d))) : h('div.empty', null, 'Untracked files only')),
     );
   }
-  function stashMenu(x, y, s) {
-    contextMenu(x, y, [
-      { label: 'Apply', icon: 'check', run: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) },
-      { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) },
-      '-',
-      { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
-    ]);
-  }
   // ↑/↓ move the selection through the list.
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
@@ -2221,6 +2228,15 @@ function stashesView() {
   return el;
 }
 
+function stashMenu(x, y, s) {
+  contextMenu(x, y, [
+    { label: 'Apply', icon: 'check', run: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) },
+    { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) },
+    '-',
+    { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
+  ]);
+}
+
 async function dropStash(s) {
   if (await confirm(`Drop ${s.ref}?`, `${s.message}\n\nYou can undo this with ${MOD}Z.`, { submit: 'Drop' })) act(`Drop ${s.ref} (${s.message})`, 'stashDrop', [s.ref]);
 }
@@ -2239,6 +2255,11 @@ async function stashSave({ staged = false, paths = null, untracked = false } = {
 // ---------------------------------------------------------------------------
 // Snapshots (undo history)
 
+// History & recovery: Snapshots (the undo timeline) and the reflog on one page, a tab each (AK-463).
+function historyTabs(on) {
+  const tab = (id, label) => h('button.review-tab', { role: 'tab', onclick: () => on !== id && setView(id), title: tip(label, `view.${id}`), 'aria-selected': String(on === id) }, label);
+  return h('div.history-tabs', { role: 'tablist', 'aria-label': 'History & recovery' }, tab('snapshots', 'Snapshots'), tab('reflog', 'Reflog'));
+}
 function snapshotsView() {
   const { undo: u, redo: r, undoCount, redoCount } = state.history;
   const entries = [...[...r].map((e) => ({ ...e, redo: true })), ...[...u].reverse()];
@@ -2246,7 +2267,7 @@ function snapshotsView() {
   const more = () => { state.historyLimit += 500; refreshHistory(); };
   return h('div.page', null,
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
+      h('div', null, h('h1', null, 'History & recovery'), historyTabs('snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
       h('div.page-actions', null,
         h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(...keymap.keys('edit.undo'))),
         h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(...keymap.keys('edit.redo')))),
@@ -2312,7 +2333,7 @@ async function restoreSnapshot(e) {
 
 function reflogView() {
   const el = h('div.page.flush');
-  el.append(h('div.page-head', null, h('div', null, h('h1', null, 'Unified Reflog'), h('p.muted', null, 'Recover lost commits from every ref’s history.'))));
+  el.append(h('div.page-head', null, h('div', null, h('h1', null, 'History & recovery'), historyTabs('reflog'), h('p.muted', null, 'Recover lost commits from every ref’s history.'))));
   const rows = h('div.table');
   for (const e of state.reflog) {
     rows.append(h('div.table-row', {
@@ -2489,6 +2510,60 @@ async function push(force) { return act('Push', 'push', [{ force: force === true
 
 const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 const parentDir = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
+
+// The Remotes, Tags and Submodules pages (AK-463): a sidebar section at full width. ↑/↓ move, ↵ opens the row
+// (a tag or remote branch shows in the Map, a remote edits its URL, a submodule opens), right-click for its menu.
+const REF_LISTS = {
+  remoteList: { lede: 'Every remote and its branches.', empty: 'No remotes yet.' },
+  tagList: { lede: 'Every tag, newest first.', empty: 'No tags yet.' },
+  submoduleList: { lede: 'The repositories nested in this one.', empty: 'No submodules.' },
+};
+function refListRows(view) {
+  const refRow = (r, label, nested) => ({ icon: r.kind === 'tag' ? 'tag' : 'branch', label, nested, when: r.date ? timeAgo(r.date) : '', open: () => jumpTo(r.target), menu: (x, y) => refMenu(x, y, r) });
+  if (view === 'tagList') return state.refs.filter((r) => r.kind === 'tag').sort((a, b) => b.date - a.date).map((r) => refRow(r, r.short));
+  if (view === 'submoduleList') return state.submodules.map((m) => ({ icon: 'submodule', label: m.path, sub: [sentence(SUBMODULE_STATES[m.state][0]), m.url].filter(Boolean).join(' · '), open: () => openSubmodule(m), menu: (x, y) => submoduleMenu(x, y, m) }));
+  const remote = state.refs.filter((r) => r.kind === 'remote');
+  const names = [...new Set([...state.remotes.map((r) => r.name), ...remote.map((r) => r.short.split('/')[0])])];
+  return names.flatMap((name) => {
+    const r = state.remotes.find((x) => x.name === name);
+    return [
+      r ? { icon: 'cloud', label: name, sub: r.label, open: () => editRemoteUrl(r), menu: (x, y) => remoteMenu(x, y, r) } : null,
+      ...remote.filter((b) => b.short.startsWith(name + '/')).map((b) => refRow(b, b.short.slice(name.length + 1), true)),
+    ];
+  }).filter(Boolean);
+}
+function refListView(view) {
+  const page = SECTION_PAGES.find((p) => p.view === view);
+  const rows = refListRows(view);
+  const el = h('div.page.flush', { tabIndex: 0 });
+  const list = h('div.ref-list');
+  let idx = 0;
+  const mark = () => list.querySelectorAll('.ref-row').forEach((row, i) => row.classList.toggle('selected', i === idx));
+  rows.forEach((r, i) => list.append(h('div.ref-row' + (r.nested ? '.nested' : ''), {
+    onclick: () => { idx = i; mark(); },
+    ondblclick: r.open,
+    oncontextmenu: (e) => { e.preventDefault(); idx = i; mark(); r.menu(e.clientX, e.clientY); },
+  }, icon(r.icon, 14), h('span.ref-name', null, r.label), h('span.ref-sub', null, r.sub || ''), h('span.when', null, r.when || ''))));
+  el.append(
+    h('div.page-head', null,
+      h('div', null, h('h1', null, page.label), h('p.muted', null, REF_LISTS[view].lede)),
+      view === 'remoteList' ? h('div.page-actions', null, h('button.btn.subtle', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), 'Add remote…')) : null),
+    rows.length ? list : h('div.empty', null, REF_LISTS[view].empty),
+    rows.length ? h('div.diff-hint.wt-hint', null, `${keyText('list.open')} Open · right-click for more`) : null,
+  );
+  el.addEventListener('keydown', (e) => {
+    const id = keymap.match('list', e);
+    if (!id || isEditable(e.target) || !rows.length) return;
+    e.preventDefault();
+    if (id === 'list.open') return rows[idx].open();
+    idx = Math.max(0, Math.min(rows.length - 1, idx + { 'list.next': 1, 'list.prev': -1 }[id]));
+    mark();
+    list.querySelector('.ref-row.selected')?.scrollIntoView({ block: 'nearest' });
+  });
+  mark();
+  setTimeout(() => el.focus({ preventScroll: true }));
+  return el;
+}
 
 function worktreesView() {
   const el = h('div.page.flush', { tabIndex: 0 });
@@ -3595,6 +3670,9 @@ function openPalette() {
     const items = [];
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
     VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: keymap.keys(`view.${v.id}`) }));
+    SECTION_PAGES.forEach((p) => add('Navigation', `Open ${p.label} page`, () => setView(p.view), { icon: p.icon, kbd: keymap.keys(`view.${p.view}`), keywords: 'sidebar section full page' }));
+    add('Navigation', 'Open History & recovery', () => setView('snapshots'), { icon: 'history', kbd: keymap.keys('view.snapshots'), keywords: 'snapshots undo timeline restore recover lost' });
+    add('Navigation', 'Open Reflog (History & recovery)', () => setView('reflog'), { icon: 'reflog', kbd: keymap.keys('view.reflog'), keywords: 'reflog recover lost commits' });
     add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: keymap.keys('repo.fetch') });
     add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: keymap.keys('repo.pull') });
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });
@@ -3888,6 +3966,7 @@ function shortcutsScope() {
   if (state.review) return 'review';
   if (state.split) return 'split';
   if (state.quick) return 'quick';
+  if (['remoteList', 'tagList', 'submoduleList'].includes(state.view)) return 'list';
   return ['commit', 'stashes', 'snapshots', 'worktrees', 'catchup', 'branches'].includes(state.view) ? state.view : 'map';
 }
 function openShortcuts() {
@@ -4306,8 +4385,6 @@ window.addEventListener('keydown', (e) => {
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
   // ⌘S toggles the sidebar from the View menu; its other keys (⌘\) have no menu accelerator, so handle them here
   if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
-  // ⌘3: Branches. The View menu doesn't list it yet, so its key is handled here.
-  if (state.repo && keymap.match('menu', e) === 'view.branches') { e.preventDefault(); setView('branches'); return; }
   // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }

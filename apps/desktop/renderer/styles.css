@@ -256,6 +256,15 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .sb-section-head:hover { background: var(--bg-hover); color: var(--text-2); }
 .caret { display: inline-flex; transition: transform 0.12s ease; color: var(--text-4); }
 .caret.open { transform: rotate(90deg); }
+/* A refs-tree section header: fold on the left, ⤢ (open its full page) on the right, lit while that page is open. */
+.sb-section-row { display: flex; align-items: center; border-radius: var(--radius); }
+.sb-section-row .sb-section-head { flex: 1; min-width: 0; }
+.sb-section-head .nav-badge { margin-left: auto; padding-right: 4px; font-weight: var(--fw-medium); }
+.sb-page { flex: none; opacity: 0; color: var(--text-4); }
+.sb-section-row:hover .sb-page, .sb-page:focus-visible, .sb-section-row.active .sb-page { opacity: 1; }
+.sb-section-row.active { background: var(--bg-active); }
+.sb-section-row.active .sb-section-head { color: var(--text); }
+.sb-item.sb-nested { padding-left: 38px; }
 .sb-count { margin-left: 4px; font-size: 11px; color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
 .sb-item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 22px; border-radius: var(--radius); color: var(--text-2); }
 .sb-item .icon { color: var(--text-4); }
@@ -1425,3 +1434,15 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 /* Review: one calm line under a short Needs you list (AK-396). */
 .review-calm { padding: 20px 16px 8px; font-size: 12.5px; color: var(--text-3); }
 .review-calm b { display: block; margin-bottom: 2px; font-weight: var(--fw-medium); color: var(--text); }
+
+/* Remotes, Tags and Submodules pages (AK-463). */
+.ref-list { padding: 0 16px 24px; }
+.ref-row { display: grid; grid-template-columns: 16px minmax(120px, 2fr) 3fr 90px; align-items: center; gap: 12px; height: 32px; padding: 0 16px; border-radius: var(--radius); color: var(--text-2); }
+.ref-row.nested { padding-left: 40px; }
+.ref-row .icon { color: var(--text-4); }
+.ref-row:hover { background: var(--bg-hover); }
+.ref-row.selected { background: var(--accent-soft); color: var(--text); }
+.ref-name, .ref-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-sub { color: var(--text-3); font-size: 12px; }
+.ref-row .when { text-align: right; }
+.history-tabs { display: flex; gap: 2px; margin: 4px 0 8px; border-bottom: 1px solid var(--border); }

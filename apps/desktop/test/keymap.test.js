@@ -129,8 +129,8 @@ test('menu accelerators and keycaps per platform', async () => {
   const { accelerator, keys } = await load();
   assert.equal(accelerator('repo.fetch', true), 'CmdOrCtrl+Shift+F');
   assert.equal(accelerator('view.sidebar', true), 'CmdOrCtrl+S');
-  assert.equal(accelerator('view.map', true), 'CmdOrCtrl+4');
-  assert.equal(accelerator('view.branches', true), 'CmdOrCtrl+3');
+  assert.equal(accelerator('view.map', true), 'CmdOrCtrl+3');
+  assert.equal(accelerator('view.branches', true), 'CmdOrCtrl+5');
   assert.equal(accelerator('view.cycleTheme', true), 'Ctrl+Cmd+T');
   assert.equal(accelerator('view.cycleTheme', false), 'Ctrl+Alt+Shift+T');
   assert.equal(accelerator('app.settings', true), 'CmdOrCtrl+,');
@@ -143,15 +143,17 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
 });
 
-test('Mod+1…8 and Mod+0 follow the sidebar order, top to bottom', async () => {
+test('Mod+1…4 open the activities, then Mod+5…8 and Mod+0 the refs tree pages, in sidebar order', async () => {
   const { defaults } = await load();
+  const { SECTION_PAGES } = await import('../renderer/sidebar.js');
   const app = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
   const ids = [...app.match(/const VIEWS = \[([\s\S]*?)\];/)[1].matchAll(/id: '(\w+)'/g)].map((m) => m[1]);
-  assert.equal(ids[0], 'catchup', 'Catch up is the first view in the sidebar');
-  // Mod+9 (Repository Settings) opens Preferences → Repository since the Config view moved there (AK-458).
-  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '0'];
-  assert.equal(ids.length, digits.length, 'nine views: Mod+1…8, then Mod+0');
-  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${digits[i]}`, `view.${id}`));
+  assert.deepEqual(ids, ['catchup', 'lanes', 'map', 'commit'], 'the activities (AK-463)');
+  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${i + 1}`, `view.${id}`));
+  // Pull requests open Review (Mod+2); Submodules have a chord only. Mod+9 stays Preferences → Repository (AK-458).
+  const pages = SECTION_PAGES.filter((p) => !['prs', 'submodules'].includes(p.id)).map((p) => p.view);
+  pages.forEach((v, i) => assert.equal(defaults(`view.${v}`, true)[0], `Mod+${['5', '6', '7', '8', '0'][i]}`, `view.${v}`));
+  for (const p of SECTION_PAGES) assert.ok(defaults(`view.${p.view}`, true).length, `${p.label} has a key`);
   assert.equal(defaults('view.config', true)[0], 'Mod+9');
 });
 

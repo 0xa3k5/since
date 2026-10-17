@@ -28,3 +28,28 @@ export function sidebarToggleLabel({ width, expanded, pinned = false, hover = fa
   if (isNarrow(width)) return pinned ? 'Hide sidebar' : hover ? 'Pin sidebar' : 'Show sidebar';
   return expanded ? 'Minimize sidebar' : 'Expand sidebar';
 }
+
+// The refs tree below the activities (AK-463), top to bottom. ⤢ on a section's header, a double-click on it,
+// its key (view.<view>) and ⌘K open its full page: `view` is that page. Pull requests open Review, not a copy.
+export const SECTION_PAGES = [
+  { id: 'branches', label: 'Branches', icon: 'branch', view: 'branches' },
+  { id: 'remotes', label: 'Remotes', icon: 'cloud', view: 'remoteList' },
+  { id: 'tags', label: 'Tags', icon: 'tag', view: 'tagList' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'worktree', view: 'worktrees' },
+  { id: 'prs', label: 'Pull requests', icon: 'merge', view: 'lanes' },
+  { id: 'stashes', label: 'Stashes', icon: 'stash', view: 'stashes' },
+  { id: 'submodules', label: 'Submodules', icon: 'submodule', view: 'submoduleList' },
+];
+
+// Snapshots and the reflog are one page, "History & recovery", with a tab each.
+export const HISTORY_VIEWS = ['snapshots', 'reflog'];
+
+// The section whose header stays highlighted while `view` is on screen, or null.
+export const sectionOf = (view) => SECTION_PAGES.find((p) => p.view === view)?.id || null;
+
+// The page title for the top bar: activities first, then section pages, then History & recovery.
+export function pageLabel(view, activities = []) {
+  return activities.find((v) => v.id === view)?.label
+    || SECTION_PAGES.find((p) => p.view === view)?.label
+    || (HISTORY_VIEWS.includes(view) ? 'History & recovery' : '');
+}
