@@ -116,6 +116,16 @@ test('return toast: offered once on the stashed branch, dropped when the stash i
   assert.deepEqual(r.records, [{ root: '/other', branch: 'main', sha: 'zzz' }], 'offered once; stale records of this repo pruned, other repos kept');
 });
 
+test('return toast: the stash is found by sha after others were stashed on top', async () => {
+  const { stashRefBySha } = await load();
+  const before = [{ ref: 'stash@{0}', sha: 'aaa' }];
+  const after = [{ ref: 'stash@{0}', sha: 'new' }, { ref: 'stash@{1}', sha: 'aaa' }];
+  assert.equal(stashRefBySha(before, 'aaa'), 'stash@{0}');
+  assert.equal(stashRefBySha(after, 'aaa'), 'stash@{1}', 'position shifted: follow the sha, not the old index');
+  assert.equal(stashRefBySha(after, 'gone'), null);
+  assert.equal(stashRefBySha(null, 'aaa'), null);
+});
+
 test('undoing a plain checkout leaves the branch it switched to where it was', async () => {
   const { dir, journal, head } = await repo();
   const before = await git.captureRefState(dir);

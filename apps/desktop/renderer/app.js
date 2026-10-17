@@ -30,7 +30,7 @@ import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
-import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer } from './autostash.js';
+import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
@@ -1773,7 +1773,12 @@ async function pendingAutostash(branch) {
   savePref('autostashes', { list: records });
   return offer;
 }
-const applyAutostash = (o, drop) => act(drop ? `Apply and drop ${o.ref}` : `Apply ${o.ref}`, 'stashApply', [o.ref, drop]);
+// Resolve the ref from the sha at click time: the toast lives 15 s and positions shift if something else is stashed.
+async function applyAutostash(o, drop) {
+  const ref = stashRefBySha(await git('stashes').catch(() => null), o.sha);
+  if (!ref) return toast('That auto-stash is gone');
+  return act(drop ? `Apply and drop ${ref}` : `Apply ${ref}`, 'stashApply', [ref, drop]);
+}
 async function offerAutostash(branch) {
   const o = await pendingAutostash(branch);
   if (o) toast(`You have changes stashed from ${branch}`, { detail: o.message, timeout: 15000, actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply, keep stash', run: () => applyAutostash(o, false) }] });
