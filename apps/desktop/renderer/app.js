@@ -9,7 +9,7 @@ import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
 import { fileHistoryView } from './file-history-view.js';
-import { lanesView, reviewCounts, prefetchReview, cachedPrs } from './lanes-view.js';
+import { lanesView, reviewCounts, forgetCounts, prefetchReview, cachedPrs } from './lanes-view.js';
 import { branchesView } from './branches-view.js';
 import { isFinished, BRANCH_TABS } from './branches.js';
 import { stageMemory, STAGES } from './review-rows.js';
@@ -196,6 +196,7 @@ const refreshHistory = coalesce(async () => {
   if (state.view === 'lanes') lanesPage?.refresh();
   if (state.view === 'branches') branchesPage?.refresh();
   else if (logChanged || worktreesChanged) countFinished();
+  if (logChanged) forgetCounts(state.repo?.root);
   if (logChanged) { if (state.view === 'catchup' && catchupPage) catchupPage.refresh(); else countCatchup(); }
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
@@ -1094,7 +1095,9 @@ function renderView(soft = false) {
   conflictEd = null;
   contentEl.replaceChildren();
   contentEl.dataset.view = state.view;
-  catchupPage = null;
+  // The old page's focus listener and "ago" timer go with it, not on its next tick (AK-366).
+  catchupPage?.destroy(); catchupPage = null;
+  lanesPage?.destroy();
   branchesPage = null;
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));

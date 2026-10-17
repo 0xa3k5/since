@@ -699,6 +699,10 @@ export async function prefetchReview({ repo, load, prsOn }) {
 
 const hadPr = (l) => l.pr || l.done?.reason === 'pr';
 
+// The repo's commits moved (a lane got stuck, a PR merged outside Review): Catch up recounts locally
+// instead of showing Review's last numbers (AK-366).
+export function forgetCounts(repo) { if (lastCounts?.repo === repo) lastCounts = null; }
+
 // The pull requests of the last load for `repo` (lanes with `pr` or merged by one), for keepPrs: Branches shows "PR #N open"
 // from them without a `gh` call (AK-396).
 export const cachedPrs = (repo) => (prCache?.repo === repo ? prCache.prs : []);

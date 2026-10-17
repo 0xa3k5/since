@@ -175,3 +175,13 @@ test('send back #N waits for the lanes, and for the PR inbox with PRs on (AK-289
   assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: null, inboxFailed: true }), false);
   assert.equal(sendBackWaits({ loaded: true, prsOn: false, inbox: null, inboxFailed: false }), false);
 });
+
+test('Catch up recounts Review lines from local lanes once the commits move (AK-366)', async () => {
+  const { reviewCounts, forgetCounts } = await import('../renderer/lanes-view.js');
+  let calls = 0;
+  const load = async () => { calls++; return { lanes: [lane('main', { isBase: true, activity: NOW })] }; };
+  forgetCounts('/r');
+  const counts = await reviewCounts({ repo: '/r', load, prsOn: () => false });
+  assert.equal(calls, 1);
+  assert.deepEqual(counts, { repo: '/r', stuck: 0, ready: 0 });
+});
