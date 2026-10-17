@@ -135,3 +135,17 @@ test('a real submodule bump diff parses into a pointer change', async () => {
   const d = await git.workingDiff(app, { path: 'lib', status: 'M' }, { staged: false });
   assert.deepEqual(submoduleChange(d), { from: c1, to: c2, dirty: false });
 });
+
+test('update checks out the recorded commit even with submodule.<name>.update=rebase, so undo is exact', async () => {
+  const { app, c1, c2 } = await setup();
+  const lib = path.join(app, 'lib');
+  await git.run(app, ['config', 'submodule.lib.update', 'rebase']);
+  await git.run(lib, ['checkout', '-q', '-B', 'work', c2]);
+  const journal = new Journal(await git.openRepo(app));
+  assert.equal(await journal.runSubmodules('Update lib', ['lib']), 1);
+  assert.equal(await head(lib), c1);
+  assert.equal((await git.run(lib, ['rev-parse', 'refs/heads/work'])).trim(), c2);
+  await journal.step('undo');
+  assert.equal((await git.run(lib, ['symbolic-ref', '--short', 'HEAD'])).trim(), 'work');
+  assert.equal(await head(lib), c2);
+});

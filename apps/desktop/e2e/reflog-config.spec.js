@@ -1,5 +1,5 @@
 'use strict';
-// Recovering lost commits from the Reflog, and editing local git config.
+// Recovering lost commits from the Reflog, and editing local git config (Preferences → Repository).
 
 const { test, expect } = require('./fixtures');
 
@@ -19,7 +19,7 @@ test('restore a lost commit to a new branch from the Reflog, then undo', async (
 
   await app.view('reflog');
   const row = reflogRow(app, lost);
-  await expect(row.locator('.badge.warn', { hasText: 'unreachable' })).toBeVisible();
+  await expect(row.locator('.badge.warn', { hasText: 'Unreachable' })).toBeVisible();
   await app.contextMenu(row, 'Create Branch Here…');
   await app.dialog({ fields: { Name: 'rescued', 'Check out after creating': false }, submit: 'Create branch' });
   await app.toast('Create branch rescued');
@@ -55,31 +55,31 @@ test('check out a lost commit from the Reflog, then undo', async ({ sandbox, lau
 test('add, filter, edit and delete a local config value', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('config', ['one']);
   const app = await launch(repo);
-  await app.view('config');
-  const row = (key) => app.page.locator('.config-row', { has: app.page.locator('.mono', { hasText: new RegExp(`^${key.replace('.', '\\.')}$`) }) });
+  await app.palette('Repository settings…');
+  await expect(app.page.locator('.prefs')).toBeVisible();
+  const row = (key) => app.page.locator('.prefs-config', { has: app.page.locator('.prefs-key', { hasText: new RegExp(`^${key.replace('.', '\\.')}$`) }) });
 
   // Global values are read-only here.
   await row('user.name').click({ button: 'right' });
   await expect(app.page.locator('.menu .menu-item', { hasText: 'Edit…' })).toBeDisabled();
   await app.page.keyboard.press('Escape');
 
-  await app.page.locator('.page-actions button', { hasText: 'Add option' }).click();
-  await app.dialog({ fields: { Key: 'gitlanes.e2e', Value: 'one' }, submit: 'Save' });
+  await app.page.locator('.prefs-row[data-id="addConfig"] button').click();
+  await app.dialog({ fields: { Key: 'gitlanes.e2e', Value: 'one' }, submit: 'Save', under: 1 });
   await app.toast('Set gitlanes.e2e');
   expect(sandbox.git(repo, 'config', '--local', 'gitlanes.e2e')).toBe('one');
   await expect(row('gitlanes.e2e').locator('.config-val')).toHaveText('one');
 
-  await app.page.locator('.page-actions input').fill('gitlanes');
-  await expect(app.page.locator('.config-row')).toHaveCount(1);
+  await app.page.locator('.prefs-search').fill('gitlanes.e2e');
+  await expect(app.page.locator('.prefs-config')).toHaveCount(1);
 
-  await row('gitlanes.e2e').dblclick();
-  await app.dialog({ fields: { Value: 'two' }, submit: 'Save' });
+  await row('gitlanes.e2e').click();
+  await app.dialog({ fields: { Value: 'two' }, submit: 'Save', under: 1 });
   await app.toast('Set gitlanes.e2e');
   expect(sandbox.git(repo, 'config', '--local', 'gitlanes.e2e')).toBe('two');
-  // The refresh after the edit keeps the filter.
+  // The refresh after the edit keeps the search.
   await expect(row('gitlanes.e2e').locator('.config-val')).toHaveText('two');
-  await expect(app.page.locator('.page-actions input')).toHaveValue('gitlanes');
-  await expect(app.page.locator('.config-row')).toHaveCount(1);
+  await expect(app.page.locator('.prefs-config')).toHaveCount(1);
 
   await app.contextMenu(row('gitlanes.e2e'), 'Delete');
   await app.toast('Unset gitlanes.e2e');
@@ -87,6 +87,21 @@ test('add, filter, edit and delete a local config value', async ({ sandbox, laun
   expect(() => sandbox.git(repo, 'config', '--local', 'gitlanes.e2e')).toThrow();
   await expect(row('gitlanes.e2e')).toHaveCount(0);
 
+  // ⌘⌫ unsets the selected local value.
+  await app.page.locator('.prefs-search').fill('');
+  await app.page.locator('.prefs-row[data-id="addConfig"] button').click();
+  await app.dialog({ fields: { Key: 'gitlanes.other', Value: 'x' }, submit: 'Save', under: 1 });
+  await app.toast('Set gitlanes.other');
+  await app.page.locator('.prefs-search').fill('gitlanes.other');
+  await expect(app.page.locator('.prefs-config')).toHaveCount(1);
+  await app.page.keyboard.press('Meta+Backspace');
+  await app.toast('Unset gitlanes.other');
+  expect(() => sandbox.git(repo, 'config', '--local', 'gitlanes.other')).toThrow();
+  expect(sandbox.git(repo, 'config', '--local', '--get-all', 'core.bare')).toBe('false');
+
   // Config edits are not ref changes, so they don't enter the undo history.
+  await app.page.keyboard.press('Escape');
+  await app.page.keyboard.press('Escape');
+  await expect(app.page.locator('.prefs')).toHaveCount(0);
   await expect(app.undoButton()).toBeDisabled();
 });

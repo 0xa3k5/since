@@ -1,14 +1,18 @@
 ---
-// Built at build time from the desktop app's source (src/lib/keymap.mjs). test/keymap.test.mjs fails
-// when the app's keys change and this page would drift.
-import { PRODUCT_NAME } from '../config';
+// Built at build time from the desktop app's keymap registry (apps/desktop/renderer/keymap.js, read by
+// src/lib/keymap.mjs), the same list the app's key handlers, menus and ⌘K use, so the page can't drift.
+import { PRODUCT_NAME, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
 import PageHead from '../components/content/PageHead.astro';
 import Kbd from '../components/content/Kbd.astro';
 import { loadKeymap } from '../lib/keymap.mjs';
 import '../components/content/content.css';
 
-const { groups, palette } = loadKeymap();
+const keymap = loadKeymap();
+// The beta hides the app's licence and buy commands, since nothing is for sale yet.
+const commercial = (label: string) => !SHOW_PRICING && /licen[cs]e|\bbuy\b/i.test(label);
+const groups = keymap.groups.map((g) => ({ ...g, items: g.items.filter((i) => !commercial(i.label)) })).filter((g) => g.items.length);
+const palette = keymap.palette.filter((p) => !commercial(p.label));
 const paletteGroups = [...new Set(palette.map((p) => p.group))].map((g) => ({ group: g, items: palette.filter((p) => p.group === g) }));
 ---
 <Base

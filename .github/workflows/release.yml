@@ -1,13 +1,19 @@
 name: Release
 
 # A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
-# zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. Tags and
+# zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. A beta tag
+# (v0.1.0-beta.1) builds without a licence (GITLANES_STORE=beta) and uploads to the Cloudflare R2 bucket
+# instead, with no GitHub Release; the beta app reads its update feed from there. Tags and
 # manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
 # a workflow artifact. Signing secrets are optional; without them every run produces unsigned DMGs.
+#
+# Beta tags don't trigger this workflow: betas ship from AK's Mac with `pnpm release:beta`, which pushes the
+# tag only after the upload. To build a beta here instead, run the workflow manually on an existing beta tag
+# (gh workflow run release.yml --ref v0.1.0-beta.3). Both paths publish with apps/desktop/scripts/beta-publish.js.
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '!v*-beta.*']
   pull_request:
     paths:
       - '.github/workflows/release.yml'
@@ -61,13 +67,16 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
-          # Licence store baked into the app: production for a final release tag, the Polar sandbox for
-          # release candidates and dry runs. A production build fails until licence/config.js has the
-          # production values, so a release can't ship selling through the test store.
-          store=sandbox
+          # Licence store baked into the app: production for a final release tag, no licence for a beta
+          # tag, the Polar sandbox for release candidates and dry runs. A production build fails until
+          # licence/config.js has the production values, so a release can't ship selling through the test store.
+          # Passed to the build step only, so the e2e suite keeps its usual (sandbox) licence behaviour.
+          store=sandbox beta=false
           [ "$IS_TAG" = true ] && [ "${GITHUB_REF_NAME#v}" = "$version" ] && store=production
-          echo "GITLANES_STORE=$store" >> "$GITHUB_ENV"
-          # A pre-release tag (v0.1.0-rc.1) builds the package.json version with that suffix, so release
+          if [ "$IS_TAG" = true ] && [[ "$GITHUB_REF_NAME" =~ -beta\.[0-9]+$ ]]; then store=beta beta=true; fi
+          echo "store=$store" >> "$GITHUB_OUTPUT"
+          echo "beta=$beta" >> "$GITHUB_OUTPUT"
+          # A pre-release tag (v0.1.0-rc.1, v0.1.0-beta.1) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
           if [ "$IS_TAG" = true ]; then
             tag_version=${GITHUB_REF_NAME#v}
@@ -83,6 +92,8 @@ jobs:
             fi
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
+            # Friends download beta builds straight from the bucket: they must open without a Gatekeeper warning.
+            [ "$beta" = true ] && { echo "::error::Beta builds must be signed and notarized, but the signing secrets are missing"; exit 1; }
             [ "$IS_TAG" = true ] && echo "::warning::No signing secrets: this release's DMGs are unsigned and not notarized"
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
@@ -106,6 +117,8 @@ jobs:
           retention-days: 14
 
       - name: Build DMGs
+        env:
+          GITLANES_STORE: ${{ steps.plan.outputs.store }}
         run: pnpm dist -- -c.extraMetadata.version="${{ steps.plan.outputs.version }}"
 
       - name: Verify signature and notarization
@@ -117,10 +130,14 @@ jobs:
             spctl --assess --type execute --verbose "$app"
           done
 
+      # Beta feeds are written by beta-publish.js below, next to the upload.
       - name: Write update feeds
+        if: steps.plan.outputs.beta != 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
         run: |
-          node apps/desktop/scripts/update-feed.js --version "${{ steps.plan.outputs.version }}" \
-            --base-url "https://github.com/${{ github.repository }}/releases/download/v${{ steps.plan.outputs.version }}"
+          base="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          node apps/desktop/scripts/update-feed.js --version "$VERSION" --base-url "$base"
 
       - name: Upload dry-run artifact
         if: env.IS_TAG != 'true'
@@ -132,7 +149,7 @@ jobs:
           compression-level: 0
 
       - name: Upload to draft release
-        if: env.IS_TAG == 'true'
+        if: env.IS_TAG == 'true' && steps.plan.outputs.beta != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNED: ${{ steps.plan.outputs.signed }}
@@ -148,3 +165,12 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft "${prerelease[@]}" --verify-tag \
               --title "GitLanes ${{ steps.plan.outputs.version }}" --notes "$notes"
           fi
+
+      # Feeds, upload order, bucket layout and pruning live in beta-publish.js, shared with `pnpm release:beta`.
+      - name: Upload beta to R2
+        if: steps.plan.outputs.beta == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: node apps/desktop/scripts/beta-publish.js --version "${{ steps.plan.outputs.version }}"

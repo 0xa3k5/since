@@ -10,12 +10,13 @@
     "page": "https://github.com/0xa3k5/gitlanes/releases/latest"
   },
   "scripts": {
-    "start": "electron .",
+    "start": "node scripts/dev-app-name.js && electron .",
     "test": "node --test \"test/**/*.test.js\"",
     "test:e2e": "playwright test -c e2e",
     "dist": "electron-builder --mac --config electron-builder.config.js --publish never",
     "brand-assets": "electron scripts/render-brand-assets.js",
     "bench": "node bench/bench.js",
+    "bench:lanes": "node bench/lanes.js",
     "test:update": "node scripts/update-e2e.js"
   },
   "devDependencies": {

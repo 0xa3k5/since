@@ -9,7 +9,10 @@ at `b084e11` plus the AK-48 changes (Electron 44.7.0).
 
 **`git` talks to the network only when you ask it to.** Apart from git, the app makes two kinds
 of request of its own, both from the main process: the update check and licence validation. The
-renderer makes none.
+renderer makes none. Beta builds have no licence, so they make only the update check, to the beta
+bucket on Cloudflare R2 (`pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev`). The opt-in pull request features work like git: GitLanes runs your GitHub
+CLI (`gh`), and the connection happens inside `gh`, under your `gh` login. GitLanes never sees
+or stores a GitHub token, and opens no connection for them itself.
 
 | What | When | Who connects | To where |
 | --- | --- | --- | --- |
@@ -17,12 +20,24 @@ renderer makes none.
 | Fetch | You press *Fetch* (⌘⇧F) | `git fetch --all --prune --tags` | Your configured remotes |
 | Pull | You press *Pull* (⌘⇧L) | `git pull` | The current branch's upstream |
 | Push, push tags, delete remote branch | You press *Push* (⌘⇧P) or pick the menu item | `git push` | Your configured remotes |
+| Delete branches on the remote during *Clean up* | You tick *Delete on remote* for a branch in Review → Clean up (⌘⌥⌫) and confirm a second sheet that says it can’t be undone; off by default | `git push <remote> --delete <branch>…`, one per remote | Your configured remotes |
 | Open in hosting service, View on hosting service | You pick the menu item | Your default browser, not GitLanes | The remote's web page |
-| Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `gitlanes-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to |
+| Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `gitlanes-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to; beta builds: `https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev` (the beta bucket) |
 | Update download | When a newer signed version is found | macOS's updater (Squirrel) | The release zip named by the feed |
-| Licence validation | Activating a key, at launch and about daily | Main process | Polar's licence API (`api.polar.sh`) |
+| Licence validation | Activating a key, at launch and about daily. Never in beta builds, which have no licence | Main process | Polar's licence API (`api.polar.sh`) |
+| PR set-up check | You turn on *Pull requests* for this repository (off by default, per repository) | `gh auth status --hostname <host>` | Your GitHub host (`github.com` or your GitHub Enterprise host) |
+| PR status | Pull requests are on for this repository and you fetch (⌘⇧F), refresh PRs (⌘⌥⇧P), turn them on, or approve or close one; or the lanes overview asks for its PRs (`app:lanes-list` with `prs: true`; without it, or with pull requests off, the lanes list is local git only) | `gh pr list --repo …` (the same call also asks for `latestReviews`, `additions`, `deletions` and `changedFiles`, for the review stages' per-reviewer verdicts and PR size; only each reviewer's login and verdict are kept, never review text) | `api.github.com`, or your GitHub Enterprise host |
+| Shipped lanes | Pull requests are on and the lanes overview asks for its PRs (`app:lanes-list` with `prs: true`), on the same refreshes as its PR status. With pull requests off, the shipped check is local git only | `gh pr list --repo … --state merged --limit 100 --json number,title,headRefOid,headRefName,mergeCommit,mergedAt` per refresh (merged PRs' head commits, to mark lanes whose work already shipped; their merge commits, to name what landed in Review's catch-up card) | `api.github.com`, or your GitHub Enterprise host |
+| Review (PR stages) | Pull requests are on and Review (⌘1) is open, on the same refreshes as its PR status (opening it, and when the window comes back to the front) | `gh pr list --repo … --search review-requested:@me --json number` per refresh, and `gh api user --hostname <host> --jq .login` once per host per session (your login, to find your own PRs). The PR status call above also asks for `mergeable`. *Merge* on a ready row's button (Space or M) or *Merge all ready* (⇧M) runs `gh pr merge --repo … --squash` once per PR after one confirmation | `api.github.com`, or your GitHub Enterprise host |
+| Review (catch-up) | Pull requests are on and Review (⌘1) is open, on the same refreshes as its PR status, and when you pick another *Since…* range or *Mark caught up*. With pull requests off, catch-up is `git log` alone, and the checkpoint stays in the app's data folder on your Mac | The merged-PR call above, and `gh run list --repo … --branch <base> --limit 20 --json headSha,status,conclusion,workflowName` (the base branch's CI state: workflow names and results only) | `api.github.com`, or your GitHub Enterprise host |
+| PR actions: approve, request changes, merge, close | Pull requests are on and you pick *Approve…* (⌘⌥⇧A, or A on a PR review), *Request changes…* (⌘⌥⇧K, or C), *Merge…* (⌘⌥⇧M, or M) or *Close…* (⌘⌥⇧W, or X), or *Merge and tidy…* (M in Review or a branch review) with “On GitHub” chosen for a lane that has an open PR. Review's side pane runs the same calls from its buttons, ⌘K, or ⇧A / M / ⇧X in the list (A / M / X in the pane), after the same confirmation dialogs | `gh pr view`, `gh repo view`, `gh pr review --approve`, `gh pr review --request-changes --body=…`, `gh pr merge`, `gh pr close` (all with `--repo`) | `api.github.com`, or your GitHub Enterprise host |
+| Send back (Review) | Pull requests are on and, in the Send back sheet (P on a Stuck row, its *Send back…* button, or ⌘K), you click *Add failed CI log* or *Post as PR comment*. Opening the sheet and *Copy prompt* are local only (git log on the base, the clipboard only when you click Copy) | *Add failed CI log*: `gh pr view --repo … --json statusCheckRollup`, then `gh run view <run> --repo … --log-failed` for each failed GitHub Actions run (at most 3; only the last 20 lines are kept, in the sheet). *Post as PR comment*: `gh pr comment --repo … --body=…` after a confirmation | `api.github.com`, or your GitHub Enterprise host |
+| Merge plan (Review) | Pull requests are on, git is 2.38 or later, and you open *Plan merge ▸* on Ready to merge (⇧P or ⌘K); merging only when you then click *Merge N in order*. The order itself is worked out locally (`git merge-tree --write-tree` and `git commit-tree`, objects only, no ref moves) | Planning: `gh pr view --repo … --json …` per ready PR (at most 10), `git fetch --no-tags -- <remote> refs/heads/<base>` and `refs/pull/<n>/head` for PR heads not here yet (into `FETCH_HEAD` only). Merging, per PR: `gh pr view` (head, checks, review), `git ls-remote -- <remote> refs/heads/<base>`, `gh pr merge --repo … --squash`, then `gh pr view --json state,mergeCommit` | `api.github.com`, or your GitHub Enterprise host; your git remote's host |
+| PR review from Review | Pull requests are on and you open a PR's review (R or *Review* on a Review row, or ⌘K *Review pull request…*), or select a PR row that isn't checked out here so Review's side pane shows its diff (once per PR update per window; rows with a local branch, and everything with pull requests off, stay local) | `git fetch --no-tags -- <remote> refs/pull/<n>/head` (into `FETCH_HEAD` only, no ref moves), then a local diff. No `gh` call | Your git remote's host |
+| New pull request | Pull requests are on and you pick *New Pull Request…* (⌘⌥⇧N) and confirm the sheet; a branch that isn’t on GitHub yet is pushed first only if you tick the push box | `gh repo view --json defaultBranchRef` when the sheet opens, `gh pr create --repo … --head … --body-file -` when you confirm. *Draft with AI* sends the branch’s commits and diff to the AI provider you already set up for commit messages (see above) | `api.github.com`, or your GitHub Enterprise host; the push goes to your remote like any push |
 
-There is no background or scheduled fetch. Git may also reach the network through your own
+There is no background or scheduled fetch, and no PR polling: while a repository's pull request
+toggle is off, `gh` is never even looked up (`test/github.test.js` checks this). Git may also reach the network through your own
 configuration (hooks, credential helpers, Git LFS filters on checkout, `includeIf` or
 `url.*.insteadOf` rules). Those run under your settings, exactly as they would in a terminal.
 
@@ -38,6 +53,17 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
   `net`, `autoUpdater` nor `crashReporter`. The app has no runtime npm dependencies
   (`test/packaging.test.js` enforces this). The only git subcommands that use the network
   (`clone`, `fetch`, `pull`, `push`) are started from the user actions listed above.
+  `test/packaging.test.js` checks that no packaged main-process file requires a Node network
+  module or Electron's `net`, and that `git.js`, `ai.js` and `github.js` never call `fetch`;
+  the only requests the app makes itself are the update check (`updater.js`) and licence
+  validation (`licence/stores.js`).
+- **GitHub CLI calls.** `github.js` spawns `gh` the same way `ai.js` spawns AI CLIs: the binary
+  is resolved on the extended `PATH`, runs in an empty temp folder with prompts off, has a
+  30-second timeout after which its whole process group is killed. Every PR call passes `--repo` for a
+  GitHub remote of this repository. `ipc.js` checks what the renderer sends first: the PR number
+  must be a positive integer (`prNumber`) and the remote must be one of this repository's
+  remotes (`knownRemote`); merge method and flags are checked against fixed lists
+  (`test/ipc.test.js`).
 - **Renderer, enforced.** The page's Content-Security-Policy has `default-src 'none'` and
   `connect-src 'none'`, and every session cancels requests that aren't `file:`, `data:` or
   DevTools (the updater's session may also reach the update feed's host). `e2e/security.spec.js` checks that `fetch`, `WebSocket` and remote images fail.

@@ -1,12 +1,11 @@
 ---
-// The single plan. Wording follows AK-32 §6 with the owner's later decisions: no date, Polar, a Mac limit.
+// The single plan. Wording follows AK-32 §6 with later decisions: no date, Polar.
 import { BUY_URL, PRICE_LATER, PRICE_NOW, PRODUCT_NAME } from '../../config';
-import { MACS_PER_LICENCE } from './links';
 
 const perks = [
   'Every feature, now and in the future',
-  `Use it on up to ${MACS_PER_LICENCE} of your Macs`,
   '14-day free trial, no account, no credit card',
+  '30-day money-back guarantee',
 ];
 ---
 <div class="plan">
@@ -20,7 +19,6 @@ const perks = [
   </div>
   <ul class="plan-perks">
     {perks.map((p) => <li>{p}</li>)}
-    <li><a href="/refunds">30-day money-back guarantee</a></li>
   </ul>
   <p class="plan-fine">
     Prices in USD. VAT or sales tax is added at checkout where applicable. Payments are handled by Polar,

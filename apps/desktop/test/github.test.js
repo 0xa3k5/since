@@ -1,0 +1,504 @@
+'use strict';
+// Read-only pull request status through `gh` (github.js, renderer/prs.js).
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const github = require('../github');
+
+const remote = (name, url) => ({ name, url, web: require('../git').remoteWebUrl(url) });
+const ORIGIN = remote('origin', 'git@github.com:acme/app.git');
+
+// A folder with a fake `gh` so findBinary finds it; the exec stub records calls instead of running it.
+function fakeGh() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
+  return dir;
+}
+const recorder = (reply) => {
+  const calls = [];
+  const exec = async (bin, args, input, opts) => { calls.push({ bin, args, opts }); return typeof reply === 'function' ? reply(args) : reply; };
+  return { calls, exec };
+};
+
+const PR = (o = {}) => ({
+  number: 12, title: 'Add lanes', headRefName: 'lanes', headRepositoryOwner: { login: 'acme' }, baseRefName: 'main',
+  isDraft: false, reviewDecision: 'APPROVED', statusCheckRollup: [], author: { login: 'kim' },
+  url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-10T10:00:00Z', ...o,
+});
+
+test('remotes: GitHub and Enterprise remotes parse, origin wins, odd names are refused', () => {
+  assert.deepEqual(github.parseRemote(ORIGIN), { name: 'origin', host: 'github.com', owner: 'acme', repo: 'app' });
+  assert.deepEqual(github.parseRemote(remote('ghe', 'https://user@git.corp.example:8443/team/svc.git')), { name: 'ghe', host: 'git.corp.example', owner: 'team', repo: 'svc' });
+  assert.equal(github.parseRemote(remote('local', '/srv/git/app.git')), null);
+  assert.equal(github.parseRemote({ name: 'x', web: 'https://github.com/acme/app/extra' }), null);
+  assert.equal(github.parseRemote({ name: 'x', web: 'https://github.com/--upload-pack=x/app' }), null);
+  const fork = remote('fork', 'https://github.com/kim/app');
+  assert.equal(github.pickRemote([fork, ORIGIN]).name, 'origin');
+  assert.equal(github.pickRemote([remote('local', '/srv/app'), fork]).name, 'fork');
+  assert.equal(github.pickRemote([]), null);
+  assert.deepEqual(github.remoteOwners([fork, ORIGIN]), { fork: 'kim', origin: 'acme' });
+});
+
+test('checks: failure wins, then pending; no checks is null', () => {
+  const run = (status, conclusion = '') => ({ __typename: 'CheckRun', status, conclusion });
+  const ctx = (state) => ({ __typename: 'StatusContext', state });
+  assert.equal(github.checksState([]), null);
+  assert.equal(github.checksState(null), null);
+  assert.equal(github.checksState([run('COMPLETED', 'SUCCESS'), ctx('SUCCESS'), run('COMPLETED', 'SKIPPED')]), 'success');
+  assert.equal(github.checksState([run('COMPLETED', 'SUCCESS'), run('IN_PROGRESS')]), 'pending');
+  assert.equal(github.checksState([ctx('PENDING')]), 'pending');
+  assert.equal(github.checksState([run('IN_PROGRESS'), run('COMPLETED', 'FAILURE')]), 'failure');
+  assert.equal(github.checksState([ctx('ERROR'), run('QUEUED')]), 'failure');
+  assert.equal(github.checksState([run('COMPLETED', 'TIMED_OUT')]), 'failure');
+});
+
+test('checkCounts: skipped and neutral pass, like the merge box; null with no checks', () => {
+  const run = (status, conclusion = '') => ({ status, conclusion });
+  const ctx = (state) => ({ state });
+  assert.equal(github.checkCounts([]), null);
+  assert.equal(github.checkCounts(undefined), null);
+  assert.deepEqual(github.checkCounts([run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'SKIPPED'), run('COMPLETED', 'NEUTRAL'), run('COMPLETED', 'FAILURE'), run('IN_PROGRESS'), ctx('SUCCESS'), ctx('PENDING')]), { passed: 4, total: 7 });
+});
+
+test('parsePrs: normalizes gh JSON, drops bad entries, newest first, capped', () => {
+  const out = JSON.stringify([
+    PR({ number: 1, updatedAt: '2026-10-01T00:00:00Z', isDraft: true, reviewDecision: '', statusCheckRollup: [{ status: 'QUEUED' }] }),
+    PR({ number: 2, reviewDecision: 'CHANGES_REQUESTED', url: 'javascript:alert(1)' }),
+    { number: -3, title: 'bad' }, { number: '4' }, null,
+  ]);
+  const prs = github.parsePrs(out);
+  assert.deepEqual(prs.map((p) => p.number), [2, 1]);
+  assert.deepEqual(prs[1], { number: 1, title: 'Add lanes', branch: 'lanes', head: null, headOwner: 'acme', base: 'main', draft: true, review: null, checks: 'pending', failing: [], checkCounts: { passed: 0, total: 1 }, author: 'kim', authorName: 'kim', bot: false, url: 'https://github.com/acme/app/pull/12', updatedAt: '2026-10-01T00:00:00Z', mergeable: null, mergeState: null, reviews: [], reviewRequests: [], size: { additions: null, deletions: null, files: null }, body: '' });
+  assert.equal(prs[0].review, 'changes');
+  assert.equal(prs[0].url, null, 'only https links');
+  assert.equal(github.parsePrs(JSON.stringify(Array.from({ length: 150 }, (_, i) => PR({ number: i + 1 })))).length, github.LIMIT);
+  assert.throws(() => github.parsePrs('not json'), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrs('{"a":1}'), { code: 'gh-failed' });
+});
+
+test('listPrs: nothing runs while the toggle is off', async () => {
+  const { calls, exec } = recorder('[]');
+  assert.equal(await github.listPrs({ enabled: false, remotes: [ORIGIN], dirs: [fakeGh()], exec }), null);
+  assert.equal(calls.length, 0);
+});
+
+test('listPrs: asks gh for this repository’s open PRs, without prompts', async () => {
+  const dir = fakeGh();
+  const { calls, exec } = recorder(JSON.stringify([PR()]));
+  const res = await github.listPrs({ enabled: true, remotes: [remote('fork', 'https://github.com/kim/app'), ORIGIN], dirs: [dir], exec });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].bin, path.join(dir, 'gh'));
+  assert.deepEqual(calls[0].args, ['pr', 'list', '--repo', 'github.com/acme/app', '--state', 'open', '--limit', '100', '--json', github.PR_FIELDS.join(',')]);
+  assert.equal(calls[0].opts.env.GH_PROMPT_DISABLED, '1');
+  assert.equal(res.remote.name, 'origin');
+  assert.deepEqual(res.owners, { fork: 'kim', origin: 'acme' });
+  assert.equal(res.prs[0].number, 12);
+});
+
+test('listPrs / detect: missing gh, logged out and other errors', async () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  await assert.rejects(github.listPrs({ enabled: true, remotes: [ORIGIN], dirs: [empty] }), { code: 'gh-missing' });
+  await assert.rejects(github.listPrs({ enabled: true, remotes: [remote('l', '/srv/app')], dirs: [empty] }), { code: 'gh-no-remote' });
+  const fail = (msg) => async () => { throw new Error(msg); };
+  await assert.rejects(github.listPrs({ enabled: true, remotes: [ORIGIN], dirs: [fakeGh()], exec: fail('To get started with GitHub CLI, please run:  gh auth login') }), { code: 'gh-auth' });
+  await assert.rejects(github.listPrs({ enabled: true, remotes: [ORIGIN], dirs: [fakeGh()], exec: fail('error connecting to api.github.com') }), { code: 'gh-failed' });
+
+  assert.equal((await github.detect({ remotes: [ORIGIN], dirs: [empty] })).gh, 'missing');
+  assert.equal((await github.detect({ remotes: [ORIGIN], dirs: [fakeGh()], exec: fail('not logged in') })).gh, 'logged-out');
+  const { calls, exec } = recorder('');
+  assert.equal((await github.detect({ remotes: [ORIGIN], dirs: [fakeGh()], exec })).gh, 'ready');
+  assert.deepEqual(calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  // No repository open: the github.com login only, no remote needed.
+  const none = recorder('');
+  assert.deepEqual(await github.detect({ remotes: null, dirs: [fakeGh()], exec: none.exec }), { gh: 'ready', remote: null });
+  assert.deepEqual(none.calls[0].args, ['auth', 'status', '--hostname', 'github.com']);
+  await assert.rejects(github.detect({ remotes: [], dirs: [fakeGh()], exec: none.exec }), { code: 'gh-no-remote' });
+});
+
+test('settings: one user-wide flag, a per-repository hide, and the old per-repository keys migrated', () => {
+  assert.deepEqual(github.normalize(undefined), { on: null, hidden: [] });
+  assert.deepEqual(github.normalize({ on: false, hidden: ['/a', 3] }), { on: false, hidden: ['/a'] });
+  // Upgrades: on if any repository had it on; the old `repos` key is dropped.
+  assert.deepEqual(github.normalize({ repos: ['/a', 3] }), { on: true, hidden: [] });
+  assert.deepEqual(github.normalize({ repos: [] }), { on: false, hidden: [] }, 'turned off in the last repository stays off');
+  assert.equal(github.normalize({ on: false, repos: ['/a'] }).on, false, 'an explicit choice wins');
+  let s = github.setEnabled(undefined, true);
+  assert.ok(github.isEnabled(s, '/a') && github.isEnabled(s, '/b'), 'on for every repository');
+  s = github.setHidden(s, '/a', true);
+  s = github.setHidden(s, '/a', true);
+  assert.deepEqual(s, { on: true, hidden: ['/a'] });
+  assert.ok(!github.isEnabled(s, '/a') && github.isHidden(s, '/a') && github.isEnabled(s, '/b'));
+  assert.ok(github.isEnabled(github.setHidden(s, '/a', false), '/a'));
+  assert.ok(!github.isEnabled(github.setEnabled(s, false), '/b'), 'off everywhere');
+  assert.deepEqual(github.setEnabled(s, false).hidden, ['/a'], 'turning it off keeps the hidden list');
+});
+
+test('ghStatus: the fresh-install default is on only when gh is installed and logged in', async () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gl-nogh-'));
+  const fail = (msg) => async () => { throw new Error(msg); };
+  assert.equal(await github.ghStatus({ dirs: [empty] }), 'missing');
+  assert.equal(github.ghInstalled({ dirs: [empty] }), false);
+  assert.equal(github.ghInstalled({ dirs: [fakeGh()] }), true);
+  assert.equal(await github.ghStatus({ dirs: [fakeGh()], exec: fail('not logged in') }), 'logged-out');
+  const { calls, exec } = recorder('');
+  assert.equal(await github.ghStatus({ dirs: [fakeGh()], exec }), 'ready');
+  assert.deepEqual(calls[0].args, ['auth', 'status']);
+});
+
+test('renderer: PRs land on their branches, fork PRs only on branches tracking that fork', async () => {
+  const { prsByRef, prRef, prTitle } = await import('../renderer/prs.js');
+  const mine = { number: 1, title: 'Mine', branch: 'lanes', headOwner: 'acme', base: 'main', draft: false, review: 'approved', checks: 'failure', author: 'kim' };
+  const theirs = { number: 2, title: 'Fork', branch: 'main', headOwner: 'kim', base: 'main', draft: true, review: null, checks: null, author: 'kim' };
+  const refs = [
+    { kind: 'branch', short: 'lanes', target: 'a' },
+    { kind: 'remote', short: 'origin/lanes', target: 'a' },
+    { kind: 'branch', short: 'main', upstream: 'origin/main', target: 'b' },
+    { kind: 'branch', short: 'kim-main', upstream: 'kim/main', target: 'c' },
+  ];
+  const data = { remote: { name: 'origin', owner: 'acme' }, owners: { origin: 'acme', kim: 'kim' }, prs: [mine, theirs] };
+  const by = prsByRef(data, refs);
+  assert.equal(by.get('branch:lanes'), mine);
+  assert.equal(by.get('remote:origin/lanes'), mine);
+  assert.equal(by.get('branch:main'), undefined, 'a fork’s "main" is not our main');
+  assert.equal(by.get('branch:kim-main'), theirs);
+  assert.equal(prRef(mine, refs, by).kind, 'branch');
+  assert.equal(prRef(theirs, refs, by).short, 'kim-main');
+  assert.equal(prsByRef(null, refs).size, 0);
+  assert.equal(prTitle(mine), '#1 Mine\nby kim · lanes → main\nApproved · Checks failed');
+  assert.match(prTitle(theirs, true), /Draft\nNot refreshed/);
+});
+
+const SHA = 'a'.repeat(40);
+const HEAD = (o = {}) => JSON.stringify({ number: 12, headRefName: 'lanes', headRefOid: SHA, headRepositoryOwner: { login: 'acme' }, isCrossRepository: false, baseRefName: 'main', state: 'OPEN', ...o });
+
+test('parsePrHead: branch named like gh, fork heads track the PR ref', () => {
+  const mine = github.parsePrHead(HEAD(), 12);
+  assert.deepEqual(mine, { number: 12, branch: 'lanes', sha: SHA, cross: false, headOwner: 'acme', base: 'main', state: 'open', local: 'lanes' });
+  assert.equal(github.prUpstream(mine), 'refs/heads/lanes');
+  const fork = github.parsePrHead(HEAD({ headRefName: 'fix/x', isCrossRepository: true, headRepositoryOwner: { login: 'kim' } }), 12);
+  assert.equal(fork.local, 'fix/x');
+  assert.equal(github.prUpstream(fork), 'refs/pull/12/head');
+  // A fork's `main` would clash with ours: gh calls it `owner/main`.
+  assert.equal(github.parsePrHead(HEAD({ headRefName: 'main', isCrossRepository: true, headRepositoryOwner: { login: 'kim' } }), 12).local, 'kim/main');
+  assert.equal(github.parsePrHead(HEAD({ headRefName: 'main' }), 12).local, 'main');
+});
+
+test('parsePrHead: refuses odd output, wrong PR, bad shas and unsafe branch names', () => {
+  assert.throws(() => github.parsePrHead('nope', 12), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrHead('[]', 12), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrHead(HEAD(), 13), { code: 'gh-failed' });
+  assert.throws(() => github.parsePrHead(HEAD({ headRefOid: 'HEAD' }), 12), /no head commit/);
+  for (const name of ['', '--upload-pack=x', '-b', 'a..b', 'a b', 'x.lock', 'a//b', 'end/', '.hidden', 'a/.b', 'a~b', 'a:b', 'a?b', 'a[b', 'a\\b', '@', 'x@{1}', 'dot.']) {
+    assert.throws(() => github.parsePrHead(HEAD({ headRefName: name }), 12), { code: 'gh-failed' }, name);
+  }
+});
+
+test('parsePrHead: takes any branch name git accepts', () => {
+  for (const name of ['fix+x', 'issue#12', 'me@work', 'café/ñ', 'semi;colon', 'a.b/c-d_e']) {
+    assert.equal(github.parsePrHead(HEAD({ headRefName: name }), 12).local, name);
+  }
+});
+
+test('viewPr: off, bad numbers and missing gh run nothing; asks gh for one PR', async () => {
+  const dir = fakeGh();
+  const { calls, exec } = recorder(HEAD());
+  await assert.rejects(github.viewPr({ enabled: false, remotes: [ORIGIN], number: 12, dirs: [dir], exec }), { code: 'gh-off' });
+  for (const n of [0, -1, 1.5, '12', null]) await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: n, dirs: [dir], exec }));
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [], number: 12, dirs: [dir], exec }), { code: 'gh-no-remote' });
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-none-'))], exec }), { code: 'gh-missing' });
+  assert.equal(calls.length, 0);
+  const res = await github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [dir], exec });
+  assert.deepEqual(calls[0].args, ['pr', 'view', '12', '--repo', 'github.com/acme/app', '--json', github.VIEW_FIELDS.join(',')]);
+  assert.equal(res.remote.name, 'origin');
+  assert.equal(res.head.local, 'lanes');
+  const fail = async () => { throw new Error('HTTP 401: Bad credentials'); };
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [dir], exec: fail }), { code: 'gh-auth' });
+});
+
+// Approve, merge and close (AK-173).
+const VIEW = (o = {}) => JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }], headRefName: 'feat', ...o });
+const REPO = (o = {}) => JSON.stringify({ squashMergeAllowed: true, mergeCommitAllowed: false, rebaseMergeAllowed: true, deleteBranchOnMerge: false, viewerPermission: 'WRITE', ...o });
+
+test('parseMergeInfo: allowed methods (squash first), state and checks', () => {
+  const i = github.parseMergeInfo(VIEW(), REPO());
+  assert.deepEqual(i.methods, ['squash', 'rebase']);
+  assert.equal(i.state, 'open');
+  assert.equal(i.checks, 'success');
+  assert.equal(i.review, 'approved');
+  assert.equal(i.admin, false);
+  assert.deepEqual(github.parseMergeInfo(VIEW(), REPO({ squashMergeAllowed: false, rebaseMergeAllowed: false, mergeCommitAllowed: false })).methods, ['squash']);
+  assert.equal(github.parseMergeInfo(VIEW({ mergeable: 'CONFLICTING' }), REPO()).conflicts, true);
+  assert.throws(() => github.parseMergeInfo('nope', REPO()), { code: 'gh-failed' });
+  assert.throws(() => github.parseMergeInfo('[]', REPO()), { code: 'gh-failed' });
+});
+
+test('mergeGate: hard blocks, soft blocks and who can override', () => {
+  const gate = (pr, repo) => github.mergeGate(github.parseMergeInfo(VIEW(pr), REPO(repo)));
+  assert.deepEqual(gate(), { hard: null, soft: [], needsAdmin: false, canOverride: true });
+  assert.match(gate({ isDraft: true }).hard, /draft/);
+  assert.match(gate({ state: 'MERGED' }).hard, /merged/);
+  assert.match(gate({ mergeStateStatus: 'DIRTY' }).hard, /conflicts/);
+  // Failing checks GitHub doesn't require: anyone can tick "merge anyway".
+  const unstable = gate({ mergeStateStatus: 'UNSTABLE', statusCheckRollup: [{ state: 'FAILURE' }] });
+  assert.deepEqual(unstable.soft, ['Checks are failing.']);
+  assert.equal(unstable.needsAdmin, false);
+  assert.equal(unstable.canOverride, true);
+  // Branch protection: only an admin can bypass.
+  const blocked = gate({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' });
+  assert.deepEqual(blocked.soft, ['A review is required.']);
+  assert.equal(blocked.needsAdmin, true);
+  assert.equal(blocked.canOverride, false);
+  assert.equal(gate({ mergeStateStatus: 'BLOCKED' }, { viewerPermission: 'ADMIN' }).canOverride, true);
+  assert.match(gate({ mergeStateStatus: 'BLOCKED' }).soft[0], /protection/);
+});
+
+test('PR actions: nothing runs while off; numbers must be positive integers', async () => {
+  const { calls, exec } = recorder('');
+  await assert.rejects(github.mergePr({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' });
+  await assert.rejects(github.approvePr({ enabled: true, remotes: [ORIGIN], number: 0, dirs: [fakeGh()], exec }), { code: 'gh-failed' });
+  await assert.rejects(github.closePr({ enabled: true, remotes: [ORIGIN], number: 1.5, dirs: [fakeGh()], exec }), { code: 'gh-failed' });
+  await assert.rejects(github.mergePr({ enabled: true, remotes: [ORIGIN], number: 7, method: '--admin', dirs: [fakeGh()], exec }), { code: 'gh-failed' });
+  assert.equal(calls.length, 0);
+});
+
+test('PR actions: gh arguments', async () => {
+  const run = async (fn, o) => { const { calls, exec } = recorder(''); await github[fn]({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec, ...o }); return calls[0].args; };
+  assert.deepEqual(await run('mergePr'), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--squash']);
+  assert.deepEqual(await run('mergePr', { method: 'rebase', deleteBranch: true, admin: true }), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--rebase', '--delete-branch', '--admin']);
+  assert.deepEqual(await run('approvePr'), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve']);
+  assert.deepEqual(await run('approvePr', { body: ' --admin looks good ' }), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve', '--body=--admin looks good']);
+  assert.deepEqual(await run('updatePrBranch'), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app']);
+  assert.deepEqual(await run('updatePrBranch', { rebase: true }), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app', '--rebase']);
+  assert.deepEqual(await run('closePr', { body: 'superseded' }), ['pr', 'close', '7', '--repo', 'github.com/acme/app', '--comment=superseded']);
+  const fail = async () => { throw new Error('HTTP 401: Bad credentials'); };
+  await assert.rejects(github.closePr({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: fail }), { code: 'gh-auth' });
+});
+
+test('mergeInfo: one pr view and one repo view, with the gate', async () => {
+  const { calls, exec } = recorder((args) => (args[0] === 'pr' ? VIEW({ mergeStateStatus: 'BLOCKED' }) : REPO()));
+  const i = await github.mergeInfo({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
+  assert.deepEqual(calls.map((c) => c.args.slice(0, 2)), [['pr', 'view'], ['repo', 'view']]);
+  assert.equal(i.gate.needsAdmin, true);
+});
+
+test('ipc: prNumber and knownRemote', () => {
+  const check = require('../ipc');
+  assert.equal(check.prNumber(3), 3);
+  for (const bad of [0, -1, 1.5, '3', null]) assert.throws(() => check.prNumber(bad), check.IpcArgError);
+  assert.equal(check.knownRemote([ORIGIN], 'origin'), ORIGIN);
+  assert.throws(() => check.knownRemote([ORIGIN], 'upstream'), check.IpcArgError);
+});
+
+test('toggle off: no PR call spawns gh, with the real runner', async () => {
+  // A `gh` that leaves a mark if it ever runs; no exec stub, so this goes through ai.runCli.
+  const dir = fakeGh();
+  const mark = path.join(dir, 'ran');
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\n/usr/bin/touch '${mark}'\necho '[]'\n`, { mode: 0o755 });
+  const off = { enabled: false, remotes: [ORIGIN], number: 7, dirs: [dir] };
+  assert.equal(await github.listPrs(off), null);
+  for (const fn of ['mergeInfo', 'approvePr', 'mergePr', 'closePr', 'updatePrBranch']) await assert.rejects(github[fn](off), { code: 'gh-off' }, fn);
+  assert.equal(fs.existsSync(mark), false, 'gh ran while pull requests were off');
+  // The same gh does run once the toggle is on, so the mark would have shown up.
+  await github.listPrs({ ...off, enabled: true });
+  assert.equal(fs.existsSync(mark), true);
+});
+
+test('create PR: default branch, prefill from commits, parsed link', () => {
+  assert.equal(github.parseDefaultBranch('{"defaultBranchRef":{"name":"main"}}'), 'main');
+  assert.throws(() => github.parseDefaultBranch('{"defaultBranchRef":null}'), { code: 'gh-failed' });
+  // `git log --format=%s%x00%b%x1e`, newest first.
+  const log = 'Add tests\0\x1e\nAdd the sheet\0Longer body\nline two\n\x1e\n';
+  const commits = github.parseCommits(log);
+  assert.deepEqual(commits, [{ subject: 'Add tests', body: '' }, { subject: 'Add the sheet', body: 'Longer body\nline two' }]);
+  assert.deepEqual(github.prDraft(commits.slice(1)), { title: 'Add the sheet', body: 'Longer body\nline two' });
+  assert.deepEqual(github.prDraft(commits), { title: 'Add the sheet', body: '- Add the sheet\n- Add tests' });
+  assert.deepEqual(github.prDraft([]), { title: '', body: '' });
+  assert.deepEqual(github.parseCreated('Creating pull request…\nhttps://github.com/acme/app/pull/42\n'), { url: 'https://github.com/acme/app/pull/42', number: 42 });
+  assert.throws(() => github.parseCreated('oops'), { code: 'gh-failed' });
+  for (const ok of ['main', 'feat/x', 'fork-owner:feat/x']) assert.equal(github.branchArg(ok, 'head'), ok);
+  for (const bad of ['--force', '-x', 'a..b', 'a b', 'x.lock', 'a/', '', 'bad owner:x', 'x@{1}']) assert.throws(() => github.branchArg(bad, 'head'), { code: 'gh-failed' }, bad);
+});
+
+test('create PR: gh pr create gets plain flags and the body on stdin', async () => {
+  const calls = [];
+  const exec = async (bin, args, input) => { calls.push({ args, input }); return 'https://github.com/acme/app/pull/9\n'; };
+  const t = { enabled: true, remotes: [ORIGIN], dirs: [fakeGh()], exec };
+  const res = await github.createPr({ ...t, base: 'main', head: 'feat/x', title: '  --title  trick ', body: '- one\n- two', draft: true });
+  assert.deepEqual(res, { url: 'https://github.com/acme/app/pull/9', number: 9 });
+  assert.deepEqual(calls[0].args, ['pr', 'create', '--repo', 'github.com/acme/app', '--base=main', '--head=feat/x', '--title=--title trick', '--body-file', '-', '--draft']);
+  assert.equal(calls[0].input, '- one\n- two');
+  await assert.rejects(github.createPr({ ...t, base: 'main', head: 'feat/x', title: ' ' }), { code: 'gh-failed' });
+  await assert.rejects(github.createPr({ ...t, base: '--admin', head: 'feat/x', title: 'x' }), { code: 'gh-failed' });
+  await assert.rejects(github.createPr({ ...t, enabled: false, base: 'main', head: 'feat/x', title: 'x' }), { code: 'gh-off' });
+  assert.equal(calls.length, 1);
+});
+
+test('joinLanes: PRs attach by upstream branch, forks only to lanes tracking them, off means null', () => {
+  const pr = (number, branch, headOwner, extra = {}) => ({ number, title: `PR ${number}`, branch, headOwner, draft: false, checks: 'success', review: 'approved', url: `https://github.com/acme/app/pull/${number}`, ...extra });
+  const listed = { owners: { origin: 'acme', fork: 'bob' }, prs: [pr(1, 'feat', 'acme', { draft: true, checks: 'pending' }), pr(2, 'fix', 'bob'), pr(3, 'local-only', 'acme'), pr(4, 'main', 'acme')] };
+  const lanes = [
+    { name: 'feat', branch: 'feat', upstream: 'origin/feat' },
+    { name: 'my-fix', branch: 'my-fix', upstream: 'fork/fix' },
+    { name: 'fix', branch: 'fix', upstream: 'origin/fix' },
+    { name: 'local-only', branch: 'local-only', upstream: null },
+    { name: 'main', branch: 'main', upstream: 'origin/main', isBase: true },
+    { name: 'det', branch: null, upstream: null },
+  ];
+  const out = github.joinLanes(lanes, listed);
+  assert.deepEqual(out.map((l) => l.pr?.number ?? null), [1, 2, null, 3, null, null]);
+  assert.deepEqual(out[0].pr, { number: 1, title: 'PR 1', state: 'open', draft: true, checks: 'pending', review: 'approved', url: 'https://github.com/acme/app/pull/1' });
+  assert.equal(out[0].name, 'feat', 'lane fields kept');
+  assert.ok(github.joinLanes(lanes, null).every((l) => l.pr === null));
+});
+
+test('normalizePr: GitHub’s mergeable state as true, false or null', () => {
+  assert.equal(github.normalizePr(PR({ mergeable: 'MERGEABLE' })).mergeable, true);
+  assert.equal(github.normalizePr(PR({ mergeable: 'CONFLICTING' })).mergeable, false);
+  assert.equal(github.normalizePr(PR({ mergeable: 'UNKNOWN' })).mergeable, null);
+  assert.ok(github.PR_FIELDS.includes('mergeable'));
+});
+
+test('normalizePr: GitHub’s merge state in lower case, null when missing or unknown to us (AK-321)', () => {
+  for (const s of ['CLEAN', 'UNSTABLE', 'BEHIND', 'BLOCKED', 'DIRTY', 'DRAFT', 'HAS_HOOKS', 'UNKNOWN']) assert.equal(github.normalizePr(PR({ mergeStateStatus: s })).mergeState, s.toLowerCase());
+  assert.equal(github.normalizePr(PR({ mergeStateStatus: 'WEIRD' })).mergeState, null);
+  assert.equal(github.normalizePr(PR({})).mergeState, null);
+  assert.ok(github.PR_FIELDS.includes('mergeStateStatus'));
+});
+
+test('normalizePr: the PR description, empty when missing, capped at 20,000 characters (AK-357)', () => {
+  assert.equal(github.normalizePr(PR({ body: 'Fixes the thing.\n\nDetails' })).body, 'Fixes the thing.\n\nDetails');
+  assert.equal(github.normalizePr(PR({})).body, '');
+  assert.equal(github.normalizePr(PR({ body: null })).body, '');
+  assert.equal(github.normalizePr(PR({ body: 'x'.repeat(25000) })).body.length, 20000);
+  assert.ok(github.PR_FIELDS.includes('body'));
+});
+
+test('inbox: nothing runs while off; review requests and the login, the login asked once per host', async () => {
+  const off = recorder('[]');
+  await assert.rejects(github.inbox({ enabled: false, remotes: [ORIGIN], dirs: [fakeGh()], exec: off.exec }), { code: 'gh-off' });
+  assert.equal(off.calls.length, 0);
+  const { calls, exec } = recorder((args) => (args[0] === 'api' ? 'kim\n' : JSON.stringify([{ number: 3 }, { number: 7 }, { number: -1 }])));
+  const dirs = [fakeGh()];
+  assert.deepEqual(await github.inbox({ enabled: true, remotes: [ORIGIN], dirs, exec }), { me: 'kim', requested: [3, 7] });
+  assert.deepEqual(calls.map((c) => c.args), [
+    ['api', 'user', '--hostname', 'github.com', '--jq', '.login'],
+    ['pr', 'list', '--repo', 'github.com/acme/app', '--state', 'open', '--search', 'review-requested:@me', '--limit', '100', '--json', 'number'],
+  ]);
+  await github.inbox({ enabled: true, remotes: [ORIGIN], dirs, exec });
+  assert.equal(calls.filter((c) => c.args[0] === 'api').length, 1);
+  assert.throws(() => github.parseNumbers('{}'), { code: 'gh-failed' });
+});
+
+test('prPushPlan pushes new PR branches to the GitHub remote and keeps a mirror upstream', () => {
+  const mirror = remote('origin', '/srv/mirror/app.git');
+  const gh = remote('github', 'git@github.com:acme/app.git');
+  const remotes = [mirror, gh];
+  const target = github.pickRemote(remotes);
+  // No upstream: push to GitHub and start tracking it.
+  let p = github.prPushPlan({ branch: 'feat', upRemote: '', upRef: '', track: '', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '-u', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  assert.equal(p.head, 'feat');
+  // Tracks the non-GitHub mirror: push to GitHub without re-pointing the upstream.
+  p = github.prPushPlan({ branch: 'feat', upRemote: 'origin', upRef: 'refs/heads/feat', track: 'ahead 2', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  // Tracks GitHub and is up to date: nothing to push.
+  p = github.prPushPlan({ branch: 'feat', upRemote: 'github', upRef: 'refs/heads/feat', track: '', remotes, target });
+  assert.equal(p.push, null);
+  assert.equal(p.pushArgs, null);
+});
+
+test('parseMergeInfo: head commit and the still-checking state', () => {
+  const oid = 'a'.repeat(40);
+  assert.equal(github.parseMergeInfo(VIEW({ headRefOid: oid }), REPO()).headOid, oid);
+  assert.equal(github.parseMergeInfo(VIEW({ headRefOid: 'nope' }), REPO()).headOid, null);
+  assert.equal(github.parseMergeInfo(VIEW({ mergeable: 'UNKNOWN' }), REPO()).checking, true);
+  assert.equal(github.parseMergeInfo(VIEW(), REPO()).checking, false);
+});
+
+test('mergedPrs: parses merged heads, drops bad SHAs; joinLanes takes the open PR title', () => {
+  const sha = 'a'.repeat(40);
+  assert.deepEqual(github.parseMerged(JSON.stringify([{ number: 5, title: 'Ship it', headRefOid: sha, headRefName: 'x' }, { number: 6, headRefOid: '--evil' }])), [{ number: 5, title: 'Ship it', sha, branch: 'x', merge: null, mergedAt: null, body: undefined, author: '', authorName: '', bot: false }]);
+  assert.deepEqual((({ author, authorName, bot }) => ({ author, authorName, bot }))(github.parseMerged(JSON.stringify([{ number: 8, headRefOid: sha, author: { login: 'ada', name: 'Ada Lovelace' } }]))[0]), { author: 'ada', authorName: 'Ada Lovelace', bot: false });
+  assert.deepEqual((({ author, authorName, bot }) => ({ author, authorName, bot }))(github.parseMerged(JSON.stringify([{ number: 9, headRefOid: sha, author: { login: 'app/dependabot', is_bot: true } }]))[0]), { author: 'app/dependabot', authorName: github.botLogin('app/dependabot'), bot: true });
+  assert.equal(github.parseMerged(JSON.stringify([{ number: 7, headRefOid: sha, body: 'Why it changed' }]))[0].body, 'Why it changed');
+  assert.equal(github.parseMerged(JSON.stringify([{ number: 7, headRefOid: sha, body: 42 }]))[0].body, undefined);
+  assert.throws(() => github.parseMerged('{}'), /list/);
+  const out = github.joinLanes([{ name: 'f', branch: 'f', title: 'commit subject' }], { owners: {}, prs: [{ number: 1, title: 'PR title', branch: 'f' }] });
+  assert.equal(out[0].title, 'PR title');
+});
+
+test('requestChangesPr: needs a message; gh arguments; off runs nothing', async () => {
+  const { calls, exec } = recorder('');
+  const t = { enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec };
+  await assert.rejects(github.requestChangesPr({ ...t, body: '  ' }), { code: 'gh-failed' });
+  await assert.rejects(github.requestChangesPr({ ...t, enabled: false, body: 'fix it' }), { code: 'gh-off' });
+  assert.equal(calls.length, 0);
+  await github.requestChangesPr({ ...t, body: ' --admin rename this ' });
+  assert.deepEqual(calls[0].args, ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--request-changes', '--body=--admin rename this']);
+});
+
+test('normalizePr: bot authors, names, drafts, mixed reviews and pending requests', () => {
+  const bot = github.normalizePr(PR({ author: { login: 'app/dependabot', is_bot: true }, isDraft: true, updatedAt: '2026-10-14T08:00:00Z' }));
+  assert.equal(bot.author, 'app/dependabot');
+  assert.equal(bot.authorName, 'dependabot');
+  assert.equal(bot.bot, true);
+  assert.equal(bot.draft, true);
+  assert.equal(bot.updatedAt, '2026-10-14T08:00:00Z');
+  const named = github.normalizePr(PR({ author: { login: 'kim', name: 'Kim Lee', is_bot: false } }));
+  assert.deepEqual([named.author, named.authorName, named.bot], ['kim', 'Kim Lee', false]);
+  const p = github.normalizePr(PR({
+    reviewDecision: 'CHANGES_REQUESTED',
+    latestReviews: [
+      { author: { login: 'ana', name: 'Ana' }, state: 'APPROVED', submittedAt: '2026-10-12T00:00:00Z', body: 'secret' },
+      { author: { login: 'bo' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-10-11T00:00:00Z' },
+      { author: { login: 'copilot[bot]' }, state: 'COMMENTED' },
+      { author: { login: 'dee' }, state: 'DISMISSED' },
+      { author: { login: 'eve' }, state: 'PENDING' },
+    ],
+    reviewRequests: [{ __typename: 'User', login: 'fay' }, { __typename: 'Team', name: 'Core', slug: 'core' }, { __typename: 'User', login: 'fay' }, {}],
+  }));
+  assert.equal(p.review, 'changes');
+  assert.deepEqual(p.reviews, [
+    { login: 'ana', name: 'Ana', state: 'approved', submittedAt: '2026-10-12T00:00:00Z' },
+    { login: 'bo', name: '', state: 'changes', submittedAt: '2026-10-11T00:00:00Z' },
+    { login: 'copilot[bot]', name: '', state: 'commented', submittedAt: '' },
+    { login: 'dee', name: '', state: 'dismissed', submittedAt: '' },
+  ]);
+  assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: '', team: false }, { login: 'core', name: 'Core', team: true }]);
+  assert.ok(!JSON.stringify(p).includes('secret'));
+  assert.ok(github.PR_FIELDS.includes('reviewRequests'));
+});
+
+test('AK-461: the PR remote can be chosen per repository, and non-GitHub hosts never are', () => {
+  const fork = remote('fork', 'https://github.com/kim/app');
+  const lab = remote('origin', 'https://gitlab.com/acme/app');
+  // Default: origin on GitHub, else the first GitHub remote; GitLab and friends are skipped.
+  assert.equal(github.pickRemote([fork, ORIGIN]).name, 'origin');
+  assert.equal(github.pickRemote([lab, fork]).name, 'fork');
+  assert.equal(github.pickRemote([lab]), null);
+  assert.deepEqual(github.prCandidates([lab, fork, ORIGIN]).map((r) => r.name), ['fork', 'origin']);
+  // The chosen remote (main.js marks it `pr: true`) wins, unless it isn't a GitHub remote.
+  assert.equal(github.pickRemote([ORIGIN, { ...fork, pr: true }]).name, 'fork');
+  assert.equal(github.pickRemote([{ ...lab, pr: true }, fork]).name, 'fork');
+  // Saved per repository; null goes back to the default and drops the key.
+  let s = github.setChosenRemote({ on: true, hidden: [] }, '/a', 'fork');
+  assert.equal(github.chosenRemote(s, '/a'), 'fork');
+  assert.equal(github.chosenRemote(s, '/b'), null);
+  assert.ok(github.isEnabled(s, '/a'), 'other settings survive');
+  s = github.setChosenRemote(s, '/a', null);
+  assert.deepEqual(s, { on: true, hidden: [] });
+  assert.deepEqual(github.normalize({ on: true, remotes: { '/a': 'fork', '/b': 3, '/c': '' } }).remotes, { '/a': 'fork' });
+});
+
+test('AK-198: a branch tracking a non-GitHub origin pushes its new PR to the GitHub remote', () => {
+  const lab = remote('origin', 'https://gitlab.com/acme/app');
+  const gh = remote('github', 'https://github.com/acme/app');
+  const remotes = [lab, gh];
+  const target = github.pickRemote(remotes);
+  assert.equal(target.name, 'github');
+  const p = github.prPushPlan({ branch: 'feat', upRemote: 'origin', upRef: 'refs/heads/feat', track: '', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  assert.equal(p.head, 'feat');
+});

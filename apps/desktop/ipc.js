@@ -29,6 +29,14 @@ function str(v, what, { max = MAX_STR, empty = false } = {}) {
 
 const text = (v, what) => str(v, what, { max: MAX_TEXT, empty: true });
 const bool = (v, what) => { if (typeof v !== 'boolean') fail(what, 'expected a boolean'); return v; };
+const prNumber = (v, what = 'pull request number') => { if (!Number.isSafeInteger(v) || v <= 0) fail(what, 'expected a positive integer'); return v; };
+// A remote name the renderer sends must be one of this repository's remotes (git.getRemotes).
+function knownRemote(remotes, name, what = 'remote') {
+  str(name, what, { max: 256 });
+  const r = (remotes || []).find((x) => x.name === name);
+  if (!r) fail(what, 'not a remote of this repository');
+  return r;
+}
 const int = (v, what) => { if (!Number.isSafeInteger(v) || v < 0) fail(what, 'expected a non-negative integer'); return v; };
 
 function list(v, what, each) {
@@ -133,6 +141,20 @@ const label = (v) => ({ __label: str(v.__label, 'label', { max: 1024 }) });
 const worktreeDir = Object.assign((v, what) => absDir(v, what), { worktree: true });
 const worktreeSpec = (v, what) => obj(v, what, { dir: optional((d, w) => str(d, w, { max: 4096 })), branch: optional(rev), base: optional(rev) });
 
+// One lane to clean up: its branch (with the tip the user saw) and/or its worktree folder.
+const cleanupItem = (v, what) => {
+  obj(v, what, { branch: optional(rev), head: optional(oid), worktree: optional(absDir), force: optional(bool) });
+  if (!v.branch && !v.worktree) fail(what, 'expected a branch or a worktree');
+  return v;
+};
+// A name for `git remote add`/`rename`: one path component git accepts in refs/remotes/<name>/.
+const remoteName = (v, w = 'remote name') => {
+  str(v, w, { max: 256 });
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(v) || v.includes('..') || v.endsWith('.lock') || v.endsWith('.')) fail(w, 'letters, digits, ".", "_" and "-" only');
+  return v;
+};
+const remoteBranch = (v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); if (/\/-/.test(v)) fail(w, 'must not start with -'); return v; };
+
 // The worktree in `worktrees` (from git.getWorktrees) at `dir`, or throws. `same` compares paths
 // (git.samePath, which follows symlinks such as /tmp -> /private/tmp).
 function knownWorktree(worktrees, dir, same = (a, b) => a === b, what = 'worktree') {
@@ -158,6 +180,9 @@ const gitSchemas = {
   commitDiffs: [rev],
   checkSplit: [rev],
   compare: [rev, rev],
+  branchReview: [rev, optional(rev)],
+  mergeConflicts: [rev, rev],
+  mergeLanePlan: [rev, optional(rev)],
   status: [],
   opState: [],
   lfs: [],
@@ -174,6 +199,7 @@ const gitSchemas = {
   previewRestore: [int],
   worktrees: [],
   worktreeChanges: [worktreeDir],
+  baseTouches: [rev, rev, repoPaths],
   conflict: [repoPath],
   fileHistory: [repoPath, optional((v, w) => obj(v, w, { from: rev, skip: int, limit: int, path: repoPath }))],
   blame: [repoPath, optional(rev)],
@@ -181,6 +207,7 @@ const gitSchemas = {
   // ref mutations
   checkout: [rev],
   checkoutTracking: [rev],
+  autostashCheckout: [rev, text, optional(bool)],
   createBranch: [rev, rev, optional(bool)],
   deleteBranch: [rev],
   renameBranch: [rev, rev],
@@ -191,6 +218,7 @@ const gitSchemas = {
   revert: [rev],
   merge: [rev, optional(bool)],
   rebaseOnto: [rev],
+  rebaseBranch: [rev, rev],
   rewrite: [oneOf('drop', 'reword', 'squash', 'fixup', 'swapParent', 'split'), oid, optional(rewriteExtra)],
   createCommit: [text, optional(bool)],
   pull: [],
@@ -206,8 +234,14 @@ const gitSchemas = {
   fetch: [],
   push: [optional((v, w) => obj(v, w, { force: optional(bool), all: optional(bool) }))],
   pushTags: [],
-  deleteRemoteBranch: [(v, w) => { rev(v, w); if (!/^[^/]+\/.+/.test(v)) fail(w, 'expected remote/branch'); return v; }],
+  deleteRemoteBranch: [remoteBranch],
+  deleteRemoteBranches: [(v, w) => list(v, w, remoteBranch)],
   setConfig: [safeConfigKey, text],
+  // undoable remote changes (journal.runRemote)
+  addRemote: [remoteName, cloneUrl],
+  setRemoteUrl: [remoteName, cloneUrl],
+  renameRemote: [remoteName, remoteName],
+  removeRemote: [remoteName],
   mergetool: [optional(repoPaths)],
   unsetConfig: [configKey],
   markResolved: [repoPath],
@@ -217,6 +251,8 @@ const gitSchemas = {
   // undoable worktree operations (journal.worktreeOps)
   addWorktree: [worktreeSpec],
   removeWorktree: [worktreeDir],
+  // bulk cleanup from Lanes (journal.runCleanup); worktree paths are resolved in main.js
+  cleanupLanes: [(v, w) => list(v, w, cleanupItem)],
   // undoable working-tree operations (journal.workOps)
   discardFiles: [(v, w) => list(v, w, fileEntry)],
   discardLines: [fileEntry, lineKeys],
@@ -225,6 +261,9 @@ const gitSchemas = {
   resolveConflict: [repoPath, (v, w) => str(v, w, { max: 4 * MAX_TEXT, empty: true })],
   stashApply: [rev, optional(bool)],
   stashDrop: [rev],
+  // undoable merge and tidy of a lane (journal.runLane): branch, base, commit message; branch
+  mergeLane: [rev, rev, text],
+  tidyLane: [rev],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
   updateSubmodules: [optional(repoPaths)],
   // history
@@ -309,4 +348,4 @@ function insideRepo(root, rel) {
 
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf };
+module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, knownRemote, remoteName, obj };

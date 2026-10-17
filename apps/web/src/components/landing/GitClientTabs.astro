@@ -1,0 +1,67 @@
+---
+import AppShot from './AppShot.astro';
+import mapShot from '../../assets/app/map-dark.png';
+import commitShot from '../../assets/app/commit-dark.png';
+import conflictShot from '../../assets/app/conflict-dark.png';
+import cleanupShot from '../../assets/app/cleanup-dark.png';
+---
+<section class="s wrap rule" id="git" aria-labelledby="g-h">
+  <div class="tabs-h">
+    <h2 id="g-h">Still a fast Git client. <span class="soft">For when you step in yourself.</span></h2>
+  </div>
+  <div data-tabs>
+    <div class="tabbar" role="tablist" aria-label="Git client features">
+      <button type="button" class="tab" role="tab" id="git-tab-0" aria-controls="git-panel-0" aria-selected="true" tabindex="0"><i></i><span><kbd>⌘2</kbd></span><b>Map</b><span>Every branch and worktree on one graph</span></button>
+      <button type="button" class="tab" role="tab" id="git-tab-1" aria-controls="git-panel-1" aria-selected="false" tabindex="-1"><i></i><span><kbd>⌘3</kbd></span><b>Commit</b><span>Stage a file, a hunk or one line</span></button>
+      <button type="button" class="tab" role="tab" id="git-tab-2" aria-controls="git-panel-2" aria-selected="false" tabindex="-1"><i></i><span><kbd>⌥⌘M</kbd></span><b>Conflicts</b><span>A 3-way editor, side by side</span></button>
+      <button type="button" class="tab" role="tab" id="git-tab-3" aria-controls="git-panel-3" aria-selected="false" tabindex="-1"><i></i><span><kbd>X</kbd></span><b>Clean up</b><span>Finished branches gone, undoable</span></button>
+    </div>
+    <div class="tabpanels halo">
+      <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><AppShot src={mapShot} alt="The Map: every branch and worktree on one commit graph" /></div>
+      <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><AppShot src={commitShot} alt="Commit: staged and unstaged changes with the diff of the selected file" /></div>
+      <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><AppShot src={conflictShot} alt="The conflict editor: ours, base and theirs side by side" /></div>
+      <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><AppShot src={cleanupShot} alt="Clean up: finished branches and worktrees grouped by why, ready to remove" /></div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Four tabs that move on every 7 seconds while in view. Hovering pauses them; no auto-advance under reduced motion.
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll<HTMLElement>('[data-tabs]').forEach((box) => {
+    const tabs = [...box.querySelectorAll<HTMLElement>('.tab')];
+    const panels = [...box.querySelectorAll<HTMLElement>('[data-panel]')];
+    let i = 0, t0 = performance.now(), hover = false, seen = false;
+    const progress = () => parseFloat(tabs[i].style.getPropertyValue('--p')) || 0;
+    const show = (n: number) => {
+      i = n; t0 = performance.now();
+      tabs.forEach((t, j) => { t.setAttribute('aria-selected', String(j === n)); t.tabIndex = j === n ? 0 : -1; t.style.setProperty('--p', reduce ? '1' : '0'); });
+      panels.forEach((p, j) => p.classList.toggle('on', j === n));
+    };
+    tabs.forEach((t, n) => t.addEventListener('click', () => show(n)));
+    box.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      if (!(e.target as HTMLElement).closest('.tab')) return;
+      e.preventDefault();
+      const n = (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      show(n); tabs[n].focus();
+    });
+    box.addEventListener('mouseenter', () => { hover = true; });
+    box.addEventListener('mouseleave', () => { hover = false; t0 = performance.now() - progress() * 7000; });
+    new IntersectionObserver(([e]) => {
+      seen = e.isIntersecting;
+      if (seen) t0 = performance.now() - progress() * 7000;
+    }, { threshold: 0.4 }).observe(box);
+    show(0);
+    if (reduce) return;
+    const tick = (now: number) => {
+      if (seen && !hover) {
+        const p = Math.min(1, (now - t0) / 7000);
+        tabs[i].style.setProperty('--p', String(p));
+        if (p >= 1) show((i + 1) % tabs.length);
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+</script>

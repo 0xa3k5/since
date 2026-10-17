@@ -1,6 +1,7 @@
 // Trial / licence UI: the topbar chip and the licence window. The main process owns the state
 // (licence/index.js); this only shows it and forwards actions.
 import { h, $, icon, kbd, toast, confirm } from './ui.js';
+import * as keymap from './keymap.js';
 
 const api = window.gitlanes;
 const isMac = navigator.platform.startsWith('Mac');
@@ -15,9 +16,10 @@ async function call(channel, ...args) {
 export const buy = async () => { if (!(await api.app('licence-buy'))) toast('Buying isn’t set up in this build yet', { kind: 'error' }); };
 const portal = async () => { if (!(await api.app('licence-portal'))) toast('The customer portal isn’t set up in this build yet', { kind: 'error' }); };
 
-// Small status chip for the topbar. Nothing is shown once GitLanes is licensed.
+// Small status chip for the topbar. Nothing is shown once GitLanes is licensed; beta builds show a plain label.
 export function licenceChip(s, onclick) {
   if (!s || s.mode === 'licensed') return null;
+  if (s.mode === 'beta') return h('span.licence-chip.beta', { title: 'Beta build' }, 'Beta');
   const title = `Licence (${LICENCE_KBD.join('')})`;
   if (s.mode === 'trial') return h('button.licence-chip', { onclick, title }, icon('key', 12), `Trial · ${plural(s.trialDaysLeft, 'day')} left`);
   if (s.mode === 'unverified') return h('button.licence-chip.warn', { onclick, title }, icon('warning', 12), 'Verify licence');
@@ -26,7 +28,7 @@ export function licenceChip(s, onclick) {
 }
 
 export function trialLine(s) {
-  if (!s || s.mode === 'licensed') return null;
+  if (!s || s.mode === 'licensed' || s.mode === 'beta') return null;
   if (s.mode === 'trial') return `Free trial: ${plural(s.trialDaysLeft, 'day')} left`;
   if (s.mode === 'unverified') return 'Read-only until your licence is verified';
   if (s.mode === 'revoked') return s.canMutate ? 'Licence inactive · trial still running' : 'Licence inactive · read-only';
@@ -50,13 +52,14 @@ const day = (t) => new Date(t).toLocaleDateString(undefined, { dateStyle: 'mediu
 export async function openLicence({ blocked = false } = {}) {
   if ($('.licence-overlay')) return;
   let status = await api.app('licence');
+  if (status?.mode === 'beta') return; // no licence in beta builds
   let busy = null, error = null;
   const prev = document.activeElement;
   const input = h('input.input.mono', { type: 'text', placeholder: 'Paste your licence key', spellcheck: false, autocomplete: 'off', 'aria-label': 'Licence key',
     onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); activate(); } } });
   const box = h('div.dialog.licence', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'licence-title' });
   const overlay = h('div.overlay.licence-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
-  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('.overlay:not(.licence-overlay)')) { e.stopPropagation(); close(); } });
+  overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel' && !$('.overlay:not(.licence-overlay)')) { e.stopPropagation(); close(); } });
   const off = api.on('licence', (s) => { status = s; render(); });
 
   async function run(label, fn) {
@@ -87,7 +90,7 @@ export async function openLicence({ blocked = false } = {}) {
     box.replaceChildren(
       h('div.dialog-head', null,
         h('div.licence-mark', null, icon(s.mode === 'licensed' ? 'check' : s.mode === 'unverified' || s.mode === 'revoked' ? 'warning' : 'key', 16)),
-        s.profile !== 'production' ? h('span.licence-profile', { title: 'Payments go to the test store in this build' }, `${s.profile} store`) : null,
+        s.profile !== 'production' ? h('span.licence-profile', { title: 'Payments go to the test store in this build' }, `${s.profile[0].toUpperCase()}${s.profile.slice(1)} store`) : null,
         h('div.dialog-title', { id: 'licence-title' }, title),
         h('div.dialog-desc', null, blocked && !s.canMutate ? 'That change wasn’t made. ' + desc : desc)),
       h('div.dialog-body', null,
@@ -104,7 +107,7 @@ export async function openLicence({ blocked = false } = {}) {
       ),
       h('div.dialog-foot', null,
         keyEntry ? [
-          btn('ghost', 'Not now', close, kbd('Esc')),
+          btn('ghost', 'Not now', close, kbd(...keymap.keys('dialog.cancel'))),
           btn('subtle', 'Buy GitLanes', buy, icon('external', 13)),
           btn('primary', busy || 'Activate', activate, busy ? null : kbd('↵')),
         ] : [
@@ -113,7 +116,7 @@ export async function openLicence({ blocked = false } = {}) {
           s.mode === 'revoked' ? btn('subtle', 'Buy GitLanes', buy, icon('external', 13)) : null,
           s.mode === 'unverified' || s.mode === 'revoked'
             ? btn('primary', busy || 'Check again', check)
-            : [btn('subtle', busy || 'Check now', check), btn('primary', 'Done', close, kbd('Esc'))],
+            : [btn('subtle', busy || 'Check now', check), btn('primary', 'Done', close, kbd(...keymap.keys('dialog.cancel')))],
         ],
       ),
     );

@@ -22,7 +22,7 @@ import snapDark from '../../assets/features/snapshots-dark.webp';
 
   <h2 id="snapshots">Snapshots</h2>
   <p>The Snapshots view (<Kbd keys={['⌘', '4']} />, or <Kbd keys={['G']} /> then <Kbd keys={['H']} />) lists every recorded step, newest first.{" "}
-    <strong>Restore before</strong> on a step moves branches, tags and HEAD back to how they were before it, in one go. A restore is itself a step, so you can undo it.</p>
+    Move through it with <Kbd keys={['↑']} /> and <Kbd keys={['↓']} />. <strong>Restore before</strong> on a step (or <Kbd keys={['↵']} />) first shows exactly which branches, tags and HEAD will move, then moves them back to how they were before that step, in one go. A restore is itself a step, so you can undo it.</p>
   <Shot light={snapLight} dark={snapDark} alt="The Snapshots view listing a recorded fixup, with Undo and Redo buttons" />
 
   <h2 id="where">Where the history lives</h2>

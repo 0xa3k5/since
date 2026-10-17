@@ -1,0 +1,18 @@
+---
+import AppShot from './AppShot.astro';
+import pr from '../../assets/app/review-pr-dark.png';
+---
+<section class="s wrap rule fs" id="review" data-name="Review" aria-labelledby="rv-h">
+  <div class="feat">
+    <div class="copy">
+      <h2 id="rv-h">Read the whole change. <span class="soft">Then decide.</span></h2>
+      <p>Open any PR next to its list. You see the whole branch against its base, tick files off as you go, and when the agent pushes again, you see only what changed since you last looked.</p>
+      <ul>
+        <li>Tick a file as reviewed with <kbd>V</kbd></li>
+        <li>Only what's new since your last look with <kbd>D</kbd></li>
+        <li>Approve <kbd>A</kbd>, request changes <kbd>C</kbd>, merge <kbd>M</kbd></li>
+      </ul>
+    </div>
+    <AppShot src={pr} alt="A pull request open next to the Review list: its files, some ticked as reviewed, and the diff" />
+  </div>
+</section>

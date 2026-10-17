@@ -3,7 +3,7 @@
 // short "In GitLanes" box. Not a route ("_" prefix).
 import Base from '../../layouts/Base.astro';
 import Breadcrumbs from './_Breadcrumbs.astro';
-import { DOWNLOAD_URL, PRODUCT_NAME, SITE_URL } from '../../config';
+import { DOWNLOAD_URL, PRODUCT_NAME, SHOW_PRICING, SITE_URL } from '../../config';
 import { GUIDE_LIST } from './_list';
 import './_content.css';
 
@@ -50,7 +50,7 @@ const ld = {
       <h2 id="in-app-title"><slot name="app-title" /></h2>
       <div class="prose"><slot name="app" /></div>
       <p class="cta-row">
-        <a class="btn btn-primary" href={DOWNLOAD_URL}>Download free trial</a>
+        <a class="btn btn-primary" href={DOWNLOAD_URL}>{SHOW_PRICING ? 'Download free trial' : 'Download for Mac'}</a>
         <a class="btn btn-secondary" href="/features">See all features</a>
       </p>
     </aside>
@@ -61,9 +61,8 @@ const ld = {
         <ul>{related.map((g) => <li><a href={g.href}>{g.label}</a></li>)}</ul>
       </div>
       <div>
-        <h2>Choosing a Git client?</h2>
+        <h2>Learn {PRODUCT_NAME}</h2>
         <ul>
-          <li><a href="/compare">Mac Git clients compared</a></li>
           <li><a href="/shortcuts">{PRODUCT_NAME} keyboard shortcuts</a></li>
           <li><a href="/docs">{PRODUCT_NAME} docs</a></li>
         </ul>

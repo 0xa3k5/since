@@ -1,27 +1,21 @@
 ---
 // Claims follow the website plan's gates (AK-34 §3.6): only what is merged in main. No speed claims,
 // undo history is unlimited (AK-51), keyboard copy says "every commit action is a single key".
-import { PRODUCT_NAME, PRICE_NOW } from '../config';
+import { PRODUCT_NAME, PRICE_NOW, TRIAL_DAYS, DOWNLOAD_URL, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
-import PageHead from '../components/content/PageHead.astro';
-import Shot from '../components/content/Shot.astro';
+import AppShot from '../components/landing/AppShot.astro';
 import Kbd from '../components/content/Kbd.astro';
-import '../components/content/content.css';
+import AppleGlyph from '../components/AppleGlyph.astro';
+import '../components/landing/landing.css';
 
-import mapLight from '../assets/features/map-light.webp';
-import mapDark from '../assets/features/map-dark.webp';
-import quickLight from '../assets/features/quick-light.webp';
-import quickDark from '../assets/features/quick-dark.webp';
-import rewriteLight from '../assets/features/rewrite-light.webp';
-import rewriteDark from '../assets/features/rewrite-dark.webp';
-import undoLight from '../assets/features/undo-light.webp';
-import undoDark from '../assets/features/undo-dark.webp';
-import commitLight from '../assets/features/commit-light.webp';
-import commitDark from '../assets/features/commit-dark.webp';
-import paletteLight from '../assets/features/palette-light.webp';
-import paletteDark from '../assets/features/palette-dark.webp';
-import stashesLight from '../assets/features/stashes-light.webp';
-import stashesDark from '../assets/features/stashes-dark.webp';
+// The site is dark only, so each feature shows one dark capture (the light ones stay for the docs pages).
+import map from '../assets/features/map-dark.webp';
+import quick from '../assets/features/quick-dark.webp';
+import rewrite from '../assets/features/rewrite-dark.webp';
+import undo from '../assets/features/undo-dark.webp';
+import commit from '../assets/features/commit-dark.webp';
+import palette from '../assets/features/palette-dark.webp';
+import stashes from '../assets/features/stashes-dark.webp';
 
 const sections = [
   {
@@ -35,7 +29,7 @@ const sections = [
       ['Search subjects, authors, refs and SHAs', ['⌘', 'F'], ['/']],
       ['Jump to HEAD', ['H']],
     ],
-    shot: [mapLight, mapDark, 'The map: a commit graph with branch, tag and remote labels, and the detail panel for the selected commit'],
+    shot: [map, 'The map: a commit graph with branch, tag and remote labels, and the detail panel for the selected commit'],
   },
   {
     id: 'quick-view',
@@ -47,21 +41,22 @@ const sections = [
       ['Next or previous file', ['↓'], ['↑']],
       ['Back to the map', ['Esc']],
     ],
-    shot: [quickLight, quickDark, 'Quick View: the file list of a commit next to its diff'],
+    shot: [quick, 'Quick View: the file list of a commit next to its diff'],
   },
   {
     id: 'edit-history',
     eyebrow: 'Edit history in place',
     title: 'Every commit action is a single key',
-    body: 'Select a commit and press one key. Reword, squash or fixup into its parent, swap it with its parent, delete it, rebase onto it, merge it, cherry-pick or revert it. No editor opens and no todo list to edit.',
+    body: 'Select a commit and press one key. Reword, squash or fixup into its parent, split it by lines, swap it with its parent, delete it, rebase onto it, merge it, cherry-pick or revert it. No editor opens and no todo list to edit.',
     points: [
       ['Edit message', ['E']],
       ['Squash or fixup with parent', ['S'], ['F']],
+      ['Split by lines into several commits', ['⇧', 'S']],
       ['Delete commit', ['⌫']],
       ['Rebase onto, merge, cherry-pick, revert', ['R'], ['M'], ['P'], ['V']],
       ['Create a branch or tag here', ['B'], ['T']],
     ],
-    shot: [rewriteLight, rewriteDark, 'The commit menu, listing each action with its single-key shortcut'],
+    shot: [rewrite, 'The commit menu, listing each action with its single-key shortcut'],
   },
   {
     id: 'undo',
@@ -71,10 +66,10 @@ const sections = [
     points: [
       ['Undo', ['⌘', 'Z']],
       ['Redo', ['⇧', '⌘', 'Z']],
-      ['See every step in Snapshots', ['⌘', '4']],
+      ['See every step and preview a restore', ['⌘', '4']],
     ],
     foot: 'There is no limit on how far back you can go. Pushes change a remote, so they can’t be undone locally; GitLanes asks before a force push.',
-    shot: [undoLight, undoDark, 'After a fixup, a toast offers Undo and the toolbar undo button is active'],
+    shot: [undo, 'After a fixup, a toast offers Undo and the toolbar undo button is active'],
   },
   {
     id: 'staging',
@@ -87,7 +82,7 @@ const sections = [
       ['Commit', ['⌘', '↵']],
     ],
     foot: 'Discarding files, hunks or lines is undoable too.',
-    shot: [commitLight, commitDark, 'The Commit view with three lines selected in a diff and a Stage lines button'],
+    shot: [commit, 'The Commit view with three lines selected in a diff and a Stage lines button'],
   },
   {
     id: 'palette',
@@ -97,115 +92,165 @@ const sections = [
     points: [
       ['Open the command menu', ['⌘', 'K']],
     ],
-    shot: [paletteLight, paletteDark, 'The command menu filtered to push commands, with their shortcuts'],
+    link: ['/shortcuts', 'See every keyboard shortcut'],
+    shot: [palette, 'The command menu filtered to push commands, with their shortcuts'],
   },
 ];
 
 const tiles = [
-  { title: 'Conflicts', body: 'A banner shows the merge, rebase or cherry-pick in progress with Continue and Abort. Take ours or theirs per file, or mark it resolved. Choosing a side is undoable.' },
+  { title: 'Conflicts', body: 'A banner shows the merge, rebase or cherry-pick in progress with Continue and Abort. Resolve each file in the built-in 3-way merge editor, or take ours or theirs. Choosing a side is undoable.', keys: [['⌥', '⌘', 'M']] },
+  { title: 'Worktrees', body: 'Add a worktree, switch the window to it or open it in a new one, lock and remove it. Other worktrees’ branches are marked on the graph.', keys: [['⌘', '7'], ['⌥', '⌘', 'N'], ['⌥', '⌘', 'W']] },
+  { title: 'File history and blame', body: 'Every commit that touched a file, following renames, next to a blame of the selected version. Click a line to find its commit on the map.', keys: [['⇧', '⌘', 'H']] },
+  { title: 'Submodules and LFS', body: 'See each submodule’s status, update them and open one in its own window. LFS files are detected and badged, and GitLanes warns when git-lfs is missing.', keys: [['⌥', '⌘', 'B'], ['⌥', '⌘', 'U'], ['⌥', '⌘', 'F']] },
+  { title: 'Your diff and merge tools', body: 'Open the selected file in the difftool or mergetool set in your git config.', keys: [['⇧', '⌘', 'D'], ['⇧', '⌘', 'M']] },
+  { title: 'Right identity', body: 'Before you commit, GitLanes checks your email against the identity this clone usually commits with and your own rules per remote, and offers a one-click fix.', keys: [['⌥', '⌘', 'I']] },
+  { title: 'AI commit messages, opt-in', body: 'Off until you pick a provider: Claude Code or Codex CLI that you already use, or Ollama on your Mac. Before the first send you see exactly what goes out.', keys: [['⌥', '⌘', 'G']] },
   { title: 'Remotes', body: 'Fetch, pull and push from the keyboard, force-push with lease after a confirmation, push tags, and open the repository on its hosting site.', keys: [['⇧', '⌘', 'F'], ['⇧', '⌘', 'L'], ['⇧', '⌘', 'P']] },
-  { title: 'Stashes, reflog, config', body: 'Save, apply, pop and drop stashes (dropping, applying and popping are undoable), browse the reflog and edit git config, each one view away.', keys: [['⌘', '3'], ['⌘', '5'], ['⌘', '6']] },
+  { title: 'Stashes, reflog, config', body: 'Stash everything, only staged changes, selected files or selected lines. Apply, pop and drop are undoable. Browse the reflog and edit git config, each one view away.', keys: [['⌘', '3'], ['⌘', '5'], ['⌘', '6']] },
   { title: 'Uses your git', body: `${PRODUCT_NAME} runs the git already on your Mac, with your config, hooks and credential helper. Your repository stays a normal git repository.` },
   { title: 'Light and dark', body: 'Both themes are designed with the same care. Follow the system, or pick one.', keys: [['⌃', '⌘', 'T']] },
   { title: 'Made for the Mac', body: 'Native menus, several windows at once, Open in Finder or Terminal for the current repository, and a daily check for updates.', keys: [['⇧', '⌘', 'N']] },
 ];
 
-const planned = ['Split a commit into several', 'External diff and merge tools', 'Submodules'];
 ---
 <Base
   title={`Features: edit Git history from the keyboard · ${PRODUCT_NAME}`}
   description="Squash, fixup, reword and rebase with a single key, right on the commit graph. Line staging, a ⌘K command menu, live refresh, and ⌘Z for every branch, tag and HEAD change."
-  ogTheme="light"
 >
-  <div class="wrap content-page">
-    <PageHead eyebrow="Features" title="Your commit graph, operated from the keyboard">
-      {PRODUCT_NAME} is a client for Git on the Mac. You work directly on the commit graph, one key per action,
-      and ⌘Z takes back anything you did.
-    </PageHead>
+  <div class="lp fp">
+    <section class="hero wrap" aria-labelledby="fp-h">
+      <p class="kicker">Features</p>
+      <h1 id="fp-h">Your commit graph, <span class="soft">operated from the keyboard.</span></h1>
+      <p class="lede">{PRODUCT_NAME} is a client for Git on the Mac. You work directly on the commit graph, one key per action, and ⌘Z takes back anything you did.</p>
+      <nav class="jump" aria-label="On this page">
+        {sections.map((s) => <a href={`#${s.id}`}>{s.eyebrow}</a>)}
+        <a href="#more">More</a>
+      </nav>
+    </section>
 
     {sections.map((s, i) => (
-      <section class={`feature${i % 2 ? ' flip' : ''}`} id={s.id} aria-labelledby={`${s.id}-h`}>
-        <div class="feature-text">
-          <p class="eyebrow">{s.eyebrow}</p>
-          <h2 id={`${s.id}-h`}>{s.title}</h2>
-          <p>{s.body}</p>
-          <dl class="feature-keys">
-            {s.points.map(([label, ...groups]) => (
-              <div><dt>{label}</dt><dd>{(groups as string[][]).map((g) => <Kbd keys={g} />)}</dd></div>
-            ))}
-          </dl>
-          {s.foot && <p class="feature-foot">{s.foot}</p>}
+      <section class:list={['s', 'wrap', 'rule', i === 0 ? 'stage' : i % 2 ? 'side' : 'side flip']} id={s.id} aria-labelledby={`${s.id}-h`}>
+        <div class="feat">
+          <div class="copy">
+            <h2 id={`${s.id}-h`}>{s.eyebrow}. <span class="soft">{s.title}.</span></h2>
+            <p>{s.body}</p>
+            {i > 0 && (
+              <ul>
+                {s.points.map(([label, ...groups]) => (
+                  <li><span>{label}</span><span class="combo">{(groups as string[][]).map((g) => <Kbd keys={g} />)}</span></li>
+                ))}
+              </ul>
+            )}
+            {s.foot && <p class="foot">{s.foot}</p>}
+            {s.link && <p class="foot"><a href={s.link[0]}>{s.link[1]} →</a></p>}
+          </div>
+          <div class="halo"><AppShot src={s.shot[0] as ImageMetadata} alt={s.shot[1] as string} eager={i === 0} class={i === 0 ? 'fade-out' : ''} /></div>
+          {i === 0 && (
+            <div class="facts3 facts4">
+              {s.points.map(([label, ...groups]) => (
+                <div><h4>{label}</h4><p class="combo">{(groups as string[][]).map((g) => <Kbd keys={g} />)}</p></div>
+              ))}
+            </div>
+          )}
         </div>
-        <Shot light={s.shot[0] as ImageMetadata} dark={s.shot[1] as ImageMetadata} alt={s.shot[2] as string} eager={i === 0} />
       </section>
     ))}
 
-    <section class="more" aria-labelledby="more-h">
-      <h2 id="more-h">And the rest of the day-to-day</h2>
-      <div class="tiles">
+    <section class="s wrap rule" id="more" aria-labelledby="more-h">
+      <div class="more-head">
+        <h2 id="more-h">And the rest of the day-to-day. <span class="soft">Still a complete Git client.</span></h2>
+      </div>
+      <div class="rest">
         {tiles.map((t) => (
-          <article class="tile">
+          <article>
             <h3>{t.title}</h3>
             <p>{t.body}</p>
-            {t.keys && <p class="tile-keys">{t.keys.map((k) => <Kbd keys={k} />)}</p>}
+            {t.keys && <p class="combo">{t.keys.map((k) => <Kbd keys={k} />)}</p>}
           </article>
         ))}
       </div>
-      <div class="more-shot">
-        <Shot light={stashesLight} dark={stashesDark} alt="The Stashes view with two saved stashes" />
-      </div>
+      <div class="rest-shot halo"><AppShot src={stashes} class="fade-out" alt="The Stashes view with two saved stashes" /></div>
+      <p class="more-links"><a href="/changelog">See what has shipped</a> · <a href="/shortcuts">All keyboard shortcuts</a></p>
     </section>
 
-    <section class="planned" aria-labelledby="planned-h">
-      <h2 id="planned-h">Planned</h2>
-      <p class="muted">Not in {PRODUCT_NAME} yet. Every update is free for licence holders.</p>
-      <ul>{planned.map((p) => <li>{p}</li>)}</ul>
-      <p><a href="/changelog">See what has shipped</a> · <a href="/shortcuts">All keyboard shortcuts</a></p>
-    </section>
-
-    <section class="cta-band" aria-label="Get GitLanes">
-      <div>
-        <h2>Try it on your own repositories</h2>
-        <p>14 days free. Then ${PRICE_NOW} once, with lifetime updates.</p>
-      </div>
-      <div class="actions">
-        <a class="btn btn-primary" href="/download">Download free trial</a>
-        <a class="btn btn-secondary" href="/pricing">See pricing</a>
+    <section class="close fp-close" aria-labelledby="fp-cl-h">
+      <div class="wrap">
+        <h2 id="fp-cl-h">Try it on your own repositories.</h2>
+        {SHOW_PRICING ? (
+          <Fragment>
+            <p class="lede">{TRIAL_DAYS} days free. Then ${PRICE_NOW} once, with lifetime updates.</p>
+            <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download free trial</a><a class="btn" href="/pricing">See pricing</a></div>
+          </Fragment>
+        ) : (
+          <Fragment>
+            <p class="lede">Every feature, no account. macOS 12 or later.</p>
+            <div class="cta-row"><a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a></div>
+          </Fragment>
+        )}
       </div>
     </section>
   </div>
 </Base>
 
 <style>
-  .feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: 48px; align-items: center; margin-top: 112px; }
-  .feature.flip { grid-template-columns: minmax(0, 8fr) minmax(0, 5fr); }
-  .feature.flip .feature-text { order: 2; }
-  .feature h2 { margin: 10px 0 12px; font-size: clamp(24px, 3vw, 30px); }
-  .feature-text > p { color: var(--text-2); margin: 0; }
-  .feature-keys { margin: 24px 0 0; display: grid; gap: 10px; }
-  .feature-keys div { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
-  .feature-keys dt { color: var(--text-2); }
-  .feature-keys dd { margin: 0; display: flex; gap: 6px; }
-  .feature-foot { margin-top: 16px !important; font-size: 14px; color: var(--text-3) !important; }
+  /* Features page: the landing page's rhythm (landing.css), with one dark capture per feature. */
+  .fp .hero { padding-bottom: 110px; }
+  .kicker { margin: 0 auto 18px; font-size: 15px; color: var(--text-3); }
+  .jump { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 34px; }
+  .jump a { font-size: 13.5px; color: var(--text-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; text-decoration: none; transition: color .15s, border-color .15s; }
+  .jump a:hover { color: var(--text); border-color: var(--line-strong); }
+  .jump a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-  .more { margin-top: 128px; }
-  .more h2, .planned h2 { font-size: clamp(24px, 3vw, 30px); margin: 0 0 24px; }
-  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .tile { padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-content); }
-  .tile h3 { margin: 0 0 8px; font-size: 16px; }
-  .tile p { margin: 0; color: var(--text-2); font-size: 15px; }
-  .tile .tile-keys { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .more-shot { margin-top: 32px; }
+  .fp h2 { font-size: clamp(32px, 3.8vw, 48px); }
+  .fp section[id] { scroll-margin-top: 64px; }
 
-  .planned { margin-top: 96px; max-width: 760px; }
-  .planned h2 { margin-bottom: 8px; }
-  .planned ul { margin: 16px 0; padding-left: 20px; color: var(--text-2); }
-  .planned li { margin: 6px 0; }
+  /* The first feature: centred stage, the capture wide and fading into the page, keys below. */
+  .stage .feat { grid-template-columns: 1fr; gap: 64px; }
+  .stage .copy { text-align: center; }
+  .stage .copy h2 { margin: 0 auto; max-width: 20ch; }
+  .stage .copy p { margin: 20px auto 0; max-width: 42rem; color: var(--text-3); text-wrap: balance; }
 
-  @media (max-width: 900px) {
-    .feature, .feature.flip { grid-template-columns: 1fr; gap: 24px; margin-top: 72px; }
-    .feature.flip .feature-text { order: 0; }
-    .tiles { grid-template-columns: 1fr; }
+  /* The rest alternate sides; the text stays put while the capture scrolls past. */
+  .side .feat { align-items: center; }
+  .side .copy p { color: var(--text-3); }
+  .flip .feat { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+  .flip .copy { order: 2; }
+  .fp .feat li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .fp .feat li::before { content: none; }
+  .combo { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+  .fp :global(.keys) { display: inline-flex; gap: 3px; }
+  .fp :global(.keys-or) { font-size: 12px; color: var(--text-4); margin: 0 3px; }
+  .facts3 .combo { margin-top: 2px; }
+  .copy .foot { margin-top: 18px; font-size: 14px; color: var(--text-4); }
+  .copy .foot a { color: var(--accent-fg); }
+
+  .more-head h2 { max-width: 22ch; }
+  .rest { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 64px; border-top: 1px solid var(--line); }
+  .rest article { padding: 26px 28px 30px 0; border-bottom: 1px solid var(--line); }
+  .rest article:not(:nth-child(3n + 1)) { padding-left: 28px; border-left: 1px solid var(--line); }
+  .rest p { margin: 8px 0 0; font-size: 15px; color: var(--text-3); }
+  .rest .combo { margin-top: 14px; }
+  .rest-shot { margin-top: 72px; }
+  .more-links { margin: 40px 0 0; font-size: 15px; }
+  .more-links a { color: var(--text-2); }
+
+  .fp-close { padding-bottom: 150px; }
+
+  @media (max-width: 860px) {
+    .flip .feat { grid-template-columns: 1fr; }
+    .flip .copy { order: 0; }
+    .rest { grid-template-columns: 1fr; }
+    .rest article:not(:nth-child(3n + 1)) { padding-left: 0; border-left: 0; }
   }
-  @media (min-width: 901px) and (max-width: 1100px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (min-width: 861px) and (max-width: 1100px) {
+    .rest { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .rest article:not(:nth-child(3n + 1)) { padding-left: 0; border-left: 0; }
+    .rest article:nth-child(2n) { padding-left: 28px; border-left: 1px solid var(--line); }
+  }
+  @media (max-width: 720px) {
+    .kicker, .stage .copy h2, .stage .copy p { margin-left: 0; margin-right: 0; }
+    .jump { justify-content: flex-start; }
+    .stage .copy { text-align: left; }
+  }
+  @media (prefers-reduced-motion: reduce) { .jump a { transition: none; } }
 </style>

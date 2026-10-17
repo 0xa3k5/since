@@ -8,6 +8,8 @@
 // - If the store says the key was revoked or refunded, the key stays on disk marked `revoked`, so the
 //   user can check again or deactivate it; it's never silently deleted.
 // - When neither applies, the app stays usable read-only (browse, diff) and mutations are refused.
+// - A build without a licence (the `beta` profile) has no trial and no key: everything works, nothing
+//   is written to disk and the store is never called.
 //
 // Tamper resistance is deliberately basic: state is HMAC-signed so casual edits and files copied from
 // another Mac are ignored (the signing key comes from a constant and this Mac's hardware UUID, both
@@ -58,6 +60,7 @@ class Licensing {
     this.lastError = null;
     this.lastAttempt = 0;
     this.inflight = null;
+    this.disabled = config.provider === 'none';
     this.load();
   }
 
@@ -81,6 +84,11 @@ class Licensing {
   }
 
   load() {
+    if (this.disabled) {
+      this.lastSeen = this.trialStart = this.savedAt = this.now();
+      this.licence = this.notice = null;
+      return;
+    }
     const main = this.read(this.stateFile);
     const mirror = this.read(this.mirrorFile);
     const valid = [main.payload, mirror.payload].filter(Boolean);
@@ -96,6 +104,7 @@ class Licensing {
   }
 
   save() {
+    if (this.disabled) return;
     const t = { trialStart: this.trialStart, lastSeen: this.lastSeen };
     this.savedAt = this.lastSeen;
     try {
@@ -122,6 +131,7 @@ class Licensing {
   status() {
     const now = this.clock();
     const { trialDays, graceDays, activationLimit, checkoutUrl, portalUrl, profile } = this.config;
+    if (this.disabled) return { mode: 'beta', canMutate: true, trialDaysLeft: 0, trialEndsAt: null, licence: null, notice: null, lastError: null, trialDays, graceDays, activationLimit, checkoutUrl: null, portalUrl: null, profile };
     const trialEndsAt = this.trialStart + trialDays * DAY;
     const trialLeft = trialEndsAt - now;
     const trialActive = trialLeft > 0;
@@ -156,6 +166,7 @@ class Licensing {
   // --- store calls -------------------------------------------------------------------
 
   async activate(rawKey, label = os.hostname().replace(/\.local$/, '')) {
+    if (this.disabled) throw new StoreError('config', 'This build doesn’t use licences.');
     const key = String(rawKey || '').trim();
     if (!key) throw new StoreError('rejected', 'Enter your licence key.');
     if (this.licence?.key === key) return this.refresh();

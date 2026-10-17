@@ -1,0 +1,252 @@
+/* Landing page. Loaded only by /. Colours come from @gitlanes/tokens, through the site aliases in global.css
+   (--surface, --raised, --sunk, --line, --line-strong, --ghost). Black appears only in shadows and key side walls. */
+
+.lp { --measure: 34rem; }
+:where(.lp) a { color: inherit; }
+:where(.lp) code { font: 0.9em var(--mono); }
+:where(.lp) kbd { font: 500 0.8em var(--mono); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--text-2); background: var(--surface); }
+:where(.lp) h1, :where(.lp) h2, :where(.lp) h3 { margin: 0; }
+:where(.lp) h1 { font-size: clamp(42px, 6.2vw, 76px); line-height: 1.02; }
+:where(.lp) h2 { font-size: clamp(36px, 4.6vw, 58px); line-height: 1.05; max-width: 17ch; }
+:where(.lp) h3 { font-size: 18px; letter-spacing: -0.01em; line-height: 1.3; }
+:where(.lp) p { color: var(--text-2); max-width: var(--measure); }
+.lp .lede { font-size: 19px; line-height: 1.55; color: var(--text-2); margin: 22px 0 0; }
+.small { font-size: 13px; color: var(--text-3); }
+h2 .soft { color: var(--text-4); }
+section.s { padding-block: 150px; }
+.rule { border-top: 1px solid var(--line); }
+
+/* Centred short paragraphs: balanced lines, no orphans. */
+.lp .lede, .fit-head p, .tabs-h p, .facts3 p, .fit-facts p, .small { text-wrap: balance; }
+
+/* ---------------------------------------------------------------- Hero */
+.hero { padding-top: 120px; text-align: center; }
+.hero h1 { max-width: 13ch; margin: 0 auto; }
+.lp .hero .lede { max-width: 46rem; margin: 20px auto 0; }
+.cta-row { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 30px; flex-wrap: wrap; }
+.hero .small { margin: 14px 0 0; max-width: none; }
+.hero-shot { margin: 52px auto 0; max-width: 1100px; text-align: left; }
+
+/* The hero number scrambles with a soft blur, lands, and changes again a few seconds later. */
+.glitch { display: inline-block; position: relative; min-width: 1.18em; text-align: right; font-variant-numeric: tabular-nums;
+  transition: filter .35s ease-out, opacity .35s ease-out, letter-spacing .35s ease-out; }
+.glitch.scr { filter: blur(.06em); opacity: .55; letter-spacing: .06em; color: var(--text); }
+
+/* ---------------------------------------------------------------- App frames (real captures in AppShot) */
+.app { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; font-size: 13px; color: var(--text-2); }
+/* Real app captures (AppShot): the dark-theme window fills the frame edge to edge. */
+.app-shot { margin: 0; line-height: 0; }
+.app-shot img { display: block; width: 100%; height: auto; }
+.app-shot.fade-out { padding-bottom: 0; border-bottom: 0; }
+.row { display: grid; grid-template-columns: 58px 1fr auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 5px; }
+.row + .row { border-top: 1px solid var(--line); }
+.row .num { font: 12px var(--mono); color: var(--text-4); }
+.lit-shot { border-color: var(--line); box-shadow: 0 -1px 0 0 color-mix(in srgb, var(--text) 14%, transparent); }
+.fade-out { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); padding-bottom: 40px; }
+/* The wireframe drew orange glows behind .halo and the keyboard with gradients the browser rejected, so the approved
+   look has none; the hooks stay so a glow can be added in one place. */
+.halo { position: relative; isolation: isolate; }
+
+/* ---------------------------------------------------------------- Problem statement */
+.problem { padding-block: 210px; }
+.statement { font-family: var(--display); font-weight: 500; font-size: clamp(32px, 4.4vw, 58px); line-height: 1.16; letter-spacing: var(--track);
+  color: var(--text); max-width: 21em; width: fit-content; margin: 0 auto; text-align: left; }
+.statement p { all: unset; display: block; max-width: 24ch; text-wrap: balance; }
+.statement .soft { color: var(--text-3); }
+.statement .hl { color: var(--accent-fg); }
+.strike { position: relative; color: var(--text-4); }
+.strike::after { content: ""; position: absolute; left: -0.05em; right: -0.05em; top: 54%; height: 0.075em; border-radius: 1px; background: var(--accent); }
+
+/* ---------------------------------------------------------------- Where it fits: the lanes graph */
+.fit-head { text-align: center; }
+.fit-head h2 { margin: 0 auto; max-width: none; }
+.fit-head p { margin: 20px auto 0; font-size: 17px; max-width: 42rem; color: var(--text-3); }
+.lanes { display: block; width: 100%; max-width: 1240px; margin: 80px auto 0; overflow: visible; font-family: var(--font); }
+.lanes .ln { fill: none; stroke-width: 2.5; stroke-linecap: round; }
+.lanes .main { stroke: var(--text-4); }
+.lanes .back { fill: none; stroke: var(--text-4); stroke-width: 1.5; stroke-dasharray: 2 6; stroke-linecap: round; }
+.lanes .lbl { font-size: 13px; fill: var(--text-2); }
+.lanes .sub { font: 11.5px var(--mono); fill: var(--text-4); }
+.lanes .band-t { font: 500 14px var(--display); fill: var(--text); }
+.lanes .pill rect { fill: var(--surface); stroke: var(--line-strong); }
+.lanes .pill text { font-size: 11.5px; fill: var(--text-2); }
+.lanes .pill.red rect { stroke: var(--red); }
+.lanes .pill.red text { fill: var(--red); }
+.lanes .pill.green rect { stroke: var(--green); }
+.lanes .pill.green text { fill: var(--green); }
+.lanes .node { stroke: var(--bg); stroke-width: 3; }
+.lanes .ord { font: 600 10px var(--font); fill: var(--bg); }
+@media (prefers-reduced-motion: reduce) { .lp svg .dot { display: none; } }
+.fit-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 88px auto 0; max-width: 1080px; border-top: 1px solid var(--line); }
+.fit-facts div { padding: 26px 32px 0 0; }
+.fit-facts div + div { padding-left: 32px; border-left: 1px solid var(--line); }
+.fit-facts h3 { margin-bottom: 8px; }
+.fit-facts p { margin: 0; font-size: 15px; color: var(--text-3); }
+
+/* ---------------------------------------------------------------- Feature sections */
+.feat { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 72px; align-items: start; }
+.feat .copy p { margin-top: 20px; font-size: 17px; }
+.feat ul { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 10px; color: var(--text-2); font-size: 15px; }
+.feat li::before { content: "—"; color: var(--text-4); margin-right: 10px; }
+.facts3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; max-width: 920px; margin: 8px auto 0; border-top: 1px solid var(--line); text-align: left; }
+.facts3 > div { padding: 22px 24px 0 0; }
+.facts3 > div + div { padding-left: 24px; border-left: 1px solid var(--line); }
+.facts3 h4 { margin: 0 0 6px; font: 500 16px var(--display); letter-spacing: -0.01em; color: var(--text); }
+.facts3 p { margin: 0; font-size: 14px; color: var(--text-3); }
+.facts4 { grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 1000px; }
+
+/* 1 · Catch up: centred stage, the product wide and fading into the page */
+#catch-up .feat { grid-template-columns: 1fr; gap: 64px; }
+#catch-up .copy { text-align: center; }
+#catch-up .copy h2 { margin: 0 auto; max-width: 20ch; }
+#catch-up .copy p { margin: 20px auto 0; max-width: 42rem; color: var(--text-3); text-wrap: balance; }
+
+/* 2-4 · Review, Send back, Merge: the top layout. Title on the left, text and list on the right,
+   the product full width below (Merge keeps its facts row under the product). Nothing sticks. */
+#review h2, #unblock h2 { font-size: clamp(32px, 3.8vw, 48px); }
+#review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 56px; }
+#review .copy, #unblock .copy, #merge .copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 72px; align-items: start; text-align: left; }
+#review .copy > h2, #unblock .copy > h2, #merge .copy > h2 { grid-column: 1; grid-row: 1 / span 2; max-width: 14ch; margin: 0; }
+#review .copy > p, #unblock .copy > p, #merge .copy > p { grid-column: 2; margin: 6px 0 0; max-width: none; }
+#review .copy > ul, #unblock .copy > ul { grid-column: 2; }
+#unblock .copy p, #merge .copy p { color: var(--text-3); }
+#merge .facts3 { max-width: none; }
+
+/* ---------------------------------------------------------------- Still a Git client: tabs */
+.tabs-h { text-align: center; }
+.tabs-h h2 { margin: 0 auto; max-width: none; }
+.tabbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 56px auto 0; max-width: 1080px; border-top: 1px solid var(--line); }
+.tab { all: unset; cursor: pointer; padding: 22px 20px 18px 0; display: grid; gap: 6px; align-content: start; position: relative; color: var(--text-4); }
+.tab + .tab { padding-left: 20px; border-left: 1px solid var(--line); }
+.tab b { font: 500 19px var(--display); letter-spacing: -0.01em; }
+.tab span { font-size: 14px; }
+.tab[aria-selected="true"] { color: var(--text); }
+.tab[aria-selected="true"] span { color: var(--text-3); }
+.tab i { position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); transform: scaleX(0); transform-origin: left; }
+.tab[aria-selected="true"] i { transform: scaleX(var(--p, 1)); }
+.tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; border-radius: 4px; }
+.tabpanels { max-width: 1080px; margin: 40px auto 0; }
+.tabpanels > [data-panel] { display: none; }
+.tabpanels > [data-panel].on { display: block; }
+
+/* ---------------------------------------------------------------- Keyboard: an echo line and a tilted keyboard */
+.kb-sec { text-align: center; padding-top: 40px !important; }
+.kb-sec h2 { margin: 0 auto; max-width: 720px; }
+.lp .kb-sec .lede { max-width: 720px; margin: 20px auto 0; text-wrap: balance; }
+/* The Review window the keys drive is kept for its state, but not shown. */
+.kbwin { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.kbwin .pane { display: none; }
+.kbwin .pane.on { display: block; }
+.kbwin .palette { display: none; }
+.kbwin .palette.on { display: block; }
+.kb-console { max-width: 720px; margin: 40px auto 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-align: left; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 7%, transparent); }
+.echo { display: flex; align-items: center; gap: 14px; height: 58px; padding: 0 18px; border-bottom: 1px solid var(--line); font-size: 15px; color: var(--text); }
+.echo .combo { display: flex; gap: 4px; flex: none; }
+.echo-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.echo-t kbd { font-size: 11px; }
+.tries { display: flex; gap: 6px; justify-content: flex-start; flex-wrap: wrap; margin: 0; padding: 12px 14px; list-style: none; }
+.tries li { display: inline-flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--text-3); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px 4px 5px; transition: color .2s, border-color .2s, background .2s; }
+.tries li kbd { font-size: 11.5px; }
+.tries li.done { color: var(--green); border-color: currentColor; }
+.tries li.done kbd { color: var(--green); border-color: currentColor; }
+.tries li.done::after { content: "✓"; }
+
+/* Shot like a product photo: full bleed, tilted away from you, pivoting on its bottom edge so the near row keeps its size.
+   The script zooms it to min(1500px, 94vw) and pulls it up by the height the tilt takes away. */
+.board-frame { position: relative; display: flex; justify-content: center; width: 100vw; margin-left: calc(50% - 50vw); margin-top: 24px; perspective: 1600px; perspective-origin: 50% 100%; }
+.board { position: relative; display: inline-grid; gap: 8px; padding: 22px; border-radius: 26px; border: 1px solid var(--line); user-select: none; -webkit-user-select: none;
+  background: var(--sunk);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+  zoom: var(--kz, 1); transform: rotateX(32deg); transform-origin: 50% 100%; margin-top: var(--kmt, 0px); }
+.krow { display: flex; gap: 8px; width: 836px; }
+.k { --w: 54px; width: var(--w); height: 62px; border-radius: 10px; color: var(--ghost); font: 500 13px var(--mono);
+  display: grid; justify-items: start; align-content: space-between; gap: 1px; padding: 8px 9px 7px; position: relative; cursor: default;
+  border: 1px solid var(--line); border-bottom: 5px solid color-mix(in oklab, var(--raised) 78%, #000);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 14%, transparent); }
+.k small { font: 9.5px/1.1 var(--font); color: var(--text-3); letter-spacing: 0; text-align: left; }
+.k.on { color: var(--text); cursor: pointer; }
+.k[data-k="p"] small { color: var(--accent-fg); }
+.k.w12 { --w: 68px; } .k.w15 { --w: 84px; } .k.w18 { --w: 100px; } .k.w22 { --w: 124px; } .k.space { --w: 300px; }
+.k.grow { flex: 1; width: auto; }
+.k.half { height: 29px; padding: 0; justify-items: center; align-content: center; border-bottom-width: 3px; }
+.k.down, .k.latched { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 1px var(--accent), 0 0 28px -6px var(--accent); }
+.k.down small, .k.latched small { color: var(--on-accent); }
+.arrows { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: 25px 25px; gap: 4px 7px; }
+.arrows .up { grid-column: 2; } .arrows .lt { grid-column: 1; grid-row: 2; } .arrows .dn { grid-column: 2; grid-row: 2; } .arrows .rt { grid-column: 3; grid-row: 2; }
+@media (prefers-reduced-motion: no-preference) { .k { transition: transform .08s, background .12s, border-color .12s; } .k.down { transform: translateY(2px); } }
+@media (max-width: 960px) { .board { display: none; } }
+.kb-more { position: relative; z-index: 2; margin: 28px auto 0 !important; max-width: none !important; }
+
+/* ---------------------------------------------------------------- Founder note */
+.founder-in { max-width: 38rem; margin: 0 auto; }
+.lp .founder-in h2 { font-size: clamp(26px, 3vw, 34px); margin-bottom: 28px; }
+.founder-in p { font-size: 19px; line-height: 1.65; color: var(--text-2); margin: 0 0 20px; max-width: none; }
+.founder-in .sig { font-size: 15px; color: var(--text-3); margin-top: 32px; }
+.lp .founder-in a { color: var(--accent-fg); text-decoration: none; }
+.lp .founder-in a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------------------------------------------------------------- Pricing: one big number */
+.price-band { background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.price-c { text-align: center; }
+.price-c .eyebrow { font: 500 18px var(--font); letter-spacing: 0; text-transform: none; color: var(--text-3); margin: 0 0 18px; max-width: none; }
+.bigc { font: 500 clamp(120px, 18vw, 240px)/.85 var(--display); letter-spacing: -0.06em; color: var(--text); }
+.bigc small { font-size: .16em; letter-spacing: 0; color: var(--text-3); margin-left: .25em; vertical-align: .9em; }
+.price-c .then { font-size: 16px; color: var(--text-3); margin: 22px auto 0; max-width: none; }
+.promises { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 900px; margin: 56px auto 0; border-top: 1px solid var(--line); text-align: left; }
+.promises div { padding: 20px 20px 0 0; }
+.promises div + div { padding-left: 20px; border-left: 1px solid var(--line); }
+.promises b { display: block; font: 500 17px var(--display); color: var(--text); margin-bottom: 4px; }
+.promises span { font-size: 14px; color: var(--text-3); }
+.price-c .cta-row { margin-top: 40px; }
+
+/* ---------------------------------------------------------------- FAQ: the padding sits inside each summary, so the whole row is clickable */
+.faq-sec { text-align: center; }
+.faq-sec h2 { margin: 0 auto; }
+.faq { margin: 48px auto 0; max-width: 760px; text-align: left; }
+.faq details { border-top: 1px solid var(--line); }
+.faq summary { padding: 20px 0; font-weight: 500; cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: var(--text-4); }
+.faq details[open] summary::after { content: "–"; }
+.faq p { margin: 0; padding: 0 0 22px; font-size: 15px; }
+
+/* ---------------------------------------------------------------- The close */
+.close { position: relative; padding-top: 130px; text-align: center; overflow: hidden; }
+.lp .close h2 { margin: 0 auto; max-width: 18ch; font-size: clamp(36px, 5vw, 64px); line-height: 1.04; }
+.lp .close .lede { margin: 22px auto 0; max-width: 40rem; color: var(--text-3); }
+.close .cta-row { margin-top: 34px; }
+.close .small { margin: 14px auto 0; max-width: none; }
+.converge { display: block; width: 100%; height: auto; margin-top: -6px; }
+.converge .cl { fill: none; stroke-width: 2; stroke-linecap: round; opacity: .55; }
+.converge .mainline { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.converge .bloom { fill: none; stroke: var(--accent); stroke-width: 18; opacity: .35; filter: url(#lp-soft); }
+
+/* ---------------------------------------------------------------- Narrower screens */
+@media (max-width: 860px) {
+  section.s, .problem { padding-block: 100px; }
+  .feat, #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 40px; }
+  #review .copy, #unblock .copy, #merge .copy { grid-template-columns: 1fr; }
+  #review .copy > *, #unblock .copy > *, #merge .copy > * { grid-column: 1; grid-row: auto; }
+  #review .copy > p, #unblock .copy > p, #merge .copy > p { margin-top: 20px; }
+  .fit-facts, .facts3 { grid-template-columns: 1fr; }
+  .fit-facts div + div, .facts3 > div + div { padding-left: 0; border-left: 0; }
+  .tabbar { grid-template-columns: 1fr 1fr; }
+  .tab + .tab { border-left: 0; padding-left: 0; }
+  .promises { grid-template-columns: 1fr 1fr; }
+  .promises div:nth-child(3) { border-left: 0; padding-left: 0; }
+}
+
+/* Small screens: centred sections switch to left alignment. */
+@media (max-width: 720px) {
+  .hero, .fit-head, .tabs-h, .kb-sec, #catch-up .copy, .close, .faq-sec, .price-c, .problem .statement { text-align: left; }
+  .hero h1, .lp .hero .lede, .fit-head h2, .fit-head p, .tabs-h h2, .kb-sec h2, .lp .kb-sec .lede, #catch-up .copy h2, #catch-up .copy p,
+  .lp .close h2, .lp .close .lede, .faq-sec h2, .price-c .then, .statement { margin-left: 0; margin-right: 0; }
+  .cta-row { justify-content: flex-start; }
+  .close .small, .hero .small { text-align: left; }
+  .kb-console, .faq { margin-left: 0; margin-right: 0; }
+  .statement { font-size: 30px; }
+}
+
+/* Buttons drawn inside the app frames are pictures, not controls. */
+span.btn { pointer-events: none; }

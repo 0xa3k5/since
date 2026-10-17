@@ -1,23 +1,29 @@
 ---
-import { BUY_URL, PRICE_NOW } from '../config';
 import { HEADER_NAV } from '../routes';
+import { SHOW_PRICING } from '../config';
 import Logo from './Logo.astro';
-import ThemeToggle from './ThemeToggle.astro';
+import AppleGlyph from './AppleGlyph.astro';
 
 const current = Astro.url.pathname.replace(/\.html$/, '');
 ---
-<header class="site-header">
-  <div class="wrap header-inner">
-    <Logo />
-    <nav class="header-nav" aria-label="Main">
+<div class="site-head" data-site-head>
+  <header class="wrap nav">
+    <div class="nav-brand"><Logo />{!SHOW_PRICING && <span class="beta-pill">Beta</span>}</div>
+    <nav class="nav-links" aria-label="Main">
       {HEADER_NAV.map((r) => (
-        <a href={r.href} aria-current={current === r.href || current.startsWith(r.href + '/') ? 'page' : undefined}>{r.label}</a>
+        <a class="nav-link" href={r.href} aria-current={current === r.href || current.startsWith(r.href + '/') ? 'page' : undefined}>{r.label}</a>
       ))}
     </nav>
-    <div class="header-actions">
-      <ThemeToggle />
-      <a class="btn btn-secondary" href={BUY_URL}>Buy · ${PRICE_NOW}</a>
-      <a class="btn btn-primary" href="/download">Download</a>
-    </div>
-  </div>
-</header>
+    <a class="btn btn-sm" href="/download"><AppleGlyph />Download</a>
+  </header>
+</div>
+
+<script>
+  // A hairline under the header once the page has scrolled.
+  const head = document.querySelector('[data-site-head]');
+  if (head) {
+    const sync = () => head.classList.toggle('scrolled', scrollY > 10);
+    addEventListener('scroll', sync, { passive: true });
+    sync();
+  }
+</script>

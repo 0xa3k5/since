@@ -128,6 +128,32 @@ test('undo restores refs and working tree', async () => {
   assert.ok(!refs.find((r) => r.short === 'feature'));
 });
 
+test('undo that deletes a branch drops its upstream config', async () => {
+  const dir = await repo();
+  await commit(dir, 'a', '1', 'one');
+  const before = await git.captureRefState(dir);
+  await git.run(dir, ['branch', 'pr']);
+  await git.run(dir, ['config', 'branch.pr.remote', 'origin']);
+  await git.run(dir, ['config', 'branch.pr.merge', 'refs/heads/pr']);
+  await git.restoreRefState(dir, before);
+  assert.equal((await git.run(dir, ['config', '--get-regexp', '^branch\\.pr\\.'], { allowCodes: [0, 1] })).trim(), '');
+});
+
+test('redo that brings a deleted branch back restores its upstream config', async () => {
+  const dir = await repo();
+  await commit(dir, 'a', '1', 'one');
+  const before = await git.captureRefState(dir);
+  await git.run(dir, ['branch', 'fix/v1.2']);
+  await git.run(dir, ['config', 'branch.fix/v1.2.remote', 'origin']);
+  await git.run(dir, ['config', 'branch.fix/v1.2.merge', 'refs/heads/fix/v1.2']);
+  const after = await git.captureRefState(dir);
+  await git.restoreRefState(dir, before); // undo
+  await git.restoreRefState(dir, after); // redo
+  const cfg = (await git.run(dir, ['config', '--get-regexp', '^branch\\.fix/v1\\.2\\.'])).trim().split('\n');
+  assert.deepEqual(cfg, ['branch.fix/v1.2.remote origin', 'branch.fix/v1.2.merge refs/heads/fix/v1.2']);
+  assert.deepEqual(await git.captureRefState(dir), after);
+});
+
 test('graph layout assigns lanes for branches and merges', async () => {
   const { layout } = await import('../renderer/graph.js');
   // m merges b into a; a and b both descend from root
@@ -165,6 +191,10 @@ test('remoteLabel', () => {
   assert.equal(git.remoteLabel('https://user:pass@github.com/0xa3k5/web3icons'), 'github.com/0xa3k5/web3icons');
   assert.equal(git.remoteLabel('file:///srv/git/hello.git'), '/srv/git/hello.git');
   assert.equal(git.remoteLabel('/srv/git/hello.git'), '/srv/git/hello.git');
+  assert.equal(git.remoteLabel('https://user:tok@example.com'), 'https://example.com');
+  assert.equal(git.remoteLabel('ssh://git:secret@example.com:2222'), 'ssh://example.com:2222');
+  assert.equal(git.remoteLabel('https://u:p@ss@example.com'), 'https://example.com');
+
 });
 
 test('getConfig parses scopes, multi-line and valueless entries', async () => {
@@ -200,6 +230,22 @@ test('partial stash: selected files and staged-only changes', async () => {
   const stashes = await git.getStashes(dir);
   assert.deepEqual(stashes.map((s) => s.message.replace(/^On main: /, '')), ['staged', 'only a']);
   await assert.rejects(git.stashPush(dir, { staged: true, untracked: true }), /untracked/);
+});
+
+test('partial stash: an untracked file and both sides of a staged rename', async () => {
+  const dir = await repo();
+  await commit(dir, 'a.txt', 'a\n', 'first');
+  fs.writeFileSync(path.join(dir, 'new.txt'), 'n\n');
+  await git.stashPush(dir, { message: 'untracked', untracked: true, paths: ['new.txt'] });
+  assert.equal(fs.existsSync(path.join(dir, 'new.txt')), false);
+
+  await git.run(dir, ['mv', 'a.txt', 'renamed.txt']);
+  await git.stashPush(dir, { message: 'rename', paths: ['renamed.txt', 'a.txt'] });
+  assert.equal((await git.run(dir, ['status', '--porcelain'])).trim(), '');
+  assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'a\n');
+  assert.equal(fs.existsSync(path.join(dir, 'renamed.txt')), false);
+  await git.run(dir, ['stash', 'apply', '--index', '-q']);
+  assert.equal((await git.run(dir, ['status', '--porcelain'])).trim(), 'R  a.txt -> renamed.txt');
 });
 
 test('partial stash: selected lines leave the working tree and apply back', async () => {

@@ -1,0 +1,613 @@
+// The keymap: every keyboard shortcut in GitLanes, in one place. Renderer handlers dispatch by command id
+// (`match`), main.js builds menu accelerators from it (`accelerator`), menus and ⌘K show its labels (`keys`),
+// and the website's /shortcuts page imports it. Loaded by the renderer as an ES module and by main.js via require.
+//
+// A binding is "Mod+Shift+F": modifiers, then one key. Mod is ⌘ on macOS and Ctrl elsewhere (either works when
+// matching, as before); Ctrl is the Control key itself. A space separates the steps of a chord ("g c": G, then C).
+// The key is an `e.key` value (letters lower case, Space for ' '), or an `e.code` name (KeyO, Comma, Backslash)
+// where ⌥ or ⇧ changes the character the key types. Shift is part of a letter binding ("Shift+S" is ⇧S); for other
+// keys a binding with no modifiers also matches with ⇧ held, unless a Shift binding in the same scope wins.
+// `group` is the /shortcuts page section (null: not listed there yet); `pair` shows a second command's keys beside
+// this one (↓ ↑). `reserved` marks keys macOS or the app menu owns (⌘, ⌘Q…), which must never be rebound.
+// The user can rebind the rest (Keyboard Shortcuts window): `setOverrides` layers their changes over `keys`.
+
+export const SCOPES = {
+  global: 'Anywhere in a repository',
+  menu: 'Menu bar',
+  map: 'Map',
+  quick: 'Quick View',
+  commit: 'Commit view',
+  message: 'Commit message box',
+  split: 'Split commit',
+  diff: 'Diff view',
+  stashes: 'Stashes',
+  snapshots: 'History & recovery',
+  list: 'Remotes, Tags and Submodules pages',
+  worktrees: 'Worktrees',
+  catchup: 'Catch up',
+  reader: 'Reader (Review and Catch up)',
+  lanes: 'Review',
+  branches: 'Branches',
+  review: 'Review branch',
+  cleanup: 'Branches → Clean up',
+  recent: 'Welcome screen',
+  conflict: 'Conflict editor',
+  fileHistory: 'File history',
+  setup: 'Choose defaults',
+  shortcuts: 'Keyboard Shortcuts window',
+  prefs: 'Preferences window',
+  dialog: 'Dialogs and menus',
+  tour: 'Tour',
+};
+
+const c = (scope, group, id, label, keys, extra) => ({ id, label, scope, group, keys: [].concat(keys), ...extra });
+
+export const COMMANDS = [
+  // Menu bar: accelerators in main.js. `menu` is the menu the item sits in.
+  c('menu', 'file', 'app.settings', 'Settings…', 'Mod+,', { reserved: true }),
+  c('menu', 'file', 'app.licence', 'Enter Licence Key…', 'Mod+Alt+L'),
+  c('menu', 'file', 'file.newWindow', 'New Window', 'Mod+Shift+N'),
+  c('menu', 'file', 'file.init', 'New Repository…', 'Mod+N'),
+  c('menu', 'file', 'file.open', 'Open Repository…', 'Mod+O'),
+  c('menu', 'file', 'file.clone', 'Clone Repository…', 'Mod+Shift+O'),
+  c('menu', 'file', 'file.repoSwitch', 'Switch Repository…', 'Mod+Alt+KeyO'),
+  c('menu', 'file', 'file.close', 'Close Window', 'Mod+W', { reserved: true, role: true }),
+  c('menu', 'file', 'app.quit', 'Quit GitLanes', 'Mod+Q', { reserved: true, role: true }),
+  c('menu', 'file', 'app.hide', 'Hide GitLanes', 'Mod+H', { reserved: true, role: true }),
+  c('menu', 'edit', 'edit.undo', 'Undo', 'Mod+Z'),
+  c('menu', 'edit', 'edit.redo', 'Redo', 'Mod+Shift+Z'),
+  c('menu', 'edit', 'edit.find', 'Find…', 'Mod+F'),
+  c('menu', 'view', 'view.palette', 'Command Menu', 'Mod+K'),
+  c('menu', 'help', 'help.shortcuts', 'Keyboard Shortcuts', 'Mod+Slash'),
+  c('menu', 'views', 'view.catchup', 'Catch up', ['Mod+1', 'g u']),
+  c('menu', 'views', 'view.lanes', 'Review', ['Mod+2', 'g l']),
+  c('menu', 'views', 'view.map', 'Map', ['Mod+3', 'g m']),
+  c('menu', 'views', 'view.commit', 'Commit', ['Mod+4', 'g c']),
+  // The rest of the sidebar's pages (AK-491), then the full pages of the fold-out lists below its divider.
+  c('menu', 'views', 'view.branches', 'Branches', ['Mod+5', 'g b']),
+  c('menu', 'views', 'view.stashes', 'Stashes', ['Mod+6', 'g s']),
+  c('menu', 'views', 'view.snapshots', 'History', ['Mod+7', 'g h']),
+  c('menu', 'views', 'view.submoduleList', 'Submodules', ['Mod+8', 'g n']),
+  c('menu', 'views', 'view.remoteList', 'Remotes', 'g o'),
+  c('menu', 'views', 'view.tagList', 'Tags', 'g t'),
+  c('menu', 'views', 'view.worktrees', 'Worktrees', 'g w'),
+  c('menu', 'views', 'view.config', 'Repository Settings', 'Mod+9'),
+  c('menu', 'views', 'view.reflog', 'Reflog', 'g r'),
+  c('menu', 'view', 'view.back', 'Back', 'Mod+['),
+  c('menu', 'view', 'view.forward', 'Forward', 'Mod+]'),
+  c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', ['Mod+S', 'Mod+Backslash']),
+  c('menu', 'view', 'view.tags', 'Show Tags', 'Mod+Alt+T'),
+  c('menu', 'view', 'view.remotes', 'Show Remote Branches', 'Mod+Alt+R'),
+  c('menu', 'view', 'view.swatches', 'Show Colour Swatches in Diffs', 'Mod+Alt+C'),
+  // ⌃⌘T on macOS ("T" for Theme); ⌘⇧T and ⌥⌘T are already taken.
+  c('menu', 'view', 'view.cycleTheme', 'Cycle Theme', 'Ctrl+Mod+T', { other: 'Ctrl+Alt+Shift+T' }),
+  c('menu', 'repository', 'repo.fetch', 'Fetch All', 'Mod+Shift+F'),
+  c('menu', 'repository', 'repo.pull', 'Pull Current Branch', 'Mod+Shift+L'),
+  c('menu', 'repository', 'repo.push', 'Push Current Branch', 'Mod+Shift+P'),
+  c('menu', 'repository', 'repo.stash', 'Stash Changes…', 'Mod+Shift+S'),
+  c('menu', 'repository', 'repo.stashStaged', 'Stash Staged Changes…', 'Mod+Alt+S'),
+  c('menu', 'repository', 'repo.branchSwitch', 'Switch Branch…', 'Mod+Shift+B'),
+  c('menu', 'repository', 'repo.worktreeAdd', 'New Worktree…', 'Mod+Alt+N'),
+  c('menu', 'repository', 'repo.worktreeSwitch', 'Switch Worktree…', 'Mod+Alt+W'),
+  c('menu', 'repository', 'repo.submodules', 'Open Submodule…', 'Mod+Alt+B'),
+  c('menu', 'repository', 'repo.submoduleUpdate', 'Update Submodules', 'Mod+Alt+U'),
+  c('menu', 'repository', 'repo.lfs', 'Git LFS Files…', 'Mod+Alt+F'),
+  c('menu', 'repository', 'repo.difftool', 'Open in Difftool', 'Mod+Shift+D'),
+  c('menu', 'repository', 'repo.conflicts', 'Resolve Conflicts', 'Mod+Alt+M'),
+  c('menu', 'repository', 'repo.mergetool', 'Open in Mergetool', 'Mod+Shift+M'),
+  c('menu', 'repository', 'repo.fileHistory', 'File History & Blame…', 'Mod+Shift+H'),
+  c('menu', 'repository', 'repo.review', 'Review Branch…', 'Mod+Alt+V'),
+  c('menu', 'repository', 'repo.identity', 'Commit Identity…', 'Mod+Alt+I'),
+  c('menu', 'repository', 'repo.remotes', 'Remotes…', 'Mod+Alt+Shift+R'),
+  c('menu', 'repository', 'repo.aiMessage', 'Write Commit Message with AI', 'Mod+Alt+G'),
+  c('menu', 'repository', 'repo.prs', 'Pull Requests…', 'Mod+Alt+P'),
+  c('menu', 'repository', 'repo.prRefresh', 'Refresh Pull Requests', 'Mod+Alt+Shift+P'),
+  c('menu', 'repository', 'repo.prCreate', 'New Pull Request…', 'Mod+Alt+Shift+N'),
+  c('menu', 'repository', 'repo.prCheckout', 'Check Out Pull Request…', 'Mod+Alt+Shift+O'),
+  c('menu', 'repository', 'repo.prWorktree', 'Check Out Pull Request in New Worktree…', 'Mod+Alt+Shift+L'),
+  c('menu', 'repository', 'repo.prApprove', 'Approve Pull Request…', 'Mod+Alt+Shift+A'),
+  c('menu', 'repository', 'repo.prMerge', 'Merge Pull Request…', 'Mod+Alt+Shift+M'),
+  c('menu', 'repository', 'repo.prChanges', 'Request Changes on Pull Request…', 'Mod+Alt+Shift+K'),
+  c('menu', 'repository', 'repo.prClose', 'Close Pull Request…', 'Mod+Alt+Shift+W'),
+  c('menu', 'repository', 'repo.reveal', 'Open in Finder', 'Mod+Shift+R'),
+  c('menu', 'repository', 'repo.terminal', 'Open in Terminal', 'Mod+Shift+T'),
+  c('menu', 'repository', 'repo.origin', 'Open Origin in Browser', 'Mod+Shift+G'),
+
+  // Anywhere in a repository (window keydown in app.js).
+  c('global', 'global', 'global.search', 'Search commits', '/'),
+  c('global', 'global', 'global.close', 'Close Quick View', 'Escape'),
+  c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
+  c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
+  c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
+  c('global', 'global', 'global.cleanup', 'Clean up finished branches and worktrees', 'Mod+Alt+Backspace'),
+  c('global', 'global', 'global.resetPanes', 'Reset pane sizes', 'Mod+Alt+Digit0'),
+  c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
+  c('global', 'global', 'global.prRemote', 'Choose the remote for pull requests', 'Mod+Alt+Shift+KeyU'),
+
+  // Map, with the commit list focused.
+  c('map', 'map', 'map.next', 'Next / previous commit', 'ArrowDown', { pair: 'map.prev' }),
+  c('map', null, 'map.prev', 'Previous commit', 'ArrowUp'),
+  c('map', 'map', 'map.pageDown', 'Page down / up', 'PageDown', { pair: 'map.pageUp' }),
+  c('map', null, 'map.pageUp', 'Page up', 'PageUp'),
+  c('map', 'map', 'map.first', 'First / last commit', 'Home', { pair: 'map.last' }),
+  c('map', null, 'map.last', 'Last commit', 'End'),
+  c('map', 'map', 'map.quick', 'Quick View (or pick the search result)', 'Enter'),
+  c('map', 'map', 'map.detail', 'Show or hide the detail panel', 'Space'),
+  c('map', 'map', 'map.clearSearch', 'Clear search', 'Escape'),
+  c('map', 'map', 'map.head', 'Jump to HEAD', 'h'),
+  c('map', 'map', 'map.copySha', 'Copy SHA', 'Mod+c'),
+  c('map', 'map', 'map.copyLink', 'Copy link to commit', 'Mod+Shift+C'),
+  // Commit actions: single keys on the selected commit. The commit's right-click menu shows the same keys.
+  c('map', 'commit-actions', 'commit.checkoutBranch', 'Checkout branch', 'Mod+Enter'),
+  c('map', 'commit-actions', 'commit.checkout', 'Checkout (detached)', 'o'),
+  c('map', 'commit-actions', 'commit.diffHead', 'Diff with HEAD', 'd'),
+  c('map', 'commit-actions', 'commit.branch', 'Create Branch…', 'b'),
+  c('map', 'commit-actions', 'commit.tag', 'Create Tag…', 't'),
+  c('map', 'commit-actions', 'commit.worktree', 'New Worktree Here…', 'w'),
+  c('map', 'commit-actions', 'commit.merge', 'Merge into Current', 'm'),
+  c('map', 'commit-actions', 'commit.rebase', 'Rebase Current onto This', 'r'),
+  c('map', 'commit-actions', 'commit.cherryPick', 'Cherry-pick onto Current', 'p'),
+  c('map', 'commit-actions', 'commit.revert', 'Revert', 'v'),
+  c('map', 'commit-actions', 'commit.edit', 'Edit Message…', 'e'),
+  c('map', 'commit-actions', 'commit.squash', 'Squash with Parent', 's'),
+  c('map', 'commit-actions', 'commit.fixup', 'Fixup with Parent', 'f'),
+  c('map', 'commit-actions', 'commit.split', 'Split Commit…', 'Shift+S'),
+  c('map', 'commit-actions', 'commit.drop', 'Delete Commit', ['Backspace', 'Delete']),
+  c('map', 'commit-actions', 'commit.author', 'View Author on GitHub', 'Shift+A'),
+
+  // Quick View.
+  c('quick', 'quick-view', 'quick.next', 'Next / previous file', 'ArrowDown', { pair: 'quick.prev' }),
+  c('quick', null, 'quick.prev', 'Previous file', 'ArrowUp'),
+  c('quick', 'quick-view', 'quick.close', 'Back to the map', ['Escape', 'Space']),
+
+  // Commit view (file lists), then the message box.
+  c('commit', 'commit-view', 'cv.next', 'Next / previous file', 'ArrowDown', { pair: 'cv.prev' }),
+  c('commit', null, 'cv.prev', 'Previous file', 'ArrowUp'),
+  c('commit', 'commit-view', 'cv.extendNext', 'Extend the selection (also ⇧-click; ⌘-click adds one file)', 'Shift+ArrowDown'),
+  c('commit', null, 'cv.extendPrev', 'Extend the selection up', 'Shift+ArrowUp'),
+  c('commit', 'commit-view', 'cv.selectAll', 'Select every file in the list', 'Mod+a'),
+  c('commit', 'commit-view', 'cv.single', 'Back to a single file', 'Escape'),
+  c('commit', 'commit-view', 'cv.stage', 'Stage or unstage the selected lines, else the selected files', 'Enter'),
+  c('commit', 'commit-view', 'cv.discard', 'Discard the selected unstaged files (undoable)', ['Backspace', 'Delete']),
+  c('commit', 'commit-view', 'cv.message', 'Write the commit message', 'c'),
+  c('message', 'commit-view', 'message.commit', 'Commit', 'Mod+Enter'),
+
+  // Split commit.
+  c('split', null, 'split.next', 'Next file', 'ArrowDown'),
+  c('split', null, 'split.prev', 'Previous file', 'ArrowUp'),
+  c('split', null, 'split.toggleFile', 'Select or deselect the file', 'a'),
+  c('split', null, 'split.message', 'Write the commit messages', 'c'),
+  c('split', null, 'split.leave', 'Leave the message box', 'Escape'),
+  c('split', null, 'split.submit', 'Split commit', 'Mod+Enter'),
+
+  // Diff with HEAD.
+  c('diff', null, 'diff.close', 'Back', 'Escape'),
+
+  // Stashes and Snapshots lists.
+  c('stashes', null, 'stashes.next', 'Next stash', 'ArrowDown'),
+  c('stashes', null, 'stashes.prev', 'Previous stash', 'ArrowUp'),
+  c('stashes', null, 'stashes.apply', 'Apply the stash', 'Enter'),
+  c('snapshots', null, 'snapshots.next', 'Next snapshot', 'ArrowDown'),
+  c('snapshots', null, 'snapshots.prev', 'Previous snapshot', 'ArrowUp'),
+  c('snapshots', null, 'snapshots.restore', 'Restore the snapshot', 'Enter'),
+
+  // The Remotes, Tags and Submodules pages.
+  c('list', null, 'list.next', 'Next row', 'ArrowDown'),
+  c('list', null, 'list.prev', 'Previous row', 'ArrowUp'),
+  c('list', null, 'list.open', 'Open the row (show in Map, edit remote, open submodule)', 'Enter'),
+
+  // Worktrees.
+  c('worktrees', null, 'worktrees.next', 'Next worktree', 'ArrowDown'),
+  c('worktrees', null, 'worktrees.prev', 'Previous worktree', 'ArrowUp'),
+  c('worktrees', null, 'worktrees.switch', 'Switch to the worktree', 'Enter'),
+  c('worktrees', null, 'worktrees.window', 'Open the worktree in a new window', 'Mod+Enter'),
+  c('worktrees', null, 'worktrees.lock', 'Lock or unlock', 'l'),
+  c('worktrees', null, 'worktrees.remove', 'Remove the worktree', ['Backspace', 'Delete']),
+  c('worktrees', null, 'worktrees.add', 'New worktree', 'n'),
+  c('lanes', null, 'lanes.next', 'Next row', 'ArrowDown'),
+  c('lanes', null, 'lanes.prev', 'Previous row', 'ArrowUp'),
+  c('lanes', null, 'lanes.open', 'Read the row: move into the pane', 'Enter'),
+  c('lanes', null, 'lanes.filter', 'Filter', '/'),
+  c('lanes', null, 'lanes.reload', 'Reload pull requests', 'Shift+R'),
+  c('lanes', null, 'lanes.clear', 'Clear the filter', 'Escape'),
+  c('lanes', null, 'lanes.agents', 'Show agent-made branches (opens Branches)', 'a'),
+  c('lanes', null, 'lanes.all', 'Show every active branch and worktree (opens Branches)', 's'),
+  c('lanes', null, 'lanes.details', 'Show or hide the row’s details', 'd'),
+  c('lanes', null, 'lanes.stages', 'Show In progress', 'e'),
+  c('lanes', null, 'lanes.tabNeeds', 'Show what needs you: stuck and ready to merge', '1'),
+  c('lanes', null, 'lanes.tabStuck', 'Show stuck', '2'),
+  c('lanes', null, 'lanes.tabReady', 'Show ready to merge', '3'),
+  c('lanes', null, 'lanes.tabProgress', 'Show in progress', '4'),
+  c('lanes', null, 'lanes.tabAll', 'Show all open', '5'),
+  c('lanes', null, 'lanes.mergeReady', 'Squash-merge every pull request ready to merge', 'Shift+M'),
+  c('lanes', null, 'lanes.mergePlan', 'Plan merge: merge the ready pull requests in an order with no conflicts', 'Shift+P'),
+  c('lanes', null, 'lanes.conflicts', 'Show branches that would conflict (opens Branches)', 'c'),
+  c('lanes', null, 'lanes.review', 'Review the pull request, or the branch', 'r'),
+  c('lanes', null, 'lanes.merge', 'Merge the pull request, or merge and tidy the branch', 'm'),
+  c('lanes', null, 'lanes.step', 'Run the row’s primary action', 'Space'),
+  c('lanes', null, 'lanes.rebase', 'Rebase the branch onto the base branch', 'b'),
+  c('lanes', null, 'lanes.checks', 'Open the checks of the pull request', 'o'),
+  c('lanes', null, 'lanes.sendBack', 'Send back a stuck row with a ready-made prompt', 'p'),
+  c('lanes', null, 'lanes.updateBranch', 'Update the pull request’s branch with its base on GitHub', 'u'),
+  c('lanes', null, 'lanes.showConflicts', 'Show the files that conflict with the base', 'f'),
+  c('lanes', null, 'lanes.delete', 'Delete the worktree and branch (undoable)', 'Mod+Backspace'),
+  c('lanes', null, 'lanes.cleanup', 'Clean up the merged branch', 'x'),
+  c('lanes', null, 'lanes.approve', 'Approve the pull request', 'Shift+A'),
+  c('lanes', null, 'lanes.closePr', 'Close the pull request', 'Shift+X'),
+  c('lanes', null, 'lanes.checkout', 'Check out the pull request as a worktree, or open the branch', 'w'),
+  c('lanes', null, 'lanes.checkoutHere', 'Check out the pull request in this window, or open the branch', 'Shift+W'),
+  c('lanes', null, 'lanes.github', 'Open the pull request on GitHub', 'Shift+O'),
+  c('catchup', null, 'catchup.next', 'Next merged pull request or commit in the timeline', 'ArrowDown'),
+  c('catchup', null, 'catchup.prev', 'Previous merged pull request or commit', 'ArrowUp'),
+  c('catchup', null, 'catchup.open', 'Read it: move into the reader', 'Enter'),
+  c('catchup', null, 'catchup.caughtUp', 'Mark caught up: move your checkpoint to the base’s tip', 'Shift+C'),
+  c('catchup', null, 'catchup.since', 'Catch up since… (checkpoint, yesterday, last week, a tag)', 'Shift+T'),
+  c('catchup', null, 'catchup.reload', 'Reload merged pull requests and CI', 'Shift+R'),
+  c('catchup', null, 'catchup.more', 'Show everything that landed', 'e'),
+  c('catchup', null, 'catchup.viewed', 'Mark the next file viewed (folds it)', 'v'),
+  c('catchup', null, 'catchup.branch', 'Catch up on another branch', 'b'),
+  // The reader (reader.js): Review's pane and Catch up's reader, once focus is in it (↵ from the list).
+  // ←/→ also step the list from the list itself; ↑/↓ there move the selection instead of scrolling.
+  c('reader', null, 'reader.next', 'Next item in the list', 'ArrowRight'),
+  c('reader', null, 'reader.prev', 'Previous item in the list', 'ArrowLeft'),
+  c('reader', null, 'reader.down', 'Scroll the reader down', 'ArrowDown'),
+  c('reader', null, 'reader.up', 'Scroll the reader up', 'ArrowUp'),
+  c('reader', null, 'reader.downFast', 'Scroll the reader down faster', 'Shift+ArrowDown'),
+  c('reader', null, 'reader.upFast', 'Scroll the reader up faster', 'Shift+ArrowUp'),
+  c('reader', null, 'reader.pageDown', 'Scroll the reader down a page', ['PageDown', 'Space']),
+  c('reader', null, 'reader.pageUp', 'Scroll the reader up a page', ['PageUp', 'Shift+Space']),
+  c('reader', null, 'reader.nextFile', 'Next file', '.'),
+  c('reader', null, 'reader.prevFile', 'Previous file', ','),
+  c('reader', null, 'reader.back', 'Back to the list', 'Escape'),
+  c('review', null, 'review.next', 'Next file in the files column', 'ArrowDown'),
+  c('review', null, 'review.prev', 'Previous file in the files column', 'ArrowUp'),
+  c('review', null, 'review.tick', 'Mark the file reviewed (or not)', 'v'),
+  c('review', null, 'review.delta', 'Only what changed since you last looked', 'd'),
+  c('review', null, 'review.merge', 'Merge and tidy the branch, or merge the pull request', 'm'),
+  c('review', null, 'review.approve', 'Approve the pull request', 'a'),
+  c('review', null, 'review.changes', 'Request changes on the pull request', 'c'),
+  c('review', null, 'review.closePr', 'Close the pull request', 'x'),
+  c('review', null, 'review.checkout', 'Check out the pull request in a new worktree', 'Enter'),
+  c('review', null, 'review.github', 'Open the pull request on GitHub', 'Shift+O'),
+  c('review', null, 'review.rebase', 'Rebase the stuck branch onto the base branch', 'b'),
+  c('review', null, 'review.updateBranch', 'Update the stuck pull request’s branch with its base on GitHub', 'u'),
+  c('review', null, 'review.showConflicts', 'Show the files that conflict with the base', 'f'),
+  c('review', null, 'review.checks', 'Open the failing checks of the pull request', 'o'),
+  c('review', null, 'review.sendBack', 'Send back the stuck row with a ready-made prompt', 'p'),
+  c('review', null, 'review.close', 'Back', 'Escape'),
+  // Branches (AK-396): every local branch and worktree, behind tabs.
+  c('branches', null, 'branches.next', 'Next / previous branch', 'ArrowDown', { pair: 'branches.prev' }),
+  c('branches', null, 'branches.prev', 'Previous branch', 'ArrowUp'),
+  c('branches', null, 'branches.open', 'Show the branch in the Map, or switch to its worktree', 'Enter'),
+  c('branches', null, 'branches.filter', 'Filter branches', '/'),
+  c('branches', null, 'branches.clear', 'Clear the filter', 'Escape'),
+  c('branches', null, 'branches.tabActive', 'Show Active branches', '1'),
+  c('branches', null, 'branches.tabAgents', 'Show agent-made branches', '2'),
+  c('branches', null, 'branches.tabConflict', 'Show branches that would conflict', '3'),
+  c('branches', null, 'branches.tabIdle', 'Show idle branches', '4'),
+  c('branches', null, 'branches.tabFinished', 'Show finished branches to clean up', '5'),
+  c('branches', null, 'branches.review', 'Review the branch', 'r'),
+  c('branches', null, 'branches.merge', 'Merge and tidy the branch', 'm'),
+  c('branches', null, 'branches.rebase', 'Rebase the branch onto the base branch', 'b'),
+  c('branches', null, 'branches.checks', 'Open the checks of its pull request', 'o'),
+  c('branches', null, 'branches.delete', 'Delete the worktree and branch (undoable)', 'Mod+Backspace'),
+  c('branches', null, 'branches.cleanup', 'Clean up the finished branch: Finished, with only it ticked', 'x'),
+  c('cleanup', null, 'cleanup.next', 'Next card or branch', 'ArrowDown'),
+  c('cleanup', null, 'cleanup.prev', 'Previous card or branch', 'ArrowUp'),
+  c('cleanup', null, 'cleanup.toggle', 'Tick or untick the group or branch', 'Space'),
+  c('cleanup', null, 'cleanup.expand', 'Open or close the group', 'Enter'),
+  c('cleanup', null, 'cleanup.all', 'Tick everything safe to remove (or nothing)', ['a', 'Mod+a']),
+  c('cleanup', null, 'cleanup.remote', 'Also delete them on GitHub (asks once more)', 'r'),
+  c('cleanup', null, 'cleanup.run', 'Clean up the ticked branches', ['Mod+Backspace', 'Mod+Enter']),
+  c('cleanup', null, 'cleanup.back', 'Back to the Active tab', 'Escape'),
+
+  // Welcome screen: recent repositories.
+  c('recent', null, 'recent.next', 'Next repository', 'ArrowDown'),
+  c('recent', null, 'recent.prev', 'Previous repository', 'ArrowUp'),
+  c('recent', null, 'recent.open', 'Open the repository', 'Enter'),
+
+  // Conflict editor (text conflicts in the Commit view).
+  c('conflict', null, 'conflict.resolve', 'Mark resolved', 'Mod+s'),
+  c('conflict', null, 'conflict.next', 'Next conflict', ']'),
+  c('conflict', null, 'conflict.prev', 'Previous conflict', '['),
+  c('conflict', null, 'conflict.ours', 'Take ours', 'o'),
+  c('conflict', null, 'conflict.theirs', 'Take theirs', 't'),
+  c('conflict', null, 'conflict.both', 'Take both', 'b'),
+  c('conflict', null, 'conflict.allOurs', 'Take ours for every conflict', 'Shift+O'),
+  c('conflict', null, 'conflict.allTheirs', 'Take theirs for every conflict', 'Shift+T'),
+  c('conflict', null, 'conflict.edit', 'Edit the result', 'e'),
+  c('conflict', null, 'conflict.reset', 'Reset the conflict', ['Backspace', 'Delete']),
+  c('conflict', null, 'conflict.closeEdit', 'Stop editing', 'Escape'),
+
+  // File history & blame.
+  c('fileHistory', null, 'fileHistory.close', 'Close', 'Escape'),
+  c('fileHistory', null, 'fileHistory.next', 'Next commit', 'ArrowDown'),
+  c('fileHistory', null, 'fileHistory.prev', 'Previous commit', 'ArrowUp'),
+  c('fileHistory', null, 'fileHistory.show', 'Show the commit in the map', 'Enter'),
+  c('fileHistory', null, 'fileHistory.open', 'Quick View the commit', 'Space'),
+
+  // Choose defaults.
+  c('setup', null, 'setup.done', 'Done', 'Mod+Enter'),
+
+  // The Keyboard Shortcuts window.
+  c('shortcuts', null, 'shortcuts.next', 'Next shortcut', 'ArrowDown'),
+  c('shortcuts', null, 'shortcuts.prev', 'Previous shortcut', 'ArrowUp'),
+  c('shortcuts', null, 'shortcuts.find', 'Search shortcuts', 'Mod+f'),
+  c('shortcuts', null, 'shortcuts.edit', 'Change the shortcut', 'Enter'),
+  c('shortcuts', null, 'shortcuts.close', 'Clear the search, then close', 'Escape'),
+
+  // The Preferences window.
+  c('prefs', null, 'prefs.next', 'Next setting', 'ArrowDown'),
+  c('prefs', null, 'prefs.prev', 'Previous setting', 'ArrowUp'),
+  c('prefs', null, 'prefs.nextSection', 'Next section', 'Mod+ArrowDown'),
+  c('prefs', null, 'prefs.prevSection', 'Previous section', 'Mod+ArrowUp'),
+  c('prefs', null, 'prefs.toggle', 'Toggle the switch or press the button', 'Enter'),
+  c('prefs', null, 'prefs.right', 'Next choice', 'ArrowRight'),
+  c('prefs', null, 'prefs.left', 'Previous choice', 'ArrowLeft'),
+  c('prefs', null, 'prefs.moveUp', 'Move the sidebar section up', 'Alt+ArrowUp'),
+  c('prefs', null, 'prefs.moveDown', 'Move the sidebar section down', 'Alt+ArrowDown'),
+  c('prefs', null, 'prefs.unset', 'Remove the local git config value', 'Mod+Backspace'),
+  c('prefs', null, 'prefs.find', 'Search preferences', 'Mod+f'),
+  c('prefs', null, 'prefs.close', 'Clear the search, then close', 'Escape'),
+
+  // Dialogs, context menus and the ⌘K menu.
+  c('dialog', null, 'dialog.cancel', 'Close', 'Escape'),
+  c('dialog', null, 'dialog.submit', 'Submit a multi-line field', 'Mod+Enter'),
+  c('dialog', null, 'menu.next', 'Next item', ['ArrowDown', 'Ctrl+n']),
+  c('dialog', null, 'menu.prev', 'Previous item', ['ArrowUp', 'Ctrl+p']),
+  c('dialog', null, 'menu.choose', 'Choose the item', 'Enter'),
+
+  // Tour: the practice graph and the lesson tabs.
+  c('tour', null, 'tour.next', 'Next commit', 'ArrowDown'),
+  c('tour', null, 'tour.prev', 'Previous commit', 'ArrowUp'),
+  c('tour', null, 'tour.squash', 'Squash (practice)', 's'),
+  c('tour', null, 'tour.rebase', 'Rebase (practice)', 'r'),
+  c('tour', null, 'tour.cherryPick', 'Cherry-pick (practice)', 'p'),
+  c('tour', null, 'tour.nextTab', 'Next lesson', 'ArrowRight'),
+  c('tour', null, 'tour.prevTab', 'Previous lesson', 'ArrowLeft'),
+];
+
+const BY_ID = new Map(COMMANDS.map((x) => [x.id, x]));
+export const command = (id) => BY_ID.get(id);
+
+const IS_MAC = typeof process !== 'undefined' && process.platform
+  ? process.platform === 'darwin'
+  : /^Mac/.test(globalThis.navigator?.platform ?? '');
+
+/** The default bindings of a command on this platform. */
+export function defaults(id, mac = IS_MAC) {
+  const cmd = BY_ID.get(id);
+  if (!cmd) throw new Error(`keymap: unknown command ${id}`);
+  return !mac && cmd.other ? [].concat(cmd.other) : cmd.keys;
+}
+
+// Custom bindings: the user's overrides from settings.json `keymap`, { id: [binding…] } ([] means no keys).
+// Only changed commands are stored; a command with no override uses its defaults.
+let overrides = {};
+
+/**
+ * Valid overrides only: known, non-reserved commands with bindings the recorder would accept (or the command's
+ * own defaults). Drops everything else, so an imported file can't set a bare-key menu accelerator, say.
+ */
+export function sanitize(o) {
+  const out = {};
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
+  for (const [id, list] of Object.entries(o)) {
+    const cmd = BY_ID.get(id);
+    if (!cmd || cmd.reserved || !Array.isArray(list) || list.length > 4) continue;
+    const ok = list.filter((b) => {
+      if (typeof b !== 'string' || !b || b.length > 40) return false;
+      try { if (parse(b).length > 2) return false; } catch { return false; }
+      return defaults(id).includes(b) || !refusal(id, b);
+    });
+    if (ok.length === list.length) out[id] = [...new Set(ok)];
+  }
+  return out;
+}
+
+export function setOverrides(o) { overrides = sanitize(o); }
+export const getOverrides = () => structuredClone(overrides);
+export const isCustom = (id) => Object.hasOwn(overrides, id);
+
+/** The bindings of a command on this platform: the user's if they changed it, else the defaults. */
+export function bindings(id, mac = IS_MAC) {
+  return isCustom(id) ? overrides[id] : defaults(id, mac);
+}
+
+/** The overrides with `id` set to `list`; a list equal to the defaults removes the override. */
+export function withBinding(o, id, list, mac = IS_MAC) {
+  const next = { ...o };
+  const same = list.length === defaults(id, mac).length && list.every((b, i) => normalize(b) === normalize(defaults(id, mac)[i]));
+  if (same) delete next[id]; else next[id] = [...new Set(list)];
+  return next;
+}
+
+const MOD_TOKENS = ['Mod', 'Ctrl', 'Alt', 'Shift'];
+const CODES = { Comma: ',', Backslash: '\\', Period: '.', Slash: '/' };
+const isCode = (k) => /^(Key[A-Z]|Digit\d)$/.test(k) || k in CODES;
+
+/** "Mod+Shift+F" → { mods: Set, key: 'f' }. A chord is several of these. */
+export function parse(binding) {
+  return binding.split(' ').map((step) => {
+    const parts = step.split('+');
+    // A trailing "+" key would split into empty parts; no binding uses one.
+    const key = parts.pop();
+    for (const m of parts) if (!MOD_TOKENS.includes(m)) throw new Error(`keymap: bad modifier ${m} in ${binding}`);
+    return { mods: new Set(parts), key };
+  });
+}
+
+const isLetter = (k) => /^[a-z]$/i.test(k);
+
+/** Does a keydown event press this step? `loose` lets ⇧ through for keys that aren't letters. */
+function pressed(step, e, loose, mac = IS_MAC) {
+  const { mods, key } = step;
+  // Mod is ⌘ or ⌃; with Ctrl also named (⌃⌘T), Mod must be ⌘ on macOS, or plain ⌃T would match.
+  if (mods.has('Mod') ? !(mac && mods.has('Ctrl') ? e.metaKey : e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
+  if (mods.has('Ctrl') && !e.ctrlKey) return false;
+  if (mods.has('Alt') !== !!e.altKey) return false;
+  const shift = mods.has('Shift');
+  if (isCode(key)) return e.code === key && shift === !!e.shiftKey;
+  if (isLetter(key)) return e.key?.length === 1 && e.key.toLowerCase() === key.toLowerCase() && shift === !!e.shiftKey;
+  if (e.key !== (key === 'Space' ? ' ' : key)) return false;
+  return shift === !!e.shiftKey || (loose && !mods.size);
+}
+
+const inScope = (scope) => COMMANDS.filter((x) => x.scope === scope);
+
+/**
+ * The command a keydown event runs in `scope`, or null. `pending` is the first key of a chord already pressed
+ * (see `chordStart`); without it, chord bindings don't match.
+ */
+export function match(scope, e, pending = null, mac = IS_MAC) {
+  const cmds = inScope(scope);
+  for (const loose of [false, true]) {
+    for (const cmd of cmds) {
+      for (const b of bindings(cmd.id, mac)) {
+        const steps = parse(b);
+        if (pending ? steps.length === 2 && steps[0].key === pending && pressed(steps[1], e, loose, mac)
+          : steps.length === 1 && pressed(steps[0], e, loose, mac)) return cmd.id;
+      }
+    }
+  }
+  return null;
+}
+
+/** If the event starts a chord in `scope` (the G of "G then C"), its key; otherwise null. */
+export function chordStart(scope, e, mac = IS_MAC) {
+  for (const cmd of inScope(scope)) {
+    for (const b of bindings(cmd.id, mac)) {
+      const steps = parse(b);
+      if (steps.length === 2 && pressed(steps[0], e, false, mac)) return steps[0].key;
+    }
+  }
+  return null;
+}
+
+const KEY_LABELS = { Enter: '↵', Backspace: '⌫', Delete: '⌫', Escape: 'Esc', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Space: 'Space', PageUp: 'Page Up', PageDown: 'Page Down' };
+const keyLabel = (k) => KEY_LABELS[k] ?? CODES[k] ?? (/^Key[A-Z]$/.test(k) ? k.slice(3) : /^Digit\d$/.test(k) ? k.slice(5) : k.toUpperCase());
+
+/**
+ * A binding as the keycaps the app shows: ['⌘', '⇧', 'F'] (['Ctrl', '⇧', 'F'] off macOS), in binding order.
+ * Defaults to the command's first binding; `index` picks another one (null if there's none). A chord shows its
+ * steps in a row.
+ */
+export function keys(id, { index = 0, mac = IS_MAC } = {}) {
+  const b = bindings(id, mac)[index];
+  if (b == null) return index ? null : []; // [] when the user removed every key, so callers can spread it
+  return caps(b, mac);
+}
+
+/** Any binding as keycaps, like `keys`. */
+export function caps(binding, mac = IS_MAC) {
+  const MOD = { Mod: mac ? '⌘' : 'Ctrl', Ctrl: mac ? '⌃' : 'Ctrl', Alt: '⌥', Shift: '⇧' };
+  // macOS lists modifiers as ⌃⌥⇧⌘ (⇧⌘F, not ⌘⇧F), like its menus and the website.
+  const ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod'];
+  const order = (mods) => (mac ? [...mods].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)) : [...mods]);
+  return parse(binding).flatMap((s) => [...order(s.mods).map((m) => MOD[m]), keyLabel(s.key)]);
+}
+
+const ACCEL = { Mod: 'CmdOrCtrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' };
+const ACCEL_KEYS = { Backslash: '\\', Comma: ',', Space: 'Space', Enter: 'Enter', Escape: 'Escape' };
+
+/** The Electron menu accelerator for a command ("CmdOrCtrl+Shift+F"), from its first single-step binding. */
+export function accelerator(id, mac = IS_MAC) {
+  const b = bindings(id, mac).find((x) => !x.includes(' '));
+  if (!b) return undefined;
+  const [{ mods, key }] = parse(b);
+  const k = ACCEL_KEYS[key] ?? CODES[key] ?? (/^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : key.length === 1 ? key.toUpperCase() : key);
+  const mod = [...mods].map((m) => (m === 'Mod' && mods.has('Ctrl') && mac ? 'Cmd' : ACCEL[m]));
+  return [...mod, k].join('+');
+}
+
+// ---------------------------------------------------------------------------
+// Rebinding: recording keys, conflicts and refused keys.
+
+const MAC_ORDER = ['Mod', 'Ctrl', 'Alt', 'Shift'];
+
+/** A binding in one spelling, for comparing: "Mod+Alt+KeyO" and "Mod+Alt+o" are the same keys. */
+export function normalize(binding) {
+  return parse(binding).map(({ mods, key }) => {
+    let k = /^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : CODES[key] ?? key;
+    if (k.length === 1) k = k.toLowerCase();
+    return [...MAC_ORDER.filter((m) => mods.has(m)), k].join('+');
+  }).join(' ');
+}
+
+/**
+ * A keydown event as one binding step ("Mod+Shift+F"), or null while only modifiers are down. Letters use the
+ * typed letter, except with ⌥ (which changes the character) where the key code is used, like the defaults.
+ */
+export function fromEvent(e, mac = IS_MAC) {
+  if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'Fn', 'Dead', 'Unidentified'].includes(e.key)) return null;
+  const mods = [];
+  if (mac ? e.metaKey : e.ctrlKey) mods.push('Mod');
+  if (mac && e.ctrlKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  const code = e.code || '';
+  let key;
+  if (e.key === ' ') key = 'Space';
+  else if (/^[a-z]$/i.test(e.key) && !e.altKey) key = e.key.toLowerCase();
+  else if (/^Key[A-Z]$/.test(code)) key = e.altKey ? code : code.slice(3).toLowerCase();
+  else if (/^Digit\d$/.test(code)) key = e.altKey || e.shiftKey ? code : code.slice(5);
+  else if (code in CODES && (e.altKey || e.shiftKey)) key = code;
+  else key = e.key;
+  return [...mods, key].join('+');
+}
+
+// Scopes that are live at the same time: the menu bar and the "anywhere" keys run in every view.
+const overlaps = (a, b) => a === b || [a, b].some((s) => s === 'menu' || s === 'global');
+
+/**
+ * The commands that `binding` would collide with if given to `id`: the same keys in the same or an overlapping
+ * scope, or a single key that starts one of their chords (or the reverse).
+ */
+export function conflicts(id, binding, mac = IS_MAC) {
+  const me = BY_ID.get(id);
+  return COMMANDS.filter((cmd) => cmd.id !== id && overlaps(cmd.scope, me.scope)
+    && bindings(cmd.id, mac).some((b) => collides(b, binding))).map((cmd) => cmd.id);
+}
+
+/** Do two bindings clash: the same keys, or one is a single key that starts the other's chord? */
+export function collides(a, b) {
+  const [m, n] = [normalize(a), normalize(b)];
+  if (m === n) return true;
+  if (m.includes(' ') === n.includes(' ')) return false;
+  return m.includes(' ') ? m.split(' ')[0] === n : n.split(' ')[0] === m;
+}
+
+// Keys macOS keeps for itself. The app's own reserved commands (⌘Q, ⌘W, ⌘H, ⌘,) are added from the keymap.
+const SYSTEM = {
+  'Mod+Tab': 'switches apps', 'Mod+Shift+Tab': 'switches apps', 'Mod+`': 'switches windows',
+  'Mod+Space': 'opens Spotlight', 'Ctrl+Space': 'switches input sources', 'Mod+Alt+Space': 'opens a Finder search',
+  'Mod+Alt+Escape': 'opens Force Quit', 'Mod+M': 'minimises the window', 'Mod+Alt+H': 'hides other apps', 'Mod+Alt+D': 'shows or hides the Dock',
+  'Mod+Shift+3': 'takes a screenshot', 'Mod+Shift+4': 'takes a screenshot', 'Mod+Shift+5': 'takes a screenshot',
+  'Mod+Ctrl+Q': 'locks the screen', 'Mod+Shift+Q': 'logs out',
+  'Ctrl+ArrowUp': 'opens Mission Control', 'Ctrl+ArrowDown': 'shows app windows', 'Ctrl+ArrowLeft': 'switches Spaces', 'Ctrl+ArrowRight': 'switches Spaces',
+  'Mod+Ctrl+F': 'toggles full screen',
+};
+const SYSTEM_KEYS = new Map(Object.entries(SYSTEM).map(([k, v]) => [normalize(k), v]));
+
+/** Why `binding` can't be given to `id` (a sentence), or null when it can. */
+export function refusal(id, binding, mac = IS_MAC) {
+  const cmd = BY_ID.get(id);
+  if (!cmd) return 'Unknown command.';
+  if (cmd.reserved) return 'macOS and the app menu own this shortcut, so it can’t be changed.';
+  let steps;
+  try { steps = parse(binding); } catch { return 'Those keys can’t be used.'; }
+  const n = normalize(binding);
+  const reserved = COMMANDS.find((x) => x.reserved && defaults(x.id, mac).some((b) => normalize(b) === n));
+  if (reserved) return `${keys(reserved.id, { mac }).join('')} is kept for “${reserved.label}”.`;
+  // Off macOS, Mod is Ctrl, so a few system keys read differently; only macOS's list is enforced there too.
+  const why = SYSTEM_KEYS.get(n) ?? (n.startsWith('Ctrl+') ? SYSTEM_KEYS.get(n.replace('Ctrl+', 'Mod+')) : null);
+  if (mac && why) return `macOS uses these keys: it ${why}.`;
+  if (steps.length === 2 && steps.some((s) => s.mods.size)) return 'A two-key shortcut uses plain keys, like G then C.';
+  // Chords are dispatched for the views only (G then C).
+  if (steps.length === 2 && !id.startsWith('view.')) return 'Only the views (G then C) take a two-key shortcut.';
+  if (cmd.scope === 'menu') {
+    // Menu items run anywhere, even while typing, so they need ⌘, ⌃ or ⌥.
+    if (steps.length === 1 && !['Mod', 'Ctrl', 'Alt'].some((m) => steps[0].mods.has(m)) && !/^F\d+$/.test(steps[0].key)) return 'Menu commands need ⌘, ⌃ or ⌥, so they don’t fire while you type.';
+  }
+  return null;
+}

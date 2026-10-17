@@ -134,7 +134,12 @@ class AppDriver {
   }
 
   async view(name) {
-    await this.page.locator(`.sb-nav [data-view="${name}"]`).click();
+    // Pages sit in the nav (AK-491); the fold-out lists open their page on a double-click of the header; the reflog
+    // tab of History opens with its chord (G R).
+    const list = { worktrees: 'worktrees', remoteList: 'remotes', tagList: 'tags' }[name];
+    if (name === 'reflog') await this.page.keyboard.press('g').then(() => this.page.keyboard.press('r'));
+    else if (list) await this.page.locator(`[data-section="${list}"] .sb-section-head`).dblclick();
+    else await this.page.locator(`.sb-nav [data-view="${{ snapshots: 'history', submoduleList: 'submodules' }[name] || name}"]`).click();
     await expect(this.page.locator('.content')).toHaveAttribute('data-view', name);
   }
 
@@ -175,7 +180,8 @@ class AppDriver {
     }).toPass();
   }
 
-  async dialog({ fields = {}, submit } = {}) {
+  // `under`: overlays left open beneath the dialog (a dialog opened from Preferences).
+  async dialog({ fields = {}, submit, under = 0 } = {}) {
     const d = this.page.locator('.overlay .dialog');
     await expect(d).toBeVisible();
     for (const [label, value] of Object.entries(fields)) {
@@ -185,7 +191,7 @@ class AppDriver {
       else await input.fill(value);
     }
     await d.locator('.dialog-foot button[type=submit]', submit ? { hasText: submit } : {}).click();
-    await expect(this.page.locator('.overlay')).toHaveCount(0);
+    await expect(this.page.locator('.overlay')).toHaveCount(under);
   }
 
   undoButton() { return this.page.locator('.topbar button[title^="Undo"]'); }
@@ -229,7 +235,8 @@ const test = base.extend({
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
-        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), ...env },
+        // Specs start on the Map (repositories open on Review otherwise); pass env GITLANES_START_VIEW: '' for Review.
+        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), GITLANES_START_VIEW: 'map', ...env },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });

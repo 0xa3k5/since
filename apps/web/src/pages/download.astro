@@ -1,25 +1,25 @@
 ---
-import { DOWNLOAD_URL, PRODUCT_NAME } from '../config';
+import { DOWNLOAD_URL, DOWNLOAD_URL_INTEL, PRODUCT_NAME, SHOW_PRICING } from '../config';
 import Base from '../layouts/Base.astro';
 import { MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED } from '../components/commerce/links';
 import '../components/commerce/commerce.css';
 
-// Both builds live on the same release page; the file name says which chip it's for.
+// One DMG per chip.
 const builds = [
-  { id: 'arm64', chip: 'Apple silicon', detail: 'M1 or later. Most Macs from late 2020 on.', file: 'arm64' },
-  { id: 'x64', chip: 'Intel', detail: 'Intel-based Macs.', file: 'x64' },
+  { id: 'arm64', chip: 'Apple silicon', detail: 'M1 or later. Most Macs from late 2020 on.', url: DOWNLOAD_URL },
+  { id: 'x64', chip: 'Intel', detail: 'Intel-based Macs.', url: DOWNLOAD_URL_INTEL },
 ];
 ---
 <Base
   title={`Download ${PRODUCT_NAME} for macOS`}
-  description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. Your 14-day trial starts on first launch, with no account.`}
+  description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. ${SHOW_PRICING ? 'Your 14-day trial starts on first launch, with no account.' : 'No account needed.'}`}
   ogTheme="light"
 >
   <div class="wrap cm-page">
     <header class="cm-head">
       <p class="eyebrow">Download</p>
       <h1>Download {PRODUCT_NAME}</h1>
-      <p class="lede">Free for 14 days. Every feature, no account, no credit card.</p>
+      <p class="lede">{SHOW_PRICING ? 'Free for 14 days. Every feature, no account, no credit card.' : 'The beta build for macOS. Every feature, no account.'}</p>
     </header>
 
     <fieldset class="arch">
@@ -34,8 +34,7 @@ const builds = [
       <div class="arch-go">
         {builds.map((b) => (
           <p class={`arch-panel arch-${b.id}`}>
-            <a class="btn btn-primary" href={DOWNLOAD_URL}>Download for {b.chip}</a>
-            <span class="muted">On the release page, pick the <code>.dmg</code> with <code>{b.file}</code> in its name.</span>
+            <a class="btn btn-primary" href={b.url}>Download for {b.chip}</a>
           </p>
         ))}
       </div>
@@ -67,12 +66,11 @@ const builds = [
       <ol class="cm-steps">
         <li><strong>Open the downloaded <code>.dmg</code></strong> from your Downloads folder.</li>
         <li><strong>Drag {PRODUCT_NAME} into Applications.</strong> Then eject the disk image.</li>
-        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository. Your trial starts now.</li>
+        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository.{SHOW_PRICING && ' Your trial starts now.'}</li>
       </ol>
       {NOTARIZED ? (
         <div class="cm-note">
           <p><strong>Signed and notarized.</strong> {PRODUCT_NAME} is signed with our Apple Developer ID and notarized by Apple, so it opens without warnings.</p>
-          <p>Each release lists a SHA-256 checksum for every file. To check your download, run <code>shasum -a 256 ~/Downloads/{PRODUCT_NAME}-*.dmg</code> in Terminal and compare the result.</p>
         </div>
       ) : (
         <div class="cm-note">
@@ -81,7 +79,7 @@ const builds = [
       )}
     </section>
 
-    <section class="cm-section" aria-labelledby="trial-h">
+    {SHOW_PRICING && <section class="cm-section" aria-labelledby="trial-h">
       <h2 id="trial-h">What the trial includes</h2>
       <div class="cm-grid">
         <div class="cm-tile">
@@ -97,13 +95,11 @@ const builds = [
           <p>When the trial ends, you can still browse history and diffs. Changes wait until you <a href="/pricing">buy a licence</a> and <a href="/licence#enter">enter your key</a>.</p>
         </div>
       </div>
-    </section>
+    </section>}
 
     <nav class="cm-links" aria-label="Related">
-      <a href="/pricing">Pricing</a>
-      <a href="/licence">Licence help</a>
+      {SHOW_PRICING && <Fragment><a href="/pricing">Pricing</a><a href="/licence">Licence help</a></Fragment>}
       <a href="/changelog">Changelog</a>
-      <a href={DOWNLOAD_URL}>All releases</a>
     </nav>
   </div>
 </Base>

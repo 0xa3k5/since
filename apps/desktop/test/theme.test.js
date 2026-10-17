@@ -59,7 +59,7 @@ for (const [name, t] of Object.entries(THEMES)) {
   };
 
   test(`${name} theme: text tokens meet WCAG AA`, () => {
-    for (const k of ['text', 'text-2', 'text-3', 'accent-fg', 'green', 'red', 'warn']) atLeast(k, 4.5);
+    for (const k of ['text', 'text-2', 'text-3', 'accent-fg', 'green', 'merged', 'red', 'warn']) atLeast(k, 4.5);
     atLeast('text-4', 3); // hints, line numbers, placeholders
     atLeast('yellow', 3); // tag icon
   });

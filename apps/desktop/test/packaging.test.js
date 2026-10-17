@@ -27,7 +27,7 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
@@ -70,6 +70,17 @@ test('every module the main process requires is packaged', () => {
   const packaged = (file) => config.files.some((f) => f === file || (f.endsWith('/**') && file.startsWith(f.slice(0, -2))));
   assert.ok(seen.has('ipc.js') && seen.has('licence/index.js'));
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
+});
+
+test('the main process opens no connections of its own, apart from updates and licences', () => {
+  // git and gh make their own requests; GitLanes only spawns them. Only updater.js and the licence
+  // store may request anything, and they're listed in docs/security.md.
+  const files = [...config.files.filter((f) => f.endsWith('.js')), ...fs.readdirSync(path.join(root, 'licence')).filter((f) => f.endsWith('.js')).map((f) => `licence/${f}`)];
+  const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
+  for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);
+  for (const file of ['git.js', 'ai.js', 'github.js', 'ipc.js', 'journal.js']) {
+    assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), /\bfetch\(|XMLHttpRequest|WebSocket/, file);
+  }
 });
 
 test('Electron fuses close the run-as-node and asar tampering paths', () => {
