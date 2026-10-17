@@ -1126,13 +1126,9 @@ function selectCommit(sha, align = 'nearest') {
 function createMapView(container) {
   const wrap = h('div.map-wrap');
   const listWrap = h('div.map-list-wrap');
-  // Double-click checks out a row. The list handles it: the row itself is redrawn mid-click.
+  // Double-click checks out a row, read off the second press (see rowDoubleClick).
   const dbl = rowDoubleClick();
-  const scroller = h('div.map-list', {
-    tabIndex: 0,
-    onmousedown: (e) => dbl.listDown(e),
-    ondblclick: (e) => { const c = dbl.dblclick(e); if (c) checkoutSelected(c, [e.clientX, e.clientY]); },
-  });
+  const scroller = h('div.map-list', { tabIndex: 0, onmousedown: (e) => dbl.listDown(e) });
   const canvas = h('canvas.graph-canvas');
   const detail = h('div.detail');
   listWrap.append(scroller, canvas);
@@ -1155,8 +1151,9 @@ function createMapView(container) {
     const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
       onmousedown: (e) => {
         if (e.button !== 0) return;
-        dbl.rowDown(e, c);
+        const hit = dbl.rowDown(e, c);
         if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha);
+        if (hit) checkoutSelected(hit, [e.clientX, e.clientY]);
       },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
     },
@@ -1245,8 +1242,9 @@ function createMapView(container) {
     if (!results) {
       const i = state.index.get(sha);
       const pi = state.index.get(prev);
-      if (pi != null) vl.refreshRow(pi);
-      if (i != null) { vl.refreshRow(i); vl.scrollToIndex(i, align); }
+      // Toggle the class, don't rebuild the rows: a rebuilt row under the pointer eats the double-click.
+      if (pi != null) vl.rows.get(pi)?.classList.remove('selected');
+      if (i != null) { vl.rows.get(i)?.classList.add('selected'); vl.scrollToIndex(i, align); }
       vl.schedule();
     }
     renderSidebarSelection();
