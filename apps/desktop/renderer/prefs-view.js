@@ -1,4 +1,4 @@
-import { h, icon, kbd, contextMenu } from './ui.js';
+import { h, icon, contextMenu } from './ui.js';
 import * as keymap from './keymap.js';
 import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
 
@@ -19,7 +19,8 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
   const nav = h('nav.prefs-nav', { 'aria-label': 'Sections' });
   const list = h('div.prefs-list', { id: 'prefs-list', role: 'list' });
   const box = h('div.palette.prefs', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'prefs-title' },
-    h('div.shortcuts-title', null, h('h2', { id: 'prefs-title' }, 'Preferences'), kbd(...keymap.keys('app.settings'))),
+    h('div.shortcuts-title', null, h('h2', { id: 'prefs-title' }, 'Preferences'),
+      h('button.icon-btn.tiny', { type: 'button', tabindex: -1, title: `Close (Esc, ${keymap.keys('app.settings').join('')})`, 'aria-label': 'Close', onclick: () => close() }, icon('x', 12))),
     h('div.palette-head', null, icon('search'), input),
     h('div.prefs-body', null, nav, list));
   const overlay = h('div.overlay.prefs-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
@@ -56,7 +57,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
             { label: 'Delete', icon: 'trash', danger: true, disabled: c.scope !== 'local', run: () => run(r, 'unset') },
           ]);
         },
-      }, h('span.badge.' + c.scope, null, c.scope[0].toUpperCase() + c.scope.slice(1)), h('span.mono.prefs-key', null, c.key), h('span.config-val', null, c.value));
+      }, h('span.mono.prefs-key', null, c.key), h('span.config-val', null, c.value));
     }
     const label = r.kind === 'switch' ? `${r.label}: ${r.value ? 'on' : 'off'}` : r.label;
     return h('div.prefs-row', {
@@ -69,16 +70,21 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     const keep = items[idx]?.dataset.key;
     const sections = prefSections(getRows(), input.value);
     items = [];
+    // Each section is one group of rows. Git config rows are grouped by scope under a small heading instead of a
+    // badge on every row.
+    const scopeNote = { local: 'click to edit', global: 'read-only here', system: 'read-only here' };
     list.replaceChildren(...sections.map((sec) => h('section.prefs-section', { 'data-section': sec.id },
-      h('h3.palette-group', null, sec.label),
-      sec.rows.map((r) => {
+      h('h3.prefs-heading', null, sec.label),
+      h('div.prefs-group', null, sec.rows.flatMap((r, i) => {
         const el = rowEl(r);
         el.dataset.key = r.id;
         el._row = r;
         el.addEventListener('mousemove', () => { if (idx !== items.indexOf(el)) { idx = items.indexOf(el); mark(false); } });
         items.push(el);
-        return el;
-      }))));
+        const scope = r.kind === 'config' && r.value.scope;
+        if (!scope || sec.rows[i - 1]?.value?.scope === scope) return [el];
+        return [h('div.prefs-subhead', { 'aria-hidden': 'true' }, scope[0].toUpperCase() + scope.slice(1), h('span', null, ` · ${scopeNote[scope] || 'read-only here'}`)), el];
+      })))));
     if (!sections.length) list.append(h('div.palette-empty', null, 'No preferences match'));
     const shown = new Set(sections.map((s) => s.id));
     nav.replaceChildren(...PREF_SECTIONS.map((s) => h('button.prefs-nav-item', {

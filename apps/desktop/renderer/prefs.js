@@ -37,7 +37,7 @@ export function prefRows(s) {
     { section: 'git', id: 'autostashAsk', kind: 'switch', value: s.autostash?.ask !== false, label: 'Ask before auto-stashing on checkout', detail: 'Off: GitLanes stashes your changes, switches, and offers them back when you return.', keywords: 'autostash auto stash checkout switch' },
     { section: 'git', id: 'autostashUntracked', kind: 'switch', value: Boolean(s.autostash?.untracked), label: 'Include untracked files in auto-stashes', keywords: 'autostash auto stash untracked new files' },
     { section: 'git', id: 'identity', kind: 'action', value: 'Set…', label: 'Commit identity', detail: 'Name and email for this repository, and rules per remote.', keywords: 'user name email author', repo: true },
-    { section: 'git', id: 'ai', kind: 'action', value: s.ai || 'Off', label: 'AI commit messages', detail: 'Pick a provider you trust.', keywords: 'ai llm claude codex ollama provider' },
+    { section: 'git', id: 'ai', kind: 'action', value: 'Choose…', label: 'AI commit messages', detail: s.ai && s.ai !== 'Off' ? `On, using ${s.ai}.` : 'Off. Pick a provider you trust.', keywords: 'ai llm claude codex ollama provider' },
 
     { section: 'appearance', id: 'theme', kind: 'choice', value: s.theme || 'system', options: s.themes || [], label: 'Theme', detail: 'Follow the system, or pick one.', keywords: 'appearance light dark mode' },
     { section: 'appearance', id: 'tags', kind: 'switch', value: show.tags !== false, label: 'Show tags on the graph', keywords: 'tags release map' },
@@ -61,7 +61,7 @@ export function prefRows(s) {
     { section: 'keyboard', id: 'shortcuts', kind: 'action', value: 'Customise…', label: 'Keyboard shortcuts', detail: 'Search every shortcut and change any of them.', keywords: 'keys keymap bindings hotkeys' },
     { section: 'keyboard', id: 'importShortcuts', kind: 'action', value: 'Import…', label: 'Import shortcuts', keywords: 'keys keymap bindings' },
     { section: 'keyboard', id: 'exportShortcuts', kind: 'action', value: 'Export…', label: 'Export shortcuts', keywords: 'keys keymap bindings' },
-    { section: 'keyboard', id: 'resetShortcuts', kind: 'action', value: 'Reset All', label: 'Reset shortcuts to the defaults', keywords: 'keys keymap bindings' },
+    { section: 'keyboard', id: 'resetShortcuts', kind: 'action', value: 'Reset…', label: 'Reset shortcuts to the defaults', keywords: 'keys keymap bindings' },
   ];
   if (s.repo) {
     rows.push({ section: 'repository', id: 'addRemote', kind: 'action', value: 'Add remote…', label: 'Remotes', detail: s.remotes?.length ? null : 'This repository has no remotes.', keywords: 'remote origin upstream fork url add' });
