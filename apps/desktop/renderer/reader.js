@@ -293,8 +293,7 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null,
     if (t.group !== group) { bar.append(h('span.sep', { 'aria-hidden': 'true' })); group = t.group; }
     const on = t.id === open;
     const n = t.tally
-      ? h('span.review-tab-n', null, t.tally.failed ? h('span.fail', null, `${t.tally.failed} failed`) : null, t.tally.failed && (t.tally.passed || t.tally.running) ? ' · ' : null,
-        t.tally.passed ? `${t.tally.passed} passed` : null, t.tally.passed && t.tally.running ? ' · ' : null, t.tally.running ? `${t.tally.running} running` : null)
+      ? tallyCounts(t.tally)
       : t.count ? h('span.review-tab-n', null, String(t.count)) : null;
     bar.append(h('button.review-tab.ev-tab' + (t.kind ? `.${t.kind}` : ''), {
       role: 'tab', 'aria-selected': String(on), 'data-tab': t.id, 'data-tip': tipFor(on ? `Hide ${t.label.toLowerCase()}` : `Show ${t.label.toLowerCase()}`, 'review.evidence'),
@@ -400,20 +399,32 @@ function evidenceBody(id, ev, key, { openUrl, loadImage, goTo }, redraw) {
     const note = h('div.ev-note', null, `${t.open} open of ${t.total} review thread${t.total === 1 ? '' : 's'}`, t.outdated ? h('span.muted', null, `${t.outdated} on lines that changed since`) : null);
     return [note, ...(t.items || []).map((x, i) => {
       const where = `${x.path}${x.line ? `:${x.line}` : ''}`;
+      const cut = (x.path || '').lastIndexOf('/');
       const go = x.path && x.line && goTo?.has(x.path) ? () => goTo.go(x.path, x.line) : null;
       const open = x.url && openUrl ? () => openUrl(x.url) : null;
       return evRow({
         k: `${key}\nthread\n${i}\n${where}`, where, cls: '.ev-thread' + (x.outdated ? '.outdated' : ''),
         label: `${where}${x.author ? `, ${x.author}` : ''}: ${x.text}${x.outdated ? ' (outdated)' : ''}`,
         onOpen: go || open,
-        main: [h('span.ev-icon.wait', null, icon('comment', 12)), h('span.where', null, where), h('span.msg', null, x.author ? h('span.who', null, x.author) : null, x.author ? ' · ' : null, x.text ? `“${x.text}”` : null)],
-        title: x.outdated ? 'On a line that changed since' : null,
+        main: [h('span.ev-icon.wait', null, icon('comment', 12)), h('span.where', null, cut >= 0 ? h('span.dir', null, '…/') : null, where.slice(cut + 1)), h('span.msg', null, x.author ? h('span.who', null, x.author) : null, x.author ? ' · ' : null, x.text ? plain(x.text) : null)],
+        title: x.outdated ? `${where}, on a line that changed since` : where,
         goto: go, github: open ? { tip: 'Open the thread on GitHub', run: open } : null,
       });
     })];
   }
   return [];
 }
+
+// A check tally as coloured counts, failed / passed / running: "1 / 6" reads red then green.
+function tallyCounts({ failed, passed, running }) {
+  const parts = [[failed, 'fail', 'failed'], [passed, 'pass', 'passed'], [running, 'run', 'running']].filter(([n]) => n);
+  const spoken = parts.map(([n, , w]) => `${n} ${w}`).join(', ');
+  return h('span.review-tab-n.ev-tally', { 'aria-label': spoken, title: spoken },
+    ...parts.flatMap(([n, cls], i) => [i ? h('span.sep-slash', { 'aria-hidden': 'true' }, ' / ') : null, h(`span.${cls}`, { 'aria-hidden': 'true' }, String(n))]));
+}
+
+// A thread's first line without its Markdown marks (a heading's #s, emphasis, code ticks).
+const plain = (s) => s.replace(/^\s*(#{1,6}\s+|>\s*|[-*+]\s+)/, '').replace(/(\*\*|__|`)/g, '').trim();
 
 // ── Media gallery (AK-521) ──
 

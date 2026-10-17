@@ -1586,6 +1586,9 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .ev-tab .icon { color: var(--text-3); }
 .ev-tab.fail .icon, .ev-tab .fail { color: var(--red); }
 .ev-tab.pass .icon { color: var(--green); }
+.ev-tally .pass { color: var(--green); }
+.ev-tally .run { color: var(--warn); }
+.ev-tally .sep-slash { color: var(--text-4); }
 .ev-tab.absent .icon { color: var(--warn); }
 .ev-bar > .sep { flex: none; width: 1px; height: 14px; margin: 0 6px; background: var(--border); }
 .ev-body { padding: 4px 0; }
@@ -1636,6 +1639,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .ev-item .where { font: 11.5px var(--mono); color: var(--accent-fg); white-space: nowrap; }
 .ev-item .msg { min-width: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev-item .who { color: var(--text); }
+.ev-item .where .dir { color: var(--text-4); }
 .ev-chev { display: inline-flex; color: var(--text-4); }
 .ev-line .ev-link { opacity: 0; }
 .ev-line:hover .ev-link, .ev-line:focus-within .ev-link, .ev-line .ev-link:focus-visible { opacity: 1; }
