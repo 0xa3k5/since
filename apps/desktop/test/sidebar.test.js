@@ -62,3 +62,17 @@ test('toggle label matches the state', async () => {
   assert.equal(sidebarToggleLabel({ width: 900, expanded: false, pinned: true, hover: true }), 'Hide sidebar');
   assert.equal(sidebarToggleLabel({ width: 1400, expanded: false, hover: true }), 'Expand sidebar');
 });
+
+test('the refs tree: one page per section, Pull requests open Review, History & recovery has two tabs', async () => {
+  const { SECTION_PAGES, sectionOf, pageLabel } = await load();
+  assert.deepEqual(SECTION_PAGES.map((p) => p.label), ['Branches', 'Remotes', 'Tags', 'Worktrees', 'Pull requests', 'Stashes', 'Submodules']);
+  assert.equal(new Set(SECTION_PAGES.map((p) => p.view)).size, SECTION_PAGES.length, 'no two sections share a page');
+  assert.equal(sectionOf('lanes'), 'prs');
+  assert.equal(sectionOf('tagList'), 'tags');
+  assert.equal(sectionOf('map'), null);
+  const views = [{ id: 'lanes', label: 'Review' }];
+  assert.equal(pageLabel('lanes', views), 'Review', 'an activity keeps its own name');
+  assert.equal(pageLabel('remoteList', views), 'Remotes');
+  assert.equal(pageLabel('snapshots', views), 'History & recovery');
+  assert.equal(pageLabel('reflog', views), 'History & recovery');
+});
