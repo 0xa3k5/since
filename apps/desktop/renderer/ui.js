@@ -140,12 +140,19 @@ export const loading = (label = 'Loading…') => h('div.loading-state', { role: 
 export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd', null, k)));
 
 // --- Toasts --------------------------------------------------------------------
+// `action` is one inline text link (Undo). `actions` is a choice: a row of buttons under the text
+// (the first, or any with `primary`, is the primary one) plus a dismiss button; the title stays on one line.
 export function toast(message, { kind = 'info', action, actions = [], timeout = 4200, detail } = {}) {
   let root = $('#toasts');
-  const el = h('div.toast.' + kind, null,
+  const run = (a) => () => { a.run(); close(); };
+  const choice = actions.length > 0;
+  const primary = actions.find((a) => a.primary) || actions[0];
+  const el = h('div.toast.' + kind + (choice ? '.choice' : ''), null,
     kind === 'error' ? icon('warning') : kind === 'success' ? icon('check') : kind === 'busy' ? h('span.spinner') : null,
-    h('div.toast-body', null, h('div.toast-title', null, message), detail ? h('div.toast-detail', null, detail) : null),
-    [...(action ? [action] : []), ...actions].map((a) => h('button.toast-action', { onclick: () => { a.run(); close(); } }, a.label)),
+    h('div.toast-body', null, h('div.toast-title', null, message), detail ? h('div.toast-detail', null, detail) : null,
+      choice ? h('div.toast-actions', null, actions.map((a) => h('button.btn.small.' + (a === primary ? 'primary' : 'subtle'), { onclick: run(a) }, a.label))) : null),
+    action ? h('button.toast-action', { onclick: run(action) }, action.label) : null,
+    choice ? h('button.icon-btn.tiny.toast-close', { 'aria-label': 'Dismiss', title: 'Dismiss', onclick: () => close() }, icon('x', 12)) : null,
   );
   root.append(el);
   requestAnimationFrame(() => el.classList.add('in'));

@@ -186,6 +186,7 @@ export const COMMANDS = [
   // Stashes and Snapshots lists.
   c('stashes', null, 'stashes.next', 'Next stash', 'ArrowDown'),
   c('stashes', null, 'stashes.prev', 'Previous stash', 'ArrowUp'),
+  c('stashes', null, 'stashes.apply', 'Apply the stash', 'Enter'),
   c('snapshots', null, 'snapshots.next', 'Next snapshot', 'ArrowDown'),
   c('snapshots', null, 'snapshots.prev', 'Previous snapshot', 'ArrowUp'),
   c('snapshots', null, 'snapshots.restore', 'Restore the snapshot', 'Enter'),
