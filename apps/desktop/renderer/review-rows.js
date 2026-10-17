@@ -231,7 +231,6 @@ export const STEPS = {
   review: { label: 'Review', keyId: 'lanes.review', icon: 'diff' },
   merge: { label: 'Merge', keyId: 'lanes.merge', icon: 'merge' },
   rebase: { label: 'Rebase', keyId: 'lanes.rebase', icon: 'rebase' },
-  checks: { label: 'Open checks', keyId: 'lanes.checks', icon: 'external' },
   open: { label: 'Open', keyId: 'lanes.open', icon: 'worktree' },
   sendBack: { label: 'Fix prompt…', keyId: 'lanes.sendBack', icon: 'sparkle' },
 };
@@ -264,8 +263,9 @@ export function rowAgent({ lane, pr } = {}) {
   return pr?.bot ? `Opened by a bot (${pr.authorName || pr.author})` : null;
 }
 
-// What to call a reviewer or author: the name, else the login without a bot's "[bot]".
-const who = (p) => p.name || String(p.login || '').replace(/^app\//, '').replace(/\[bot\]$/, '');
+// What to call a reviewer or author: the name (github.js fills it with a bot's login without its
+// "app/" and "[bot]", AK-312), else the login.
+const who = (p) => p.name || p.login || '';
 
 // The name to show for an agent guess (AK-390; git.agentGuess, or { reason: 'bot author', match }):
 // a trailer's value without its <email> and any (note) ("Co-Authored-By: Claude Opus 5.5 (1M context)

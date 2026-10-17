@@ -95,20 +95,20 @@ function reviewVerdicts(list) {
   for (const r of list) {
     const login = text(r?.author?.login, 200);
     const state = VERDICTS[r?.state];
-    if (login && state && !out.has(login)) out.set(login, { login, name: text(r.author.name, 200), state, submittedAt: text(r.submittedAt, 64) });
+    if (login && state && !out.has(login)) out.set(login, { login, name: text(r.author.name, 200) || botLogin(login), state, submittedAt: text(r.submittedAt, 64) });
   }
   return [...out.values()].slice(0, 50);
 }
 
 // `reviewRequests` → requested reviewers who haven't reviewed since: [{ login, name, team }]. A team
-// has its slug as `login` and its name as `name`.
+// has its slug as `login` and its name as `name`; a person or bot without a name gets the cleaned login.
 function reviewRequests(list) {
   if (!Array.isArray(list)) return [];
   const out = [];
   for (const r of list) {
     const team = r?.__typename === 'Team' || (!r?.login && !!r?.slug);
     const login = text(team ? r?.slug || r?.name : r?.login, 200);
-    if (login && !out.some((x) => x.login === login && x.team === team)) out.push({ login, name: text(r.name, 200), team });
+    if (login && !out.some((x) => x.login === login && x.team === team)) out.push({ login, name: text(r.name, 200) || (team ? null : botLogin(login)), team });
   }
   return out.slice(0, 50);
 }

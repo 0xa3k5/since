@@ -32,6 +32,13 @@ test('conflictHunks cuts marked text into base and head sides with context', () 
   assert.deepEqual(git.conflictHunks(''), []);
 });
 
+test('conflictHunks shows shared context once and only splits on an exact ======= (AK-308)', () => {
+  const two = git.conflictHunks('x\n<<<<<<< a\n1\n=======\n2\n>>>>>>> b\ny\n<<<<<<< a\n3\n=======\n4\n>>>>>>> b\nz\n');
+  assert.deepEqual(two.map((h) => [h.before, h.after]), [[['x'], ['y']], [[], ['z']]]);
+  const md = git.conflictHunks('<<<<<<< a\nTitle\n========\n=======\nOther\n>>>>>>> b\n');
+  assert.deepEqual(md.map((h) => [h.base, h.head]), [[['Title', '========'], ['Other']]]);
+});
+
 test('mergeConflictHunks lists conflicting files with both sides, and nothing for a clean merge', async () => {
   const dir = await repo();
   await commit(dir, { 'a.txt': lines(20), 'b.txt': 'b\n', 'gone.txt': 'g\n' }, 'base');

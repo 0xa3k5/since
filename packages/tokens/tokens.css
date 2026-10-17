@@ -28,7 +28,7 @@
   --accent-fg: #c2410c;
   --accent-soft: rgba(232, 89, 12, 0.12);
   --accent-solid: #cf4a0b;
-  --accent-solid-hover: #db560f;
+  --accent-solid-hover: #b8420a;
   --on-accent: #ffffff;
   --focus-ring: #e8590c;
   --green: #1d7f53;
@@ -84,7 +84,7 @@
     --accent-fg: #ff9c61;
     --accent-soft: rgba(255, 103, 0, 0.15);
     --accent-solid: #d04600;
-    --accent-solid-hover: #dc5000;
+    --accent-solid-hover: #b84000;
     --on-accent: #ffffff;
     --focus-ring: #ff9c61;
     --green: #4cc38a;
@@ -139,7 +139,7 @@
   --accent-fg: #ff9c61;
   --accent-soft: rgba(255, 103, 0, 0.15);
   --accent-solid: #d04600;
-  --accent-solid-hover: #dc5000;
+  --accent-solid-hover: #b84000;
   --on-accent: #ffffff;
   --focus-ring: #ff9c61;
   --green: #4cc38a;
