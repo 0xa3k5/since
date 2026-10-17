@@ -1,77 +1,75 @@
 ---
-// Built from src/content/changelog/*.md: one file per merged change, grouped by version, newest first.
-// No dates are shown (no-dates rule); `merged` only orders entries within a group.
+// Built from src/content/changelog/*.md: one file per beta build, newest first. Each reads as release
+// notes: a headline, the story, an optional capture, three highlights, then every change.
+// No dates are shown (no-dates rule); `order` sorts the builds.
 import { getCollection, render } from 'astro:content';
-import { PRODUCT_NAME, SHOW_PRICING } from '../config';
+import { PRODUCT_NAME, SHOW_PRICING, DOWNLOAD_URL } from '../config';
+import AppShot from '../components/landing/AppShot.astro';
+import AppleGlyph from '../components/AppleGlyph.astro';
 import BetaCopy from '../components/BetaCopy.astro';
 import Base from '../layouts/Base.astro';
 import '../components/content/content.css';
 import '../components/landing/landing.css';
 
-/** Versions that have shipped. Until a version is listed here it shows as "In development". */
-const RELEASED: string[] = [];
-const KINDS = ['Added', 'Improved', 'Fixed', 'Behind the scenes'] as const;
-
-const cmp = (a: string, b: string) => {
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pb[i] ?? 0) - (pa[i] ?? 0);
-  return 0;
-};
-const entries = await getCollection('changelog');
-const versions = await Promise.all(
-  [...new Set(entries.map((e) => e.data.version))].sort(cmp).map(async (version) => ({
-    version,
-    released: RELEASED.includes(version),
-    kinds: await Promise.all(KINDS.map(async (kind) => ({
-      kind,
-      items: await Promise.all(entries
-        .filter((e) => e.data.version === version && e.data.kind === kind)
-        .sort((a, b) => b.data.merged.getTime() - a.data.merged.getTime() || a.id.localeCompare(b.id))
-        .map(async (e) => ({ id: e.id, ...e.data, Content: (await render(e)).Content }))),
-    }))).then((k) => k.filter((x) => x.items.length)),
-  })),
+const KINDS = ['Added', 'Improved', 'Fixed'] as const;
+const builds = await Promise.all(
+  (await getCollection('changelog'))
+    .sort((a, b) => b.data.order - a.data.order)
+    .map(async (e) => ({
+      id: e.id,
+      ...e.data,
+      changes: [...e.data.changes].sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind)),
+      Content: (await render(e)).Content,
+    })),
 );
-const anchor = (v: string) => v.replaceAll('.', '-');
-const count = (v: (typeof versions)[number]) => v.kinds.reduce((n, k) => n + k.items.length, 0);
+const latest = builds.find((b) => b.released);
 ---
 <Base
   title={`Changelog · ${PRODUCT_NAME}`}
-  description={`What's new in every ${PRODUCT_NAME} release.${SHOW_PRICING ? ' All updates are free for every licence holder.' : ''}`}
+  description={`What's new in every ${PRODUCT_NAME} beta.${SHOW_PRICING ? ' All updates are free for every licence holder.' : ''}`}
   ogTheme="dark"
 >
   <div class="lp cl">
     <section class="hero wrap" aria-labelledby="cl-h">
       <p class="kicker">Changelog</p>
-      <h1 id="cl-h">What’s new. <span class="soft">Every change, newest first.</span></h1>
-      <p class="lede">Every change to {PRODUCT_NAME}, newest first.{SHOW_PRICING && ' Updates are free for every licence holder, for life.'}</p>
-      {versions.length > 1 && (
-        <nav class="jump" aria-label="Releases">
-          {versions.map((v) => <a href={`#${anchor(v.version)}`}>{v.version}</a>)}
+      <h1 id="cl-h">What’s new. <span class="soft">Every beta, newest first.</span></h1>
+      <p class="lede">{PRODUCT_NAME} ships small and often. Here’s what changed in each beta, so you know what’s different from the build you’re running.{SHOW_PRICING && ' Updates are free for every licence holder, for life.'}</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download the latest beta</a>
+      </div>
+      {builds.length > 1 && (
+        <nav class="jump" aria-label="Builds">
+          {builds.map((b) => <a href={`#${b.id}`}>{b.title}</a>)}
         </nav>
       )}
     </section>
 
-    {versions.map((v) => (
-      <section class="s wrap rule cl-version" id={anchor(v.version)} aria-labelledby={`v-${anchor(v.version)}`}>
+    {builds.map((b, i) => (
+      <section class="s wrap rule cl-build" id={b.id} aria-labelledby={`h-${b.id}`}>
         <header class="cl-meta">
-          <h2 id={`v-${anchor(v.version)}`}><a href={`#${anchor(v.version)}`}>{v.version}</a></h2>
-          <span class={`cl-badge${v.released ? '' : ' dev'}`}>{v.released ? 'Released' : 'In development'}</span>
-          <ul class="cl-tally" aria-label={`${count(v)} changes`}>
-            {v.kinds.map((k) => <li><a href={`#${anchor(v.version)}-${k.kind.toLowerCase().replaceAll(' ', '-')}`}><span>{k.kind}</span><span class="n">{k.items.length}</span></a></li>)}
+          <h2><a href={`#${b.id}`}>{b.title}</a></h2>
+          {b.version && <p class="cl-ver">{b.version}</p>}
+          <span class={`cl-badge${b.released ? '' : ' dev'}`}>{b.released ? (b === latest ? 'Latest' : 'Released') : 'In development'}</span>
+          <ul class="cl-tally" aria-label={`${b.changes.length} changes`}>
+            {KINDS.map((k) => {
+              const n = b.changes.filter((c) => c.kind === k).length;
+              return n > 0 && <li><span><span class={`dot ${k.toLowerCase()}`} aria-hidden="true"></span>{k}</span><span class="n">{n}</span></li>;
+            })}
           </ul>
         </header>
-        <div class="cl-groups">
-          {v.kinds.map((k) => (
-            <div class="cl-kind" id={`${anchor(v.version)}-${k.kind.toLowerCase().replaceAll(' ', '-')}`}>
-              <h3><span class={`dot${k.kind === 'Added' ? ' on' : ''}`} aria-hidden="true"></span>{k.kind}</h3>
-              {k.items.map((e) => (
-                <article class="cl-entry" id={e.id}>
-                  <h4><a href={`#${e.id}`}>{e.title}</a></h4>
-                  <div class="prose">{SHOW_PRICING ? <e.Content /> : <BetaCopy><e.Content /></BetaCopy>}</div>
-                </article>
-              ))}
-            </div>
-          ))}
+        <div class="cl-story">
+          <h3 id={`h-${b.id}`}>{b.headline}{b.soft && <> <span class="soft">{b.soft}</span></>}</h3>
+          <div class="prose">{SHOW_PRICING ? <b.Content /> : <BetaCopy><b.Content /></BetaCopy>}</div>
+          {b.shot && <AppShot src={b.shot} alt={b.shotAlt ?? `${PRODUCT_NAME} ${b.title}`} class="cl-shot" />}
+          <ul class="cl-hl">
+            {b.highlights.map((h) => <li><b>{h.title}</b><span>{h.text}</span></li>)}
+          </ul>
+          <details class="cl-all" open={i === 0}>
+            <summary>All {b.changes.length} changes</summary>
+            <ul class="cl-items">
+              {b.changes.map((c) => <li><span class="cl-kind"><span class={`dot ${c.kind.toLowerCase()}`} aria-hidden="true"></span>{c.kind}</span><span>{c.text}</span></li>)}
+            </ul>
+          </details>
         </div>
       </section>
     ))}
@@ -79,46 +77,65 @@ const count = (v: (typeof versions)[number]) => v.kinds.reduce((n, k) => n + k.i
 </Base>
 
 <style>
-  /* Changelog: the landing page's rhythm (landing.css). One ruled section per release: version and
-     status stay put on the left while its grouped entries scroll on the right. */
+  /* Changelog: the landing page's rhythm (landing.css). One ruled section per beta: name and status
+     stay put on the left; the right reads like release notes, with the full list folded below. */
   .cl .hero { padding-bottom: 110px; }
   .kicker { margin: 0 auto 18px; font-size: 15px; color: var(--text-3); }
   .jump { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 34px; }
   .jump a { font: 500 13px var(--mono); color: var(--text-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; text-decoration: none; transition: color .15s, border-color .15s; }
   .jump a:hover { color: var(--text); border-color: var(--line-strong); }
 
-  .cl-version { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 72px; align-items: start; scroll-margin-top: 64px; }
+  .cl-build { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 9fr); gap: 72px; align-items: start; scroll-margin-top: 64px; }
   .cl-meta { position: sticky; top: 96px; }
-  .cl .cl-meta h2 { font: 500 clamp(40px, 4.6vw, 56px)/1 var(--mono); letter-spacing: -0.04em; }
+  .cl .cl-meta h2 { font: 500 clamp(32px, 3.6vw, 44px)/1 var(--mono); letter-spacing: -0.04em; }
   .cl-meta h2 a { text-decoration: none; }
-  .cl-badge { display: inline-flex; margin-top: 18px; padding: 3px 10px; border-radius: 999px; font-size: 13px; color: var(--text-3); border: 1px solid var(--line-strong); }
+  .cl-ver { margin: 10px 0 0; font: 13px var(--mono); color: var(--text-4); }
+  .cl-badge { display: inline-flex; margin-top: 16px; padding: 3px 10px; border-radius: 999px; font-size: 13px; color: var(--text-3); border: 1px solid var(--line-strong); }
   .cl-badge.dev { color: var(--accent-fg); background: var(--accent-soft); border-color: transparent; }
-  .cl-tally { list-style: none; margin: 32px 0 0; padding: 0; border-top: 1px solid var(--line); font-size: 14px; }
-  .cl-tally a { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--text-3); text-decoration: none; transition: color .15s; }
-  .cl-tally a:hover { color: var(--text); }
+  .cl-tally { list-style: none; margin: 28px 0 0; padding: 0; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-3); }
+  .cl-tally li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .cl-tally .n { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-4); }
 
-  .cl-kind { scroll-margin-top: 96px; }
-  .cl-kind + .cl-kind { margin-top: 64px; }
-  .cl .cl-kind h3 { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--line); font-size: 15px; color: var(--text-3); }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); }
-  .dot.on { background: var(--accent); }
-  .cl-entry { padding: 26px 0 28px; border-bottom: 1px solid var(--line); scroll-margin-top: 96px; }
-  .cl-entry h4 { margin: 0; font: 500 20px/1.3 var(--display); letter-spacing: -0.01em; color: var(--text); }
-  .cl-entry h4 a { text-decoration: none; }
-  .cl-entry h4 a:hover { color: var(--accent-fg); }
-  .cl-entry .prose { max-width: 62ch; font-size: 16px; color: var(--text-3); }
-  .cl-entry .prose :global(p) { max-width: none; color: inherit; }
-  .cl-entry .prose > :global(:first-child) { margin-top: 10px; }
-  .cl-entry .prose > :global(:last-child) { margin-bottom: 0; }
+  .dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--text-4); vertical-align: 1px; }
+  .dot.added { background: var(--green); }
+  .dot.improved { background: var(--accent); }
+  .dot.fixed { background: var(--red); }
+
+  .cl .cl-story h3 { margin: 0; font: 500 clamp(26px, 2.6vw, 32px)/1.15 var(--display); letter-spacing: -0.03em; color: var(--text); }
+  .cl-story h3 .soft { color: var(--text-4); }
+  .cl-story .prose { max-width: 40rem; font-size: 17px; color: var(--text-2); }
+  .cl-story .prose :global(p) { max-width: none; color: inherit; }
+  .cl-story .prose > :global(:first-child) { margin-top: 14px; }
+  .cl-story .prose > :global(:last-child) { margin-bottom: 0; }
+  .cl-story :global(.cl-shot) { margin: 32px 0 0; }
+
+  .cl-hl { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 32px 0 0; padding: 0; border-top: 1px solid var(--line); }
+  .cl-hl li { padding: 18px 20px 0 0; }
+  .cl-hl li + li { padding-left: 20px; border-left: 1px solid var(--line); }
+  .cl-hl b { display: block; font: 500 16px/1.3 var(--display); color: var(--text); }
+  .cl-hl span { display: block; margin-top: 6px; font-size: 14px; color: var(--text-3); }
+
+  .cl-all { margin-top: 40px; border-top: 1px solid var(--line); }
+  .cl-all summary { display: flex; justify-content: space-between; padding: 16px 0; color: var(--text-2); cursor: pointer; list-style: none; border-radius: 4px; }
+  .cl-all summary::-webkit-details-marker { display: none; }
+  .cl-all summary::after { content: "+"; font-family: var(--mono); color: var(--text-4); }
+  .cl-all[open] summary::after { content: "–"; }
+  .cl-all summary:hover { color: var(--text); }
+  .cl-all summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cl-items { list-style: none; margin: 0; padding: 0; }
+  .cl-items li { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); font-size: 15px; color: var(--text-2); }
+  .cl-items .cl-kind { font-size: 13px; color: var(--text-3); white-space: nowrap; }
 
   @media (max-width: 860px) {
-    .cl-version { grid-template-columns: 1fr; gap: 40px; }
+    .cl-build { grid-template-columns: 1fr; gap: 32px; }
     .cl-meta { position: static; }
+    .cl-hl { grid-template-columns: 1fr; }
+    .cl-hl li + li { padding-left: 0; border-left: 0; }
   }
   @media (max-width: 720px) {
     .kicker { margin-left: 0; margin-right: 0; }
     .jump { justify-content: flex-start; }
+    .cl .cta-row { justify-content: flex-start; }
   }
-  @media (prefers-reduced-motion: reduce) { .jump a, .cl-tally a { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .jump a { transition: none; } }
 </style>
