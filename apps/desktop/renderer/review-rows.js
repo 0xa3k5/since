@@ -379,7 +379,8 @@ export function nextSelection(before, staged, acted) {
 // The row line's at-a-glance trouble (AK-411): failing checks as ✕ and a count, a conflict with the
 // base as a marker; { checks: { text, title } | null, conflict: { title } | null }. The count is
 // passed/total when GitHub's counts reach the renderer (pr.checkCounts), else how many are failing.
-export function rowSignals(row) {
+// conflictShown: the row's text already says it conflicts (a stuck row's note), so no marker too.
+export function rowSignals(row, { conflictShown = false } = {}) {
   const { pr } = row;
   let checks = null;
   if (pr?.checks === 'failure') {
@@ -391,7 +392,7 @@ export function rowSignals(row) {
       ? { text: `${c.passed}/${c.total}`, title: `${c.passed} of ${c.total} checks passed${names}` }
       : { text: failing.length ? String(failing.length) : '', title: `${failing.length || 'Some'} ${failing.length === 1 ? 'check is' : 'checks are'} failing${names}` };
   }
-  return { checks, conflict: conflicted(row) ? { title: `Conflicts with ${pr?.base || 'its base'}` } : null };
+  return { checks, conflict: !conflictShown && conflicted(row) ? { title: `Conflicts with ${pr?.base || 'its base'}` } : null };
 }
 
 // Why a row is stuck, in plain words built from facts, or null when it isn't:
