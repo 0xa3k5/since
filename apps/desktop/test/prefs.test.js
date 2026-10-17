@@ -66,11 +66,23 @@ test('AK-461: with two GitHub remotes, the PR remote is a choice of Automatic or
   const prs = { enabled: true, hidden: false, remote: choices[1], choices, chosen: 'fork' };
   const row = prefRows({ ...base, repo: true, prs }).find((r) => r.id === 'prRemote');
   assert.equal(row.kind, 'choice');
-  assert.equal(row.value, 'fork');
-  assert.deepEqual(row.options.map((o) => o.id), [PR_REMOTE_AUTO, 'origin', 'fork']);
+  assert.equal(row.value, 'remote:fork');
+  assert.deepEqual(row.options.map((o) => o.id), [PR_REMOTE_AUTO, 'remote:origin', 'remote:fork']);
   assert.match(row.detail, /k\/r/);
   const auto = prefRows({ ...base, repo: true, prs: { ...prs, remote: choices[0], chosen: null } }).find((r) => r.id === 'prRemote');
   assert.equal(auto.value, PR_REMOTE_AUTO);
+});
+
+test('AK-484: a remote named auto is its own option, not Automatic', async () => {
+  const { prefRows, prRemoteChoice, PR_REMOTE_AUTO } = await load();
+  const choices = [{ name: 'origin', owner: 'o', repo: 'r' }, { name: 'auto', owner: 'k', repo: 'r' }];
+  const prs = { enabled: true, hidden: false, remote: choices[1], choices, chosen: 'auto' };
+  const row = prefRows({ ...base, repo: true, prs }).find((r) => r.id === 'prRemote');
+  assert.notEqual(row.value, PR_REMOTE_AUTO);
+  assert.equal(row.options.find((o) => o.id === row.value).label, 'auto');
+  assert.equal(row.options.filter((o) => o.id === PR_REMOTE_AUTO).length, 1);
+  assert.equal(prRemoteChoice(row.value), 'auto');
+  assert.equal(prRemoteChoice(PR_REMOTE_AUTO), null);
 });
 
 test('Sidebar lists the refs-tree sections in order, as movable switches (AK-464)', async () => {
