@@ -251,3 +251,12 @@ test('Ctrl+Mod needs ⌘ on macOS, so plain ⌃T doesn’t match ⌃⌘T (AK-207
   assert.equal(match('menu', ev('t', { ctrlKey: true }), null, true), null);
   assert.equal(match('menu', ev('t', { ctrlKey: true, metaKey: true }), null, true), 'view.cycleTheme');
 });
+
+test('tipFor: the label, two spaces, then the first binding as joined keycaps (AK-300)', async () => {
+  const { tipFor } = await import('../renderer/ui.js');
+  const { keys } = await load();
+  assert.equal(tipFor('Reload pull requests', 'lanes.reload'), `Reload pull requests  ${keys('lanes.reload').join('')}`);
+  assert.ok(keys('lanes.reload').length > 1); // ⇧ and R run together, as on a keycap
+  assert.equal(tipFor('Previous'), 'Previous');
+  assert.equal(tipFor('Previous', null), 'Previous');
+});
