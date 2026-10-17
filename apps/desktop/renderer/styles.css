@@ -986,6 +986,14 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-file-head .stat { font-family: var(--mono); gap: 6px; }
 .review-file-body { overflow-x: auto; }
 .review-file-body > .empty, .review-file-body > .loading-state { padding: 16px; }
+.review-file-body.folding { overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  .review-file-body.folding { transition: height 180ms ease-out, opacity 140ms ease-out; }
+  .review-file.just-ticked > .review-file-head { animation: ticked-flash 700ms ease-out; }
+  .review-file.just-ticked .review-tick.on { animation: ticked-pop 220ms ease-out; }
+}
+@keyframes ticked-flash { from { background: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated)); } }
+@keyframes ticked-pop { from { transform: scale(0.7); } }
 .review-pane-head { padding: 18px 20px 14px; }
 .review-pane-top { min-width: 0; }
 /* The pane's head (AK-379): title and meta, the status strip, then the description box. */

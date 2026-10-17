@@ -178,6 +178,34 @@ export function fileCard({ path, shown = path, lead = [], tail = [], add = 0, de
     collapsed ? null : body || h('div.review-file-body'));
 }
 
+// Ticking a file folds it: its code slides shut under the header (which stays where it is) and the
+// files below glide up, instead of the card vanishing at once. A stuck header first takes the card's
+// place at the top, the code kept on the same lines, so nothing jumps. replace() swaps in the folded
+// card, which flashes once so the eye lands on it. Reduced motion: the swap alone, at once.
+export function foldShut(card, scroller, replace) {
+  const body = card?.querySelector(':scope > .review-file-body');
+  const done = () => { const next = replace(); next?.classList.add('just-ticked'); return next; };
+  if (!body || !scroller || matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+  const head = card.firstChild.getBoundingClientRect();
+  const view = scroller.getBoundingClientRect();
+  const lift = Math.max(0, head.top - card.getBoundingClientRect().top); // > 0 while the header is stuck
+  const shown = Math.min(body.getBoundingClientRect().bottom, view.bottom) - head.bottom;
+  if (shown <= 0) return done();
+  const tick = card.querySelector('.review-tick'); // ticked at once; the folded card replaces it after
+  tick?.classList.add('on');
+  tick?.setAttribute('aria-checked', 'true');
+  tick?.replaceChildren(icon('check', 12));
+  scroller.scrollTop -= lift;
+  body.classList.add('folding');
+  body.style.height = `${shown}px`;
+  body.scrollTop = lift;
+  let over = false;
+  const end = () => { if (over) return; over = true; if (card.isConnected) done(); };
+  body.addEventListener('transitionend', end, { once: true });
+  setTimeout(end, 400); // in case the transition never runs
+  requestAnimationFrame(() => requestAnimationFrame(() => { body.style.height = '0px'; body.style.opacity = '0'; }));
+}
+
 // The slim bar at the top of `scroller`: set(content) fills it, watch(head) shows it once `head` has
 // scrolled out of view above. el goes first in the scroller; it takes no room in the flow.
 export function miniHeader(scroller) {
