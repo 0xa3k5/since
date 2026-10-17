@@ -1,6 +1,7 @@
 ---
 // "Every action is one key away": an echo line, the try-it chips and a tilted keyboard. Real keys work while the
-// section is on screen, the lit keys can be clicked, and an autoplay demo walks the chips until someone takes over.
+// section is on screen (Space, arrows and ⌘-digits only after a click in it), the lit keys can be clicked, and an
+// autoplay demo walks the chips until someone takes over.
 // The keys mirror the Review bindings in apps/desktop/renderer/keymap.js.
 // The Review window below is visually hidden: it only holds the demo's state (selection, pane, palette).
 
@@ -118,7 +119,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
         if (k.length === 1 && !meta) { input.value += k; return true; }
       }
       if (meta) {
-        if (k === 'k') { S.pal = true; render(); mark('pal', real); return true; }
+        if (k === 'k') { S.pal = true; render(); return true; }
         if (k === 'z') {
           const u = S.undo.pop();
           if (!u) { toast('Nothing to undo yet. Try <kbd>X</kbd> first.'); return true; }
@@ -133,7 +134,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
         const l = live();
         let i = l.indexOf(cur());
         i = (i + (k === 'arrowdown' ? 1 : l.length - 1)) % l.length;
-        S.sel = rows.indexOf(l[i]); S.pane = 'detail'; S.reviewed = false; render(); mark('nav', real); return true;
+        S.sel = rows.indexOf(l[i]); S.pane = 'detail'; S.reviewed = false; render(); return true;
       }
       if (k === 'escape') { S.pane = 'detail'; render(); return true; }
       if (shift && k === 'p') { S.pane = 'plan'; render(); mark('plan', real); return true; }
@@ -147,7 +148,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
         case 'r': case 'enter':
           if (k === 'enter' && S.pane === 'plan') {
             rows.filter((r) => r.dataset.stage === 'ready').forEach((r) => r.classList.add('out'));
-            S.sel = 0; S.pane = 'detail'; render();
+            S.sel = rows.indexOf(live()[0]); S.pane = 'detail'; render();
             toast('Merged #120 ✓ #119 ✓ #121 ✓ · squash-merged on GitHub'); return true;
           }
           S.pane = 'review'; render(); mark('r', real); return true;
@@ -194,6 +195,10 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
     }
 
     /* ---------- real keys: only while the section is on screen ---------- */
+    // Space, ↑/↓ and ⌘-digits scroll the page and switch tabs, so the demo takes them only after a click inside the section.
+    let engaged = false;
+    addEventListener('pointerdown', (e) => { engaged = section.contains(e.target as Node); });
+    const browserKey = (k: string, meta: boolean) => k === ' ' || k === 'arrowup' || k === 'arrowdown' || (meta && /^\d$/.test(k));
     let armed = false, auto = !reduce, autoT: ReturnType<typeof setTimeout> | undefined, step = 0;
     const takeOver = () => { if (!auto) return; auto = false; clearTimeout(autoT); reset(); };
     addEventListener('keydown', (e) => {
@@ -202,6 +207,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
       const t = e.target as HTMLElement | null;
       if (t && t !== document.body && t.closest('a, button, input, textarea, select, summary, [contenteditable]') && !board.contains(t)) return;
       const k = e.key.toLowerCase();
+      if (!engaged && browserKey(k, e.metaKey)) return;
       takeOver();
       if (k === 'shift' || k === 'meta') return flash(k);
       if (run(k, e.shiftKey, e.metaKey, true)) {
@@ -243,6 +249,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
     };
     new IntersectionObserver(([e]) => {
       armed = e.isIntersecting;
+      if (!armed) engaged = false;
       if (armed && auto) play(); else clearTimeout(autoT);
     }, { threshold: 0.4 }).observe(section);
     reset();
