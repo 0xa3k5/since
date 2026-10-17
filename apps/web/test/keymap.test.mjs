@@ -29,13 +29,15 @@ test('shows macOS keys, pairs and alternatives', () => {
 test('views have ⌘ numbers and G shortcuts', () => {
   const v = group('views');
   assert.equal(v.length, 13);
-  assert.deepEqual(find(v, 'Worktrees')?.keys, ['⌘', '8']);
-  assert.deepEqual(find(v, 'Stashes')?.keys, ['⌘', '0']);
+  assert.deepEqual(find(v, 'Worktrees')?.keys, ['G', 'W']);
+  assert.deepEqual(find(v, 'Stashes')?.keys, ['⌘', '6']);
   assert.deepEqual(find(v, 'Branches')?.keys, ['⌘', '5']);
   assert.deepEqual(find(v, 'Branches')?.alt, ['G', 'B']);
   assert.deepEqual(find(v, 'Catch up')?.keys, ['⌘', '1']);
   assert.deepEqual(find(v, 'Review')?.keys, ['⌘', '2']);
-  assert.deepEqual(find(v, 'History & Recovery')?.keys, ['G', 'H']);
+  assert.deepEqual(find(v, 'History')?.keys, ['⌘', '7']);
+  assert.deepEqual(find(v, 'History')?.alt, ['G', 'H']);
+  assert.deepEqual(find(v, 'Submodules')?.keys, ['⌘', '8']);
 });
 
 test('menu groups have the menu bar shortcuts', () => {
