@@ -251,17 +251,24 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .nav-item:hover .nav-badge { display: none; }
 
 .sb-scroll { flex: 1; overflow-y: auto; margin: 0 -8px; padding: 0 8px 12px; }
-.sb-section { margin-top: 6px; }
-.sb-section-head { display: flex; align-items: center; gap: 4px; width: 100%; height: 26px; padding: 0 6px; color: var(--text-3); font-size: 12px; font-weight: var(--fw-strong); border-radius: var(--radius); }
+/* Below the divider: smaller fold-out lists (Remotes, Tags, Worktrees). */
+.sb-divider { flex: none; height: 1px; margin: 0 6px 4px; background: var(--border); }
+#app.sb-rail .sb-divider { display: none; }
+.sb-section { margin-top: 2px; }
+.sb-section .sb-item { height: 24px; font-size: 12px; }
+.sb-section-head { display: flex; align-items: center; gap: 4px; width: 100%; height: 24px; padding: 0 6px; color: var(--text-3); font-size: 11px; font-weight: var(--fw-strong); border-radius: var(--radius); }
 .sb-section-head:hover { background: var(--bg-hover); color: var(--text-2); }
 .caret { display: inline-flex; transition: transform 0.12s ease; color: var(--text-4); }
 .caret.open { transform: rotate(90deg); }
-/* A refs-tree section header: fold on the left, ⤢ (open its full page) on the right, lit while that page is open. */
+/* A fold-out list's header: a click folds it, a double-click opens its full page, lit while that page is open. */
 .sb-section-row { display: flex; align-items: center; border-radius: var(--radius); }
 .sb-section-row .sb-section-head { flex: 1; min-width: 0; }
 .sb-section-head .nav-badge { margin-left: auto; padding-right: 4px; font-weight: var(--fw-medium); }
-.sb-page { flex: none; opacity: 0; color: var(--text-4); }
-.sb-section-row:hover .sb-page, .sb-page:focus-visible, .sb-section-row.active .sb-page { opacity: 1; }
+/* Long-press to reorder (AK-491): the held row dims, an accent line marks where it lands. */
+.sb-reordering, .sb-reordering * { cursor: grabbing !important; user-select: none; }
+[data-reorder].dragging { background: var(--bg-active); opacity: .6; }
+[data-reorder].drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+[data-reorder].drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .sb-section-row.active { background: var(--bg-active); }
 .sb-section-row.active .sb-section-head { color: var(--text); }
 .sb-item.sb-nested { padding-left: 38px; }
@@ -1137,7 +1144,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .prefs-subhead span { font-weight: normal; color: var(--text-4); }
 .prefs-icon { flex: none; display: flex; color: var(--text-3); }
 .prefs-move { display: flex; align-items: center; gap: 2px; }
-.prefs-move .switch { margin-left: 8px; }
+.prefs-move .switch, .prefs-move .switch-spacer { margin-left: 8px; }
+.switch-spacer { flex: none; width: 30px; }
 .prefs-move .icon-btn { opacity: 0; }
 .prefs-row:hover .prefs-move .icon-btn, .prefs-row.active .prefs-move .icon-btn { opacity: 1; }
 .prefs-move .icon-btn:disabled { opacity: 0 !important; pointer-events: none; }
