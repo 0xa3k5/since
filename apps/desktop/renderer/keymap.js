@@ -117,6 +117,7 @@ export const COMMANDS = [
   c('global', 'global', 'global.cleanup', 'Clean up finished branches and worktrees', 'Mod+Alt+Backspace'),
   c('global', 'global', 'global.resetPanes', 'Reset pane sizes', 'Mod+Alt+Digit0'),
   c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
+  c('global', 'global', 'global.prRemote', 'Choose the remote for pull requests', 'Mod+Alt+Shift+KeyU'),
 
   // Map, with the commit list focused.
   c('map', 'map', 'map.next', 'Next / previous commit', 'ArrowDown', { pair: 'map.prev' }),
