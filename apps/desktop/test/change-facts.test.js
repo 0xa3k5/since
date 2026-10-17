@@ -212,3 +212,17 @@ test('changeFacts IPC arguments are validated', () => {
   assert.throws(() => check.checkGit('changeFacts', ['main']), check.IpcArgError);
   assert.throws(() => check.checkGit('changeFacts', ['main', 'lane', 'extra']), check.IpcArgError);
 });
+
+test('changeFacts on a repository: a moved package or test file reads its old side', async () => {
+  const dir = await repo();
+  await commit(dir, {
+    'packages/a/package.json': JSON.stringify({ name: 'a', dependencies: { 'left-pad': '1.0.0' } }),
+    'test/old.test.js': `test.skip('x', () => {});\nconst a = 1;\nconst b = 2;\nconst c = 3;\n`,
+  }, 'init');
+  await git.run(dir, ['checkout', '-q', '-b', 'lane']);
+  await git.run(dir, ['mv', 'packages/a', 'packages/b']);
+  await git.run(dir, ['mv', 'test/old.test.js', 'test/new.test.js']);
+  await git.run(dir, ['commit', '-q', '-m', 'move']);
+  const r = await cf.changeFacts(dir, 'main', 'lane');
+  assert.deepEqual(flags(r), []);
+});
