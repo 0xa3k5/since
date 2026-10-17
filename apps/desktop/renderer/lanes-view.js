@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -624,7 +624,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // Keep the last PR load for the next visit to Review.
   function remember() {
     if (!prsOn() || !inbox || !loadedAt) return;
-    prCache = { repo, inbox, prs: lanes.filter((l) => l.pr), loadedAt };
+    prCache = { repo, inbox, prs: lanes.filter(hadPr), loadedAt };
   }
 
   // Called on every repo change: debounced, local only (no network), keeps the selection.
@@ -666,7 +666,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const stuckSelection = () => { const x = current(); return x && x.stage === 'stuck' ? x : null; };
   function sendBack(number = null) {
     const r = number == null ? stuckSelection() : (staged?.all || []).find((x) => x.pr?.number === number);
-    if (!r && number != null && !loaded) { pendingSendBack = number; return; }
+    if (!r && number != null && sendBackWaits({ loaded, prsOn: prsOn(), inbox, inboxFailed })) { pendingSendBack = number; return; }
     if (!r) return toast(number == null ? 'Select a stuck row first' : `#${number} isn’t in Review`);
     select(r.key);
     act('sendBack', r);
@@ -693,11 +693,13 @@ export async function prefetchReview({ repo, load, prsOn }) {
   if (!prsOn()) return;
   const res = await loadPrs(repo, load).catch(() => null);
   if (!res?.prs || openRepo !== repo || !prsOn()) return;
-  prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter((l) => l.pr), loadedAt: Date.now() };
+  prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter(hadPr), loadedAt: Date.now() };
   if (lastCounts?.repo === repo) lastCounts = null; // Catch up's line counts from these PRs
 }
 
-// The pull requests of the last load for `repo` (lanes with `pr`), for keepPrs: Branches shows "PR #N open"
+const hadPr = (l) => l.pr || l.done?.reason === 'pr';
+
+// The pull requests of the last load for `repo` (lanes with `pr` or merged by one), for keepPrs: Branches shows "PR #N open"
 // from them without a `gh` call (AK-396).
 export const cachedPrs = (repo) => (prCache?.repo === repo ? prCache.prs : []);
 

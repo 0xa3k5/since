@@ -114,3 +114,9 @@ test('brand assets use the orange brand, not the retired indigo', () => {
   }
   assert.match(fs.readFileSync(path.join(root, 'build/icon.svg'), 'utf8'), /#e67233/i);
 });
+
+test('the View menu leaves ⌘R free: no reload role on its default key (AK-362)', () => {
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  for (const m of main.matchAll(/\{ role: 'reload'[^}]*\}/g)) assert.match(m[0], /accelerator: '(?!CmdOrCtrl\+R')/, m[0]);
+  assert.match(main, /app\.isPackaged \? \[\] : \[\{ role: 'reload'/);
+});
