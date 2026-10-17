@@ -1,7 +1,0 @@
----
-// Renders its slot with every sentence about licences removed. Used where the copy comes from Markdown
-// (changelog entries) and can't take the SHOW_PRICING flag itself.
-const html = await Astro.slots.render('default');
-const out = html.replace(/\s*[^.<>]*\blicen[cs]e[^.<>]*\./gi, '');
----
-<Fragment set:html={out} />

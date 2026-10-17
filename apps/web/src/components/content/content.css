@@ -1,4 +1,4 @@
-/* Shared by /features, /shortcuts, /changelog and /docs. Colours come only from @gitlanes/tokens. */
+/* Shared by /features, /shortcuts and /docs. Colours come only from @gitlanes/tokens. */
 
 .content-page { padding-top: 72px; }
 .page-head { max-width: 760px; }
@@ -23,7 +23,7 @@ kbd {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 12px 32px -12px rgb(0 0 0 / 0.18);
 }
 
-/* ---------------------------------------------------------------- Prose (docs, changelog) */
+/* ---------------------------------------------------------------- Prose (docs) */
 .prose { max-width: 70ch; color: var(--text-2); }
 .prose h2 { margin: 48px 0 12px; font-size: 22px; }
 .prose h3 { margin: 32px 0 8px; font-size: 17px; }
