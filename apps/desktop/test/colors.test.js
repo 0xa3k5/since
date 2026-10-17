@@ -40,8 +40,16 @@ test('ignores hashes, issue refs, URL fragments and preprocessor lines', async (
     'href="/#bad"', '#define FOO 1', '#ifdef DEBUG', '&#123; entity', '#deadbeef1', 'id #abcde', 'ref ##fff',
     'See [Usage](#add) and [docs](#fade)', '[x](#ffffff)', 'Notes (#fade) here', '// #bad idea, see #cafe or #face',
     'color: red;', 'my-rgb(1, 2, 3)', 'rgb(var(--x))', 'color(srgb 1 0 0)', '',
+    'I love #fade!', 'Wow #bad! really', 'Note: I love #fade', '  - fixes #bad', '  see #fade here',
   ];
   for (const s of none) assert.deepEqual(values(findColors, s), [], s);
+});
+
+test('keeps short codes that end an indented declaration with no semicolon', async () => {
+  const { findColors } = await load();
+  assert.deepEqual(values(findColors, '  border: 1px solid #fff'), ['#fff']);
+  assert.deepEqual(values(findColors, '\tcolor #bad  '), ['#bad']);
+  assert.deepEqual(values(findColors, '  color: #cafe !IMPORTANT'), ['#cafe']);
 });
 
 test('lets the validator reject values and caps swatches per line', async () => {
