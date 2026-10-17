@@ -7,7 +7,7 @@ import { branchPreview, laneBadges } from './branch-preview.js';
 import { authorsStack } from './reader.js';
 import * as keymap from './keymap.js';
 
-// Branches (AK-396, ⌘3): every local branch and worktree on this Mac, one list at a time behind tabs
+// Branches (AK-396, ⌘5): every local branch and worktree on this Mac, one list at a time behind tabs
 // (branches.js BRANCH_TABS; 1–5): Active · Agent-made · Would conflict · Idle · Finished. Finished is
 // Clean up (cleanup-view.js): cards per reason in place of the list and the pane. The head
 // spans the view like Review's; the list sits left, the branch preview (branch-preview.js) right.
@@ -135,7 +135,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   }
 
   function emptyText() {
-    if (tab === 'agents' && !markAgents()) return 'Agent-made marks are off. Turn on “Mark lanes that look agent-made” in ⌘K.';
+    if (tab === 'agents' && !markAgents()) return 'Agent-made marks are off. Turn on “Mark branches that look agent-made” in ⌘K.';
     if (tab === 'conflict' && !forecastOk) return 'The conflict forecast needs git 2.38 or later.';
     return { active: 'No active branches. Branches with commits or edits in the last 3 days show here.', agents: 'No agent-made branches.', conflict: 'Nothing would conflict.', idle: 'No idle branches.', finished: 'Nothing to clean up.' }[tab];
   }
