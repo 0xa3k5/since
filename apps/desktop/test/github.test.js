@@ -465,11 +465,11 @@ test('normalizePr: bot authors, names, drafts, mixed reviews and pending request
   assert.equal(p.review, 'changes');
   assert.deepEqual(p.reviews, [
     { login: 'ana', name: 'Ana', state: 'approved', submittedAt: '2026-10-12T00:00:00Z' },
-    { login: 'bo', name: '', state: 'changes', submittedAt: '2026-10-11T00:00:00Z' },
-    { login: 'copilot[bot]', name: '', state: 'commented', submittedAt: '' },
-    { login: 'dee', name: '', state: 'dismissed', submittedAt: '' },
+    { login: 'bo', name: 'bo', state: 'changes', submittedAt: '2026-10-11T00:00:00Z' },
+    { login: 'copilot[bot]', name: 'copilot', state: 'commented', submittedAt: '' },
+    { login: 'dee', name: 'dee', state: 'dismissed', submittedAt: '' },
   ]);
-  assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: '', team: false }, { login: 'core', name: 'Core', team: true }]);
+  assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: 'fay', team: false }, { login: 'core', name: 'Core', team: true }]);
   assert.ok(!JSON.stringify(p).includes('secret'));
   assert.ok(github.PR_FIELDS.includes('reviewRequests'));
 });

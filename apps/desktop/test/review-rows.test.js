@@ -212,7 +212,7 @@ test('reviewers: requests are pending, then by state, dismissed left out', async
     reviews: [
       { login: 'ana', name: 'Ana', state: 'approved', submittedAt: 'x' },
       { login: 'bo', name: '', state: 'changes' },
-      { login: 'copilot[bot]', name: '', state: 'commented' },
+      { login: 'copilot[bot]', name: 'copilot', state: 'commented' }, // github.js cleans the name (AK-312)
       { login: 'dee', name: '', state: 'dismissed' },
       { login: 'fay', name: '', state: 'approved' },
     ],
