@@ -72,3 +72,12 @@ test('AK-461: with two GitHub remotes, the PR remote is a choice of Automatic or
   const auto = prefRows({ ...base, repo: true, prs: { ...prs, remote: choices[0], chosen: null } }).find((r) => r.id === 'prRemote');
   assert.equal(auto.value, PR_REMOTE_AUTO);
 });
+
+test('Sidebar lists the refs-tree sections in order, as movable switches (AK-464)', async () => {
+  const { prefRows } = await load();
+  const sections = [{ id: 'tags', label: 'Tags', icon: 'tag', hidden: true }, { id: 'branches', label: 'Branches', icon: 'branch', hidden: false }];
+  const rows = prefRows({ ...base, sections }).filter((r) => r.id.startsWith('section:'));
+  assert.deepEqual(rows.map((r) => [r.id, r.value, r.move, r.section]), [['section:tags', false, true, 'sidebar'], ['section:branches', true, true, 'sidebar']]);
+  assert.equal(rows[0].first, true);
+  assert.equal(rows[1].last, true);
+});

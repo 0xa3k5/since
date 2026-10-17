@@ -1128,6 +1128,12 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .prefs-section + .prefs-section { margin-top: 6px; }
 .prefs-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
 .prefs-row.active { background: var(--bg-active); }
+.prefs-icon { flex: none; display: flex; color: var(--text-3); }
+.prefs-move { display: flex; align-items: center; gap: 2px; }
+.prefs-move .switch { margin-left: 8px; }
+.prefs-move .icon-btn { opacity: 0; }
+.prefs-row:hover .prefs-move .icon-btn, .prefs-row.active .prefs-move .icon-btn { opacity: 1; }
+.prefs-move .icon-btn:disabled { opacity: 0 !important; pointer-events: none; }
 .prefs-info { flex: none; max-width: 50%; overflow: hidden; font-size: 12px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
 .prefs-config { min-height: 30px; gap: 10px; font-size: 12px; }
 .prefs-key { flex: none; max-width: 45%; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }

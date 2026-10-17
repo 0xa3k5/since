@@ -76,3 +76,23 @@ test('the refs tree: one page per section, Pull requests open Review, History & 
   assert.equal(pageLabel('snapshots', views), 'History & recovery');
   assert.equal(pageLabel('reflog', views), 'History & recovery');
 });
+
+test('section layout: defaults, saved order, unknown ids, moves and hiding (AK-464)', async () => {
+  const { SECTION_PAGES, sectionLayout, orderedSections, moveSection, showSection } = await import('../renderer/sidebar.js');
+  const ids = SECTION_PAGES.map((p) => p.id);
+  assert.deepEqual(sectionLayout(), { order: ids, hidden: [] });
+  assert.deepEqual(orderedSections({}).map((p) => p.id), ids);
+  assert.ok(orderedSections({}).every((p) => !p.hidden && p.label && p.view));
+  // A saved order that misses sections (e.g. one added later) keeps theirs; junk is dropped.
+  const l = sectionLayout({ order: ['tags', 'nope', 'branches', 'tags'], hidden: ['submodules', 'x'] });
+  assert.deepEqual(l.order, ['tags', 'worktrees', 'prs', 'stashes', 'submodules', 'branches', 'remotes']);
+  assert.deepEqual([...l.order].sort(), [...ids].sort());
+  assert.deepEqual(l.hidden, ['submodules']);
+  assert.deepEqual(moveSection({}, 'remotes', -1).order.slice(0, 2), ['remotes', 'branches']);
+  assert.deepEqual(moveSection({}, 'branches', -1).order, ids);
+  assert.deepEqual(moveSection({}, ids.at(-1), 1).order, ids);
+  const hid = showSection({}, 'tags', false);
+  assert.deepEqual(hid.hidden, ['tags']);
+  assert.equal(orderedSections(hid).find((p) => p.id === 'tags').hidden, true);
+  assert.deepEqual(showSection(hid, 'tags', true).hidden, []);
+});
