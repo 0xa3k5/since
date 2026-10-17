@@ -62,6 +62,7 @@ for (const [name, t] of Object.entries(THEMES)) {
     for (const k of ['text', 'text-2', 'text-3', 'accent-fg', 'green', 'merged', 'red', 'warn']) atLeast(k, 4.5);
     atLeast('text-4', 3); // hints, line numbers, placeholders
     atLeast('yellow', 3); // tag icon
+    atLeast('on-accent', 4.5, ['accent-solid', 'accent-solid-hover']); // primary buttons, hover too (AK-296)
   });
 
   test(`${name} theme: text on accent and danger fills meets WCAG AA`, () => {
