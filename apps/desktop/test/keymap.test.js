@@ -143,13 +143,16 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
 });
 
-test('Mod+1…9 and Mod+0 follow the sidebar order, top to bottom', async () => {
+test('Mod+1…8 and Mod+0 follow the sidebar order, top to bottom', async () => {
   const { defaults } = await load();
   const app = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
   const ids = [...app.match(/const VIEWS = \[([\s\S]*?)\];/)[1].matchAll(/id: '(\w+)'/g)].map((m) => m[1]);
   assert.equal(ids[0], 'catchup', 'Catch up is the first view in the sidebar');
-  assert.equal(ids.length, 10, 'ten views: Mod+1…9, then Mod+0');
-  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${(i + 1) % 10}`, `view.${id}`));
+  // Mod+9 (Repository Settings) opens Preferences → Repository since the Config view moved there (AK-458).
+  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '0'];
+  assert.equal(ids.length, digits.length, 'nine views: Mod+1…8, then Mod+0');
+  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${digits[i]}`, `view.${id}`));
+  assert.equal(defaults('view.config', true)[0], 'Mod+9');
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {

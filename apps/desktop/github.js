@@ -26,10 +26,17 @@ function parseRemote(r) {
   return { name: r.name, host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
 }
 
-// The repository to ask about: origin if it's on a web host, else the first remote that is.
+// Hosts `gh` can't talk to, so they're never the PR remote.
+const OTHER_HOSTS = new Set(['gitlab.com', 'bitbucket.org', 'codeberg.org', 'gitea.com', 'git.sr.ht']);
+// The remotes the PR features can use: every GitHub (or Enterprise) remote.
+const prCandidates = (remotes = []) => remotes.map(parseRemote).filter((r) => r && !OTHER_HOSTS.has(r.host));
+// The repository to ask about (AK-446's single helper, used by every PR call): the remote the user
+// chose for this repository (main.js marks it `pr: true`, see prRemotes), else origin if it's on
+// GitHub, else the first GitHub remote.
 function pickRemote(remotes = []) {
-  const parsed = remotes.map(parseRemote).filter(Boolean);
-  return parsed.find((r) => r.name === 'origin') || parsed[0] || null;
+  const parsed = prCandidates(remotes);
+  const chosen = remotes.find((r) => r?.pr)?.name;
+  return parsed.find((r) => r.name === chosen) || parsed.find((r) => r.name === 'origin') || parsed[0] || null;
 }
 
 // Owner per remote name, so the renderer can place fork PRs on branches that track a fork.
@@ -157,13 +164,14 @@ const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli }) => exec(bin,
 
 // The enable sheet's check, after the user chose to turn it on: is `gh` installed, and logged in
 // to this remote's host? Returns { gh: 'missing' | 'logged-out' | 'ready', remote }.
+// `remotes: null` means no repository is open: only the github.com login is checked.
 async function detect({ remotes, dirs = searchDirs(), exec } = {}) {
-  const remote = pickRemote(remotes);
-  if (!remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
+  const remote = remotes ? pickRemote(remotes) : null;
+  if (remotes && !remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
   const bin = findBinary('gh', dirs);
   if (!bin) return { gh: 'missing', remote };
   try {
-    await run(bin, ['auth', 'status', '--hostname', remote.host], { dirs, exec });
+    await run(bin, ['auth', 'status', '--hostname', remote ? remote.host : 'github.com'], { dirs, exec });
     return { gh: 'ready', remote };
   } catch {
     return { gh: 'logged-out', remote };
@@ -448,6 +456,14 @@ function branchName(head) {
   return head.cross && head.headOwner && head.branch === head.base ? `${head.headOwner}/${head.branch}` : head.branch;
 }
 
+// What `git check-ref-format --branch` accepts (so `+`, `#`, `@` and non-ASCII letters are fine),
+// minus a leading `-` so the name can't be read as an option.
+function validBranch(name) {
+  if (!name || name === '@' || name.startsWith('-')) return false;
+  if (/[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|\/\/|^\/|[./]$/.test(name)) return false;
+  return name.split('/').every((c) => c && !c.startsWith('.') && !c.endsWith('.lock'));
+}
+
 // `gh pr view --json …` output → { number, branch, sha, cross, headOwner, base, state, local }.
 // Throws on anything that couldn't be a branch name or a commit, so nothing odd reaches git.
 function parsePrHead(out, number) {
@@ -464,7 +480,7 @@ function parsePrHead(out, number) {
   };
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head.sha)) throw coded(`Pull request #${number} has no head commit.`, 'gh-failed');
   head.local = branchName(head);
-  if (!head.branch || !/^[\w./-]+$/.test(head.local) || /^[-./]|\.\.|\/\/|[./]$|\.lock$/.test(head.local)) {
+  if (!head.branch || !validBranch(head.local)) {
     throw coded(`Pull request #${number} has a branch name GitLanes can’t use: “${head.branch}”.`, 'gh-failed');
   }
   return head;
@@ -549,11 +565,20 @@ async function createPr({ enabled, remotes, base, head, title, body = '', draft 
 
 // settings.json `github`: { on, hidden: [repository roots the user hid PRs for] }. One user-wide
 // flag; `on: null` means not decided yet (a fresh install, see ghStatus). Older versions kept a
-// per-repository `repos` list: any repository on there means it was on.
+// per-repository `repos` list: any repository on there means it was on, and an empty list means
+// the user turned it off everywhere (still a decision).
 function normalize(saved = {}) {
   const hidden = Array.isArray(saved?.hidden) ? saved.hidden.filter((r) => typeof r === 'string') : [];
-  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) && saved.repos.some((r) => typeof r === 'string') ? true : null;
-  return { on, hidden };
+  const on = typeof saved?.on === 'boolean' ? saved.on : Array.isArray(saved?.repos) ? saved.repos.some((r) => typeof r === 'string') : null;
+  const remotes = Object.fromEntries(Object.entries(saved?.remotes && typeof saved.remotes === 'object' ? saved.remotes : {}).filter(([k, v]) => typeof k === 'string' && typeof v === 'string' && v));
+  return { on, hidden, ...(Object.keys(remotes).length ? { remotes } : {}) };
+}
+// The remote the user chose for a repository's PR features, or null for the default.
+const chosenRemote = (saved, root) => normalize(saved).remotes?.[root] || null;
+function setChosenRemote(saved, root, name) {
+  const { remotes: { [root]: _, ...rest } = {}, ...s } = normalize(saved);
+  const remotes = name ? { ...rest, [root]: name } : rest;
+  return { ...s, ...(Object.keys(remotes).length ? { remotes } : {}) };
 }
 const isHidden = (saved, root) => normalize(saved).hidden.includes(root);
 const isEnabled = (saved, root) => normalize(saved).on === true && !isHidden(saved, root);
@@ -594,11 +619,13 @@ function joinLanes(lanes = [], listed = null) {
   });
 }
 
-// Where a PR branch pushes and the head `gh pr create` names. A branch tracking a GitHub remote
+// Where a PR branch pushes and the head `gh pr create` names. A branch tracking a remote on the PR remote’s host
 // pushes there (a fork, say); anything else pushes to the GitHub remote. Only a branch with no
 // upstream starts tracking it, so a non-GitHub upstream (a mirror) is never re-pointed silently.
 function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
-  const up = upRemote && upRef.startsWith('refs/heads/') ? parseRemote(remotes.find((x) => x.name === upRemote)) : null;
+  // An upstream on another host (say origin on GitLab) isn't where the PR's branch goes (AK-198).
+  const tracked = upRemote && upRef.startsWith('refs/heads/') ? parseRemote(remotes.find((x) => x.name === upRemote)) : null;
+  const up = tracked && tracked.host === target.host ? tracked : null;
   const dest = up ? { remote: up, ref: upRef.slice('refs/heads/'.length) } : { remote: target, ref: branch };
   const head = dest.remote.owner !== target.owner ? `${dest.remote.owner}:${dest.ref}` : dest.ref;
   const ahead = Number(/ahead (\d+)/.exec(track || '')?.[1] || 0);
@@ -609,4 +636,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, updatePrBranch, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, updatePrBranch, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

@@ -1,10 +1,11 @@
-// Resizable panes (sidebar, Commit view file list). Pure logic, no DOM, so it can be unit-tested.
+// Resizable panes (sidebar, Commit view file list, Stashes list). Pure logic, no DOM, so it can be unit-tested.
 // Each pane has a default, a floor and a ceiling, and always leaves `keep` px for the content beside it,
 // so neither side ever collapses. The floor wins when the window is too small for both.
 
 export const PANES = {
   sidebar: { label: 'Sidebar width', def: 232, min: 180, max: 420, keep: 600 },
   commit: { label: 'File list width', def: 320, min: 240, max: 640, keep: 360 },
+  stash: { label: 'Stash list width', def: 340, min: 240, max: 640, keep: 360 },
 };
 
 // Arrow keys move the edge by STEP px, ⇧ by BIG_STEP.

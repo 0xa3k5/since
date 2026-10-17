@@ -135,7 +135,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   }
 
   function emptyText() {
-    if (tab === 'agents' && !markAgents()) return 'Agent-made marks are off. Turn on “Mark lanes that look agent-made” in ⌘K.';
+    if (tab === 'agents' && !markAgents()) return 'Agent-made marks are off. Turn on “Mark branches that look agent-made” in ⌘K.';
     if (tab === 'conflict' && !forecastOk) return 'The conflict forecast needs git 2.38 or later.';
     return { active: 'No active branches. Branches with commits or edits in the last 3 days show here.', agents: 'No agent-made branches.', conflict: 'Nothing would conflict.', idle: 'No idle branches.', finished: 'Nothing to clean up.' }[tab];
   }
