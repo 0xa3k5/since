@@ -420,6 +420,16 @@ export function stuckReason(row, { base = null, max = 2, noBase = false, bareChe
   return out.length ? out.join(' · ') : null;
 }
 
+// Why M (or Merge…) on a PR with no lane here can't merge it yet (AK-275): null when the row's main
+// action is Merge, else "Not ready: CI failing · changes requested".
+export function mergeBlock(row, { base = null } = {}) {
+  if (primaryAction(row, { base }) === 'merge') return null;
+  const { pr } = row;
+  const why = [pr?.draft && 'it’s a draft', stuckReason(row, { base }), pr?.checks === 'pending' && 'CI still running',
+    pr?.review === 'changes' && pr.mergeState !== 'blocked' && 'changes requested'].filter(Boolean);
+  return `Not ready: ${why.length ? why.join(' · ') : `#${pr?.number} isn’t ready to merge`}`;
+}
+
 // The sub line's quiet overlap note: "Overlaps #87", or "Overlaps 2 PRs" with the list as its
 // tooltip ("#87 Title: a.js, b.js" per line). null without overlaps.
 export function overlapNote(row) {

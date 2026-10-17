@@ -536,3 +536,13 @@ test('git.js and Catch up read agents from the same list (AK-393)', async () => 
   }
   for (const k of AGENT_HINTS.trailers) assert.ok(messageAgent(`x\n\n${k}: tool`), k);
 });
+
+test('mergeBlock: M on a PR that isn’t ready says why instead of merging (AK-275)', async () => {
+  const { mergeBlock } = await load();
+  const pr = (extra) => ({ number: 9, checks: 'success', review: 'approved', draft: false, ...extra });
+  assert.equal(mergeBlock({ stage: 'ready', pr: pr() }), null);
+  assert.equal(mergeBlock({ stage: 'stuck', pr: pr({ checks: 'failure' }) }), 'Not ready: CI ✗ checks failing');
+  assert.equal(mergeBlock({ stage: 'waiting', pr: pr({ draft: true }) }), 'Not ready: it’s a draft');
+  assert.equal(mergeBlock({ stage: 'waiting', pr: pr({ review: 'changes' }) }), 'Not ready: changes requested');
+  assert.equal(mergeBlock({ stage: 'waiting', pr: pr({ review: null }) }), 'Not ready: #9 isn’t ready to merge');
+});
