@@ -92,7 +92,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   let wanted = place?.key ?? null; // the row to select once it's loaded
   let wantedScroll = place?.scroll ?? null;
 
-  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter…', spellcheck: false, 'aria-label': 'Filter', value: place?.filter || '' });
+  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter, or #123 for a PR…', spellcheck: false, 'aria-label': 'Filter', value: place?.filter || '' });
   const count = h('span.muted.lanes-count');
   const list = h('div.lanes-list', { role: 'listbox', 'aria-label': 'Review' });
   const empty = h('div.empty');
