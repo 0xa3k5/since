@@ -129,6 +129,15 @@ export function laneTarget(lane) {
   return null;
 }
 
+// What ⇧W does for a review row, and so whether its menu offers Check Out (AK-530 follow-up).
+// A pull request checks out here even when its branch is already on this Mac; one already
+// open in another worktree switches to it, since a branch lives in one worktree at a time.
+export function checkoutHereMode({ pr = null, lane = null } = {}) {
+  if (lane && laneTarget(lane)?.kind === 'worktree') return 'switch';
+  if (pr) return 'pr';
+  return lane ? 'open' : null;
+}
+
 // Carry PR data over to a refresh that skipped `gh` (live refreshes stay local): the open PR, and
 // "Merged in #N" while the lane's head is still the one that PR merged (AK-338).
 export function keepPrs(lanes, previous = []) {
