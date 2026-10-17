@@ -524,3 +524,15 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
   assert.equal(stuckReason(failing, { bareChecks: true }), 'test, lint');
   assert.equal(stuckReason(row({ pr: pr(1, { checks: 'failure' }) }), { bareChecks: true }), null);
 });
+
+test('git.js and Catch up read agents from the same list (AK-393)', async () => {
+  const git = require('../git');
+  const { AGENT_HINTS } = await import('../renderer/agents.js');
+  const { messageAgent } = await load();
+  assert.equal(git.AGENT_HINTS, AGENT_HINTS);
+  for (const w of AGENT_HINTS.coauthors) {
+    assert.ok(messageAgent(`x\n\nCo-Authored-By: ${w} <a@b.c>`), w);
+    assert.ok(git.agentGuess('main', [{ key: 'Co-Authored-By', value: `${w} <a@b.c>` }]), w);
+  }
+  for (const k of AGENT_HINTS.trailers) assert.ok(messageAgent(`x\n\n${k}: tool`), k);
+});

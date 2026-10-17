@@ -2,6 +2,7 @@
 // per piece of work, sorted into stages. A lane is one entry of `app:lanes-list` (git.lanes, with
 // `pr` joined on); a PR is one of github.listPrs `prs`.
 import { laneKey } from './lanes.js';
+import { AGENT_HINTS } from './agents.js';
 
 const HOUR = 3600e3;
 // "Pushed recently": a lane committed to or edited within this long is still being worked on
@@ -283,15 +284,13 @@ export function agentName(agent) {
 
 // An agent named in a commit message's trailers (Catch up's reader, AK-390), like git.agentGuess:
 // a Co-Authored-By naming a coding agent, or a trailer only agents write. → { reason, match } or null.
-const AGENT_WORDS = ['claude', 'anthropic', 'codex', 'openai', 'copilot', 'cursor', 'devin', 'aider', 'gemini', 'jules', 'openhands', 'sweep', 'cline', 'windsurf', 'codeium'];
-const AGENT_KEYS = ['generated-by', 'generated-with', 'agent', 'ai-agent', 'assisted-by'];
 export function messageAgent(message = '') {
   for (const line of String(message || '').split('\n')) {
     const m = /^([A-Za-z0-9-]+):\s*(.+)$/.exec(line.trim());
     if (!m) continue;
     const key = m[1].toLowerCase();
-    if (AGENT_KEYS.includes(key)) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
-    if (key === 'co-authored-by' && AGENT_WORDS.some((w) => m[2].toLowerCase().split(/[^a-z0-9]+/).includes(w))) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+    if (AGENT_HINTS.trailers.includes(key)) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+    if (key === 'co-authored-by' && AGENT_HINTS.coauthors.some((w) => m[2].toLowerCase().split(/[^a-z0-9]+/).includes(w))) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
   }
   return null;
 }
