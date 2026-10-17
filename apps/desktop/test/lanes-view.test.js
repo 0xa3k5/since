@@ -122,7 +122,7 @@ test('rows lead with the title; conflicts name the other lane by title', async (
 });
 
 test('a local refresh during a PR load keeps the PR result, and a newer PR load wins', async () => {
-  const { loadGuard, takePrs } = await load();
+  const { loadGuard, takePrs, keepPrs } = await load();
   const g = loadGuard();
   const prLoad = g.start(true);
   const local = g.start(false); // the file watcher fires while `gh` runs
@@ -133,6 +133,9 @@ test('a local refresh during a PR load keeps the PR result, and a newer PR load 
   const pr = { number: 3 };
   const merged = takePrs([lane('a', { changes: 2 }), lane('b', { pr: { number: 1 } }), lane('new')], [lane('a', { pr }), lane('b')]);
   assert.deepEqual(merged.map((l) => [l.name, l.pr, l.changes]), [['a', pr, 2], ['b', null, null], ['new', null, null]]);
+  // That local refresh lands after the PR load with a brand-new branch: it gets its PR from the PR load (AK-315).
+  const fresh = keepPrs([lane('a'), lane('new2')], [lane('a', { pr }), lane('new2', { pr: { number: 4 } }), ...merged]);
+  assert.deepEqual(fresh.map((l) => l.pr?.number ?? null), [3, 4]);
   const again = g.start(true);
   assert.equal(g.prs(prLoad), false);
   assert.equal(g.prs(again), true);
