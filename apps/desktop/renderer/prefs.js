@@ -22,7 +22,7 @@ export const PREF_SECTIONS = [
 
 // `s` is the snapshot the app passes in:
 //   { autoUpdate, licence, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
-//     agentLanes }, sidebarExpanded, prs: { enabled, hidden, remote, gh } | null, repo, config: [{ key, value, scope }],
+//     agentLanes }, sidebarExpanded, prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
 //   remotes: [{ name, url, label }] }
 export function prefRows(s) {
   const show = s.show || {};
@@ -49,7 +49,7 @@ export function prefRows(s) {
 
     { section: 'prs', id: 'prsOn', kind: 'switch', value: Boolean(prs?.enabled), label: 'Pull requests from GitHub', detail: prs?.gh === 'missing' ? 'Needs GitHub CLI (gh). Turning this on walks you through it.' : 'Uses your GitHub CLI login. Applies to every repository.', keywords: 'pr github gh enable' },
     ...(s.repo && prs?.enabled && prs.remote ? [{ section: 'prs', id: 'prsHidden', kind: 'switch', value: Boolean(prs.hidden), label: 'Hide pull requests in this repository', keywords: 'pr github gh hide show' }] : []),
-    ...(s.repo ? [{ section: 'prs', id: 'prRemote', kind: 'info', value: prs?.remote ? `${prs.remote.name} (${prs.remote.owner}/${prs.remote.repo})` : 'No GitHub remote', label: 'Remote for pull requests', detail: 'origin when it is on GitHub, else the first GitHub remote.', keywords: 'pr github remote origin fork' }] : []),
+    ...(s.repo ? [prRemoteRow(prs)] : []),
 
     { section: 'keyboard', id: 'shortcuts', kind: 'action', value: 'Customise…', label: 'Keyboard shortcuts', detail: 'Search every shortcut and change any of them.', keywords: 'keys keymap bindings hotkeys' },
     { section: 'keyboard', id: 'importShortcuts', kind: 'action', value: 'Import…', label: 'Import shortcuts', keywords: 'keys keymap bindings' },
@@ -63,6 +63,20 @@ export function prefRows(s) {
     for (const c of s.config || []) rows.push({ section: 'repository', id: `config:${c.scope}:${c.key}`, kind: 'config', value: c, label: c.key, keywords: `${c.value} ${c.scope}` });
   }
   return rows.filter((r) => !r.repo || s.repo);
+}
+
+// Which remote this repository's PR features use (AK-461). With two or more GitHub remotes it's a choice:
+// Automatic (origin when it's on GitHub, else the first GitHub remote) or one of them by name.
+export const PR_REMOTE_AUTO = 'auto';
+function prRemoteRow(prs) {
+  const base = { section: 'prs', id: 'prRemote', label: 'Remote for pull requests', keywords: 'pr github remote origin fork upstream push' };
+  const choices = prs?.choices || [];
+  if (choices.length < 2) return { ...base, kind: 'info', value: prs?.remote ? `${prs.remote.name} (${prs.remote.owner}/${prs.remote.repo})` : 'No GitHub remote', detail: 'origin when it is on GitHub, else the first GitHub remote.' };
+  return {
+    ...base, kind: 'choice', value: prs.chosen || PR_REMOTE_AUTO,
+    options: [{ id: PR_REMOTE_AUTO, label: 'Automatic' }, ...choices.map((c) => ({ id: c.name, label: c.name }))],
+    detail: `Lists, reviews and new pull requests use ${prs.remote.owner}/${prs.remote.repo}. New branches push there too.`,
+  };
 }
 
 // Rows grouped by section, in section order, keeping only rows that match every word of `query` (label, detail,

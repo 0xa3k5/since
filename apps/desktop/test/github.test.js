@@ -470,3 +470,35 @@ test('normalizePr: bot authors, names, drafts, mixed reviews and pending request
   assert.ok(!JSON.stringify(p).includes('secret'));
   assert.ok(github.PR_FIELDS.includes('reviewRequests'));
 });
+
+test('AK-461: the PR remote can be chosen per repository, and non-GitHub hosts never are', () => {
+  const fork = remote('fork', 'https://github.com/kim/app');
+  const lab = remote('origin', 'https://gitlab.com/acme/app');
+  // Default: origin on GitHub, else the first GitHub remote; GitLab and friends are skipped.
+  assert.equal(github.pickRemote([fork, ORIGIN]).name, 'origin');
+  assert.equal(github.pickRemote([lab, fork]).name, 'fork');
+  assert.equal(github.pickRemote([lab]), null);
+  assert.deepEqual(github.prCandidates([lab, fork, ORIGIN]).map((r) => r.name), ['fork', 'origin']);
+  // The chosen remote (main.js marks it `pr: true`) wins, unless it isn't a GitHub remote.
+  assert.equal(github.pickRemote([ORIGIN, { ...fork, pr: true }]).name, 'fork');
+  assert.equal(github.pickRemote([{ ...lab, pr: true }, fork]).name, 'fork');
+  // Saved per repository; null goes back to the default and drops the key.
+  let s = github.setChosenRemote({ on: true, hidden: [] }, '/a', 'fork');
+  assert.equal(github.chosenRemote(s, '/a'), 'fork');
+  assert.equal(github.chosenRemote(s, '/b'), null);
+  assert.ok(github.isEnabled(s, '/a'), 'other settings survive');
+  s = github.setChosenRemote(s, '/a', null);
+  assert.deepEqual(s, { on: true, hidden: [] });
+  assert.deepEqual(github.normalize({ on: true, remotes: { '/a': 'fork', '/b': 3, '/c': '' } }).remotes, { '/a': 'fork' });
+});
+
+test('AK-198: a branch tracking a non-GitHub origin pushes its new PR to the GitHub remote', () => {
+  const lab = remote('origin', 'https://gitlab.com/acme/app');
+  const gh = remote('github', 'https://github.com/acme/app');
+  const remotes = [lab, gh];
+  const target = github.pickRemote(remotes);
+  assert.equal(target.name, 'github');
+  const p = github.prPushPlan({ branch: 'feat', upRemote: 'origin', upRef: 'refs/heads/feat', track: '', remotes, target });
+  assert.deepEqual(p.pushArgs, ['push', '--', 'github', 'refs/heads/feat:refs/heads/feat']);
+  assert.equal(p.head, 'feat');
+});

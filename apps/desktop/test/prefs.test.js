@@ -59,3 +59,16 @@ test('choices step through their options and wrap', async () => {
   assert.equal(nextChoice(theme, 1), 'system');
   assert.equal(nextChoice(theme, -1), 'light');
 });
+
+test('AK-461: with two GitHub remotes, the PR remote is a choice of Automatic or a remote', async () => {
+  const { prefRows, PR_REMOTE_AUTO } = await load();
+  const choices = [{ name: 'origin', owner: 'o', repo: 'r' }, { name: 'fork', owner: 'k', repo: 'r' }];
+  const prs = { enabled: true, hidden: false, remote: choices[1], choices, chosen: 'fork' };
+  const row = prefRows({ ...base, repo: true, prs }).find((r) => r.id === 'prRemote');
+  assert.equal(row.kind, 'choice');
+  assert.equal(row.value, 'fork');
+  assert.deepEqual(row.options.map((o) => o.id), [PR_REMOTE_AUTO, 'origin', 'fork']);
+  assert.match(row.detail, /k\/r/);
+  const auto = prefRows({ ...base, repo: true, prs: { ...prs, remote: choices[0], chosen: null } }).find((r) => r.id === 'prRemote');
+  assert.equal(auto.value, PR_REMOTE_AUTO);
+});

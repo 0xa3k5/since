@@ -34,7 +34,7 @@ import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, return
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
-import { prefRows } from './prefs.js';
+import { prefRows, PR_REMOTE_AUTO } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
@@ -3349,6 +3349,27 @@ async function hidePrs(hide) {
   toast(hide ? 'Hidden in this repository' : 'Shown in this repository', { action: { label: 'Undo', run: () => hidePrs(!hide) } });
 }
 
+// Which remote the PR features use here (AK-461): Automatic or one GitHub remote by name. Saved per repository
+// in settings.json; switching reloads the PR list from the new remote.
+async function setPrRemote(name) {
+  const prev = state.prs?.chosen ?? null;
+  const next = await api.app('pr-remote', name).catch((err) => { toast('Couldn’t change the remote', { kind: 'error', detail: err.message }); return null; });
+  if (!next) return;
+  // The cached list came from the old remote.
+  if (state.repo) localStorage.removeItem(prCacheKey(state.repo.root));
+  setPrState(next);
+  if (next.active) refreshPrs();
+  toast(next.remote ? `Pull requests use ${next.remote.name}` : 'Pull requests use the default remote', { detail: next.remote ? `${next.remote.owner}/${next.remote.repo}` : null, action: { label: 'Undo', run: () => setPrRemote(prev) } });
+}
+function pickPrRemote() {
+  const st = state.prs;
+  if (!st?.choices?.length) return toast('This repository has no GitHub remote');
+  palette(() => [
+    { group: 'Remote for pull requests', label: 'Automatic', detail: 'origin when it is on GitHub, else the first GitHub remote', icon: st.chosen ? 'cloud' : 'check', run: () => setPrRemote(null) },
+    ...st.choices.map((c) => ({ group: 'Remote for pull requests', label: c.name, detail: `${c.owner}/${c.repo}`, icon: st.chosen === c.name ? 'check' : 'cloud', run: () => setPrRemote(c.name) })),
+  ], { placeholder: 'Remote for pull requests…' });
+}
+
 // ⌘⌥P: open PRs, newest update first; pick one to jump to its branch.
 function prList() {
   if (!state.prs?.active) return setupPrs();
@@ -3595,6 +3616,7 @@ function openPalette() {
     }
     add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
     if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
+    if (state.prs?.choices?.length > 1) add('Repository', 'Choose remote for pull requests…', pickPrRemote, { icon: 'cloud', kbd: keymap.keys('global.prRemote'), keywords: 'pr github gh remote origin fork upstream push' });
     add('App', 'Set up AI commit messages…', setupAi, { icon: 'sparkle', keywords: 'ai llm claude codex ollama provider off' });
     add('Repository', 'Manage remotes…', remotesSwitcher, { icon: 'cloud', kbd: keymap.keys('repo.remotes'), keywords: 'remote origin upstream fork url' });
     add('Repository', 'Add remote…', () => addRemote(), { icon: 'plus', keywords: 'remote new origin upstream fork' });
@@ -3952,6 +3974,7 @@ async function prefAct(row, value) {
   else if (id === 'sidebarExpanded') setSidebar({ ...state.sidebar, expanded: value });
   else if (id === 'resetPanes') resetPanes();
   else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prRemote') { await setPrRemote(value === PR_REMOTE_AUTO ? null : value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'shortcuts') leavePrefs(openShortcuts);
   else if (id === 'importShortcuts') await importShortcuts();
@@ -4303,6 +4326,7 @@ window.addEventListener('keydown', (e) => {
   if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.resetPanes') { e.preventDefault(); resetPanes(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
+  if (state.repo && id === 'global.prRemote') { e.preventDefault(); pickPrRemote(); return; }
   if (state.repo && id === 'global.prHide' && state.prs?.enabled && state.prs.remote) { e.preventDefault(); hidePrs(!state.prs.hidden); return; }
   if (state.repo && id === 'global.detail') {
     e.preventDefault();
