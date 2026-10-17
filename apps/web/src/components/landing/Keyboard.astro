@@ -7,7 +7,7 @@
 
 /** Legends under the keys that do something. A key listed here is lit. */
 const LEG: Record<string, string> = {
-  escape: 'back', 1: 'Review', 2: 'Map', p: 'send back', r: 'review', m: 'merge', x: 'clean up', w: 'worktree', o: 'checks', b: 'rebase',
+  escape: 'back', 1: 'Review', 2: 'Map', p: 'fix prompt', r: 'review', m: 'merge', x: 'clean up', w: 'worktree', o: 'checks', b: 'rebase',
   s: 'all', e: 'in progress', a: 'agents', c: 'conflicts', d: 'details', v: 'reviewed', '/': 'filter', enter: 'open', shift: '⇧P plan', meta: '⌘K ⌘Z',
   z: 'undo', k: 'palette', ' ': 'next step', arrowup: '', arrowdown: '',
 };
@@ -24,7 +24,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
 ---
 <section class="s wrap kb-sec" id="keys" aria-labelledby="keys-h">
   <h2 id="keys-h">Every action is one key away. <span class="soft">Try it.</span></h2>
-  <p class="lede">Catch up, review, send back and merge without reaching for the mouse. Every key can be rebound.</p>
+  <p class="lede">Catch up, review, fix stuck work and merge without reaching for the mouse. Every key can be rebound.</p>
 
   <div class="kbwin" data-kbwin aria-hidden="true">
     <div class="list">
@@ -180,7 +180,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
       if (S.pal) return 'Command palette: every command, with its key';
       return ({
         detail: `${num()} · ${ttl()}`,
-        send: `Send back ${num()}: the prompt is ready to copy`,
+        send: `Fix prompt for ${num()}: ready to copy`,
         review: `Reviewing ${num()} · <kbd>V</kbd> marks a file reviewed`,
         plan: 'Merge plan: #120, then #119, then #121',
       } as Record<string, string>)[S.pane];

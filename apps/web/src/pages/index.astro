@@ -19,7 +19,7 @@ import { PRICE_NOW, PRODUCT_NAME, SHOW_PRICING } from '../config';
 import '../components/landing/landing.css';
 
 const title = `${PRODUCT_NAME}: a keyboard-first Git client for Mac`;
-const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, send back what's stuck, and merge the rest in order. Local-first Mac app${SHOW_PRICING ? `, $${PRICE_NOW} once` : ''}.`;
+const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, get a fix prompt for what's stuck, and merge the rest in order. Local-first Mac app${SHOW_PRICING ? `, $${PRICE_NOW} once` : ''}.`;
 ---
 <Base title={title} description={description} ogImage="/og/home.png">
   <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />

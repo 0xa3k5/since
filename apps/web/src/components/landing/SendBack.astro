@@ -3,16 +3,16 @@ import AppShot from './AppShot.astro';
 import sendBack from '../../assets/app/send-back-dark.png';
 import { PRODUCT_NAME } from '../../config';
 ---
-<section class="s wrap rule fs" id="unblock" data-name="Send back" aria-labelledby="u-h">
+<section class="s wrap rule fs" id="unblock" data-name="Fix prompt" aria-labelledby="u-h">
   <div class="feat">
     <div class="copy">
-      <h2 id="u-h">Send stuck work back <span class="soft">in two keystrokes.</span></h2>
-      <p>When a PR conflicts or fails CI, {PRODUCT_NAME} says why in plain words. It also writes the prompt for you: which files, which PR on main touched them, which check failed and the last lines of its log. Copy it and paste it to whichever agent you use.</p>
+      <h2 id="u-h">A fix prompt for stuck work, <span class="soft">in two keystrokes.</span></h2>
+      <p>When a PR conflicts or fails CI, {PRODUCT_NAME} says why in plain words. It also writes the prompt for you: which files, which PR on main touched them, which check failed and the last lines of its log. Copy it and paste it to whichever agent you use, or fix it yourself.</p>
       <ul>
         <li>Templates for conflicts and CI failures, per repo</li>
         <li>Or post it as a PR comment, for agents that watch their PRs</li>
       </ul>
     </div>
-    <AppShot src={sendBack} alt="The Send back sheet for a stuck pull request: why it is stuck and the prompt to copy for its agent" />
+    <AppShot src={sendBack} alt="The Fix prompt sheet for a stuck pull request: why it is stuck and the prompt to copy for its agent" />
   </div>
 </section>
