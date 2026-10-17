@@ -96,6 +96,22 @@ test('stash and switch is one step: undo switches back and pops, redo stashes ag
   assert.equal(read('app.js'), 'mine\n');
 });
 
+test('redo with nothing to stash again refuses instead of adopting an unrelated stash', async () => {
+  const { dir, write, read, journal, head } = await repo();
+  write('app.js', 'other\n');
+  await git.stashPush(dir, { message: 'unrelated' });
+  write('app.js', 'mine\n');
+  await journal.autostash('Checkout feature', 'feature', 'Auto-stash on main before switching to feature', false);
+  await journal.step('undo');
+  assert.equal(read('app.js'), 'mine\n');
+  await git.run(dir, ['checkout', '--', 'app.js']); // the changes are cleared outside GitLanes
+  await assert.rejects(journal.step('redo'), /no changes to stash/);
+  assert.equal(await head(), 'main');
+  const stashes = await git.getStashes(dir);
+  assert.equal(stashes.length, 1, 'the unrelated stash is untouched');
+  assert.equal(stashes[0].message, 'On main: unrelated');
+});
+
 test('a switch that still fails pops the stash back and records nothing', async () => {
   const { dir, write, read, journal, head } = await repo();
   write('app.js', 'mine\n');
