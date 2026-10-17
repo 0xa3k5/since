@@ -263,3 +263,23 @@ test('a root commit reads its whole tree as its files (AK-287)', async () => {
   const sha = await commit(dir, 'a/one.txt', 'first');
   assert.deepEqual((await git.commitDiffs(dir, sha)).map((d) => d.path), ['a/one.txt']);
 });
+
+test('app:catchup options: default base, other branches and bad refs (AK-377)', async () => {
+  const { catchupOptions, WEEK } = require('../catchup-store');
+  const now = 1e12;
+  const cp = { sha: 'a'.repeat(40), date: now - 1000 };
+  let asked = 0;
+  const ctx = { defaultRef: async () => { asked++; return 'refs/remotes/origin/main'; }, checkpoint: () => cp, now };
+  const none = await catchupOptions(null, ctx);
+  assert.deepEqual([none.kind, none.isDefault, none.base, none.cp, none.since], ['checkpoint', true, undefined, cp, { sha: cp.sha, date: cp.date }]);
+  assert.equal(asked, 0); // no base: the default isn't looked up
+  const same = await catchupOptions({ base: 'refs/remotes/origin/main' }, ctx);
+  assert.deepEqual([same.kind, same.isDefault, same.base], ['checkpoint', true, undefined]);
+  const other = await catchupOptions({ base: 'refs/heads/feature' }, ctx);
+  assert.deepEqual([other.kind, other.isDefault, other.base, other.cp, other.since], ['week', false, 'refs/heads/feature', null, { date: now - WEEK }]);
+  const tag = await catchupOptions({ since: 'tag', tag: 'v1', base: 'refs/heads/feature' }, ctx);
+  assert.deepEqual([tag.kind, tag.since], ['tag', { ref: 'refs/tags/v1' }]);
+  await assert.rejects(catchupOptions({ base: 'refs/tags/v1' }, ctx), /not a branch/);
+  await assert.rejects(catchupOptions({ base: 'HEAD' }, ctx), /not a branch/);
+  await assert.rejects(catchupOptions({ nope: 1 }, ctx), /Invalid catch-up options/);
+});
