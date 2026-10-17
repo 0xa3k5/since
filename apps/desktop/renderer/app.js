@@ -2891,6 +2891,10 @@ function prDeskAction(id) {
   if (id === 'close') return closePr(pr, leave);
   if (id === 'checkout') return checkoutPr(pr, { worktree: true });
 }
+// Menu, ⌘K and shortcut Merge/Close: on the PR review page they act on its PR and leave the page
+// after, like its own buttons (AK-269).
+const mergePrCmd = () => (state.review?.pr ? prDeskAction('merge') : mergePr());
+const closePrCmd = () => (state.review?.pr ? prDeskAction('close') : closePr());
 // Review's split-view pane actions (review-pane.js, pr-review.js PANE_ACTIONS) on a row. Merge,
 // approve and close happen on GitHub (their dialogs say so); then the row re-stages and the
 // selection moves to the next row that needs you. Merge on a local branch is merge and tidy.
@@ -3533,8 +3537,8 @@ function prList() {
     { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => pickPr(false) },
     { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => pickPr(true) },
     { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: keymap.keys('repo.prApprove'), run: () => approvePr() },
-    { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: keymap.keys('repo.prMerge'), run: () => mergePr() },
-    { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: keymap.keys('repo.prClose'), run: () => closePr() },
+    { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: keymap.keys('repo.prMerge'), run: mergePrCmd },
+    { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: keymap.keys('repo.prClose'), run: closePrCmd },
     { group: 'Pull requests', label: 'Show in sidebar', icon: 'sidebar', run: () => openSidebarAt('prs') },
   ], { placeholder: 'Go to pull request…' });
 }
@@ -3768,8 +3772,8 @@ function openPalette() {
       add('Repository', 'Request changes on pull request…', () => requestChangesPr(), { icon: 'edit', kbd: keymap.keys(state.review?.pr ? 'review.changes' : 'repo.prChanges'), keywords: 'pr github gh review request changes reject' });
       add('Repository', 'Review pull request…', pickPrReview, { icon: 'diff', keywords: 'pr github gh review diff files inbox' });
       if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} in a new worktree`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree branch checkout' });
-      add('Repository', 'Merge pull request…', () => mergePr(), { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
-      add('Repository', 'Close pull request…', () => closePr(), { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
+      add('Repository', 'Merge pull request…', mergePrCmd, { icon: 'merge', kbd: keymap.keys('repo.prMerge'), keywords: 'pr github gh squash rebase merge' });
+      add('Repository', 'Close pull request…', closePrCmd, { icon: 'x', kbd: keymap.keys('repo.prClose'), keywords: 'pr github gh close' });
     }
     add('App', state.prs?.enabled ? 'Turn pull requests off' : 'Turn pull requests on', togglePrs, { icon: 'merge', kbd: keymap.keys('global.prs'), keywords: 'pr github gh enable disable everywhere' });
     if (state.prs?.enabled && state.prs.remote) add('Repository', state.prs.hidden ? 'Show pull requests in this repository' : 'Hide pull requests in this repository', () => hidePrs(!state.prs.hidden), { icon: 'eye', kbd: keymap.keys('global.prHide'), keywords: 'pr github gh hide show' });
@@ -4318,8 +4322,8 @@ const commands = {
   prCheckout: () => state.repo && pickPr(false),
   prWorktree: () => state.repo && pickPr(true),
   prApprove: () => state.repo && approvePr(),
-  prMerge: () => state.repo && mergePr(),
-  prClose: () => state.repo && closePr(),
+  prMerge: () => state.repo && mergePrCmd(),
+  prClose: () => state.repo && closePrCmd(),
   prChanges: () => state.repo && requestChangesPr(),
   licence: () => openLicence(),
   buy,
