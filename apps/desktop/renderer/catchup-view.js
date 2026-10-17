@@ -3,7 +3,7 @@ import { renderDiff } from './diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
-import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, readerKey, navPos, fastKeys } from './reader.js';
+import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, fastKeys } from './reader.js';
 import { authorsOf, messageAgent } from './review-rows.js';
 
 // Catch up (AK-365, was Review's catch-up card, AK-281): what landed on the base since your
@@ -431,7 +431,9 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
     const set = viewedOf(change.id);
     if (on) set.add(path); else set.delete(path);
     folds.delete(`${change.id}\0${path}`); // ticking folds it, unticking shows it again
-    replaceFile(path);
+    const old = [...readerFiles.children].find((x) => x.dataset.path === path);
+    if (on && old && !old.classList.contains('folded')) foldShut(old, reader, () => replaceFile(path));
+    else replaceFile(path);
   }
   // V: tick the first file not yet viewed.
   function markNextViewed() {
