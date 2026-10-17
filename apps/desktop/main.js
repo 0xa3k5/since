@@ -468,20 +468,29 @@ const prSettings = () => (prInit ||= (async () => {
   if (JSON.stringify(saved) !== JSON.stringify(s)) writeSettings({ github: s });
 })().catch(() => { prInit = null; }));
 const prEnabled = async (root) => { await prSettings(); return github.isEnabled(readSettings().github, root); };
+// The repository's remotes with the one chosen for PRs (Preferences → Pull requests) marked `pr: true`,
+// which github.pickRemote prefers. Every PR path reads remotes through here (AK-461).
+async function prRemotes(root) {
+  const chosen = github.chosenRemote(readSettings().github, root);
+  return (await git.getRemotes(root)).map((r) => (r.name === chosen ? { ...r, pr: true } : r));
+}
 // The user-wide switch works before a repository is open (the welcome screen's setup step).
 async function prState(e) {
   const root = sessions.get(e.sender.id)?.repo.root;
   await prSettings();
   const saved = readSettings().github;
-  const remote = root ? github.pickRemote(await git.getRemotes(root).catch(() => [])) : null;
+  const remotes = root ? await prRemotes(root).catch(() => []) : [];
+  const remote = github.pickRemote(remotes);
+  const choices = github.prCandidates(remotes);
+  const chosen = root ? github.chosenRemote(saved, root) : null;
   const enabled = github.normalize(saved).on === true;
   const hidden = root ? github.isHidden(saved, root) : false;
-  return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
+  return { enabled, hidden, active: enabled && !hidden && Boolean(remote), remote, choices, chosen: choices.some((c) => c.name === chosen) ? chosen : null, gh: github.ghInstalled() ? 'installed' : 'missing', installUrl: github.INSTALL_URL };
 }
 handle('app:pr-state', (e) => prState(e));
 handle('app:pr-detect', okCall(async (e) => {
   const s = sessions.get(e.sender.id);
-  return github.detect({ remotes: s ? await git.getRemotes(s.repo.root) : null });
+  return github.detect({ remotes: s ? await prRemotes(s.repo.root) : null });
 }));
 handle('app:pr-enable', async (e, on) => {
   const v = check.bool(on, 'pull requests on');
@@ -495,11 +504,22 @@ handle('app:pr-hide', async (e, hide) => {
   writeSettings({ github: github.setHidden(readSettings().github, session(e).repo.root, v) });
   return prState(e);
 });
+// The remote the PR features use in this repository; null goes back to the default.
+handle('app:pr-remote', async (e, name) => {
+  const root = session(e).repo.root;
+  if (name !== null) {
+    check.str(name, 'remote');
+    if (!github.prCandidates(await git.getRemotes(root)).some((r) => r.name === name)) throw new check.IpcArgError('Unknown remote');
+  }
+  await prSettings();
+  writeSettings({ github: github.setChosenRemote(readSettings().github, root, name) });
+  return prState(e);
+});
 handle('app:pr-list', okCall(async (e) => {
   const root = session(e).repo.root;
   // Checked before anything else, so nothing runs while it's off or hidden here.
   if (!(await prEnabled(root))) return null;
-  const remotes = await git.getRemotes(root);
+  const remotes = await prRemotes(root);
   // No GitHub remote: no PRs, quietly.
   if (!github.pickRemote(remotes)) return null;
   return github.listPrs({ enabled: true, remotes });
@@ -522,7 +542,7 @@ handle('app:lanes-list', async (e, opts) => {
   let inboxError = null;
   let prHeads = [];
   if (withPrs && (await prEnabled(root))) {
-    const remotes = await git.getRemotes(root);
+    const remotes = await prRemotes(root);
     if (github.pickRemote(remotes)) {
       // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
       // lane badges; merged PRs only add the "shipped" check.
@@ -599,7 +619,7 @@ handle('app:catchup', async (e, opts) => {
   let ci = null;
   let prError = null;
   if (withPrs && (await prEnabled(root))) {
-    const remotes = await git.getRemotes(root);
+    const remotes = await prRemotes(root);
     if (github.pickRemote(remotes)) {
       const remote = remotes.find((r) => res.base.startsWith(`${r.name}/`));
       const branch = remote ? res.base.slice(remote.name.length + 1) : res.base;
@@ -744,7 +764,7 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
   const s = session(e);
   const root = s.repo.root;
   if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
-  const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await git.getRemotes(root), number });
+  const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await prRemotes(root), number });
   const local = head.local;
   s.busy++;
   try {
@@ -781,7 +801,7 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
 async function prBranch(s, branch) {
   check.rev(branch, 'branch');
   const root = s.repo.root;
-  const remotes = await git.getRemotes(root);
+  const remotes = await prRemotes(root);
   const enabled = await prEnabled(root);
   const target = github.pickRemote(remotes);
   if (!enabled) throw Object.assign(new Error('Pull requests are off.'), { code: 'gh-off' });
