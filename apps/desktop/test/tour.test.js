@@ -50,6 +50,13 @@ test('rebase replays the feature branch onto a main commit, once', async () => {
   assert.equal(rebase(select(createTour(), 'f1')).last, 'no-rebase');
 });
 
+test('rebasing onto an older main commit puts the feature just above it', async () => {
+  const { createTour, select, rebase } = await load();
+  const s = rebase(select(createTour(), 'c1'));
+  assert.deepEqual(shas(s), ['c3', 'c2', 'f2', 'f1', 'c1']);
+  assert.equal(s.commits.find((c) => c.sha === 'f1').parent, 'c1');
+});
+
 test('cherry-pick copies a feature commit onto main and moves main there', async () => {
   const { createTour, select, cherryPick, undoTip } = await load();
   const s = cherryPick(select(createTour(), 'f1'));

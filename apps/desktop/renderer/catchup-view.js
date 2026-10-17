@@ -1,4 +1,4 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
+import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from './lanes.js';
@@ -30,7 +30,7 @@ import { authorsOf, messageAgent } from './review-rows.js';
 // { stuck, ready } from Review (lanes-view.js reviewCounts); onReview() opens Review; onCount(n)
 // reports what landed since the checkpoint, for the sidebar badge.
 const short = (s) => (s || '').slice(0, 7);
-const ago = (ms) => { const s = timeAgo(ms / 1000); return /^\d/.test(s) ? `${s} ago` : s; };
+const ago = (ms) => agoSec(ms / 1000);
 const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 const AGO_TICK = 30e3;
 const READ_DELAY = 120; // ↑/↓ held down: the reader waits for the selection to settle

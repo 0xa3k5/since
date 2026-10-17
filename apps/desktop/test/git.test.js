@@ -194,7 +194,6 @@ test('remoteLabel', () => {
   assert.equal(git.remoteLabel('https://user:tok@example.com'), 'https://example.com');
   assert.equal(git.remoteLabel('ssh://git:secret@example.com:2222'), 'ssh://example.com:2222');
   assert.equal(git.remoteLabel('https://u:p@ss@example.com'), 'https://example.com');
-
 });
 
 test('getConfig parses scopes, multi-line and valueless entries', async () => {

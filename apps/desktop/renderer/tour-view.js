@@ -58,7 +58,7 @@ export function tourView({ mod }) {
     const rows = h('div.tour-rows', { role: 'listbox', 'aria-label': 'Pretend repository' },
       s.commits.map((c) => h('button.tour-row' + (c.sha === s.tip ? '.tip' : '') + (c.sha === s.sel && s.lesson !== 'graph' ? '.sel' : ''), {
         role: 'option',
-        'aria-selected': String(c.sha === s.sel),
+        'aria-selected': String(c.sha === s.sel && s.lesson !== 'graph'),
         'aria-label': s.lesson === 'graph' && c.sha !== s.tip ? `Move ${TOUR_BRANCH} to ${c.message}` : c.message,
         'data-sha': c.sha,
         onclick: () => onRow(c.sha),
@@ -127,8 +127,11 @@ export function tourView({ mod }) {
     const search = a?.classList?.contains('tour-search');
     s = nextState;
     render();
-    if (sha) stage.querySelector(`[data-sha="${CSS.escape(sha)}"]`)?.focus();
-    else if (search) stage.querySelector('.tour-search')?.focus();
+    const target = (sha && stage.querySelector(`[data-sha="${CSS.escape(sha)}"]`)) || (search && stage.querySelector('.tour-search'));
+    // The row was squashed away, or a search result opened another lesson: land on the selection (or the first row)
+    // so the keys keep working instead of focus falling back to <body>.
+    if (target) target.focus();
+    else if (sha || search) (stage.querySelector(`[data-sha="${CSS.escape(s.sel || '')}"]`) || stage.querySelector('.tour-row, .tour-search'))?.focus();
   }
 
   tabs.addEventListener('keydown', (e) => {

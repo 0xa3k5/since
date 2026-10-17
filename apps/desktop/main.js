@@ -55,7 +55,7 @@ function writeSettings(patch) {
 const currentTheme = () => (THEMES.includes(nativeTheme.themeSource) ? nativeTheme.themeSource : 'system');
 // Window chrome colours, matching --bg in styles.css.
 const windowColors = () => (nativeTheme.shouldUseDarkColors
-  ? { bg: '#0e0b09', symbol: '#a59689' }
+  ? { bg: '#080707', symbol: '#a19e9b' }
   : { bg: '#faf7f4', symbol: '#6b5e54' });
 
 function setTheme(mode, { announce = false } = {}) {
