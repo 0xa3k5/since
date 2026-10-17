@@ -48,3 +48,12 @@ test('inline: snake_case and 2 * 3 * 4 stay text; unsafe links stay text; images
   assert.deepEqual(inline('[x](javascript:alert(1))')[0].t, 'text');
   assert.deepEqual(inline('![shot](https://x.dev/a.png)'), [{ t: 'link', href: 'https://x.dev/a.png', children: [{ t: 'text', text: 'shot' }] }]);
 });
+
+test('inline: snake_case-heavy text parses in linear time (AK-406)', async () => {
+  const { inline } = await load();
+  const text = 'a_b '.repeat(12500); // 50 KB
+  const t = performance.now();
+  const out = inline(text);
+  assert.ok(performance.now() - t < 50, 'under 50 ms');
+  assert.deepEqual(out, [{ t: 'text', text }]);
+});

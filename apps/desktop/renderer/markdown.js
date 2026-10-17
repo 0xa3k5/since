@@ -68,7 +68,9 @@ export function parse(src = '') {
   return blocks;
 }
 
-const INLINE = /(`+)([\s\S]*?[^`])\1(?!`)|(\*\*|__)(?=\S)([\s\S]*?\S)\3|(\*|_)(?=\S)([\s\S]*?\S)\5(?![\w*])|~~(?=\S)([\s\S]*?\S)~~|(!?)\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"*_~])/;
+// _ inside a word (snake_case) isn't emphasis: the lookbehind skips it in the regex itself, so the
+// parse stays linear on identifier-heavy text (AK-406).
+const INLINE = /(`+)([\s\S]*?[^`])\1(?!`)|(\*\*|__)(?=\S)([\s\S]*?\S)\3|(\*|(?<!\w)_)(?=\S)([\s\S]*?\S)\5(?![\w*])|~~(?=\S)([\s\S]*?\S)~~|(!?)\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"*_~])/;
 
 // text → inline nodes: { t: 'text' | 'br' | 'code' | 'strong' | 'em' | 'del' | 'link', … }.
 export function inline(text = '') {
@@ -78,8 +80,6 @@ export function inline(text = '') {
   while (rest) {
     const m = rest.match(INLINE);
     if (!m) { plain(rest); break; }
-    // _ inside a word (snake_case) isn't emphasis.
-    if (m[5] === '_' && m.index > 0 && /\w/.test(rest[m.index - 1])) { plain(rest.slice(0, m.index + 1)); rest = rest.slice(m.index + 1); continue; }
     if (m.index) plain(rest.slice(0, m.index));
     if (m[1]) out.push({ t: 'code', text: m[2].replace(/^ (.*) $/, '$1') });
     else if (m[3]) out.push({ t: 'strong', children: inline(m[4]) });
