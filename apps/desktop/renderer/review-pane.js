@@ -289,7 +289,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     refresh: () => view?.refresh(),
     // The row changed under the pane (approved, CI finished): new header, same diff and ticks.
     update(r, c) {
-      const moved = r.pr?.head !== row.pr?.head || r.pr?.updatedAt !== row.pr?.updatedAt;
+      const moved = r.pr?.head !== row.pr?.head || r.pr?.updatedAt !== row.pr?.updatedAt || r.pr?.checks !== row.pr?.checks;
       row = r; ctx = c;
       if (moved) loadEvidence();
       renderHead();

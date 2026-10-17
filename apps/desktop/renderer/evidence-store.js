@@ -13,7 +13,8 @@ const MAX = 200;
 
 const trim = (m) => { while (m.size > MAX) m.delete(m.keys().next().value); };
 const factsKey = (base, head) => `${base}...${head}`;
-const evidenceKey = (remote, pr) => `${remote ?? ''}#${pr.number}@${pr.head || pr.updatedAt || ''}`;
+// The rollup state is in the key too, so a head whose checks moved on (running → failed) is asked again.
+const evidenceKey = (remote, pr) => `${remote ?? ''}#${pr.number}@${pr.head || pr.updatedAt || ''}:${pr.checks || ''}`;
 
 export function factsFor(git, base, head) {
   if (!git || !base || !head) return Promise.resolve(null);
