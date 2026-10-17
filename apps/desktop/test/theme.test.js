@@ -120,3 +120,7 @@ test('retired indigo accent is gone', () => {
     assert.doesNotMatch(fs.readFileSync(p, 'utf8'), retired, f);
   }
 });
+
+test('Send back and Merge plan reasons keep their small warn style (AK-380)', () => {
+  assert.match(css, /^\.review-reason \{ font-size: 12px; color: var\(--warn\); \}$/m);
+});

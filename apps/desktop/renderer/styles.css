@@ -824,6 +824,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row.staged .list-title { font-weight: var(--fw-medium); }
 .review-row.staged .review-row-num { display: inline-flex; align-items: center; font-size: 12px; color: var(--text-3); }
 .review-row.staged .review-row-num > .icon { color: var(--text-4); }
+/* Send back's "Why it's stuck" and Merge plan's failed/stopped lines (AK-380); Review's rows override it below. */
+.review-reason { font-size: 12px; color: var(--warn); }
 .review-row.staged .list-sub, .review-row.staged .review-reason { margin-top: 1px; font-size: 12px; color: var(--text-3); }
 .review-row.staged .review-reason { color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .review-row.staged > .review-row-age { font-size: 12px; }
