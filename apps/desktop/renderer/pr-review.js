@@ -91,7 +91,7 @@ export function fixActions(row, { base = null, conflicts = false } = {}) {
   if (pr && !lane && (conflicts || pr.mergeState === 'behind')) out.push({ id: 'updateBranch', key: 'review.updateBranch', listKey: 'lanes.updateBranch', label: 'Update branch…', icon: 'pull', note: `Merges or rebases ${base || 'the base'} into it on GitHub: ⌘Z can’t undo it`, remote: true });
   if (conflicts) out.push({ id: 'showConflicts', key: 'review.showConflicts', listKey: 'lanes.showConflicts', label: 'Conflicts', icon: 'diff', note: 'Show the conflicting files' });
   if (pr?.checks === 'failure' && pr.url) out.push({ id: 'checks', key: 'review.checks', listKey: 'lanes.checks', label: 'Checks', icon: 'checks', note: 'Open the failing checks in your browser' });
-  out.push({ id: 'sendBack', key: 'review.sendBack', listKey: 'lanes.sendBack', label: 'Send back…', icon: 'sparkle', note: 'A ready-made prompt for whoever made it' });
+  out.push({ id: 'sendBack', key: 'review.sendBack', listKey: 'lanes.sendBack', label: 'Fix prompt…', icon: 'sparkle', note: 'A ready-made prompt to fix it, for you or an agent' });
   return out;
 }
 
