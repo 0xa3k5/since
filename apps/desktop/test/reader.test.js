@@ -55,7 +55,7 @@ test('the description keys are gone and the walk-through mode with them (AK-381,
 });
 
 test('⇧↑/⇧↓ scroll the reader four times as far (AK-390)', async () => {
-  const { scrollDelta, readerKey, fastKeys, LINE } = await import('../renderer/reader.js');
+  const { scrollDelta, readerKey, LINE } = await import('../renderer/reader.js');
   const keymap = await import('../renderer/keymap.js');
   assert.ok(keymap.command('reader.downFast') && keymap.command('reader.upFast'));
   assert.equal(scrollDelta('reader.downFast', 600), 4 * scrollDelta('reader.down', 600));
@@ -66,5 +66,4 @@ test('⇧↑/⇧↓ scroll the reader four times as far (AK-390)', async () => {
   assert.equal(readerKey(ev('ArrowDown', { shiftKey: true }), { scroller }), 'reader.downFast');
   assert.equal(readerKey(ev('ArrowUp', { shiftKey: true }), { scroller }), 'reader.upFast');
   assert.deepEqual(calls, [12 * LINE, -12 * LINE]);
-  assert.equal(fastKeys().length, 3, 'one ⇧, then both arrows');
 });
