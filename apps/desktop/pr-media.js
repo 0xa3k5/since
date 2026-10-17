@@ -89,6 +89,9 @@ function createMedia({ token, fetchImpl = (...a) => fetch(...a) } = {}) {
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length > MAX_IMAGE) throw new Error('Image is too large.');
     const data = `data:${type};base64,${buf.toString('base64')}`;
+    // Two loads of the same id can overlap; count the bytes of the one kept, not both.
+    if (images.has(id)) bytes -= images.get(id).length;
+    images.delete(id);
     images.set(id, data);
     bytes += data.length;
     while (bytes > MAX_BYTES && images.size) {

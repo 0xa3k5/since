@@ -85,3 +85,11 @@ test('video(): streams with Range passed through, never cached; unknown ids are 
   assert.equal((await media.video(new Request(`gitlanes-media://video/${'0'.repeat(32)}`))).status, 404);
   await assert.rejects(media.image(v.id), /Unknown image/);
 });
+
+test('image(): two overlapping loads of one image count its bytes once', async () => {
+  const { fetchImpl } = fakeFetch(() => png(10));
+  const media = createMedia({ token: async () => '', fetchImpl });
+  const [item] = media.register([{ url: 'https://github.com/user-attachments/assets/bbb', kind: 'image' }], 'github.com');
+  const [a] = await Promise.all([media.image(item.id), media.image(item.id)]);
+  assert.deepEqual(media.stats(), { items: 1, images: 1, bytes: a.length });
+});
