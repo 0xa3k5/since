@@ -4,7 +4,7 @@
 // while pull requests are on. The clipboard is written only by Copy prompt.
 import { h, icon, kbd, toast, dialog, confirm } from './ui.js';
 import * as keymap from './keymap.js';
-import { TEMPLATE_IDS, TEMPLATE_LABELS, PLACEHOLDERS, templateFor, buildPrompt } from './send-back.js';
+import { TEMPLATE_IDS, TEMPLATE_LABELS, PLACEHOLDERS, templateFor, buildPrompt, appendLog } from './send-back.js';
 import { stuckReason } from './review-rows.js';
 
 const FROM = { repo: 'this repository’s', default: 'your default', builtin: 'the built-in' };
@@ -37,15 +37,16 @@ async function show({ row, base, prsOn, remote, call, git }) {
   const select = h('select.input', { 'aria-label': 'Template', onchange: () => { id = select.value; refill(); } },
     TEMPLATE_IDS.map((t) => h('option', { value: t, selected: t === id }, TEMPLATE_LABELS[t])));
   const syncSource = () => { source.textContent = templates ? `From ${FROM[templates[id].from]} template` : ''; };
-  // Rebuilding drops hand edits, so ask first once there are some.
+  // Rebuilding drops hand edits, so ask first once there are some. → false when the user kept them.
   async function refill() {
-    if (edited && !(await confirm('Replace your edits?', 'The prompt is rebuilt from the template.', { submit: 'Replace', destructive: false }))) return;
+    if (edited && !(await confirm('Replace your edits?', 'The prompt is rebuilt from the template.', { submit: 'Replace', destructive: false }))) return false;
     area.value = text();
     edited = false;
     syncSource();
+    return true;
   }
 
-  const title = pr ? `Send back #${pr.number}` : `Send back ${row.branch || row.title}`;
+  const title = pr ? `Fix prompt for #${pr.number}` : `Fix prompt for ${row.branch || row.title}`;
   const logBtn = prsOn && pr?.checks === 'failure' && remote ? h('button.btn.ghost', { type: 'button', title: 'Fetch the last 20 lines of the failed GitHub Actions log (gh run view --log-failed)', onclick: () => addLog() }, icon('external', 12), 'Add failed CI log') : null;
   const postBtn = prsOn && pr && remote ? h('button.btn.ghost', { type: 'button', title: `Post the prompt as a comment on #${pr.number} (gh pr comment)`, onclick: () => post() }, icon('external', 12), 'Post as PR comment') : null;
   const copyBtn = h('button.btn.primary', { type: 'submit' }, icon('copy', 12), 'Copy prompt', kbd(...keymap.keys('dialog.submit')));
@@ -90,7 +91,7 @@ async function show({ row, base, prsOn, remote, call, git }) {
     if (res?.error) return toast('Couldn’t fetch the failed log', { kind: 'error', detail: res.error.message });
     if (!res.ok.log) return toast('No failed GitHub Actions log to add', { detail: 'The failing checks may run outside GitHub Actions.' });
     log = res.ok.log;
-    await refill();
+    if (!(await refill())) area.value = appendLog(area.value, log); // kept the edits: the log goes at the end
   }
   async function post() {
     if (!(await confirm(`Post the prompt on #${pr.number}?`, 'It’s added as a comment on GitHub, where everyone with access sees it. This can’t be undone from GitLanes.', { submit: 'Post comment', destructive: false }))) return;
@@ -115,8 +116,8 @@ async function show({ row, base, prsOn, remote, call, git }) {
     });
     if (!v) return;
     try { templates = await call('sendback-template-save', id, v.text, v.scope); } catch (e) { return toast('Couldn’t save the template', { kind: 'error', detail: e.message }); }
-    edited = false;
-    area.value = text();
+    if (edited) await refill(); // asks before dropping hand edits
+    else area.value = text();
     syncSource();
     toast(`Saved the ${TEMPLATE_LABELS[id]} template`, { kind: 'success' });
   }

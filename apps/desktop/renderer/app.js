@@ -2746,6 +2746,7 @@ function openCatchup() {
     load: (opts) => api.app('catchup', opts),
     mark: (to) => api.app('catchup-mark', to),
     prsOn: () => Boolean(state.prs?.active),
+    markAgents: () => state.show.agentLanes !== false,
     refs: () => state.refs,
     counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
     onReview: () => setView('lanes'),
@@ -2788,6 +2789,7 @@ function openBranches() {
       run: (items, label) => git('cleanupLanes', items, { __label: label }),
       runRemote: (names) => git('deleteRemoteBranches', names),
       days: cleanupPrefs().days,
+      onDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
       onProgress: (fn) => api.on('cleanup:progress', fn),
       onDone: refreshAll,
       onUndo: undo,
@@ -3855,7 +3857,7 @@ function openPalette() {
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue' });
     const stuckSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stuckSelection() : null;
-    if (stuckSel) add('Review', `Send back ${stuckSel.pr ? `#${stuckSel.pr.number}` : stuckSel.title}…`, () => lanesPage.sendBack(stuckSel.pr?.number ?? null), { icon: 'copy', kbd: keymap.keys('lanes.sendBack'), keywords: 'send back stuck prompt agent conflict ci failing copy fix' });
+    if (stuckSel) add('Review', `Fix prompt for ${stuckSel.pr ? `#${stuckSel.pr.number}` : stuckSel.title}…`, () => lanesPage.sendBack(stuckSel.pr?.number ?? null), { icon: 'copy', kbd: keymap.keys('lanes.sendBack'), keywords: 'fix prompt ai prompt copy prompt send back stuck agent conflict ci failing' });
     const paneSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.paneSelection() : null;
     if (paneSel) {
       const t = paneSel.row.pr ? `#${paneSel.row.pr.number}` : paneSel.row.title;

@@ -39,7 +39,7 @@ export function openMergePlan({ ready, others = [], base, remote, call, onSendBa
   requestAnimationFrame(() => overlay.classList.add('in'));
 
   const label = (n) => h('span.mergeplan-pr', null, h('b', null, `#${n}`), ` ${titles.get(n) || ''}`);
-  const sendBackLink = (n) => h('button.btn.ghost.small', { type: 'button', title: `Open #${n}’s Send back sheet`, onclick: () => { close(); onSendBack(n); } }, 'Send back now');
+  const sendBackLink = (n) => h('button.btn.ghost.small', { type: 'button', title: `Open #${n}’s fix prompt`, onclick: () => { close(); onSendBack(n); } }, 'Fix prompt');
 
   function render() {
     const order = plan?.order || [];

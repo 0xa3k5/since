@@ -69,7 +69,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   // Labelled buttons for the actions you take most, icon buttons for the rest, the primary one last.
   // The pane is a size container (styles.css): narrower, Merge and Approve drop their labels, then
   // everything but the primary button moves into the ⋯ menu. Wider panes whose buttons still don't fit
-  // (long labels, a Send back button) never clip one: GitHub goes icon-only first, then Merge and Approve.
+  // (long labels, a Fix prompt button) never clip one: GitHub goes icon-only first, then Merge and Approve.
   const ro = new ResizeObserver(() => fit());
   ro.observe(head);
   function fit() {
@@ -80,11 +80,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-shrink');
     // Still too wide: everything but the primary button goes into ⋯, so nothing runs off the edge.
     const strip = bar.parentElement;
-    strip.classList.remove('fit-more', 'wrapped');
+    strip.classList.remove('fit-more');
     if (bar.scrollWidth > bar.clientWidth) strip.classList.add('fit-more');
-    // Wrapped under the label: the buttons start at the left edge.
-    const why = strip.querySelector('.review-pane-status-why');
-    if (why && bar.offsetTop > why.offsetTop + 4) strip.classList.add('wrapped');
   }
 
   function renderHead() {
@@ -104,7 +101,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     ].filter(Boolean);
     const button = (a) => {
       const label = a.label.replace('…', '');
-      const note = a.note || (a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt for whoever made it' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`);
+      const note = a.note || (a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt to fix it, for you or an agent' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`);
       const onclick = () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx));
       const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github', 'rebase', 'checkout', 'updateBranch'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
       const tip = `${tipFor(a.label, a.key)}\n${note}`;
@@ -150,7 +147,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   }
 
   // The status strip (AK-379): where the row stands on the left (Stuck and why, Ready to merge, In
-  // progress), its actions on the right with the primary one last. Tinted red when stuck, green when ready.
+  // progress) as a red or green pill, its actions on the right with the primary one last, one row (AK-502).
   // "Stuck  conflicts with main in a.js · CI ✗ lint     [Conflicts F] [Checks O] … [Rebase onto main B]"
   function statusStrip(buttons) {
     const stage = row.stage;

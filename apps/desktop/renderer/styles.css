@@ -831,6 +831,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row.staged .list-title { font-weight: var(--fw-medium); }
 .review-row.staged .review-row-num { display: inline-flex; align-items: center; font-size: 12px; color: var(--text-3); }
 .review-row.staged .review-row-num > .icon { color: var(--text-4); }
+/* Send back's "Why it's stuck" and Merge plan's failed/stopped lines (AK-380); Review's rows override it below. */
+.review-reason { font-size: 12px; color: var(--warn); }
 .review-row.staged .list-sub, .review-row.staged .review-reason { margin-top: 1px; font-size: 12px; color: var(--text-3); }
 .review-row.staged .review-reason { color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .review-row.staged > .review-row-age { font-size: 12px; }
@@ -999,21 +1001,20 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }
-/* Status strip (review-pane.js statusStrip, AK-379): where it stands on the left, the actions on the
-   right with the primary one last; tinted red when stuck, green when ready to merge. */
-.review-pane-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 22px 12px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; line-height: 1.45; }
-.review-pane-status.stuck { border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 6%, transparent); }
-.review-pane-status.ready { border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 6%, transparent); }
-.review-pane-status-why { display: flex; align-items: baseline; gap: 8px; flex: 1 1 200px; min-width: 0; color: var(--text-2); }
-.review-pane-status-label { display: inline-flex; align-items: center; gap: 5px; flex: none; align-self: center; font-weight: var(--fw-medium); color: var(--text-2); }
-.review-pane-status.stuck .review-pane-status-label { color: var(--red); }
-.review-pane-status.ready .review-pane-status-label { color: var(--green); }
-.review-pane-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Status strip (review-pane.js statusStrip, AK-379): one row, always (AK-502). Where it stands on the
+   left as a small tinted pill (red stuck, green ready), the reason after it, the actions on the right
+   with the primary one last. The strip itself stays neutral: colour lives in the pill only. Out of
+   room, the reason gives way first (down to a few words), then fit() shrinks the buttons. */
+.review-pane-status { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; margin: 0 22px 12px; padding: 7px 8px 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); font-size: 12.5px; line-height: 1.45; }
+.review-pane-status-why { display: contents; }
+.review-pane-status-label { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 22px; padding: 0 8px; border-radius: 999px; font-weight: var(--fw-medium); color: var(--text-2); background: var(--bg-active); }
+.review-pane-status.stuck .review-pane-status-label { color: var(--red); background: color-mix(in srgb, var(--red) 13%, transparent); }
+.review-pane-status.ready .review-pane-status-label { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
+.review-pane-status-text { flex: 1 1 0; min-width: 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 /* Right-aligned on the bar itself, not via the first child's margin: that child may be a hidden
-   secondary (fit-more), which left the stuck strip's buttons floating mid-row. `safe` falls back to
-   start on overflow, so fit() still sees scrollWidth grow. */
-.review-pane-status > .review-pane-actions { flex: 1 1 auto; justify-content: safe flex-end; gap: 6px; margin-top: 0; }
-.review-pane-status.wrapped > .review-pane-actions { justify-content: flex-start; }
+   secondary (fit-more), which left the stuck strip's buttons floating mid-row. It shrinks below its
+   buttons only once the reason is down to its minimum, so fit() sees scrollWidth grow. */
+.review-pane-status > .review-pane-actions { flex: 0 1 auto; margin-left: auto; justify-content: flex-end; gap: 6px; margin-top: 0; }
 .review-pane-status.fit-more .pane-secondary { display: none; }
 .review-pane-status.fit-more .pane-more { display: inline-flex; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
@@ -1459,6 +1460,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .cleanup-counts { color: var(--text-2); }
 .cleanup-remote-all { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); }
 .cleanup-remote-all.disabled { opacity: 0.55; }
+.cleanup-days { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; }
+.cleanup-days input { width: 4.5em; }
 .cleanup-undo { margin-left: auto; font-size: 12px; color: var(--text-4); }
 
 /* Review: one calm line under a short Needs you list (AK-396). */

@@ -238,3 +238,10 @@ test('summarize counts worktrees, branches, dirty lanes and remote deletes', asy
   assert.equal(remoteOf(lanes[1]), null);
   assert.deepEqual(cleanupItem(lanes[0]), { branch: 'a', head: 'h', worktree: '/w/a', force: true });
 });
+
+test('the untouched days field takes whole days from 1 to 365 (AK-402)', async () => {
+  const { daysValue } = await load();
+  assert.equal(daysValue('14'), 14);
+  assert.equal(daysValue(' 365 '), 365);
+  for (const bad of ['', '0', '-3', '2.5', '366', 'abc', null]) assert.equal(daysValue(bad), null, String(bad));
+});

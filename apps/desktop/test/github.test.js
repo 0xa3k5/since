@@ -267,6 +267,9 @@ test('PR actions: gh arguments', async () => {
   const run = async (fn, o) => { const { calls, exec } = recorder(''); await github[fn]({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec, ...o }); return calls[0].args; };
   assert.deepEqual(await run('mergePr'), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--squash']);
   assert.deepEqual(await run('mergePr', { method: 'rebase', deleteBranch: true, admin: true }), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--rebase', '--delete-branch', '--admin']);
+  assert.deepEqual(await run('mergePr', { matchHead: 'abc123' }), ['pr', 'merge', '7', '--repo', 'github.com/acme/app', '--squash', '--match-head-commit', 'abc123']);
+  assert.equal(github.headMoved(new Error('GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)')), true);
+  assert.equal(github.headMoved(new Error('Pull request is not mergeable')), false);
   assert.deepEqual(await run('approvePr'), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve']);
   assert.deepEqual(await run('approvePr', { body: ' --admin looks good ' }), ['pr', 'review', '7', '--repo', 'github.com/acme/app', '--approve', '--body=--admin looks good']);
   assert.deepEqual(await run('updatePrBranch'), ['pr', 'update-branch', '7', '--repo', 'github.com/acme/app']);

@@ -134,3 +134,9 @@ test('baseTouches: commits on the base since the branch left it, per file, with 
   assert.deepEqual(t['b.txt'], []); // changed before the branch left main
   assert.deepEqual(await git.baseTouches(dir, 'nope', 'main', ['a.txt']), {});
 });
+
+test('a log fetched over kept edits goes at the end of the prompt (AK-289)', async () => {
+  const { appendLog } = await load();
+  assert.equal(appendLog('My edits\n\n', 'err 1\nerr 2\n'), 'My edits\n\nLast lines of the failed log:\n```\nerr 1\nerr 2\n```');
+  assert.equal(appendLog('My edits', '  '), 'My edits');
+});

@@ -69,6 +69,11 @@ test('ahead/behind label and PR carry-over on local refreshes', async () => {
   const kept = keepPrs([lane('a'), lane('b')], [lane('a', { pr })]);
   assert.equal(kept[0].pr, pr);
   assert.equal(kept[1].pr, null);
+  // A merged PR's reason survives a git-only load while the head is the same (AK-338).
+  const done = { reason: 'pr', pr: 12 };
+  const again = keepPrs([lane('a', { done: { reason: 'net-patch', sha: 'b'.repeat(40) } }), lane('b', { head: 'c'.repeat(40) })], [lane('a', { done, prTitle: 'Fix' }), lane('b', { done })]);
+  assert.deepEqual([again[0].done, again[0].prTitle], [done, 'Fix']);
+  assert.equal(again[1].done, undefined);
 });
 
 test('predicted conflicts: both lanes of a pair get them, they sort with "needs you" and block ready', async () => {
@@ -160,4 +165,13 @@ test('the PR load when a repo opens and Reload share one call per repo', async (
   assert.equal(s.pending('/a'), null);
   await assert.rejects(s.run('/c', () => { throw new Error('gh'); }), /gh/);
   assert.equal(s.pending('/c'), null);
+});
+
+test('send back #N waits for the lanes, and for the PR inbox with PRs on (AK-289)', async () => {
+  const { sendBackWaits } = await load();
+  assert.equal(sendBackWaits({ loaded: false, prsOn: false, inbox: null, inboxFailed: false }), true);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: null, inboxFailed: false }), true);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: { prs: [] }, inboxFailed: false }), false);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: null, inboxFailed: true }), false);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: false, inbox: null, inboxFailed: false }), false);
 });
