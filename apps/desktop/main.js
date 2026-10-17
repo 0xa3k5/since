@@ -1199,7 +1199,9 @@ function buildMenu() {
           ],
         },
         { type: 'separator' },
-        { role: 'reload' }, ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' }]), { role: 'togglefullscreen' },
+        // No window reload in packaged builds: ⌘R stays free for Review's reload, and a window reload drops
+        // in-memory state (AK-362). Dev builds keep it on F5.
+        ...(app.isPackaged ? [] : [{ role: 'reload', accelerator: 'F5' }, { role: 'toggleDevTools' }]), { role: 'togglefullscreen' },
       ],
     },
     {
