@@ -2737,6 +2737,7 @@ function openCatchup() {
     load: (opts) => api.app('catchup', opts),
     mark: (to) => api.app('catchup-mark', to),
     prsOn: () => Boolean(state.prs?.active),
+    markAgents: () => state.show.agentLanes !== false,
     refs: () => state.refs,
     counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
     onReview: () => setView('lanes'),

@@ -26,7 +26,7 @@ import { authorsOf, messageAgent } from './review-rows.js';
 // With PRs off it's git log alone.
 //
 // load(opts) → app:catchup; mark(to) → app:catchup-mark (returns the checkpoint it replaced);
-// git(method, ...args) reads a change (commitDiffs, commit); prsOn() reads the setting; counts() →
+// git(method, ...args) reads a change (commitDiffs, commit); prsOn() and markAgents() read the settings; counts() →
 // { stuck, ready } from Review (lanes-view.js reviewCounts); onReview() opens Review; onCount(n)
 // reports what landed since the checkpoint, for the sidebar badge.
 const short = (s) => (s || '').slice(0, 7);
@@ -46,7 +46,7 @@ const DEFAULT_SINCE = { since: 'checkpoint' };
 // What the reader read, per commit, for this repo: sha → Promise<{ diffs, message }>.
 const reads = new Map();
 
-export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
+export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = () => true, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
   openRepo = repo;
   if (cache && !prsOn() && cache.extra) cache = { ...cache, res: null, extra: null, loadedAt: null };
@@ -361,7 +361,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     const pr = e.kind === 'pr';
     const num = pr ? `#${e.number}` : short(e.sha);
     // Who made it (AK-390): the commit's author, + the agent its message's trailers name once it's read.
-    const authors = authorsOf({ person: e.author ? { name: e.author } : null, agent: change?.id === e.id ? messageAgent(change.message) : null });
+    const authors = authorsOf({ person: e.author ? { name: e.author } : null, agent: change?.id === e.id ? messageAgent(change.message) : null, agents: markAgents() });
     const top = readerHead({
       num, numTip: e.sha, title: e.title, nav: { ...navPos(entries, e.id), onStep: step },
       authors,
