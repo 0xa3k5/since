@@ -1124,10 +1124,17 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .prefs-nav-item:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
 .prefs-nav-item[aria-current="true"] { color: var(--text); background: var(--bg-active); }
 .prefs-nav-item:disabled { opacity: .4; }
-.prefs-list { flex: 1; min-width: 0; overflow-y: auto; padding: 6px; }
-.prefs-section + .prefs-section { margin-top: 6px; }
-.prefs-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
+.prefs-list { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 16px 16px; }
+.prefs-section + .prefs-section { margin-top: 18px; }
+.prefs-heading { margin: 0; padding: 12px 2px 6px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-2); }
+/* A section's rows sit in one bordered group, split by hairlines. */
+.prefs-group { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--text) 1.5%, transparent); }
+.prefs-group > * + * { border-top: 1px solid var(--border); }
+.prefs-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 7px 12px; cursor: pointer; }
+.prefs-row:hover { background: var(--bg-hover); }
 .prefs-row.active { background: var(--bg-active); }
+.prefs-subhead { padding: 7px 12px 5px; font-size: 11px; font-weight: var(--fw-strong); color: var(--text-3); background: color-mix(in srgb, var(--text) 2.5%, transparent); }
+.prefs-subhead span { font-weight: normal; color: var(--text-4); }
 .prefs-icon { flex: none; display: flex; color: var(--text-3); }
 .prefs-move { display: flex; align-items: center; gap: 2px; }
 .prefs-move .switch { margin-left: 8px; }
@@ -1135,8 +1142,10 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .prefs-row:hover .prefs-move .icon-btn, .prefs-row.active .prefs-move .icon-btn { opacity: 1; }
 .prefs-move .icon-btn:disabled { opacity: 0 !important; pointer-events: none; }
 .prefs-info { flex: none; max-width: 50%; overflow: hidden; font-size: 12px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
-.prefs-config { min-height: 30px; gap: 10px; font-size: 12px; }
-.prefs-key { flex: none; max-width: 45%; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.prefs-config { min-height: 30px; gap: 12px; font-size: 12px; }
+.prefs-group > .prefs-config + .prefs-config { border-top-color: transparent; }
+/* A fixed key column, so the values line up. */
+.prefs-key { flex: 0 0 46%; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .prefs-config .config-val { flex: 1; min-width: 0; overflow: hidden; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
 
 /* Tooltip for icon-only buttons (ui.js data-tip): name and key, on hover and keyboard focus. */
