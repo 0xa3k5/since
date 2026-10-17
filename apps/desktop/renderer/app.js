@@ -2079,7 +2079,8 @@ function createCommitView(container) {
   }
   function clickFile(e, list, path) {
     if (e.shiftKey) return selectRange(list, path);
-    if (!(e.metaKey || e.ctrlKey) || list !== state.cv.list) return selectFile(list, path);
+    // ⌘ only: on macOS Ctrl-click opens the context menu.
+    if (!e.metaKey || list !== state.cv.list) return selectFile(list, path);
     const sel = new Set(state.cv.sel);
     if (sel.has(path) && sel.size > 1) sel.delete(path); else sel.add(path);
     state.cv.sel = sel; state.cv.anchor = path;
