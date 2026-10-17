@@ -30,11 +30,11 @@ import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
-import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer } from './autostash.js';
+import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
-import { prefRows, PR_REMOTE_AUTO } from './prefs.js';
+import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
@@ -1772,7 +1772,12 @@ async function pendingAutostash(branch) {
   savePref('autostashes', { list: records });
   return offer;
 }
-const applyAutostash = (o, drop) => act(drop ? `Apply and drop ${o.ref}` : `Apply ${o.ref}`, 'stashApply', [o.ref, drop]);
+// Resolve the ref from the sha at click time: the toast lives 15 s and positions shift if something else is stashed.
+async function applyAutostash(o, drop) {
+  const ref = stashRefBySha(await git('stashes').catch(() => null), o.sha);
+  if (!ref) return toast('That auto-stash is gone');
+  return act(drop ? `Apply and drop ${ref}` : `Apply ${ref}`, 'stashApply', [ref, drop]);
+}
 async function offerAutostash(branch) {
   const o = await pendingAutostash(branch);
   if (o) toast(['Changes stashed on ', h('span.toast-ref', { title: branch }, branch)], {
@@ -2503,9 +2508,9 @@ async function addRemote() {
   return act(`Add remote ${name}`, 'addRemote', [name, url], { success: `Added remote ${name}`, ...remoteDone });
 }
 async function editRemoteUrl(r) {
-  const v = await dialog({ title: `Edit URL of ${r.name}`, fields: [{ name: 'url', label: 'URL', value: r.url }], submit: 'Save' });
+  const v = await dialog({ title: `Edit URL of ${r.name}`, fields: [{ name: 'url', label: 'URL', value: r.setUrl ?? r.url }], submit: 'Save' });
   const url = v?.url.trim();
-  if (!url || url === r.url) return;
+  if (!url || url === (r.setUrl ?? r.url)) return;
   return act(`Edit URL of ${r.name}`, 'setRemoteUrl', [r.name, url], { success: `Changed the URL of ${r.name}`, ...remoteDone });
 }
 async function renameRemote(r) {
@@ -4112,7 +4117,7 @@ async function prefAct(row, value) {
   else if (id === 'resetPanes') resetPanes();
   else if (id.startsWith('section:')) { const sec = id.slice(8); setSections(value === 'up' || value === 'down' ? moveSection(state.sections, sec, value === 'up' ? -1 : 1) : showSection(state.sections, sec, value)); }
   else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
-  else if (id === 'prRemote') { await setPrRemote(value === PR_REMOTE_AUTO ? null : value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prRemote') { await setPrRemote(prRemoteChoice(value)); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'shortcuts') leavePrefs(openShortcuts);
   else if (id === 'importShortcuts') await importShortcuts();
@@ -4305,8 +4310,8 @@ api.on('command', (cmd, ...args) => {
   // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
   if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
   if (shortcuts && cmd === 'search') return shortcuts.find();
-  // With Preferences open, ⌘, closes it and ⌘F goes to its search.
-  if (prefs && cmd === 'preferences') return prefs.close();
+  // With Preferences open, ⌘, closes it, ⌘9 jumps to Repository and ⌘F goes to its search.
+  if (prefs && cmd === 'preferences') return openPrefsCommand(args[0]) === 'show' ? prefs.show(args[0]) : prefs.close();
   if (prefs && cmd === 'search') return prefs.find();
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
   commands[cmd]?.(...args);

@@ -29,3 +29,6 @@ export function returnOffer(records, root, branch, stashes) {
   const stash = hit && stashes.find((s) => s.sha === hit.sha);
   return { offer: hit ? { ...hit, ref: stash.ref, message: stash.message } : null, records: live.filter((r) => r !== hit) };
 }
+
+// The current stash@{N} of the stash with this sha (positions shift when others are stashed), or null.
+export const stashRefBySha = (stashes, sha) => (stashes || []).find((s) => s.sha === sha)?.ref || null;

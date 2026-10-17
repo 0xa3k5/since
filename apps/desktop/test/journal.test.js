@@ -573,6 +573,21 @@ test('previewRestore shows what Restore before would change, without changing it
   await assert.rejects(journal.previewRestore(99999), /Snapshot not found/);
 });
 
+test('remotes: editing a URL under an insteadOf rule undoes to the configured value', async () => {
+  const { dir, journal } = await repo();
+  await git.run(dir, ['config', 'url.git@github.com:.insteadOf', 'https://github.com/']);
+  await git.run(dir, ['remote', 'add', 'origin', 'https://github.com/a/a.git']);
+  const configured = async () => (await git.run(dir, ['config', '--get', 'remote.origin.url'])).trim();
+  const [r] = await git.getRemotes(dir);
+  assert.equal(r.url, 'git@github.com:a/a.git', 'remote -v shows the rewritten URL');
+  assert.equal(r.setUrl, 'https://github.com/a/a.git');
+  await journal.runRemote('setRemoteUrl', 'Edit origin', ['origin', 'https://github.com/a/b.git']);
+  await journal.step('undo');
+  assert.equal(await configured(), 'https://github.com/a/a.git');
+  await journal.step('redo');
+  assert.equal(await configured(), 'https://github.com/a/b.git');
+});
+
 test('remotes: add, edit URL, rename and remove are each undoable, remove keeps refs and upstreams', async () => {
   const { dir, journal } = await repo();
   const sha = await commit(dir, 'a.txt', 'a\n', 'base');

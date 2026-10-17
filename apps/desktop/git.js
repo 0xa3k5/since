@@ -746,7 +746,15 @@ async function getRemotes(cwd) {
     const m = /^(\S+)\s+(\S+)\s+\((fetch|push)\)/.exec(l);
     if (m && !map.has(m[1])) map.set(m[1], m[2]);
   }
-  return [...map].map(([name, url]) => ({ name, url, web: remoteWebUrl(url), label: remoteLabel(url) }));
+  // `remote -v` shows URLs after url.<base>.insteadOf rewriting; `setUrl` is the value actually configured.
+  const set = new Map();
+  const cfg = await run(cwd, ['config', '-z', '--get-regexp', '^remote\\..*\\.url$'], { allowCodes: [0, 1] }).catch(() => '');
+  for (const e of cfg.split('\0')) {
+    const i = e.indexOf('\n');
+    const n = i > 0 && e.slice(7, e.lastIndexOf('.', i));
+    if (n && !set.has(n)) set.set(n, e.slice(i + 1));
+  }
+  return [...map].map(([name, url]) => ({ name, url, setUrl: set.get(name) ?? url, web: remoteWebUrl(url), label: remoteLabel(url) }));
 }
 
 // A remote URL as https://host/owner/repo, or null when it is not on a web host
@@ -802,7 +810,7 @@ async function changeRemote(cwd, op, name, value) {
   if (taken && has(taken)) throw new GitError(`A remote named ${taken} already exists.`);
   if (op === 'add') { await run(cwd, ['remote', 'add', '--', name, value]); return { op, name, url: value }; }
   if (op === 'url') {
-    const from = remotes.find((r) => r.name === name).url;
+    const from = remotes.find((r) => r.name === name).setUrl;
     await run(cwd, ['remote', 'set-url', '--', name, value]);
     return { op, name, from, url: value };
   }
@@ -826,7 +834,7 @@ async function revertRemote(cwd, change, dir) {
     else { if (has(c.name)) fail(`a remote named ${c.name} exists again.`); await run(cwd, ['remote', 'add', '--', c.name, c.url]); }
   } else if (c.op === 'url') {
     const r = remotes.find((x) => x.name === c.name);
-    if (!r || r.url !== (undo ? c.url : c.from)) fail(`the URL of ${c.name} has changed since.`);
+    if (!r || r.setUrl !== (undo ? c.url : c.from)) fail(`the URL of ${c.name} has changed since.`);
     await run(cwd, ['remote', 'set-url', '--', c.name, undo ? c.from : c.url]);
   } else if (c.op === 'rename') {
     const [from, to] = undo ? [c.to, c.name] : [c.name, c.to];
@@ -995,7 +1003,16 @@ async function captureRefState(cwd) {
   for (const l of out.split('\n')) { if (!l) continue; const [n, o] = l.split(SEP); refs[n] = o; }
   const sym = (await run(cwd, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] })).trim();
   const oid = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] })).trim();
-  return { refs, head: sym || null, headOid: oid || null };
+  // Each branch's `[branch "x"]` entries (upstream), so a redo that recreates the branch can put them back.
+  const config = {};
+  const cfg = await run(cwd, ['config', '--local', '-z', '--get-regexp', '^branch\\.'], { allowCodes: [0, 1] }).catch(() => '');
+  for (const e of cfg.split('\0')) {
+    const i = e.indexOf('\n');
+    const key = i === -1 ? e : e.slice(0, i);
+    const n = `refs/heads/${key.slice(7, key.lastIndexOf('.'))}`;
+    if (key && n in refs) (config[n] ||= []).push([key, i === -1 ? '' : e.slice(i + 1)]);
+  }
+  return { refs, head: sym || null, headOid: oid || null, config };
 }
 
 async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = {}) {
@@ -1016,6 +1033,12 @@ async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = 
   // A deleted branch takes its `[branch "x"]` config (upstream) with it, as `git branch -D` does.
   for (const n of Object.keys(current.refs)) {
     if (!(n in state.refs) && n.startsWith('refs/heads/')) await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+  }
+  // A branch brought back (redo, timeline jump) gets the config it had when the state was taken.
+  for (const [n, entries] of Object.entries(state.config || {})) {
+    if (n in current.refs) continue;
+    await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+    for (const [k, v] of entries) await run(cwd, ['config', '--add', k, v], { env });
   }
   if (state.head) await run(cwd, ['symbolic-ref', 'HEAD', state.head], { env });
   else if (state.headOid) await run(cwd, ['update-ref', '--no-deref', 'HEAD', state.headOid], { env });
