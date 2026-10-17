@@ -1,0 +1,10 @@
+9	0	.changeset/add-networks-from-token-icons.md
+16	0	.changeset/fix-network-chain-ids.md
+39	2	docs/icons.md
+344	11	packages/common/src/metadata/networks.json
+349	16	packages/common/src/metadata/networks.ts
+2	2	packages/common/src/metadata/tokens.ts
+1	1	packages/common/src/metadata/wallets.ts
+216	0	packages/core/src/svg-module.ts
+108	0	packages/core/src/svgs/index.ts
+44	0	packages/react/dynamicIconImports.js

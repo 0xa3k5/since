@@ -1,0 +1,12 @@
+0	9	.changeset/add-networks-from-token-icons.md
+0	16	.changeset/fix-network-chain-ids.md
+9	0	apps/chrome-extension/CHANGELOG.md
+3	3	apps/chrome-extension/package.json
+2	2	apps/figma-plugin/package.json
+3	3	apps/website/package.json
+20	0	packages/common/CHANGELOG.md
+1	1	packages/common/package.json
+12	0	packages/core/CHANGELOG.md
+2	2	packages/core/package.json
+12	0	packages/react/CHANGELOG.md
+2	2	packages/react/package.json

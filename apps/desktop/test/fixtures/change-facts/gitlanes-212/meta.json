@@ -1,0 +1,12 @@
+{
+ "repo": "0xa3k5/gitlanes",
+ "number": 212,
+ "title": "fix(desktop): review & catch up, part 3 (AK-494)",
+ "manifests": {},
+ "internal": [
+  "@gitlanes/desktop",
+  "@gitlanes/web",
+  "gitlanes",
+  "@gitlanes/tokens"
+ ]
+}

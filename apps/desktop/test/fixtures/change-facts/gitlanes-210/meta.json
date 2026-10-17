@@ -1,0 +1,12 @@
+{
+ "repo": "0xa3k5/gitlanes",
+ "number": 210,
+ "title": "style(desktop): keep review status strip on one row, rename send back (AK-502)",
+ "manifests": {},
+ "internal": [
+  "@gitlanes/desktop",
+  "@gitlanes/web",
+  "gitlanes",
+  "@gitlanes/tokens"
+ ]
+}
