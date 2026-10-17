@@ -544,7 +544,9 @@ async function navStep(dir) {
     if (to.root !== state.repo.root) {
       const w = state.worktrees.find((x) => x.path === to.root);
       if (!w || w.missing) { renderTopbar(); return toast('That worktree is gone', { detail: tildePath(to.root) }); }
-      await switchWorktree(w);
+      // A failed switch toasts and leaves us where we were: take the step back so ⌘[ / ⌘] don't skip an entry.
+      try { await switchWorktree(w); } finally { if (state.repo?.root !== to.root) nav.undo(dir, here, to); }
+      if (state.repo?.root !== to.root) return renderTopbar();
       toast(`Switched to worktree “${w.name}”`);
     }
     state.view = to.view;
