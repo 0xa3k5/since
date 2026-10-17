@@ -236,13 +236,14 @@ test('parseMergeInfo: allowed methods (squash first), state and checks', () => {
 
 test('mergeGate: hard blocks, soft blocks and who can override', () => {
   const gate = (pr, repo) => github.mergeGate(github.parseMergeInfo(VIEW(pr), REPO(repo)));
-  assert.deepEqual(gate(), { hard: null, soft: [], needsAdmin: false, canOverride: true });
+  assert.deepEqual(gate(), { hard: null, soft: [], failing: false, needsAdmin: false, canOverride: true });
   assert.match(gate({ isDraft: true }).hard, /draft/);
   assert.match(gate({ state: 'MERGED' }).hard, /merged/);
   assert.match(gate({ mergeStateStatus: 'DIRTY' }).hard, /conflicts/);
-  // Failing checks GitHub doesn't require: anyone can tick "merge anyway".
+  // Failing checks GitHub doesn't require: no "merge anyway", a plain confirm that names them (AK-521).
   const unstable = gate({ mergeStateStatus: 'UNSTABLE', statusCheckRollup: [{ state: 'FAILURE' }] });
-  assert.deepEqual(unstable.soft, ['Checks are failing.']);
+  assert.deepEqual(unstable.soft, []);
+  assert.equal(unstable.failing, true);
   assert.equal(unstable.needsAdmin, false);
   assert.equal(unstable.canOverride, true);
   // Branch protection: only an admin can bypass.

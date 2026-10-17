@@ -517,7 +517,9 @@ exec '${realGit}' "$@"
       'test (web)\tRun pnpm test\t2026-10-15T09:12:03.4Z  Test Files  1 failed | 41 passed (42)',
     ].join('\n'),
     // PR evidence (AK-520): a description with a screenshot, check annotations and review threads.
-    bodies: { 230: 'Renders the invoice PDF next to the line items.\n\n![Invoice preview](https://github.com/user-attachments/assets/6f1c2d3e-0000-4000-8000-000000000230.png)' },
+    bodies: { 230: process.env.MEDIA_SHOTS
+      ? 'Renders the invoice PDF next to the line items.\n\n![Invoice preview](https://user-images.githubusercontent.com/4521/invoice-preview.png)\n![Line items](https://user-images.githubusercontent.com/4521/line-items.png)\n\nhttps://github.com/user-attachments/assets/6f1c2d3e-0000-4000-8000-000000000231'
+      : 'Renders the invoice PDF next to the line items.\n\n![Invoice preview](https://github.com/user-attachments/assets/6f1c2d3e-0000-4000-8000-000000000230.png)' },
     annotations: { 2510: [
       { path: 'apps/web/src/components/InvoicePreview.test.tsx', start_line: 12, annotation_level: 'failure', message: 'Setting up fake worker failed: Cannot find module pdfjs-dist/build/pdf.worker.mjs' },
       { path: 'apps/web/src/components/InvoicePreview.tsx', start_line: 5, annotation_level: 'warning', message: 'react-pdf: set pdfjs.GlobalWorkerOptions.workerSrc before the first render' },
@@ -620,6 +622,66 @@ process.exit(1);
     return;
   }
 
+  // Media gallery and failing-check merge confirm shots (AK-521), only with MEDIA_SHOTS=<dir>. Image
+  // fetches in the main process are stubbed with two drawn PNGs (no network); the video 404s.
+  if (process.env.MEDIA_SHOTS) {
+    const dir = process.env.MEDIA_SHOTS;
+    fs.mkdirSync(dir, { recursive: true });
+    const pngs = { 'invoice-preview': demoPng(640, 420, [232, 89, 12], [250, 240, 230]), 'line-items': demoPng(640, 420, [60, 52, 46], [244, 242, 240]) };
+    await app.app.evaluate((_e, imgs) => {
+      globalThis.fetch = async (url) => {
+        const k = Object.keys(imgs).find((x) => String(url).includes(x));
+        if (!k) return new Response(null, { status: 404 });
+        const b = Buffer.from(imgs[k], 'base64');
+        return new Response(b, { headers: { 'content-type': 'image/png', 'content-length': String(b.length) } });
+      };
+    }, pngs);
+    await page.locator('.lanes-row[data-key="pr:230"]').click({ position: { x: 8, y: 8 } });
+    const pane = page.locator('.review-pane');
+    await expect(pane.locator('.ev-tab[data-tab="media"]')).toBeVisible({ timeout: 30_000 });
+    for (const theme of ['dark', 'light']) {
+      if (theme === 'light') await app.palette('Theme: Light');
+      await pane.locator('.reader-scroll, .review-pane').first().click({ position: { x: 4, y: 4 } }).catch(() => {});
+      if (!(await pane.locator('.ev-tab[data-tab="media"].on').count())) await pane.locator('.ev-tab[data-tab="media"]').click();
+      await expect(pane.locator('.ev-thumb img')).toHaveCount(2, { timeout: 20_000 });
+      await app.settle(400);
+      await quiet();
+      await page.screenshot({ path: path.join(dir, `gallery-${theme}.png`) });
+      await pane.locator('.ev-thumb').first().focus();
+      await page.keyboard.press('Space');
+      await expect(page.locator('.media-view .media-stage img')).toBeVisible();
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('.media-view .media-pos')).toHaveText('2 of 3');
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(dir, `gallery-enlarged-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.media-view')).toHaveCount(0);
+      // For the merge sheet only: failing checks GitHub doesn't require (no branch protection, no
+      // review needed), so it shows the plain confirm. The fake `gh` rereads its data on every call.
+      const ghData = JSON.parse(fs.readFileSync(path.join(bin, 'gh-data.json'), 'utf8'));
+      Object.assign(ghData.open.find((x) => x.number === 230), { mergeStateStatus: 'UNSTABLE', reviewDecision: '' });
+      fs.writeFileSync(path.join(bin, 'gh-data.json'), JSON.stringify(ghData));
+      // By hand, not app.palette(): Merge pull request… opens a second palette to pick the PR.
+      await page.locator('.sb-top button[title^="Command menu"]').click();
+      await page.locator('.palette-input').fill('Merge pull request…');
+      await expect(page.locator('.palette-item.active .palette-label')).toHaveText('Merge pull request…');
+      await page.locator('.palette-input').press('Enter');
+      const pick = page.locator('.palette-input[placeholder="Merge pull request…"]');
+      await expect(pick).toBeVisible();
+      await expect(page.locator('.palette-overlay')).toHaveCount(1);
+      await pick.fill('#230');
+      await pick.press('Enter');
+      await expect(page.locator('.pr-check-fail')).toBeVisible({ timeout: 20_000 });
+      await page.waitForTimeout(300);
+      await quiet();
+      await page.screenshot({ path: path.join(dir, `merge-confirm-${theme}.png`) });
+      console.log(`\n== merge confirm (${theme})\n` + (await page.locator('.dialog').innerText()).slice(0, 800));
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.pr-check-fail')).toHaveCount(0);
+    }
+    return;
+  }
+
   await expect(page.locator('.review-pane .review-row').first()).toBeVisible();
   await shot('review-dark');
 
@@ -719,3 +781,23 @@ process.exit(1);
   await expect(page.locator('.cf-block').first()).toBeVisible();
   await shot('conflict-dark');
 });
+
+// A w×h PNG (base64): a soft two-colour diagonal with a few bars, standing in for a PR screenshot.
+function demoPng(w, hgt, fg, bg) {
+  const zlib = require('node:zlib');
+  const raw = Buffer.alloc((w * 3 + 1) * hgt);
+  for (let y = 0; y < hgt; y++) {
+    raw[y * (w * 3 + 1)] = 0;
+    for (let x = 0; x < w; x++) {
+      const bar = y > 60 && (y - 60) % 56 < 22 && x > 40 && x < 40 + ((y * 7) % 380) + 120;
+      const t = bar ? 0.85 : 0.08 + 0.12 * (x + y) / (w + hgt);
+      const o = y * (w * 3 + 1) + 1 + x * 3;
+      for (let c = 0; c < 3; c++) raw[o + c] = Math.round(bg[c] * (1 - t) + fg[c] * t);
+    }
+  }
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (b) => { let c = 0xffffffff; for (const v of b) c = crcTable[(c ^ v) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(hgt, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+}
