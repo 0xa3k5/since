@@ -69,6 +69,11 @@ test('ahead/behind label and PR carry-over on local refreshes', async () => {
   const kept = keepPrs([lane('a'), lane('b')], [lane('a', { pr })]);
   assert.equal(kept[0].pr, pr);
   assert.equal(kept[1].pr, null);
+  // A merged PR's reason survives a git-only load while the head is the same (AK-338).
+  const done = { reason: 'pr', pr: 12 };
+  const again = keepPrs([lane('a', { done: { reason: 'net-patch', sha: 'b'.repeat(40) } }), lane('b', { head: 'c'.repeat(40) })], [lane('a', { done, prTitle: 'Fix' }), lane('b', { done })]);
+  assert.deepEqual([again[0].done, again[0].prTitle], [done, 'Fix']);
+  assert.equal(again[1].done, undefined);
 });
 
 test('predicted conflicts: both lanes of a pair get them, they sort with "needs you" and block ready', async () => {

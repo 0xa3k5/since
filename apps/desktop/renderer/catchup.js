@@ -28,6 +28,11 @@ export function mainArea(files = []) {
 // commits: app:catchup commits (newest first); merged: its merged PRs or null. A commit that is a
 // merged PR's merge commit (squash, merge or the last of a rebase) becomes that PR.
 // → [{ id, kind: 'pr' | 'commit', number?, title, branch?, sha, parent, date, author, files, key, area }]
+// A git-only result with the merged PRs and CI of a slower PR load that it overtook (AK-338).
+export function withLateExtra(res, extra) {
+  return res && extra ? { ...res, merged: extra.merged, ci: extra.ci } : res;
+}
+
 export function landedEntries(commits = [], merged = null) {
   const byMerge = new Map((merged || []).filter((p) => p.merge).map((p) => [p.merge, p]));
   return commits.map((c) => {

@@ -1,7 +1,7 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
-import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
-import { sharedLoad } from './lanes.js';
+import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
+import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
 import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, readerKey, navPos, fastKeys } from './reader.js';
 import { authorsOf, messageAgent } from './review-rows.js';
@@ -62,6 +62,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   let reloading = false;
   let review = null; // { stuck, ready }
   let seq = 0;
+  const loads = loadGuard(); // a git-only refresh can overtake a PR load: its merged PRs still count (AK-338)
   let loaded = Boolean(res);
   let readId = null; // the entry in the reader
   let readTimer = 0;
@@ -244,12 +245,26 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   async function fetch({ prs = false } = {}) {
     const n = ++seq;
     const withPrs = Boolean(prs && prsOn());
+    const t = loads.start(withPrs);
+    const range = JSON.stringify([since, base]);
     if (withPrs) { reloading = true; renderHead(); }
     try {
       const opts = { ...since, prs: withPrs, ...(base ? { base } : {}) };
       // The default range with PRs joins the load from opening the repo, if it's still running.
       const r = await (withPrs && since.since === 'checkpoint' && !base ? prLoads.run(repo, () => load(opts)) : load(opts));
-      if (n !== seq) return;
+      if (n !== seq) {
+        // Overtaken by a newer git-only refresh of the same range: keep this load's merged PRs and CI.
+        if (r && loads.prs(t) && prsOn() && range === JSON.stringify([since, base])) {
+          extra = { merged: r.merged, ci: r.ci };
+          loadedAt = Date.now();
+          res = withLateExtra(res, extra);
+          cache = { repo, since, base, extra, loadedAt, defaultName, res };
+          entries = res ? landedEntries(res.commits, res.merged) : [];
+          if (res && since.since === 'checkpoint' && !base) onCount(entries.length);
+          if (res) render();
+        }
+        return;
+      }
       failed = null;
       loaded = true;
       if (withPrs) { extra = r ? { merged: r.merged, ci: r.ci } : null; loadedAt = Date.now(); }

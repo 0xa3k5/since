@@ -243,3 +243,10 @@ test('changeSize sums a change\'s file diffs for the reader head', async () => {
   assert.deepEqual(changeSize([d(3, 1), d(0, 2)]), { additions: 3, deletions: 3, files: 2 });
   assert.deepEqual(changeSize([]), { additions: 0, deletions: 0, files: 0 });
 });
+
+test('a git-only reload that overtook a PR load keeps its merged PRs (AK-338)', async () => {
+  const { withLateExtra } = await load('catchup.js');
+  const extra = { merged: [{ number: 3 }], ci: null };
+  assert.deepEqual(withLateExtra({ commits: [], merged: [] }, extra), { commits: [], merged: extra.merged, ci: null });
+  assert.equal(withLateExtra(null, extra), null);
+});

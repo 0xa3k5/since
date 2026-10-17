@@ -625,7 +625,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // Keep the last PR load for the next visit to Review.
   function remember() {
     if (!prsOn() || !inbox || !loadedAt) return;
-    prCache = { repo, inbox, prs: lanes.filter((l) => l.pr), loadedAt };
+    prCache = { repo, inbox, prs: lanes.filter(hadPr), loadedAt };
   }
 
   // Called on every repo change: debounced, local only (no network), keeps the selection.
@@ -694,11 +694,13 @@ export async function prefetchReview({ repo, load, prsOn }) {
   if (!prsOn()) return;
   const res = await loadPrs(repo, load).catch(() => null);
   if (!res?.prs || openRepo !== repo || !prsOn()) return;
-  prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter((l) => l.pr), loadedAt: Date.now() };
+  prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter(hadPr), loadedAt: Date.now() };
   if (lastCounts?.repo === repo) lastCounts = null; // Catch up's line counts from these PRs
 }
 
-// The pull requests of the last load for `repo` (lanes with `pr`), for keepPrs: Branches shows "PR #N open"
+const hadPr = (l) => l.pr || l.done?.reason === 'pr';
+
+// The pull requests of the last load for `repo` (lanes with `pr` or merged by one), for keepPrs: Branches shows "PR #N open"
 // from them without a `gh` call (AK-396).
 export const cachedPrs = (repo) => (prCache?.repo === repo ? prCache.prs : []);
 

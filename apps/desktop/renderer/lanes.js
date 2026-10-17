@@ -129,10 +129,17 @@ export function laneTarget(lane) {
   return null;
 }
 
-// Carry PR data over to a refresh that skipped `gh` (live refreshes stay local).
+// Carry PR data over to a refresh that skipped `gh` (live refreshes stay local): the open PR, and
+// "Merged in #N" while the lane's head is still the one that PR merged (AK-338).
 export function keepPrs(lanes, previous = []) {
   const prs = new Map(previous.filter((l) => l.pr).map((l) => [laneKey(l), l.pr]));
-  return lanes.map((l) => (l.pr || !prs.has(laneKey(l)) ? l : { ...l, pr: prs.get(laneKey(l)) }));
+  const merged = new Map(previous.filter((l) => l.done?.reason === 'pr').map((l) => [laneKey(l), l]));
+  return lanes.map((l) => {
+    const m = merged.get(laneKey(l));
+    const done = l.done?.reason !== 'pr' && m && m.head === l.head ? { done: m.done, prTitle: m.prTitle ?? null } : null;
+    if (!done && (l.pr || !prs.has(laneKey(l)))) return l;
+    return { ...l, ...(l.pr || !prs.has(laneKey(l)) ? {} : { pr: prs.get(laneKey(l)) }), ...done };
+  });
 }
 
 // A PR load that a newer local refresh overtook: keep the newer local lanes, take the PR data from the load.
