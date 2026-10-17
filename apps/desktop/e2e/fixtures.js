@@ -134,10 +134,12 @@ class AppDriver {
   }
 
   async view(name) {
-    // Activities sit in the nav, section pages behind ⤢ on their sidebar header (AK-463); History & recovery has no
-    // sidebar entry, so its two tabs open with their chords (G H, G R).
-    if (name === 'snapshots' || name === 'reflog') await this.page.keyboard.press('g').then(() => this.page.keyboard.press(name === 'reflog' ? 'r' : 'h'));
-    else await this.page.locator(`.sb-nav [data-view="${name}"], .sb-page[data-view="${name}"]`).click();
+    // Pages sit in the nav (AK-491); the fold-out lists open their page on a double-click of the header; the reflog
+    // tab of History opens with its chord (G R).
+    const list = { worktrees: 'worktrees', remoteList: 'remotes', tagList: 'tags' }[name];
+    if (name === 'reflog') await this.page.keyboard.press('g').then(() => this.page.keyboard.press('r'));
+    else if (list) await this.page.locator(`[data-section="${list}"] .sb-section-head`).dblclick();
+    else await this.page.locator(`.sb-nav [data-view="${{ snapshots: 'history', submoduleList: 'submodules' }[name] || name}"]`).click();
     await expect(this.page.locator('.content')).toHaveAttribute('data-view', name);
   }
 

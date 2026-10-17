@@ -249,7 +249,7 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   assert.match(fs.readFileSync(path.join(__dirname, '../renderer/keymap.js'), 'utf8'), /lanes: 'Review',/);
   assert.match(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /item\('Review', acc\('view\.lanes'\)/);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /Pull Request Inbox/);
-  assert.match(fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../renderer/sidebar.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
 });
 
 // Split view (AK-272): what an action does to the row, and where the selection goes next.

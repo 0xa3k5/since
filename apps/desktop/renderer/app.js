@@ -16,7 +16,7 @@ import { stageMemory, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { createNav } from './nav.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
-import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
+import { laneTarget, laneKey, laneTitle, canRemove, laneBucket } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
@@ -24,7 +24,7 @@ import { openMergePlan } from './merge-plan-view.js';
 import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
-import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageLabel, orderedSections, moveSection, showSection } from './sidebar.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.js';
 import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
 import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile } from './profile.js';
@@ -494,6 +494,7 @@ const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
 let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
 let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
+let reviewCount = 0; // Review's sidebar badge: active lanes, recent work that isn't merged (countFinished)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 let stashFocus = null; // the stash a sidebar click asked the Stashes page to select
 let stashShown = null; // the stash selected on the Stashes page (for ⌘K)
@@ -587,13 +588,8 @@ function renderShell() {
 // (GITLANES_START_VIEW=map, main.js), which the end-to-end tests do.
 let startView = 'lanes';
 
-// The activities at the top of the sidebar (keys 1–4). The refs tree's pages are SECTION_PAGES (sidebar.js).
-const VIEWS = [
-  { id: 'catchup', label: 'Catch up', icon: 'catchup', key: '1' },
-  { id: 'lanes', label: 'Review', icon: 'lanes', key: '2' },
-  { id: 'map', label: 'Map', icon: 'map', key: '3' },
-  { id: 'commit', label: 'Commit', icon: 'commit', key: '4' },
-];
+// The pages at the top of the sidebar (keys 1–8, sidebar.js). Catch up, Review, Map and Commit always show.
+const VIEWS = NAV_ITEMS;
 
 function setView(v) {
   if (!state.repo) return;
@@ -668,30 +664,25 @@ function renderSidebar() {
   const groups = new Map();
   for (const r of remotes) { const n = r.short.split('/')[0]; if (!groups.has(n)) groups.set(n, []); groups.get(n).push(r); }
 
-  // A section of the refs tree. A click folds it; ⤢ or a double-click (the second click folds it back) opens its
-  // full page, and the header stays highlighted while that page is on screen.
+  // A fold-out list below the divider. A click folds it; a double-click (the second click folds it back) opens its
+  // full page, and the header stays highlighted while that page is on screen. Long-press to drag it elsewhere.
   const onPage = (id) => sectionOf(state.view) === id && !state.review && !state.quick && !state.split && !state.fileHistory;
   const section = (id, title, items, renderItem, count = items.length) => {
     const collapsed = state.collapsed[id];
     const page = SECTION_PAGES.find((p) => p.id === id);
     const fold = () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); };
-    return h('div.sb-section', { 'data-section': id },
+    return h('div.sb-section', { 'data-section': id, 'data-reorder': id },
       h('div.sb-section-row' + (onPage(id) ? '.active' : ''), null,
-        h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2 && page) setView(page.view); }, oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, id); }, 'aria-expanded': String(!collapsed) },
-          h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, count), h('span.nav-badge')),
-        page ? h('button.icon-btn.tiny.sb-page', { onclick: () => setView(page.view), 'data-view': page.view, title: tip(`Open ${page.label} page`, `view.${page.view}`), 'aria-label': `Open ${page.label} page` }, icon('expand', 12)) : null),
+        dragToReorder(h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2) setView(page.view); }, oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, id); }, 'aria-expanded': String(!collapsed), title: tip(`${title}: double-click for the full page`, `view.${page.view}`) },
+          h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, count), h('span.nav-badge')))),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
     );
   };
 
   const sections = {
-    branches: () => section('branches', 'Branches', branches, (r) => refItem(r)),
     remotes: () => section('remotes', 'Remotes', [...remoteRows, addRemoteItem], (el) => el, state.remotes.length),
     tags: () => section('tags', 'Tags', tags, (r) => refItem(r)),
     worktrees: () => section('worktrees', 'Worktrees', state.worktrees, worktreeItem),
-    prs: () => section('prs', 'Pull requests', state.prs.data?.prs || [], prItem),
-    stashes: () => section('stashes', 'Stashes', state.stashes, stashItem),
-    submodules: () => section('submodules', 'Submodules', state.submodules, submoduleItem),
   };
 
   const refItem = (r, label = r.short, nested = false) => h('div.sb-item' + (nested ? '.sb-nested' : '') + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
@@ -720,23 +711,6 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'Missing') : null,
   );
 
-  const prItem = (pr) => h('div.sb-item.pr-item' + (state.prs.stale ? '.stale' : ''), { title: prTitle(pr, state.prs.stale), onclick: () => showPrInReview(pr), oncontextmenu: (e) => prMenu(e, pr) },
-    icon('merge', 14),
-    h('span.sb-label', null, h('span.pr-num', null, `#${pr.number}`), ' ', pr.title),
-    prMarks(pr),
-    h('button.icon-btn.tiny.pr-open', { title: 'Open on GitHub', 'aria-label': `Open #${pr.number} on GitHub`, onclick: (e) => { e.stopPropagation(); openPrOnGitHub(pr); } }, icon('external', 12)),
-  );
-
-  const submoduleItem = (m) => h('div.sb-item', {
-    title: `${m.path}${m.url ? `\n${m.url}` : ''}\n${SUBMODULE_STATES[m.state][1]}`,
-    ondblclick: () => openSubmodule(m),
-    oncontextmenu: (e) => { e.preventDefault(); submoduleMenu(e.clientX, e.clientY, m); },
-  },
-    icon('submodule', 14),
-    h('span.sb-label', null, m.path),
-    m.state === 'clean' ? null : h(m.state === 'uninitialized' ? 'span.sb-track' : 'span.sb-gone', null, sentence(SUBMODULE_STATES[m.state][0])),
-  );
-
   const remoteItem = (r) => h('div.sb-item', {
     title: `${r.name}\n${r.label}`,
     ondblclick: () => editRemoteUrl(r),
@@ -745,16 +719,6 @@ function renderSidebar() {
     icon('cloud', 14),
     h('span.sb-label', null, r.name),
     h('span.sb-track.sb-url', null, r.label),
-  );
-  // A stash: its row on the Stashes page; right-click for Apply, Pop and Drop.
-  const stashItem = (s) => h('div.sb-item', {
-    title: `${s.ref}\n${s.message}`,
-    onclick: () => { stashFocus = s.ref; setView('stashes'); },
-    oncontextmenu: (e) => { e.preventDefault(); stashMenu(e.clientX, e.clientY, s); },
-  },
-    icon('stash', 14),
-    h('span.sb-label', null, s.message),
-    h('span.sb-track', null, timeAgo(s.time)),
   );
   // Remotes: each remote, then its branches under it.
   const names = [...new Set([...state.remotes.map((r) => r.name), ...groups.keys()])];
@@ -774,8 +738,9 @@ function renderSidebar() {
       h('button.icon-btn', { title: tip('Command menu', 'view.palette'), onclick: openPalette }, icon('search')),
     ),
     h('div.sb-origin', null, originLink()),
-    h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: tip(v.label, `view.${v.id}`), 'aria-label': v.label },
-      icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
+    h('nav.sb-nav', null, shownNav().map((v) => dragToReorder(h('button.nav-item' + (sectionOf(state.view) === v.id ? '.active' : ''), { onclick: () => setView(v.view), oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, v.id); }, 'data-view': v.id, 'data-section': v.id, 'data-reorder': v.id, title: tip(v.label, `view.${v.view}`), 'aria-label': v.label },
+      icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.view}`).join('')))))),
+    h('div.sb-divider', { role: 'separator' }),
     h('div.sb-scroll', null,
       shownSections().map((p) => sections[p.id]())),
     // Icons-only stand-ins for the sections above, shown in the rail.
@@ -790,19 +755,21 @@ function renderSidebar() {
   applySidebar();
 }
 
-// The refs-tree sections on screen, in the saved order: not hidden in Preferences → Sidebar, and Pull requests /
-// Submodules only when the repository has them.
-const shownSections = () => orderedSections(state.sections)
-  .filter((p) => !p.hidden && (p.id !== 'prs' || state.prs?.active) && (p.id !== 'submodules' || state.submodules.length));
+// The sidebar rows on screen, in the saved order, not hidden in Preferences → Sidebar. Submodules only show when
+// the repository has them.
+const shownNav = () => orderedSections(state.sections, 'nav')
+  .filter((p) => !p.hidden && (p.id !== 'submodules' || state.submodules.length));
+const shownSections = () => orderedSections(state.sections, 'list').filter((p) => !p.hidden);
 function setSections(next) {
   state.sections = next;
   savePref('sidebarSections', next);
   renderSidebar();
 }
-// Right-click on a section header: move or hide it, or open Preferences → Sidebar.
+// Right-click on a sidebar row: move or hide it, or open Preferences → Sidebar.
 function sectionMenu(x, y, id) {
-  const shown = shownSections().map((p) => p.id), i = shown.indexOf(id);
-  // Moves step over sections that aren't on screen, so one move always changes what you see.
+  const row = orderedSections(state.sections).find((p) => p.id === id);
+  const shown = (row.group === 'nav' ? shownNav() : shownSections()).map((p) => p.id), i = shown.indexOf(id);
+  // Moves step over rows that aren't on screen, so one move always changes what you see.
   const move = (dir) => {
     const at = (s, x) => orderedSections(s).findIndex((p) => p.id === x);
     let s = state.sections;
@@ -813,9 +780,51 @@ function sectionMenu(x, y, id) {
   contextMenu(x, y, [
     { label: 'Move Up', icon: 'chevronUp', disabled: i <= 0, run: () => move(-1) },
     { label: 'Move Down', icon: 'chevronDown', disabled: i < 0 || i >= shown.length - 1, run: () => move(1) },
-    { label: 'Hide Section', icon: 'eye', run: () => { setSections(showSection(state.sections, id, false)); toast(`${SECTION_PAGES.find((p) => p.id === id).label} hidden. Bring it back in Preferences → Sidebar.`); } },
+    { label: 'Hide from Sidebar', icon: 'eye', disabled: Boolean(row.fixed), run: () => { setSections(showSection(state.sections, id, false)); toast(`${row.label} hidden. Bring it back in Preferences → Sidebar.`); } },
     { label: 'Sidebar Preferences…', icon: 'config', run: () => openPrefs('sidebar') },
   ]);
+}
+
+// Long-press a sidebar row, then drag it to a new place in its group (AK-491). Moving before the press holds
+// is a normal click or scroll; Esc cancels the drag. Returns the handle.
+const HOLD_MS = 350;
+function dragToReorder(handle) {
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const row = handle.closest('[data-reorder]') || handle, id = row.dataset.reorder;
+    const x0 = e.clientX, y0 = e.clientY;
+    let on = false, before = null;
+    const rows = () => (row.parentElement ? [...row.parentElement.querySelectorAll(':scope > [data-reorder]')] : []);
+    const mark = (y) => {
+      const others = rows().filter((r) => r !== row);
+      const next = others.find((r) => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
+      before = next?.dataset.reorder ?? null;
+      others.forEach((r) => { r.classList.toggle('drop-before', r === next); r.classList.toggle('drop-after', !next && r === others.at(-1)); });
+    };
+    const move = (ev) => {
+      if (on) { ev.preventDefault(); mark(ev.clientY); } else if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) end(false);
+    };
+    const key = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(false); } };
+    const up = () => end(true);
+    const cancel = () => end(false);
+    const end = (commit) => {
+      clearTimeout(timer);
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true);
+      removeEventListener('pointercancel', cancel, true); removeEventListener('keydown', key, true);
+      if (!on) return;
+      // The click that ends the drag doesn't fold, open or select anything.
+      const eat = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      addEventListener('click', eat, true);
+      setTimeout(() => removeEventListener('click', eat, true));
+      sidebarEl.classList.remove('sb-reordering');
+      [row, ...rows()].forEach((r) => r.classList.remove('dragging', 'drop-before', 'drop-after'));
+      if (commit) setSections(placeSection(state.sections, id, before));
+    };
+    const timer = setTimeout(() => { on = true; sidebarEl.classList.add('sb-reordering'); row.classList.add('dragging'); mark(y0); }, HOLD_MS);
+    addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
+    addEventListener('pointercancel', cancel, true); addEventListener('keydown', key, true);
+  });
+  return handle;
 }
 
 function railItem(id, label, ic) {
@@ -829,6 +838,8 @@ function renderNavCounts() {
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
   set('catchup', catchupCount, 'accent');
   set('branches', finishedCount ? `${finishedCount} to clean` : '', 'quiet');
+  set('lanes', reviewCount);
+  set('stashes', state.stashes.length);
 }
 
 function renderTopbar() {
@@ -837,7 +848,7 @@ function renderTopbar() {
     h('div.nav-btns', null,
       h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
       h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : pageLabel(state.view, VIEWS)),
+    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : pageLabel(state.view)),
     state.head.branch ? h('button.head-chip.branch-chip', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, icon('branch', 12), state.head.branch) : state.head.oid ? h('button.head-chip.branch-chip.detached', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: branchSwitcher }, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
     state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
@@ -1126,13 +1137,9 @@ function selectCommit(sha, align = 'nearest') {
 function createMapView(container) {
   const wrap = h('div.map-wrap');
   const listWrap = h('div.map-list-wrap');
-  // Double-click checks out a row. The list handles it: the row itself is redrawn mid-click.
+  // Double-click checks out a row, read off the second press (see rowDoubleClick).
   const dbl = rowDoubleClick();
-  const scroller = h('div.map-list', {
-    tabIndex: 0,
-    onmousedown: (e) => dbl.listDown(e),
-    ondblclick: (e) => { const c = dbl.dblclick(e); if (c) checkoutSelected(c, [e.clientX, e.clientY]); },
-  });
+  const scroller = h('div.map-list', { tabIndex: 0, onmousedown: (e) => dbl.listDown(e) });
   const canvas = h('canvas.graph-canvas');
   const detail = h('div.detail');
   listWrap.append(scroller, canvas);
@@ -1155,8 +1162,9 @@ function createMapView(container) {
     const el = h('div.row' + (isSel ? '.selected' : '') + (c.sha === state.head.oid ? '.is-head' : '') + (pending ? '.pending' : ''), {
       onmousedown: (e) => {
         if (e.button !== 0) return;
-        dbl.rowDown(e, c);
+        const hit = dbl.rowDown(e, c);
         if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha);
+        if (hit) checkoutSelected(hit, [e.clientX, e.clientY]);
       },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); commitMenu(e.clientX, e.clientY, c); },
     },
@@ -1245,8 +1253,9 @@ function createMapView(container) {
     if (!results) {
       const i = state.index.get(sha);
       const pi = state.index.get(prev);
-      if (pi != null) vl.refreshRow(pi);
-      if (i != null) { vl.refreshRow(i); vl.scrollToIndex(i, align); }
+      // Toggle the class, don't rebuild the rows: a rebuilt row under the pointer eats the double-click.
+      if (pi != null) vl.rows.get(pi)?.classList.remove('selected');
+      if (i != null) { vl.rows.get(i)?.classList.add('selected'); vl.scrollToIndex(i, align); }
       vl.schedule();
     }
     renderSidebarSelection();
@@ -2589,7 +2598,7 @@ const refListSel = {};
 const refListKey = (view, rows = refListRows(view)) => view + '\n' + rows.map((r) => `${r.label}\t${r.sub || ''}`).join('\n');
 
 function refListView(view) {
-  const page = SECTION_PAGES.find((p) => p.view === view);
+  const page = pageOf(view);
   const rows = refListRows(view);
   refListShown = refListKey(view, rows);
   const el = h('div.page.flush', { tabIndex: 0 });
@@ -2804,7 +2813,10 @@ function countFinished() {
   finishedRun ??= coalesce(async () => {
     if (!state.repo) return;
     const r = await api.app('lanes-list', { prs: false }).catch(() => null);
-    if (r?.lanes) setFinishedCount(r.lanes.filter(isFinished).length);
+    if (!r?.lanes) return;
+    reviewCount = r.lanes.filter((l) => !l.isBase && !['merged', 'idle'].includes(laneBucket(l))).length;
+    setFinishedCount(r.lanes.filter(isFinished).length);
+    renderNavCounts();
   });
   return finishedRun();
 }
@@ -3731,9 +3743,9 @@ function openPalette() {
   const pal = palette(() => {
     const items = [];
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
-    VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: keymap.keys(`view.${v.id}`) }));
+    VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.view), { icon: v.icon, kbd: keymap.keys(`view.${v.view}`) }));
     SECTION_PAGES.forEach((p) => add('Navigation', `Open ${p.label} page`, () => setView(p.view), { icon: p.icon, kbd: keymap.keys(`view.${p.view}`), keywords: 'sidebar section full page' }));
-    orderedSections(state.sections).forEach((p) => add('View', `${p.hidden ? 'Show' : 'Hide'} ${p.label} in the sidebar`, () => setSections(showSection(state.sections, p.id, p.hidden)), { icon: p.icon, keywords: 'sidebar section show hide refs tree' }));
+    orderedSections(state.sections).filter((p) => !p.fixed).forEach((p) => add('View', `${p.hidden ? 'Show' : 'Hide'} ${p.label} in the sidebar`, () => setSections(showSection(state.sections, p.id, p.hidden)), { icon: p.icon, keywords: 'sidebar section show hide refs tree' }));
     add('View', 'Reorder sidebar sections…', () => openPrefs('sidebar'), { icon: 'sidebar', kbd: keymap.keys('app.settings'), keywords: 'sidebar section order move show hide preferences' });
     add('Navigation', 'Open History & recovery', () => setView('snapshots'), { icon: 'history', kbd: keymap.keys('view.snapshots'), keywords: 'snapshots undo timeline restore recover lost' });
     add('Navigation', 'Open Reflog (History & recovery)', () => setView('reflog'), { icon: 'reflog', kbd: keymap.keys('view.reflog'), keywords: 'reflog recover lost commits' });
