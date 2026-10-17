@@ -9,6 +9,7 @@
 //   action   a button that runs something (opens a dialog, resets…); value is the button label
 //   info     read-only text; value is the text
 //   config   one git config entry of the open repository; value is { key, value, scope }
+// A row with `move: true` can also be moved up or down (act value 'up' / 'down'): the sidebar's sections.
 
 export const PREF_SECTIONS = [
   { id: 'general', label: 'General', icon: 'config' },
@@ -22,7 +23,7 @@ export const PREF_SECTIONS = [
 
 // `s` is the snapshot the app passes in:
 //   { autoUpdate, licence, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
-//     agentLanes }, sidebarExpanded, prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
+//     agentLanes }, sidebarExpanded, sections: [{ id, label, icon, hidden }] (refs-tree order), prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
 //   remotes: [{ name, url, label }] }
 export function prefRows(s) {
   const show = s.show || {};
@@ -45,6 +46,12 @@ export function prefRows(s) {
     { section: 'appearance', id: 'agentLanes', kind: 'switch', value: show.agentLanes !== false, label: 'Mark branches that look agent-made', detail: 'A badge in Review, from branch names and commit trailers.', keywords: 'agent ai badge' },
 
     { section: 'sidebar', id: 'sidebarExpanded', kind: 'switch', value: s.sidebarExpanded !== false, label: 'Expanded sidebar', detail: 'Off: a narrow rail of icons.', keywords: 'collapse rail minimize' },
+    ...(s.sections || []).map((p, i, all) => ({
+      section: 'sidebar', id: `section:${p.id}`, kind: 'switch', move: true, value: !p.hidden, label: p.label, icon: p.icon,
+      first: i === 0, last: i === all.length - 1,
+      detail: i === 0 ? 'Sections of the refs tree, top to bottom. ⌥↑ ⌥↓ move the selected one.' : null,
+      keywords: 'sidebar section show hide order reorder move refs tree',
+    })),
     { section: 'sidebar', id: 'resetPanes', kind: 'action', value: 'Reset', label: 'Pane sizes', detail: 'Restore the default widths of the sidebar and file lists.', keywords: 'resize width drag default' },
 
     { section: 'prs', id: 'prsOn', kind: 'switch', value: Boolean(prs?.enabled), label: 'Pull requests from GitHub', detail: prs?.gh === 'missing' ? 'Needs GitHub CLI (gh). Turning this on walks you through it.' : 'Uses your GitHub CLI login. Applies to every repository.', keywords: 'pr github gh enable' },

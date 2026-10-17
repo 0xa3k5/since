@@ -343,6 +343,8 @@ export const COMMANDS = [
   c('prefs', null, 'prefs.toggle', 'Toggle the switch or press the button', 'Enter'),
   c('prefs', null, 'prefs.right', 'Next choice', 'ArrowRight'),
   c('prefs', null, 'prefs.left', 'Previous choice', 'ArrowLeft'),
+  c('prefs', null, 'prefs.moveUp', 'Move the sidebar section up', 'Alt+ArrowUp'),
+  c('prefs', null, 'prefs.moveDown', 'Move the sidebar section down', 'Alt+ArrowDown'),
   c('prefs', null, 'prefs.unset', 'Remove the local git config value', 'Mod+Backspace'),
   c('prefs', null, 'prefs.find', 'Search preferences', 'Mod+f'),
   c('prefs', null, 'prefs.close', 'Clear the search, then close', 'Escape'),
