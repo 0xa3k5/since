@@ -231,7 +231,6 @@ export const STEPS = {
   review: { label: 'Review', keyId: 'lanes.review', icon: 'diff' },
   merge: { label: 'Merge', keyId: 'lanes.merge', icon: 'merge' },
   rebase: { label: 'Rebase', keyId: 'lanes.rebase', icon: 'rebase' },
-  checks: { label: 'Open checks', keyId: 'lanes.checks', icon: 'external' },
   open: { label: 'Open', keyId: 'lanes.open', icon: 'worktree' },
   sendBack: { label: 'Send back…', keyId: 'lanes.sendBack', icon: 'sparkle' },
 };

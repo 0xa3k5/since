@@ -181,7 +181,8 @@ test('one primary button per stage', async () => {
   assert.equal(primaryAction(row('inProgress', { pr: pr(1) }), { requested: new Set([1]) }), 'review');
   assert.equal(primaryAction(row('inProgress', { pr: pr(1) })), 'open');
   assert.equal(primaryAction(row(null, { lane: lane('x') })), 'open');
-  for (const id of ['review', 'merge', 'rebase', 'checks', 'open', 'sendBack']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
+  for (const id of ['review', 'merge', 'rebase', 'open', 'sendBack']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
+  assert.equal(STEPS.checks, undefined); // never a primary step (AK-325)
 });
 
 test('badges: CI and review state, conflicts and uncommitted changes', async () => {
