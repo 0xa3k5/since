@@ -142,6 +142,10 @@ export function keepPrs(lanes, previous = []) {
   });
 }
 
+// sendBack(number) waits for the lanes, and with PRs on for the inbox too (AK-289): Merge plan's
+// "Send back #12" link can land before the `gh` inbox has loaded.
+export const sendBackWaits = ({ loaded, prsOn, inbox, inboxFailed }) => !loaded || (prsOn && !inbox && !inboxFailed);
+
 // A PR load that a newer local refresh overtook: keep the newer local lanes, take the PR data from the load.
 export function takePrs(lanes, from = []) {
   const prs = new Map(from.map((l) => [laneKey(l), l.pr || null]));

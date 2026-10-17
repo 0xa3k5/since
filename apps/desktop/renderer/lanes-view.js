@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -667,7 +667,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const stuckSelection = () => { const x = current(); return x && x.stage === 'stuck' ? x : null; };
   function sendBack(number = null) {
     const r = number == null ? stuckSelection() : (staged?.all || []).find((x) => x.pr?.number === number);
-    if (!r && number != null && !loaded) { pendingSendBack = number; return; }
+    if (!r && number != null && sendBackWaits({ loaded, prsOn: prsOn(), inbox, inboxFailed })) { pendingSendBack = number; return; }
     if (!r) return toast(number == null ? 'Select a stuck row first' : `#${number} isn’t in Review`);
     select(r.key);
     act('sendBack', r);

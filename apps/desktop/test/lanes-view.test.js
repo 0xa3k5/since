@@ -166,3 +166,12 @@ test('the PR load when a repo opens and Reload share one call per repo', async (
   await assert.rejects(s.run('/c', () => { throw new Error('gh'); }), /gh/);
   assert.equal(s.pending('/c'), null);
 });
+
+test('send back #N waits for the lanes, and for the PR inbox with PRs on (AK-289)', async () => {
+  const { sendBackWaits } = await load();
+  assert.equal(sendBackWaits({ loaded: false, prsOn: false, inbox: null, inboxFailed: false }), true);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: null, inboxFailed: false }), true);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: { prs: [] }, inboxFailed: false }), false);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: true, inbox: null, inboxFailed: true }), false);
+  assert.equal(sendBackWaits({ loaded: true, prsOn: false, inbox: null, inboxFailed: false }), false);
+});
