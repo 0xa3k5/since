@@ -109,3 +109,14 @@ test('fixActions: a stuck row offers its fixes in order, with keys in both scope
   assert.deepEqual(fixActions({ stage: 'stuck', pr: { ...pr, mergeState: 'behind' }, lane }, { base: 'main' }).map((a) => a.id), ['checks', 'sendBack']);
   assert.deepEqual(fixActions({ stage: 'stuck', pr: { ...pr, checks: 'success' }, lane }, { base: 'main' }).map((a) => a.id), ['sendBack']);
 });
+
+test('updateBranchBlock: U only updates what the pane offers, else says why', async () => {
+  const { updateBranchBlock } = await import('../renderer/pr-review.js');
+  const pr = { number: 7, mergeState: 'behind' };
+  assert.equal(updateBranchBlock({ stage: 'stuck', title: 'A', pr }, { base: 'main' }), null);
+  assert.equal(updateBranchBlock({ stage: 'stuck', title: 'A', pr: { number: 7 } }, { base: 'main', conflicts: true }), null);
+  assert.match(updateBranchBlock({ stage: 'stuck', title: 'A', pr, lane: { branch: 'a' } }, { base: 'main' }), /checked out here/);
+  assert.match(updateBranchBlock({ stage: 'ready', title: 'A', pr }, { base: 'main' }), /doesn’t need updating/);
+  assert.match(updateBranchBlock({ stage: 'stuck', title: 'A', pr: { number: 7 } }, { base: 'main' }), /doesn’t need updating/);
+  assert.match(updateBranchBlock({ stage: 'stuck', title: 'A' }, { base: 'main' }), /no pull request/);
+});

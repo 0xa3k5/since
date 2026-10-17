@@ -95,6 +95,15 @@ export function fixActions(row, { base = null, conflicts = false } = {}) {
   return out;
 }
 
+// Why Update branch (U) doesn't apply to this row, or null when it does: the list key follows
+// the pane, which offers it only on stuck PRs that aren't here and conflict or are behind.
+export function updateBranchBlock(row, ctx) {
+  if (fixActions(row, ctx).some((a) => a.id === 'updateBranch')) return null;
+  if (!row?.pr) return `${row?.title} has no pull request to update`;
+  if (row.lane) return `${row.title} is checked out here: pull or rebase it instead`;
+  return `${row.title} doesn’t need updating`;
+}
+
 // The PR's description for the pane, as plain text: template comments (<!-- … -->) dropped, runs
 // of blank lines squeezed to one, trimmed. null when GitHub didn't send one (older list data);
 // '' when the author left it empty.
