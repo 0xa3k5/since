@@ -101,7 +101,7 @@ section.s { padding-block: 150px; }
 #catch-up .copy h2 { margin: 0 auto; max-width: 20ch; }
 #catch-up .copy p { margin: 20px auto 0; max-width: 42rem; color: var(--text-3); text-wrap: balance; }
 
-/* 2-4 · Review, Send back, Merge: the top layout. Title on the left, text and list on the right,
+/* 2-4 · Review, Fix prompt, Merge: the top layout. Title on the left, text and list on the right,
    the product full width below (Merge keeps its facts row under the product). Nothing sticks. */
 #review h2, #unblock h2 { font-size: clamp(32px, 3.8vw, 48px); }
 #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 56px; }
