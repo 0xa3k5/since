@@ -680,6 +680,37 @@ kbd.inline { flex: none; }
 .check.small { font-size: 12px; }
 .check input { accent-color: var(--accent); margin: 0; }
 
+/* ---------------------------------------------------------------- Unified changes (one list) */
+/* Tick boxes: empty, partly staged (minus) and staged (check). Staged lines keep their diff colours and get an accent bar. */
+.ucv-tick { width: 14px; height: 14px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--bg-content); color: var(--accent-text); cursor: pointer; }
+.ucv-tick:hover { border-color: var(--accent); }
+.ucv-tick.all, .ucv-tick.partial { background: var(--accent); border-color: var(--accent); }
+.ucv-tick .icon { display: inline-flex; }
+.ucv-tick:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.ucv-tick-gap { width: 14px; flex: none; }
+.ucv-index-row .fname { max-width: 55%; }
+.ucv-count { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.ucv-summary { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.ucv-page { overflow-x: hidden; }
+.ucv-file { border-bottom: 1px solid var(--border); }
+.ucv-file-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 10px 4px 14px; background: var(--bg-content); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.ucv-file-head .ucv-path { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ucv-file.all .ucv-file-head .ucv-path { color: var(--text-2); }
+.ucv-fold { color: var(--text-3); }
+.ucv-staged { flex: none; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ucv-note { flex: none; padding: 1px 6px; border-radius: 999px; font-family: var(--font); font-size: 11px; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.ucv-whole { padding: 12px 14px 14px 36px; font-size: 12.5px; color: var(--text-3); }
+.ucv-body { min-width: 0; overflow-x: auto; padding-bottom: 4px; }
+.ucv-body > .hunk { min-width: max-content; }
+.ucv-hunk-head { gap: 10px; top: auto; }
+.ucv-gutter { width: 26px; flex: none; display: inline-flex; align-items: center; justify-content: center; user-select: none; }
+.ucv-line .ucv-tick { width: 12px; height: 12px; }
+.ucv-line.staged { box-shadow: inset 2px 0 0 var(--accent); }
+.ucv-line.edited { box-shadow: inset 2px 0 0 var(--warn); }
+.ucv-line.pick.sel.add, .ucv-line.pick.sel.del { box-shadow: inset 2px 0 0 var(--accent); }
+.ucv-file-head, .ucv-hunk-head, .ucv-line { scroll-margin-top: 48px; }
+.ucv-cur { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+
 /* ---------------------------------------------------------------- Lists, pages */
 /* Stashes: the list keeps its saved width but always leaves 360 px for the diff (floor 240 px), like the Commit view. */
 .split-view { --st-col: min(var(--st-w, 340px), max(240px, 100% - 360px)); position: relative; flex: 1; display: grid; grid-template-columns: var(--st-col) minmax(0, 1fr); min-height: 0; }
