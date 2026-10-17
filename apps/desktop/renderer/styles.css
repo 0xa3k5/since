@@ -1013,8 +1013,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-status-text { flex: 1 1 0; min-width: 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 /* Right-aligned on the bar itself, not via the first child's margin: that child may be a hidden
    secondary (fit-more), which left the stuck strip's buttons floating mid-row. It shrinks below its
-   buttons only once the reason is down to its minimum, so fit() sees scrollWidth grow. */
-.review-pane-status > .review-pane-actions { flex: 0 1 auto; margin-left: auto; justify-content: flex-end; gap: 6px; margin-top: 0; }
+   buttons only once the reason is down to its minimum. `safe` sends any overflow to the right, where
+   fit() sees scrollWidth grow; plain flex-end spilled the buttons left over the pill (AK-503). */
+.review-pane-status > .review-pane-actions { flex: 0 1 auto; margin-left: auto; justify-content: safe flex-end; gap: 6px; margin-top: 0; }
 .review-pane-status.fit-more .pane-secondary { display: none; }
 .review-pane-status.fit-more .pane-more { display: inline-flex; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
