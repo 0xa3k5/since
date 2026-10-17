@@ -34,7 +34,7 @@ import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, return
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
-import { prefRows, PR_REMOTE_AUTO, openPrefsCommand } from './prefs.js';
+import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
@@ -4119,7 +4119,7 @@ async function prefAct(row, value) {
   else if (id === 'resetPanes') resetPanes();
   else if (id.startsWith('section:')) { const sec = id.slice(8); setSections(value === 'up' || value === 'down' ? moveSection(state.sections, sec, value === 'up' ? -1 : 1) : showSection(state.sections, sec, value)); }
   else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
-  else if (id === 'prRemote') { await setPrRemote(value === PR_REMOTE_AUTO ? null : value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prRemote') { await setPrRemote(prRemoteChoice(value)); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'shortcuts') leavePrefs(openShortcuts);
   else if (id === 'importShortcuts') await importShortcuts();

@@ -72,20 +72,24 @@ export function prefRows(s) {
   return rows.filter((r) => !r.repo || s.repo);
 }
 
-// Which remote this repository's PR features use (AK-461). With two or more GitHub remotes it's a choice:
-// Automatic (origin when it's on GitHub, else the first GitHub remote) or one of them by name.
 // A `preferences` menu command while Preferences is open: ⌘, (no section) closes it,
 // a sectioned one (View → Repository Settings…, ⌘9) jumps to that section.
 export const openPrefsCommand = (section) => (section ? 'show' : 'close');
 
+// Which remote this repository's PR features use (AK-461). With two or more GitHub remotes it's a choice:
+// Automatic (origin when it's on GitHub, else the first GitHub remote) or one of them by name. Remote option ids are
+// prefixed so a remote literally named `auto` can't collide with Automatic (AK-484).
 export const PR_REMOTE_AUTO = 'auto';
+const prRemoteId = (name) => `remote:${name}`;
+// The remote name an option id stands for, or null for Automatic.
+export const prRemoteChoice = (id) => (id?.startsWith('remote:') ? id.slice(7) : null);
 function prRemoteRow(prs) {
   const base = { section: 'prs', id: 'prRemote', label: 'Remote for pull requests', keywords: 'pr github remote origin fork upstream push' };
   const choices = prs?.choices || [];
   if (choices.length < 2) return { ...base, kind: 'info', value: prs?.remote ? `${prs.remote.name} (${prs.remote.owner}/${prs.remote.repo})` : 'No GitHub remote', detail: 'origin when it is on GitHub, else the first GitHub remote.' };
   return {
-    ...base, kind: 'choice', value: prs.chosen || PR_REMOTE_AUTO,
-    options: [{ id: PR_REMOTE_AUTO, label: 'Automatic' }, ...choices.map((c) => ({ id: c.name, label: c.name }))],
+    ...base, kind: 'choice', value: prs.chosen ? prRemoteId(prs.chosen) : PR_REMOTE_AUTO,
+    options: [{ id: PR_REMOTE_AUTO, label: 'Automatic' }, ...choices.map((c) => ({ id: prRemoteId(c.name), label: c.name }))],
     detail: `Lists, reviews and new pull requests use ${prs.remote.owner}/${prs.remote.repo}. New branches push there too.`,
   };
 }
