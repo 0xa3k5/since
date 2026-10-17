@@ -716,7 +716,10 @@ handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o)
   const why = mergePlan.changedSince(o.snap, await github.mergeInfo({ ...t, number }));
   if (why) return { stop: `#${number}: ${why}` };
   if ((await remoteBase(s, remote, base)) !== o.baseSha) return { stop: `${base} moved on GitHub since the plan` };
-  await github.mergePr({ ...t, number, method: 'squash' });
+  try { await github.mergePr({ ...t, number, method: 'squash', matchHead: o.snap.head }); } catch (err) {
+    if (github.headMoved(err)) return { stop: `#${number}: new commits were pushed since the plan` };
+    throw err;
+  }
   const m = await github.mergedCommit({ ...t, number }).catch(() => ({ commit: null }));
   return { merged: true, commit: m.commit };
 }));
