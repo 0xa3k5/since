@@ -4,13 +4,19 @@
 const ROW_CONTROLS = '.pill, .avatar, .avatar-stack, button, a, input';
 export const isRowControl = (target) => !!target?.closest?.(ROW_CONTROLS);
 
-// Which row a double-click on the Map list means. The first press selects (and redraws) its row,
-// so the second press and the dblclick land on the list, not on the row: remember the first one.
+// Which row a double-click on the Map list means, read off the second mousedown (its click count)
+// rather than the dblclick event, which Chromium drops when anything redraws the row mid-click.
+// rowDown returns the row to check out, or null.
 export function rowDoubleClick() {
   let armed = null;
   return {
-    rowDown(e, row) { if (e.detail === 1) armed = isRowControl(e.target) ? null : row; },
-    listDown(e) { if (e.detail === 1 && !e.target?.closest?.('.row')) armed = null; },
-    dblclick(e) { return e.button === 0 && !isRowControl(e.target) ? armed : null; },
+    rowDown(e, row) {
+      if (e.button !== 0 || isRowControl(e.target)) { armed = null; return null; }
+      if (e.detail === 1) { armed = row; return null; }
+      const hit = e.detail === 2 && armed === row ? row : null;
+      armed = null;
+      return hit;
+    },
+    listDown(e) { if (!e.target?.closest?.('.row')) armed = null; },
   };
 }
