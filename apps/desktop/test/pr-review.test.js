@@ -120,3 +120,18 @@ test('updateBranchBlock: U only updates what the pane offers, else says why', as
   assert.match(updateBranchBlock({ stage: 'stuck', title: 'A', pr: { number: 7 } }, { base: 'main' }), /doesn’t need updating/);
   assert.match(updateBranchBlock({ stage: 'stuck', title: 'A' }, { base: 'main' }), /no pull request/);
 });
+
+test('fetchPrHead: two fetches at once each get their own PR head (AK-277)', async () => {
+  let fetchHead = null;
+  const heads = { 5: 'a'.repeat(40), 6: 'b'.repeat(40) };
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  // A fake git: the fetch writes FETCH_HEAD, the rev-parse reads it a moment later.
+  const run = async (args) => {
+    if (args[0] === 'fetch') { await tick(); fetchHead = heads[args.at(-1).split('/')[2]]; return ''; }
+    await tick();
+    return fetchHead;
+  };
+  const [a, b] = await Promise.all([github.fetchPrHead(run, 'origin', 5), github.fetchPrHead(run, 'origin', 6)]);
+  assert.equal(a, heads[5]);
+  assert.equal(b, heads[6]);
+});
