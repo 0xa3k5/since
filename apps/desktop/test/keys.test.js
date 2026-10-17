@@ -28,21 +28,24 @@ test('double-clicks on pills and avatars are not row double-clicks', async () =>
   assert.equal(isRowControl(null), false);
 });
 
-test('a Map double-click means the row pressed first, even when it lands on the list', async () => {
+test('a Map double-click is the second press on the same row, even after the row is redrawn', async () => {
   const { rowDoubleClick } = await load();
   const node = (cls) => ({ closest: (sel) => (sel.split(', ').includes(cls) || sel === cls ? {} : null) });
   const row = node('.row'), list = node('.map-list'), pill = node('.pill');
   const d = rowDoubleClick();
-  d.rowDown({ detail: 1, target: row }, 'A');
-  d.listDown({ detail: 1, target: row });
-  d.listDown({ detail: 2, target: list });
-  assert.equal(d.dblclick({ button: 0, target: list }), 'A');
-  // Starting on a pill, on empty list space, or with another button checks nothing out.
-  d.rowDown({ detail: 1, target: pill }, 'B');
-  assert.equal(d.dblclick({ button: 0, target: list }), null);
-  d.rowDown({ detail: 1, target: row }, 'C');
-  d.listDown({ detail: 1, target: list });
-  assert.equal(d.dblclick({ button: 0, target: list }), null);
-  d.rowDown({ detail: 1, target: row }, 'D');
-  assert.equal(d.dblclick({ button: 2, target: row }), null);
+  assert.equal(d.rowDown({ button: 0, detail: 1, target: row }, 'A'), null);
+  d.listDown({ button: 0, detail: 1, target: row });
+  assert.equal(d.rowDown({ button: 0, detail: 2, target: row }, 'A'), 'A');
+  // A third press does not check out again.
+  assert.equal(d.rowDown({ button: 0, detail: 3, target: row }, 'A'), null);
+  // Second press on another row, on a pill, after empty list space, or with another button: nothing.
+  d.rowDown({ button: 0, detail: 1, target: row }, 'B');
+  assert.equal(d.rowDown({ button: 0, detail: 2, target: row }, 'C'), null);
+  d.rowDown({ button: 0, detail: 1, target: row }, 'D');
+  assert.equal(d.rowDown({ button: 0, detail: 2, target: pill }, 'D'), null);
+  d.rowDown({ button: 0, detail: 1, target: row }, 'E');
+  d.listDown({ button: 0, detail: 1, target: list });
+  assert.equal(d.rowDown({ button: 0, detail: 2, target: row }, 'E'), null);
+  d.rowDown({ button: 0, detail: 1, target: row }, 'F');
+  assert.equal(d.rowDown({ button: 2, detail: 2, target: row }, 'F'), null);
 });
