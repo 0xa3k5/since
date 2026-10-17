@@ -74,3 +74,21 @@ test('clear forgets both directions (switching repositories)', async () => {
   assert.equal(nav.canBack, false);
   assert.equal(nav.canForward, false);
 });
+
+test('a step that fails (worktree switch error) can be taken back, leaving both stacks as they were', async () => {
+  const { createNav } = await import('../renderer/nav.js');
+  const nav = createNav();
+  const a = at('a'), b = at('b'), c = at('c');
+  nav.record(a, 'b');
+  nav.record(b, 'c');
+  const to = nav.back(c);
+  nav.undo('back', c, to);
+  assert.deepEqual(nav.back(c), b, 'back still goes to the entry that failed');
+  assert.deepEqual(nav.back(b), a);
+  assert.equal(nav.canBack, false);
+  const fwd = nav.forward(a);
+  nav.undo('forward', a, fwd);
+  assert.deepEqual(nav.forward(a), b);
+  assert.deepEqual(nav.forward(b), c);
+  assert.equal(nav.canForward, false);
+});

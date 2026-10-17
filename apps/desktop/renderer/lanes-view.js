@@ -1,12 +1,10 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
+import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
 import { navPos, authorsStack, fastKeys } from './reader.js';
 
-// "2h ago", but "just now" and "Oct 3" as they are.
-const ago = (t) => { const s = timeAgo(t); return /^\d/.test(s) ? `${s} ago` : s; };
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), one list at
 // a time behind tabs (AK-361, review-rows.js TABS; 1–5). The head (title, counts, Reload and the tabs

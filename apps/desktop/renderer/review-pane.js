@@ -1,4 +1,4 @@
-import { h, icon, kbd, loading, contextMenu, tipFor, timeAgo, fullDate } from './ui.js';
+import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
@@ -30,8 +30,6 @@ const STATE = {
   pending: { icon: 'pending', glyph: '○', verb: 'review requested', many: 'haven’t reviewed yet' },
 };
 const SHOWN_REVIEWERS = 4;
-// "2h ago", "just now", or a date for anything older than a month.
-const ago = (t) => { const a = timeAgo(t); return /^\d+[mhd]$/.test(a) ? `${a} ago` : a; };
 const reviewerTip = (r) => `${r.name}${r.login && r.login !== r.name ? ` (${r.login})` : ''}: ${STATE[r.state].verb}${r.at ? ` · ${fullDate(Date.parse(r.at) / 1000)}` : ''}`;
 
 // The line under the meta: each reviewer with a state icon, "+N" past the first few. A narrow pane

@@ -66,7 +66,10 @@ export function rebase(s) {
   const base = feature.at(-1);
   if (base.parent === onto.sha) return { ...s, last: 'no-rebase' };
   const moved = feature.map((x) => (x === base ? { ...x, parent: onto.sha } : x));
-  return commit(s, { commits: [...moved, ...s.commits.filter((x) => x.lane === 0)] }, 'rebase');
+  // Feature commits go just above `onto`, so the edge never crosses newer main rows.
+  const main = s.commits.filter((x) => x.lane === 0);
+  const at = main.indexOf(onto);
+  return commit(s, { commits: [...main.slice(0, at), ...moved, ...main.slice(at)] }, 'rebase');
 }
 
 // P: copy the selected feature commit onto main and move main to the copy.
