@@ -6,8 +6,11 @@ import { prDescription } from './pr-review.js';
 // PRs are on). No AI: issue keys and folders only.
 
 // A generic issue key: "AK-12", "WEB2-345".
-export const ISSUE_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
-export const issueKey = (...texts) => texts.map((t) => (t || '').match(ISSUE_KEY)?.[0]).find(Boolean) || null;
+export const ISSUE_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
+// Standards and encodings that look like keys ("read UTF-8 paths", "SHA-256") are never one (AK-287).
+const NOT_KEYS = new Set(['UTF', 'UCS', 'SHA', 'MD', 'ISO', 'IEC', 'HTTP', 'TLS', 'SSL', 'RFC', 'CVE', 'ES', 'ECMA', 'X']);
+const keyIn = (t) => [...(t || '').matchAll(ISSUE_KEY)].map((m) => m[0]).find((k) => !NOT_KEYS.has(k.slice(0, k.lastIndexOf('-'))));
+export const issueKey = (...texts) => texts.map(keyIn).find(Boolean) || null;
 
 // The area a path belongs to: apps/<name> and packages/<name>, else its top-level folder.
 export function areaOf(file) {

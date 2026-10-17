@@ -115,6 +115,9 @@ test('grouping: issue key first (labelled with its PR title), else area; merged 
   const { landedEntries, groupLanded, issueKey, areaOf, sinceOptions, countsText } = await load('catchup.js');
   assert.equal(issueKey('feat: x (AK-281)'), 'AK-281');
   assert.equal(issueKey('no key', 'web2-1', 'WEB2-45 fix'), 'WEB2-45');
+  assert.equal(issueKey('fix: read UTF-8 paths'), null);
+  assert.equal(issueKey('use SHA-256 and ISO-8601 dates (AK-9)'), 'AK-9');
+  assert.equal(issueKey('HTTP-2 support', 'WEB-3 HTTP-2'), 'WEB-3');
   assert.equal(areaOf('apps/web/src/x.astro'), 'apps/web');
   assert.equal(areaOf('docs/a.md'), 'docs');
   assert.equal(areaOf('README.md'), 'Top level');
@@ -249,4 +252,14 @@ test('a git-only reload that overtook a PR load keeps its merged PRs (AK-338)', 
   const extra = { merged: [{ number: 3 }], ci: null };
   assert.deepEqual(withLateExtra({ commits: [], merged: [] }, extra), { commits: [], merged: extra.merged, ci: null });
   assert.equal(withLateExtra(null, extra), null);
+});
+
+test('a root commit reads its whole tree as its files (AK-287)', async () => {
+  const dir = tmp('root');
+  await g(dir, ['init', '-q', '-b', 'main']);
+  await g(dir, ['config', 'user.name', 'Test']);
+  await g(dir, ['config', 'user.email', 't@example.com']);
+  await g(dir, ['config', 'commit.gpgsign', 'false']);
+  const sha = await commit(dir, 'a/one.txt', 'first');
+  assert.deepEqual((await git.commitDiffs(dir, sha)).map((d) => d.path), ['a/one.txt']);
 });
