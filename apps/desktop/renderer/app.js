@@ -2494,9 +2494,9 @@ async function addRemote() {
   return act(`Add remote ${name}`, 'addRemote', [name, url], { success: `Added remote ${name}`, ...remoteDone });
 }
 async function editRemoteUrl(r) {
-  const v = await dialog({ title: `Edit URL of ${r.name}`, fields: [{ name: 'url', label: 'URL', value: r.url }], submit: 'Save' });
+  const v = await dialog({ title: `Edit URL of ${r.name}`, fields: [{ name: 'url', label: 'URL', value: r.setUrl ?? r.url }], submit: 'Save' });
   const url = v?.url.trim();
-  if (!url || url === r.url) return;
+  if (!url || url === (r.setUrl ?? r.url)) return;
   return act(`Edit URL of ${r.name}`, 'setRemoteUrl', [r.name, url], { success: `Changed the URL of ${r.name}`, ...remoteDone });
 }
 async function renameRemote(r) {
