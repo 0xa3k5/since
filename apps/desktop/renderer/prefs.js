@@ -23,7 +23,7 @@ export const PREF_SECTIONS = [
 
 // `s` is the snapshot the app passes in:
 //   { autoUpdate, licence, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
-//     agentLanes }, sidebarExpanded, sections: [{ id, label, icon, hidden }] (refs-tree order), prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
+//     agentLanes, unified }, sidebarExpanded, sections: [{ id, label, icon, hidden }] (refs-tree order), prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
 //   remotes: [{ name, url, label }] }
 export function prefRows(s) {
   const show = s.show || {};
@@ -36,6 +36,7 @@ export function prefRows(s) {
 
     { section: 'git', id: 'autostashAsk', kind: 'switch', value: s.autostash?.ask !== false, label: 'Ask before auto-stashing on checkout', detail: 'Off: GitLanes stashes your changes, switches, and offers them back when you return.', keywords: 'autostash auto stash checkout switch' },
     { section: 'git', id: 'autostashUntracked', kind: 'switch', value: Boolean(s.autostash?.untracked), label: 'Include untracked files in auto-stashes', keywords: 'autostash auto stash untracked new files' },
+    { section: 'git', id: 'unified', kind: 'switch', value: show.unified === true, label: 'Show changes as one list', detail: 'The Commit view shows every changed file on one page, with a tick box for each file, hunk and line.', keywords: 'unified changes staged unstaged stage lines hunks commit view' },
     { section: 'git', id: 'identity', kind: 'action', value: 'Set…', label: 'Commit identity', detail: 'Name and email for this repository, and rules per remote.', keywords: 'user name email author', repo: true },
     { section: 'git', id: 'ai', kind: 'action', value: 'Choose…', label: 'AI commit messages', detail: s.ai && s.ai !== 'Off' ? `On, using ${s.ai}.` : 'Off. Pick a provider you trust.', keywords: 'ai llm claude codex ollama provider' },
 

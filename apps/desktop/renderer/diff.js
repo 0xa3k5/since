@@ -17,7 +17,7 @@ let swatches = true;
 export function setSwatches(on) { swatches = on; }
 
 // Code text with a swatch before each colour code. Swatches have no text, so copy/paste is unchanged.
-function codeSpan(s) {
+export function codeSpan(s) {
   const found = swatches ? findColors(s) : [];
   if (!found.length) return h('span.code', null, s || '\u200b');
   const parts = [];
