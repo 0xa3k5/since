@@ -226,7 +226,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.merge', 'Merge the pull request, or merge and tidy the branch', 'm'),
   c('lanes', null, 'lanes.rebase', 'Rebase the branch onto the base branch', 'b'),
   c('lanes', null, 'lanes.checks', 'Open the checks of the pull request', 'o'),
-  c('lanes', null, 'lanes.sendBack', 'Send back a stuck row with a ready-made prompt', 'p'),
+  c('lanes', null, 'lanes.sendBack', 'Fix prompt: a ready-made prompt to fix a stuck row', 'p'),
   c('lanes', null, 'lanes.updateBranch', 'Update the pull request’s branch with its base on GitHub', 'u'),
   c('lanes', null, 'lanes.showConflicts', 'Show the files that conflict with the base', 'f'),
   c('lanes', null, 'lanes.delete', 'Delete the worktree and branch (undoable)', 'Mod+Backspace'),
@@ -272,7 +272,7 @@ export const COMMANDS = [
   c('review', null, 'review.updateBranch', 'Update the stuck pull request’s branch with its base on GitHub', 'u'),
   c('review', null, 'review.showConflicts', 'Show the files that conflict with the base', 'f'),
   c('review', null, 'review.checks', 'Open the failing checks of the pull request', 'o'),
-  c('review', null, 'review.sendBack', 'Send back the stuck row with a ready-made prompt', 'p'),
+  c('review', null, 'review.sendBack', 'Fix prompt: a ready-made prompt to fix the stuck row', 'p'),
   c('review', null, 'review.close', 'Back', 'Escape'),
   // Branches (AK-396): every local branch and worktree, behind tabs.
   c('branches', null, 'branches.next', 'Next / previous branch', 'ArrowDown', { pair: 'branches.prev' }),
