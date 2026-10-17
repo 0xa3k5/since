@@ -47,9 +47,9 @@ export function prefRows(s) {
 
     { section: 'sidebar', id: 'sidebarExpanded', kind: 'switch', value: s.sidebarExpanded !== false, label: 'Expanded sidebar', detail: 'Off: a narrow rail of icons.', keywords: 'collapse rail minimize' },
     ...(s.sections || []).map((p, i, all) => ({
-      section: 'sidebar', id: `section:${p.id}`, kind: 'switch', move: true, value: !p.hidden, label: p.label, icon: p.icon,
-      first: i === 0, last: i === all.length - 1,
-      detail: i === 0 ? 'Sections of the refs tree, top to bottom. ⌥↑ ⌥↓ move the selected one.' : null,
+      section: 'sidebar', id: `section:${p.id}`, kind: 'switch', move: true, value: !p.hidden, label: p.label, icon: p.icon, fixed: Boolean(p.fixed),
+      first: i === 0 || all[i - 1].group !== p.group, last: i === all.length - 1 || all[i + 1].group !== p.group,
+      detail: i === 0 ? 'Pages, top to bottom. ⌥↑ ⌥↓ move the selected one; in the sidebar, long-press and drag.' : p.group !== all[i - 1].group ? 'Lists below the divider.' : null,
       keywords: 'sidebar section show hide order reorder move refs tree',
     })),
     { section: 'sidebar', id: 'resetPanes', kind: 'action', value: 'Reset', label: 'Pane sizes', detail: 'Restore the default widths of the sidebar and file lists.', keywords: 'resize width drag default' },

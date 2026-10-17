@@ -29,59 +29,80 @@ export function sidebarToggleLabel({ width, expanded, pinned = false, hover = fa
   return expanded ? 'Minimize sidebar' : 'Expand sidebar';
 }
 
-// The refs tree below the activities (AK-463), top to bottom. ⤢ on a section's header, a double-click on it,
-// its key (view.<view>) and ⌘K open its full page: `view` is that page. Pull requests open Review, not a copy.
-export const SECTION_PAGES = [
+// The sidebar, top to bottom (AK-491): one row per page (keys ⌘1–⌘8), a divider, then the smaller fold-out lists.
+// `view` is the page a row opens; `fixed` rows can move but not hide. Each row keeps its key wherever it sits.
+export const NAV_ITEMS = [
+  { id: 'catchup', label: 'Catch up', icon: 'catchup', view: 'catchup', fixed: true },
+  { id: 'lanes', label: 'Review', icon: 'lanes', view: 'lanes', fixed: true },
+  { id: 'map', label: 'Map', icon: 'map', view: 'map', fixed: true },
+  { id: 'commit', label: 'Commit', icon: 'commit', view: 'commit', fixed: true },
   { id: 'branches', label: 'Branches', icon: 'branch', view: 'branches' },
+  { id: 'stashes', label: 'Stashes', icon: 'stash', view: 'stashes' },
+  { id: 'history', label: 'History', icon: 'history', view: 'snapshots' },
+  { id: 'submodules', label: 'Submodules', icon: 'submodule', view: 'submoduleList' },
+];
+// Below the divider: a click on the header folds the list, a double-click (or its key, or ⌘K) opens its full page.
+export const SECTION_PAGES = [
   { id: 'remotes', label: 'Remotes', icon: 'cloud', view: 'remoteList' },
   { id: 'tags', label: 'Tags', icon: 'tag', view: 'tagList' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', view: 'worktrees' },
-  { id: 'prs', label: 'Pull requests', icon: 'merge', view: 'lanes' },
-  { id: 'stashes', label: 'Stashes', icon: 'stash', view: 'stashes' },
-  { id: 'submodules', label: 'Submodules', icon: 'submodule', view: 'submoduleList' },
 ];
+const ITEMS = [...NAV_ITEMS.map((p) => ({ ...p, group: 'nav' })), ...SECTION_PAGES.map((p) => ({ ...p, group: 'list' }))];
 
-// Snapshots and the reflog are one page, "History & recovery", with a tab each.
+// Snapshots and the reflog are one page, History, with a tab each.
 export const HISTORY_VIEWS = ['snapshots', 'reflog'];
 
-// The section whose header stays highlighted while `view` is on screen, or null.
-export const sectionOf = (view) => SECTION_PAGES.find((p) => p.view === view)?.id || null;
+// The sidebar row that stays highlighted while `view` is on screen, or null.
+export const sectionOf = (view) => (HISTORY_VIEWS.includes(view) ? 'history' : ITEMS.find((p) => p.view === view)?.id || null);
+// The row (either group) whose page is `view`.
+export const pageOf = (view) => ITEMS.find((p) => p.view === view) || null;
 
-// The page title for the top bar: activities first, then section pages, then History & recovery.
-export function pageLabel(view, activities = []) {
-  return activities.find((v) => v.id === view)?.label
-    || SECTION_PAGES.find((p) => p.view === view)?.label
-    || (HISTORY_VIEWS.includes(view) ? 'History & recovery' : '');
-}
+// The page title for the top bar.
+export const pageLabel = (view) => (HISTORY_VIEWS.includes(view) ? 'History' : pageOf(view)?.label || '');
 
-// Which refs-tree sections show, and in what order (AK-464, Preferences → Sidebar). Saved as
-// { order: [ids], hidden: [ids] }; anything unknown is dropped and sections it doesn't mention keep their default
-// place, so the default (nothing saved) is SECTION_PAGES as is, all shown.
+// Which rows show, and in what order (AK-464, Preferences → Sidebar; long-press drag, AK-491). Saved as
+// { order: [ids], hidden: [ids] }; anything unknown is dropped and rows it doesn't mention keep their default
+// place, so the default (nothing saved) is NAV_ITEMS then SECTION_PAGES, all shown. Rows never leave their group.
 export function sectionLayout(saved = {}) {
-  const known = SECTION_PAGES.map((p) => p.id);
+  const known = ITEMS.map((p) => p.id);
   const order = (Array.isArray(saved.order) ? saved.order : []).filter((id, i, a) => known.includes(id) && a.indexOf(id) === i);
-  // A section the saved order doesn't know goes right after the one before it by default (or first).
+  // A row the saved order doesn't know goes right after the one before it by default (or first).
   known.forEach((id, k) => { if (!order.includes(id)) order.splice(k ? order.indexOf(known[k - 1]) + 1 : 0, 0, id); });
-  const hidden = (Array.isArray(saved.hidden) ? saved.hidden : []).filter((id) => known.includes(id));
+  const hidden = (Array.isArray(saved.hidden) ? saved.hidden : []).filter((id) => known.includes(id) && !ITEMS.find((p) => p.id === id).fixed);
   return { order, hidden: [...new Set(hidden)] };
 }
 
-// The section pages in the saved order, each with `hidden`.
-export const orderedSections = (saved) => {
+// Every row in the saved order, each with `group` ('nav' or 'list') and `hidden`; pass a group for just that one.
+export const orderedSections = (saved, group = null) => {
   const l = sectionLayout(saved);
-  return l.order.map((id) => ({ ...SECTION_PAGES.find((p) => p.id === id), hidden: l.hidden.includes(id) }));
+  return l.order.map((id) => ({ ...ITEMS.find((p) => p.id === id), hidden: l.hidden.includes(id) })).filter((p) => !group || p.group === group);
 };
 
-// Move a section one place up (dir -1) or down (dir 1); stays put at either end.
+const groupOf = (id) => ITEMS.find((p) => p.id === id)?.group;
+
+// Move a row one place up (dir -1) or down (dir 1) within its group; stays put at either end.
 export function moveSection(saved, id, dir) {
   const { order, hidden } = sectionLayout(saved);
-  const i = order.indexOf(id), j = i + dir;
+  const i = order.indexOf(id);
+  let j = i + dir;
+  while (j >= 0 && j < order.length && groupOf(order[j]) !== groupOf(id)) j += dir;
   if (i < 0 || j < 0 || j >= order.length) return { order, hidden };
   [order[i], order[j]] = [order[j], order[i]];
   return { order, hidden };
 }
 
+// Drop a dragged row just before `before` (null: after the last row of its group). Other groups don't take it.
+export function placeSection(saved, id, before = null) {
+  const { order, hidden } = sectionLayout(saved);
+  if (!order.includes(id) || id === before || (before && groupOf(before) !== groupOf(id))) return { order, hidden };
+  const rest = order.filter((x) => x !== id);
+  const at = before ? rest.indexOf(before) : rest.findLastIndex((x) => groupOf(x) === groupOf(id)) + 1;
+  rest.splice(at, 0, id);
+  return { order: rest, hidden };
+}
+
 export function showSection(saved, id, show) {
   const { order, hidden } = sectionLayout(saved);
+  if (!show && ITEMS.find((p) => p.id === id)?.fixed) return { order, hidden };
   return { order, hidden: show ? hidden.filter((x) => x !== id) : [...new Set([...hidden, id])] };
 }
