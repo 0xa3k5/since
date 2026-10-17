@@ -24,7 +24,7 @@ import { openMergePlan } from './merge-plan-view.js';
 import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
-import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageLabel } from './sidebar.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageLabel, orderedSections, moveSection, showSection } from './sidebar.js';
 import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
 import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile } from './profile.js';
@@ -81,6 +81,7 @@ const state = {
   cv: { list: 'unstaged', path: null, sel: new Set(), anchor: null, lines: new Set(), diff: null, full: false },
   amend: false,
   collapsed: loadPref('collapsed', {}),
+  sections: loadPref('sidebarSections', {}), // which refs-tree sections show, in what order (Preferences → Sidebar)
   theme: 'system',
   licence: null,
   prs: null, // pull requests from GitHub (see loadPrs); null until known
@@ -675,11 +676,21 @@ function renderSidebar() {
     const fold = () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); };
     return h('div.sb-section', { 'data-section': id },
       h('div.sb-section-row' + (onPage(id) ? '.active' : ''), null,
-        h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2 && page) setView(page.view); }, 'aria-expanded': String(!collapsed) },
+        h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2 && page) setView(page.view); }, oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, id); }, 'aria-expanded': String(!collapsed) },
           h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, count), h('span.nav-badge')),
         page ? h('button.icon-btn.tiny.sb-page', { onclick: () => setView(page.view), 'data-view': page.view, title: tip(`Open ${page.label} page`, `view.${page.view}`), 'aria-label': `Open ${page.label} page` }, icon('expand', 12)) : null),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
     );
+  };
+
+  const sections = {
+    branches: () => section('branches', 'Branches', branches, (r) => refItem(r)),
+    remotes: () => section('remotes', 'Remotes', [...remoteRows, addRemoteItem], (el) => el, state.remotes.length),
+    tags: () => section('tags', 'Tags', tags, (r) => refItem(r)),
+    worktrees: () => section('worktrees', 'Worktrees', state.worktrees, worktreeItem),
+    prs: () => section('prs', 'Pull requests', state.prs.data?.prs || [], prItem),
+    stashes: () => section('stashes', 'Stashes', state.stashes, stashItem),
+    submodules: () => section('submodules', 'Submodules', state.submodules, submoduleItem),
   };
 
   const refItem = (r, label = r.short, nested = false) => h('div.sb-item' + (nested ? '.sb-nested' : '') + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
@@ -765,18 +776,9 @@ function renderSidebar() {
     h('nav.sb-nav', null, VIEWS.map((v) => h('button.nav-item' + (state.view === v.id ? '.active' : ''), { onclick: () => setView(v.id), 'data-view': v.id, title: tip(v.label, `view.${v.id}`), 'aria-label': v.label },
       icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.id}`).join(''))))),
     h('div.sb-scroll', null,
-      section('branches', 'Branches', branches, (r) => refItem(r)),
-      section('remotes', 'Remotes', [...remoteRows, addRemoteItem], (el) => el, state.remotes.length),
-      section('tags', 'Tags', tags, (r) => refItem(r)),
-      section('worktrees', 'Worktrees', state.worktrees, worktreeItem),
-      state.prs?.active ? section('prs', 'Pull requests', state.prs.data?.prs || [], prItem) : null,
-      section('stashes', 'Stashes', state.stashes, stashItem),
-      state.submodules.length ? section('submodules', 'Submodules', state.submodules, submoduleItem) : null,
-    ),
+      shownSections().map((p) => sections[p.id]())),
     // Icons-only stand-ins for the sections above, shown in the rail.
-    h('div.sb-rail-items', null,
-      SECTION_PAGES.filter((p) => (p.id !== 'prs' || state.prs?.active) && (p.id !== 'submodules' || state.submodules.length))
-        .map((p) => railItem(p.id, p.label, p.icon))),
+    h('div.sb-rail-items', null, shownSections().map((p) => railItem(p.id, p.label, p.icon))),
     h('div.sb-foot', null,
       h('button.sb-action', { onclick: fetchAll, title: tip('Fetch all', 'repo.fetch'), 'aria-label': 'Fetch' }, icon('fetch'), h('span', null, 'Fetch')),
       h('button.sb-action', { onclick: pull, title: tip('Pull', 'repo.pull'), 'aria-label': 'Pull' }, icon('pull'), h('span', null, 'Pull')),
@@ -785,6 +787,34 @@ function renderSidebar() {
   );
   renderNavCounts();
   applySidebar();
+}
+
+// The refs-tree sections on screen, in the saved order: not hidden in Preferences → Sidebar, and Pull requests /
+// Submodules only when the repository has them.
+const shownSections = () => orderedSections(state.sections)
+  .filter((p) => !p.hidden && (p.id !== 'prs' || state.prs?.active) && (p.id !== 'submodules' || state.submodules.length));
+function setSections(next) {
+  state.sections = next;
+  savePref('sidebarSections', next);
+  renderSidebar();
+}
+// Right-click on a section header: move or hide it, or open Preferences → Sidebar.
+function sectionMenu(x, y, id) {
+  const shown = shownSections().map((p) => p.id), i = shown.indexOf(id);
+  // Moves step over sections that aren't on screen, so one move always changes what you see.
+  const move = (dir) => {
+    const at = (s, x) => orderedSections(s).findIndex((p) => p.id === x);
+    let s = state.sections;
+    const target = shown[i + dir];
+    while (dir < 0 ? at(s, id) > at(s, target) : at(s, id) < at(s, target)) s = moveSection(s, id, dir);
+    setSections(s);
+  };
+  contextMenu(x, y, [
+    { label: 'Move Up', icon: 'chevronUp', disabled: i <= 0, run: () => move(-1) },
+    { label: 'Move Down', icon: 'chevronDown', disabled: i < 0 || i >= shown.length - 1, run: () => move(1) },
+    { label: 'Hide Section', icon: 'eye', run: () => { setSections(showSection(state.sections, id, false)); toast(`${SECTION_PAGES.find((p) => p.id === id).label} hidden. Bring it back in Preferences → Sidebar.`); } },
+    { label: 'Sidebar Preferences…', icon: 'config', run: () => openPrefs('sidebar') },
+  ]);
 }
 
 function railItem(id, label, ic) {
@@ -3680,6 +3710,8 @@ function openPalette() {
     const add = (group, label, run, opts = {}) => items.push({ group, label, run, ...opts });
     VIEWS.forEach((v) => add('Navigation', `Go to ${v.label}`, () => setView(v.id), { icon: v.icon, kbd: keymap.keys(`view.${v.id}`) }));
     SECTION_PAGES.forEach((p) => add('Navigation', `Open ${p.label} page`, () => setView(p.view), { icon: p.icon, kbd: keymap.keys(`view.${p.view}`), keywords: 'sidebar section full page' }));
+    orderedSections(state.sections).forEach((p) => add('View', `${p.hidden ? 'Show' : 'Hide'} ${p.label} in the sidebar`, () => setSections(showSection(state.sections, p.id, p.hidden)), { icon: p.icon, keywords: 'sidebar section show hide refs tree' }));
+    add('View', 'Reorder sidebar sections…', () => openPrefs('sidebar'), { icon: 'sidebar', kbd: keymap.keys('app.settings'), keywords: 'sidebar section order move show hide preferences' });
     add('Navigation', 'Open History & recovery', () => setView('snapshots'), { icon: 'history', kbd: keymap.keys('view.snapshots'), keywords: 'snapshots undo timeline restore recover lost' });
     add('Navigation', 'Open Reflog (History & recovery)', () => setView('reflog'), { icon: 'reflog', kbd: keymap.keys('view.reflog'), keywords: 'reflog recover lost commits' });
     add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: keymap.keys('repo.fetch') });
@@ -4019,6 +4051,7 @@ const prefState = () => ({
   themes: THEMES,
   show: state.show,
   sidebarExpanded: state.sidebar.expanded,
+  sections: orderedSections(state.sections),
   prs: prefPrs,
   repo: Boolean(state.repo),
   config: state.config,
@@ -4061,6 +4094,7 @@ async function prefAct(row, value) {
   else if (id in state.show) { if (state.show[id] !== value) { if (state.repo) toggleShow(id); else { state.show[id] = value; savePref('show', state.show); if (id === 'swatches') setSwatches(value); } } }
   else if (id === 'sidebarExpanded') setSidebar({ ...state.sidebar, expanded: value });
   else if (id === 'resetPanes') resetPanes();
+  else if (id.startsWith('section:')) { const sec = id.slice(8); setSections(value === 'up' || value === 'down' ? moveSection(state.sections, sec, value === 'up' ? -1 : 1) : showSection(state.sections, sec, value)); }
   else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'prRemote') { await setPrRemote(value === PR_REMOTE_AUTO ? null : value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }

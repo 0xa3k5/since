@@ -4,7 +4,7 @@ import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
 
 // The Preferences window (⌘,, GitLanes → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,
 // the sidebar jumps to a section. Type to search; ↑↓ move, ↵ toggles a switch or runs a button, ← → change a
-// choice, ⌘↓ / ⌘↑ jump to the next or previous section, ⌘⌫ removes a local git config value, ⌘F returns to the
+// choice, ⌥↑ / ⌥↓ move a sidebar section, ⌘↓ / ⌘↑ jump to the next or previous section, ⌘⌫ removes a local git config value, ⌘F returns to the
 // search, Esc clears the search and then closes.
 //
 // `rows()` returns the current rows; `act(row, value)` applies a change (value: the new switch or choice value,
@@ -27,6 +27,10 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
 
   const sw = (on) => h('span.switch' + (on ? '.on' : ''), { 'aria-hidden': 'true' }, h('span.switch-knob'));
   function control(r) {
+    if (r.kind === 'switch' && r.move) {
+      const mv = (dir, ic, label, off) => h('button.icon-btn.tiny', { type: 'button', tabindex: -1, disabled: off, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); run(r, dir); } }, icon(ic, 12));
+      return h('div.prefs-move', null, mv('up', 'chevronUp', 'Move up', r.first), mv('down', 'chevronDown', 'Move down', r.last), sw(r.value));
+    }
     if (r.kind === 'switch') return sw(r.value);
     if (r.kind === 'info') return h('span.prefs-info', null, r.value);
     if (r.kind === 'action') return h('button.btn.subtle.small', { type: 'button', tabindex: -1, onclick: (e) => { e.stopPropagation(); run(r); } }, r.value);
@@ -58,7 +62,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     return h('div.prefs-row', {
       role: 'listitem', 'aria-label': label, 'data-id': r.id,
       onclick: () => { if (r.kind === 'switch') run(r, !r.value); else if (r.kind === 'action') run(r); },
-    }, h('div.setup-text', null, h('div.setup-label', null, r.label), r.detail ? h('div.setup-detail', null, r.detail) : null), control(r));
+    }, r.icon ? h('span.prefs-icon', null, icon(r.icon, 14)) : null, h('div.setup-text', null, h('div.setup-label', null, r.label), r.detail ? h('div.setup-detail', null, r.detail) : null), control(r));
   }
 
   function render() {
@@ -145,6 +149,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     else if (id === 'prefs.prevSection') { e.preventDefault(); step(-1); }
     else if (id === 'prefs.toggle') { if (activate()) e.preventDefault(); }
     else if (id === 'prefs.right' || id === 'prefs.left') { if (activate(id === 'prefs.right' ? 1 : -1)) e.preventDefault(); }
+    else if ((id === 'prefs.moveUp' || id === 'prefs.moveDown') && items[idx]?._row.move) { e.preventDefault(); run(items[idx]._row, id === 'prefs.moveUp' ? 'up' : 'down'); }
     else if (id === 'prefs.unset' && items[idx]?._row.kind === 'config') { e.preventDefault(); run(items[idx]._row, 'unset'); }
     else if (id === 'prefs.find') { e.preventDefault(); find(); }
     else if (id === 'prefs.close') {
