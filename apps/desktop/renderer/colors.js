@@ -24,10 +24,12 @@ function supported(value) {
 
 // Short codes that are all digits (#123) or all letters (#bad, #cafe, #fade) read as issue refs or
 // words in prose. Only accept them in a CSS-ish position: right after `:`, `=`, `,`, a quote or a
-// function's `(`, or right before `;`, `}` or `!important`.
+// function's `(`, or right before `;`, `}` or `!important`. A code that ends an indented declaration
+// with no `;` (`  border: 1px solid #fff`, Stylus `  color #fff`) counts too.
 function cssPosition(text, start, end) {
   const before = text.slice(Math.max(0, start - 8), start);
-  return /(?:[:=,]|['"`]|[\w-]\()\s*$/.test(before) || /^\s*[;}!]/.test(text.slice(end, end + 4));
+  if (/(?:[:=,]|['"`]|[\w-]\()\s*$/.test(before) || /^\s*(?:[;}]|!\s*important)/i.test(text.slice(end, end + 16))) return true;
+  return /^\s*$/.test(text.slice(end)) && /^\s+[a-z][\w-]*(?:\s*:[^:;{}]*|\s+)$/i.test(text.slice(0, start));
 }
 
 // Returns [{ start, end, value }] sorted by position, at most `max` entries.

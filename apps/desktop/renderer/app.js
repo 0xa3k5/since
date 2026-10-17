@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, loading, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -544,7 +544,9 @@ async function navStep(dir) {
     if (to.root !== state.repo.root) {
       const w = state.worktrees.find((x) => x.path === to.root);
       if (!w || w.missing) { renderTopbar(); return toast('That worktree is gone', { detail: tildePath(to.root) }); }
-      await switchWorktree(w);
+      // A failed switch toasts and leaves us where we were: take the step back so ⌘[ / ⌘] don't skip an entry.
+      try { await switchWorktree(w); } finally { if (state.repo?.root !== to.root) nav.undo(dir, here, to); }
+      if (state.repo?.root !== to.root) return renderTopbar();
       toast(`Switched to worktree “${w.name}”`);
     }
     state.view = to.view;
@@ -566,6 +568,8 @@ const goBack = () => navStep('back');
 const goForward = () => navStep('forward');
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
+// Marks a drag of Commit view file rows, so drops from anywhere else are ignored.
+const CV_DRAG_TYPE = 'application/x-gitlanes-files';
 
 function renderShell() {
   root.replaceChildren();
@@ -1932,6 +1936,11 @@ function createCommitView(container) {
     dragging = { from: list, paths: paths(targets(list, f)) };
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', dragging.paths.join('\n'));
+    e.dataTransfer.setData(CV_DRAG_TYPE, '');
+    // A status refresh can detach the source row mid-drag, so its own dragend never reaches us: clear at the window too.
+    const done = () => { dragging = null; document.querySelectorAll('.cv-section.drop-target').forEach((s) => s.classList.remove('drop-target')); };
+    window.addEventListener('dragend', done, { once: true });
+    window.addEventListener('drop', done, { once: true });
     if (dragging.paths.length > 1) {
       const pill = h('div.drag-pill', null, `${dragging.paths.length} files`);
       document.body.append(pill);
@@ -1941,12 +1950,13 @@ function createCommitView(container) {
   }
   function dropZone(sec, list) {
     if (list === 'conflicts') return sec;
-    const over = () => dragging && dragging.from !== list && dragging.from !== 'conflicts';
-    sec.addEventListener('dragover', (e) => { if (!over()) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
+    // Only our own rows: a stale `dragging` must never turn a drag from Finder into a stage.
+    const over = (e) => dragging && e.dataTransfer.types.includes(CV_DRAG_TYPE) && dragging.from !== list && dragging.from !== 'conflicts';
+    sec.addEventListener('dragover', (e) => { if (!over(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
     sec.addEventListener('dragleave', (e) => { if (!sec.contains(e.relatedTarget)) sec.classList.remove('drop-target'); });
     sec.addEventListener('drop', (e) => {
       sec.classList.remove('drop-target');
-      if (!over()) return;
+      if (!over(e)) return;
       e.preventDefault();
       quiet(list === 'staged' ? 'stageFiles' : 'unstageFiles', dragging.paths);
       dragging = null;
@@ -2069,7 +2079,8 @@ function createCommitView(container) {
   }
   function clickFile(e, list, path) {
     if (e.shiftKey) return selectRange(list, path);
-    if (!(e.metaKey || e.ctrlKey) || list !== state.cv.list) return selectFile(list, path);
+    // ⌘ only: on macOS Ctrl-click opens the context menu.
+    if (!e.metaKey || list !== state.cv.list) return selectFile(list, path);
     const sel = new Set(state.cv.sel);
     if (sel.has(path) && sel.size > 1) sel.delete(path); else sel.add(path);
     state.cv.sel = sel; state.cv.anchor = path;
@@ -3309,7 +3320,7 @@ async function openPr(pr) {
       prop('Branch', `${pr.branch} → ${pr.base}`),
       prop('Review', pr.draft ? 'Draft' : REVIEW_LABELS[pr.review] || 'No review yet'),
       prop('Checks', CHECK_LABELS[pr.checks] || 'No checks'),
-      Number.isFinite(updated) ? prop('Updated', `${timeAgo(updated / 1000)} ago`) : null,
+      Number.isFinite(updated) ? prop('Updated', ago(updated / 1000)) : null,
       state.prs.stale ? h('div.pr-stale-note', null, 'Not refreshed: this is the last result GitLanes got.') : null,
     ),
     submit: 'Open on GitHub',
@@ -3649,7 +3660,7 @@ const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   const now = state.refs.find((r) => r.kind === 'branch' && r.short === local.short);
   if (!now) return;
   // Only delete what was merged: local commits that never reached the PR stay.
-  if (!headOid || now.target !== headOid) return toast(`Kept ${local.short}`, { detail: 'It has commits that weren’t in the pull request.' });
+  if (!headOid || now.target !== headOid) return toast(`Kept ${local.short}`, { detail: 'It doesn’t match the merged pull request, so it may hold other work.' });
   deleteBranch(now);
 });
 

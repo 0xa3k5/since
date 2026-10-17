@@ -32,6 +32,12 @@ export function createNav(limit = NAV_LIMIT) {
       if (here) back.push(here);
       return to;
     },
+    // Take back a step from `here` to `to` that couldn't be carried out (e.g. the worktree switch failed).
+    undo(dir, here, to) {
+      const [from, into] = dir === 'back' ? [back, fwd] : [fwd, back];
+      if (here && into[into.length - 1] === here) into.pop();
+      from.push(to);
+    },
     clear() { back = []; fwd = []; },
   };
 }
