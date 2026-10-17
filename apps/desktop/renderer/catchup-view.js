@@ -509,7 +509,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
   if (prsOn() && since.since === 'checkpoint' && !base && prLoads.pending(repo)) reload(); else fetch();
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
-    el, refresh: () => fetch(), reload, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && entries.length > FIRST, canReload: () => true,
+    el, destroy: () => { clearInterval(tick); window.removeEventListener('focus', onFocus); }, refresh: () => fetch(), reload, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && entries.length > FIRST, canReload: () => true,
     // ⌘K: the reader's V.
     markNextViewed,
   };

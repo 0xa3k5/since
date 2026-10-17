@@ -597,23 +597,13 @@ const tipOf = async (root) => {
   const r = await git.landed(root, {});
   return r && { sha: r.baseSha, base: r.base, date: r.baseDate };
 };
-const SINCE = check.oneOf('checkpoint', 'yesterday', 'week', 'tag');
 handle('app:catchup', async (e, opts) => {
-  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['since', 'tag', 'prs', 'base'].includes(k)))) throw new check.IpcArgError('Invalid catch-up options');
-  let kind = opts?.since == null ? 'checkpoint' : SINCE(opts.since, 'since');
-  const tag = kind === 'tag' ? check.rev(opts.tag, 'tag') : null;
-  const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
-  const base = opts?.base == null ? null : check.rev(opts.base, 'base');
-  if (base && !/^refs\/(heads|remotes)\//.test(base)) throw new check.IpcArgError('Invalid base: not a branch');
   const root = session(e).repo.root;
-  const isDefault = !base || (await git.laneBase(root))?.ref === base;
-  const cp = isDefault ? catchupStore.checkpoint(catchupFile(), root) : null;
-  if (!cp && kind === 'checkpoint') kind = 'week';
-  const DAY = 24 * 3600 * 1000;
-  const since = kind === 'checkpoint' ? { sha: cp.sha || undefined, date: cp.date }
-    : kind === 'tag' ? { ref: `refs/tags/${tag}` }
-      : { date: Date.now() - (kind === 'yesterday' ? DAY : 7 * DAY) };
-  const res = await git.landed(root, { base: isDefault ? undefined : base, since });
+  const { kind, tag, withPrs, base, isDefault, cp, since } = await catchupStore.catchupOptions(opts, {
+    defaultRef: async () => (await git.laneBase(root))?.ref,
+    checkpoint: () => catchupStore.checkpoint(catchupFile(), root),
+  });
+  const res = await git.landed(root, { base, since });
   if (!res) return null;
   let merged = null;
   let ci = null;

@@ -53,53 +53,6 @@ export function prTitle(pr, stale = false) {
   ].filter(Boolean).join('\n');
 }
 
-// PR inbox (the lanes overview's Inbox tab): the open repository's PRs you can act on, in
-// buckets. A PR shows in the first bucket it matches and not at all if it matches none:
-//   1. ready: not a draft, approved, checks green (or none at all) and GitHub says it merges cleanly
-//      (`conflicts`, a Set of head branches a local forecast expects to conflict, can veto it)
-//   2. requested: your review is requested (`requested`: PR numbers, team requests included)
-//   3. failing: checks failed
-//   4. mine: you opened it (`me`: your GitHub login), or its lane looks agent-made (`agents`:
-//      PR numbers whose lane the lanes data flags)
-// Inside a bucket PRs are grouped by author, in the order `prs` lists them (newest first), so one
-// agent's PRs read as one batch.
-export const INBOX_BUCKETS = [
-  { id: 'ready', label: 'Ready to merge' },
-  { id: 'requested', label: 'Review requested' },
-  { id: 'failing', label: 'CI failing' },
-  { id: 'mine', label: 'Yours and your agents’' },
-];
-
-export function inboxBucket(pr, { me = null, requested = [], agents = [], conflicts = null } = {}) {
-  if (!pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null) && pr.mergeable === true && !conflicts?.has(pr.branch)) return 'ready';
-  if (new Set(requested).has(pr.number)) return 'requested';
-  if (pr.checks === 'failure') return 'failing';
-  if ((me && pr.author && pr.author.toLowerCase() === me.toLowerCase()) || new Set(agents).has(pr.number)) return 'mine';
-  return null;
-}
-
-// → [{ id, label, count, groups: [{ author, agent, prs }] }], empty buckets left out.
-export function inboxBuckets(prs = [], opts = {}) {
-  const agents = new Set(opts.agents || []);
-  const o = { ...opts, requested: new Set(opts.requested || []), agents };
-  const out = new Map(INBOX_BUCKETS.map((b) => [b.id, new Map()]));
-  for (const pr of prs) {
-    const id = inboxBucket(pr, o);
-    if (!id) continue;
-    const groups = out.get(id);
-    const author = pr.author || 'unknown';
-    if (!groups.has(author)) groups.set(author, { author, agent: false, prs: [] });
-    const g = groups.get(author);
-    g.prs.push(pr);
-    // Your own login is never an agent, even when one of your lanes looks agent-made.
-    if (agents.has(pr.number) && !(o.me && author.toLowerCase() === o.me.toLowerCase())) g.agent = true;
-  }
-  return INBOX_BUCKETS.map((b) => {
-    const groups = [...out.get(b.id).values()];
-    return { ...b, count: groups.reduce((n, g) => n + g.prs.length, 0), groups };
-  }).filter((b) => b.count);
-}
-
 // The remote a pull request action runs against (app:pr-approve, -merge, -close, …), resolved in
 // one place: the PR's own remote (set on the review page), else the caller's (the Inbox's), else
 // the PR list's, else the GitHub remote app:pr-state picked (origin if it's on GitHub, else the
