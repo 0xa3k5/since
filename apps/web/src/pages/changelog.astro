@@ -1,77 +1,79 @@
 ---
-// Built from src/content/changelog/*.md: one file per merged change, grouped by version, newest first.
-// No dates are shown (no-dates rule); `merged` only orders entries within a group.
+// Release notes, one ruled section per beta, newest first. Built from src/content/releases/*.md
+// (see the note in src/content.config.ts). Drafts stay hidden until their beta ships.
+import type { ImageMetadata } from 'astro';
 import { getCollection, render } from 'astro:content';
-import { PRODUCT_NAME, SHOW_PRICING } from '../config';
-import BetaCopy from '../components/BetaCopy.astro';
+import { DOWNLOAD_URL, PRODUCT_NAME } from '../config';
+import AppShot from '../components/landing/AppShot.astro';
+import AppleGlyph from '../components/AppleGlyph.astro';
 import Base from '../layouts/Base.astro';
-import '../components/content/content.css';
 import '../components/landing/landing.css';
 
-/** Versions that have shipped. Until a version is listed here it shows as "In development". */
-const RELEASED: string[] = [];
-const KINDS = ['Added', 'Improved', 'Fixed', 'Behind the scenes'] as const;
-
-const cmp = (a: string, b: string) => {
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pb[i] ?? 0) - (pa[i] ?? 0);
-  return 0;
+const shots = import.meta.glob<{ default: ImageMetadata }>('../assets/app/*-dark.png', { eager: true });
+const shot = (name: string, id: string) => {
+  const s = shots[`../assets/app/${name}-dark.png`];
+  if (!s) throw new Error(`releases/${id}: no capture named "${name}" in src/assets/app (expected ${name}-dark.png)`);
+  return s.default;
 };
-const entries = await getCollection('changelog');
-const versions = await Promise.all(
-  [...new Set(entries.map((e) => e.data.version))].sort(cmp).map(async (version) => ({
-    version,
-    released: RELEASED.includes(version),
-    kinds: await Promise.all(KINDS.map(async (kind) => ({
-      kind,
-      items: await Promise.all(entries
-        .filter((e) => e.data.version === version && e.data.kind === kind)
-        .sort((a, b) => b.data.merged.getTime() - a.data.merged.getTime() || a.id.localeCompare(b.id))
-        .map(async (e) => ({ id: e.id, ...e.data, Content: (await render(e)).Content }))),
-    }))).then((k) => k.filter((x) => x.items.length)),
-  })),
+
+const KIND_LABEL = { added: 'Added', improved: 'Improved', fixed: 'Fixed' } as const;
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const releases = await Promise.all(
+  (await getCollection('releases', (e) => !e.data.draft))
+    .sort((a, b) => b.data.date.getTime() - a.data.date.getTime()
+      || b.data.version.localeCompare(a.data.version, 'en', { numeric: true }))
+    .map(async (e) => ({
+      ...e.data,
+      id: slug(e.data.label),
+      when: fmt(e.data.date),
+      src: e.data.image ? shot(e.data.image, e.id) : undefined,
+      Content: (await render(e)).Content,
+    })),
 );
-const anchor = (v: string) => v.replaceAll('.', '-');
-const count = (v: (typeof versions)[number]) => v.kinds.reduce((n, k) => n + k.items.length, 0);
+const latest = releases[0];
+const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
 ---
 <Base
   title={`Changelog · ${PRODUCT_NAME}`}
-  description={`What's new in every ${PRODUCT_NAME} release.${SHOW_PRICING ? ' All updates are free for every licence holder.' : ''}`}
+  description={`What changed in every ${PRODUCT_NAME} beta.`}
   ogTheme="dark"
 >
   <div class="lp cl">
     <section class="hero wrap" aria-labelledby="cl-h">
-      <p class="kicker">Changelog</p>
-      <h1 id="cl-h">What’s new. <span class="soft">Every change, newest first.</span></h1>
-      <p class="lede">Every change to {PRODUCT_NAME}, newest first.{SHOW_PRICING && ' Updates are free for every licence holder, for life.'}</p>
-      {versions.length > 1 && (
-        <nav class="jump" aria-label="Releases">
-          {versions.map((v) => <a href={`#${anchor(v.version)}`}>{v.version}</a>)}
-        </nav>
-      )}
+      <h1 id="cl-h">What’s new. <span class="soft">Every beta, newest first.</span></h1>
+      <p class="lede">{PRODUCT_NAME} ships small and often. Here’s what changed in each beta, so you know what’s different since the one you’re running.</p>
+      <div class="cl-cta">
+        <a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download the latest beta</a>
+        {latest && <a class="cl-latest" href={`#${latest.id}`}>{latest.label} · {latest.when}</a>}
+      </div>
     </section>
 
-    {versions.map((v) => (
-      <section class="s wrap rule cl-version" id={anchor(v.version)} aria-labelledby={`v-${anchor(v.version)}`}>
-        <header class="cl-meta">
-          <h2 id={`v-${anchor(v.version)}`}><a href={`#${anchor(v.version)}`}>{v.version}</a></h2>
-          <span class={`cl-badge${v.released ? '' : ' dev'}`}>{v.released ? 'Released' : 'In development'}</span>
-          <ul class="cl-tally" aria-label={`${count(v)} changes`}>
-            {v.kinds.map((k) => <li><a href={`#${anchor(v.version)}-${k.kind.toLowerCase().replaceAll(' ', '-')}`}><span>{k.kind}</span><span class="n">{k.items.length}</span></a></li>)}
-          </ul>
+    {releases.map((r, i) => (
+      <section class="wrap rule cl-rel" id={r.id} aria-labelledby={`${r.id}-h`}>
+        <header class="cl-side">
+          <h2 id={`${r.id}-h`}><a href={`#${r.id}`}>{r.label}</a></h2>
+          <p><time datetime={r.date.toISOString().slice(0, 10)}>{r.when}</time> · <span class="v">{r.version}</span></p>
+          <p class="n">{changes(r.changes.length)}</p>
         </header>
-        <div class="cl-groups">
-          {v.kinds.map((k) => (
-            <div class="cl-kind" id={`${anchor(v.version)}-${k.kind.toLowerCase().replaceAll(' ', '-')}`}>
-              <h3><span class={`dot${k.kind === 'Added' ? ' on' : ''}`} aria-hidden="true"></span>{k.kind}</h3>
-              {k.items.map((e) => (
-                <article class="cl-entry" id={e.id}>
-                  <h4><a href={`#${e.id}`}>{e.title}</a></h4>
-                  <div class="prose">{SHOW_PRICING ? <e.Content /> : <BetaCopy><e.Content /></BetaCopy>}</div>
-                </article>
-              ))}
-            </div>
-          ))}
+        <div class="cl-lead">
+          <h3>{r.headline} <span class="soft">{r.soft}</span></h3>
+          <div class="cl-sum"><r.Content /></div>
+          {r.src && <AppShot src={r.src} alt={r.imageAlt ?? `${PRODUCT_NAME} ${r.label}`} class="cl-shot" />}
+          {r.highlights.length > 0 && (
+            <ul class="cl-hl" role="list">
+              {r.highlights.map((h) => <li><b>{h.title}</b><span>{h.text}</span></li>)}
+            </ul>
+          )}
+          {r.changes.length > 0 && (
+            <details class="cl-all" open={i === 0}>
+              <summary>All {changes(r.changes.length)}</summary>
+              <ul class="cl-items" role="list">
+                {r.changes.map((c) => <li><span class={`tag ${c.kind}`}>{KIND_LABEL[c.kind]}</span><span>{c.text}</span></li>)}
+              </ul>
+            </details>
+          )}
         </div>
       </section>
     ))}
@@ -79,46 +81,56 @@ const count = (v: (typeof versions)[number]) => v.kinds.reduce((n, k) => n + k.i
 </Base>
 
 <style>
-  /* Changelog: the landing page's rhythm (landing.css). One ruled section per release: version and
-     status stay put on the left while its grouped entries scroll on the right. */
-  .cl .hero { padding-bottom: 110px; }
-  .kicker { margin: 0 auto 18px; font-size: 15px; color: var(--text-3); }
-  .jump { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 34px; }
-  .jump a { font: 500 13px var(--mono); color: var(--text-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; text-decoration: none; transition: color .15s, border-color .15s; }
-  .jump a:hover { color: var(--text); border-color: var(--line-strong); }
+  /* Release notes: the landing page's rhythm (landing.css), left-aligned. One ruled section per beta: the label
+     stays put on the left while its notes scroll on the right. Colours are tokens only. */
+  .cl .hero { padding-top: 120px; padding-bottom: 96px; text-align: left; }
+  .cl .hero h1 { max-width: 16ch; margin: 0; text-wrap: balance; }
+  .cl .hero h1 .soft { color: var(--text-4); }
+  .lp.cl .hero .lede { max-width: 40rem; margin: 22px 0 0; color: var(--text-3); }
+  .cl-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin-top: 30px; }
+  .cl-latest { font-size: 14px; color: var(--text-3); text-decoration: none; }
+  .cl-latest:hover { color: var(--text); }
 
-  .cl-version { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 72px; align-items: start; scroll-margin-top: 64px; }
-  .cl-meta { position: sticky; top: 96px; }
-  .cl .cl-meta h2 { font: 500 clamp(40px, 4.6vw, 56px)/1 var(--mono); letter-spacing: -0.04em; }
-  .cl-meta h2 a { text-decoration: none; }
-  .cl-badge { display: inline-flex; margin-top: 18px; padding: 3px 10px; border-radius: 999px; font-size: 13px; color: var(--text-3); border: 1px solid var(--line-strong); }
-  .cl-badge.dev { color: var(--accent-fg); background: var(--accent-soft); border-color: transparent; }
-  .cl-tally { list-style: none; margin: 32px 0 0; padding: 0; border-top: 1px solid var(--line); font-size: 14px; }
-  .cl-tally a { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--text-3); text-decoration: none; transition: color .15s; }
-  .cl-tally a:hover { color: var(--text); }
-  .cl-tally .n { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-4); }
+  .cl-rel { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-block: 88px; scroll-margin-top: 64px; }
+  .cl-side { position: sticky; top: 96px; align-self: start; }
+  .cl .cl-side h2 { font: 500 28px/1 var(--mono); letter-spacing: -0.02em; max-width: none; }
+  .cl-side h2 a { text-decoration: none; }
+  .cl-side h2 a:hover { color: var(--accent-fg); }
+  .cl .cl-side p { margin: 12px 0 0; font-size: 14px; color: var(--text-3); }
+  .cl .cl-side .n { margin-top: 4px; color: var(--text-4); }
+  .cl-side .v { font-family: var(--mono); font-size: 13px; }
 
-  .cl-kind { scroll-margin-top: 96px; }
-  .cl-kind + .cl-kind { margin-top: 64px; }
-  .cl .cl-kind h3 { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--line); font-size: 15px; color: var(--text-3); }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); }
-  .dot.on { background: var(--accent); }
-  .cl-entry { padding: 26px 0 28px; border-bottom: 1px solid var(--line); scroll-margin-top: 96px; }
-  .cl-entry h4 { margin: 0; font: 500 20px/1.3 var(--display); letter-spacing: -0.01em; color: var(--text); }
-  .cl-entry h4 a { text-decoration: none; }
-  .cl-entry h4 a:hover { color: var(--accent-fg); }
-  .cl-entry .prose { max-width: 62ch; font-size: 16px; color: var(--text-3); }
-  .cl-entry .prose :global(p) { max-width: none; color: inherit; }
-  .cl-entry .prose > :global(:first-child) { margin-top: 10px; }
-  .cl-entry .prose > :global(:last-child) { margin-bottom: 0; }
+  .cl .cl-lead h3 { font: 500 30px/1.15 var(--display); letter-spacing: -0.03em; max-width: 26ch; text-wrap: balance; }
+  .cl-lead h3 .soft { color: var(--text-4); }
+  .cl-sum { margin: 14px 0 28px; }
+  .cl-sum :global(p) { max-width: 40rem; margin: 0; font-size: 17px; color: var(--text-2); text-wrap: pretty; }
+  .cl-sum :global(p + p) { margin-top: 12px; }
 
-  @media (max-width: 860px) {
-    .cl-version { grid-template-columns: 1fr; gap: 40px; }
-    .cl-meta { position: static; }
+  .cl-hl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 28px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+  .cl-hl li { padding: 18px 20px 0 0; }
+  .cl-hl li + li { padding-left: 20px; border-left: 1px solid var(--line); }
+  .cl-hl b { display: block; font: 500 16px/1.3 var(--display); color: var(--text); text-wrap: balance; }
+  .cl-hl span { display: block; margin-top: 6px; font-size: 14px; color: var(--text-3); text-wrap: pretty; }
+
+  .cl-all { margin-top: 36px; border-top: 1px solid var(--line); }
+  .cl-all summary { display: flex; justify-content: space-between; gap: 16px; padding: 16px 0; list-style: none; cursor: pointer; color: var(--text-2); }
+  .cl-all summary::-webkit-details-marker { display: none; }
+  .cl-all summary::after { content: "+"; font-family: var(--mono); color: var(--text-4); }
+  .cl-all[open] summary::after { content: "–"; }
+  .cl-all summary:hover { color: var(--text); }
+  .cl-all summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .cl-items { margin: 0; padding: 0; list-style: none; }
+  .cl-items li { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); font-size: 15px; color: var(--text-2); }
+  .tag { justify-self: start; padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 999px; font: 500 12px var(--font); white-space: nowrap; color: var(--text-3); }
+  .tag.added { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .tag.improved { color: var(--lane-1); border-color: color-mix(in srgb, var(--lane-1) 40%, transparent); }
+  .tag.fixed { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+
+  @media (max-width: 760px) {
+    .cl .hero { padding-top: 88px; padding-bottom: 64px; }
+    .cl-rel { grid-template-columns: 1fr; gap: 18px; padding-block: 64px; }
+    .cl-side { position: static; }
+    .cl-hl { grid-template-columns: 1fr; }
+    .cl-hl li + li { padding-left: 0; border-left: 0; }
   }
-  @media (max-width: 720px) {
-    .kicker { margin-left: 0; margin-right: 0; }
-    .jump { justify-content: flex-start; }
-  }
-  @media (prefers-reduced-motion: reduce) { .jump a, .cl-tally a { transition: none; } }
 </style>
