@@ -76,6 +76,20 @@ test('combinedDiff marks each changed line staged or unstaged and counts them', 
   assert.equal(after.staged, 5);
 });
 
+test('a staged line removed again from the working tree still shows the file partly staged', async () => {
+  const { dir, write } = await repo();
+  await commit(dir, 'f.txt', '1\n2\n3\n');
+  write('f.txt', '1\n2\nX\n3\n');
+  await git.run(dir, ['add', 'f.txt']);
+  write('f.txt', '1\n2\n3\n');
+  const d = await git.combinedDiff(dir, file);
+  assert.equal(d.hidden, 1);
+  assert.equal(d.total, 0);
+  assert.equal(d.state, 'partial');
+  await git.setStaged(dir, file, 'all', true);
+  assert.equal(await git.run(dir, ['diff', '--cached']), '');
+});
+
 test('random line selections stage and unstage exactly, and undo restores the index', async () => {
   for (let seed = 1; seed <= 12; seed++) {
     const rand = rng(seed);

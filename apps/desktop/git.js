@@ -836,8 +836,8 @@ async function combinedDiff(cwd, file, { hunks: want } = {}) {
   const strip = (l) => { const { _hi, _iw, _also, ...rest } = l; return rest; };
   return {
     ...base, wholeFile, staged, total, collapsed,
-    // A staged change hidden by a later edit leaves the file partly staged even with every visible line ticked.
-    state: c.binary && e.staged && e.unstaged ? 'partial' : c.hidden && staged === total && total ? 'partial' : tickState(staged, total),
+    // A staged change hidden by a later edit or removal leaves the file partly staged, whatever the visible lines say.
+    state: (c.binary && e.staged && e.unstaged) || c.hidden ? 'partial' : tickState(staged, total),
     hunks: hunks.map((h, i) => ({ ...h, lines: collapsed || (keep && !keep.has(i)) ? null : h.lines.map(strip) })),
   };
 }
