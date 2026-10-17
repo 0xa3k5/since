@@ -121,6 +121,8 @@ function runnable(abs, fsMod = require('node:fs')) {
 const fileEntry = (v, what) => obj(v, what, { path: repoPath, oldPath: optional(repoPath), status: optional((s, w) => str(s, w, { max: 8 })), xy: optional((s, w) => str(s, w, { max: 8 })) });
 const lineKeys = (v, what) => list(v, what, (k, w) => { if (typeof k !== 'string' || !/^\d+:\d+$/.test(k)) fail(w, 'expected "hunk:line"'); });
 const repoPaths = (v, what) => list(v, what, repoPath);
+// Unified changes: 'all', or "hunk:line" / "hunk:*" keys of a combined diff.
+const changeSelection = (v, what) => (v === 'all' ? v : list(v, what, (k, w) => { if (typeof k !== 'string' || !/^\d+:(\d+|\*)$/.test(k)) fail(w, 'expected "hunk:line" or "hunk:*"'); }));
 const logOptions = (v, what) => obj(v, what, { remotes: bool, tags: bool, limit: int, kind: oneOf('topo', 'details', 'full'), preview: bool });
 // The split dialog's choice: per path, 'all' or the "hunk:line" keys that go into the first commit.
 const rewriteExtra = (v, what) => {
@@ -190,6 +192,7 @@ const gitSchemas = {
   externalTools: [],
   difftool: [fileEntry, optional(bool), optional(rev), optional(rev)],
   workingDiff: [fileEntry, optional(bool)],
+  combinedDiff: [fileEntry, optional((v, what) => list(v, what, int))],
   stashes: [],
   reflog: [],
   config: [],
@@ -228,6 +231,8 @@ const gitSchemas = {
   stageFiles: [repoPaths],
   unstageFiles: [repoPaths],
   stageLines: [fileEntry, lineKeys],
+  stageChanges: [fileEntry, changeSelection],
+  unstageChanges: [fileEntry, changeSelection],
   unstageLines: [fileEntry, lineKeys],
   stashSave: [optional(text), optional(bool), optional((v, w) => obj(v, w, { staged: optional(bool), paths: optional(repoPaths) }))],
   stashLines: [fileEntry, lineKeys, optional(text)],

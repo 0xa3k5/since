@@ -191,6 +191,7 @@ const reads = {
   trackedFiles: (s) => git.trackedFiles(s.repo.root),
   blame: (s, p, rev) => git.blame(s.repo.root, p, rev),
   workingDiff: (s, file, staged) => git.workingDiff(s.repo.root, file, { staged }),
+  combinedDiff: (s, file, hunks) => git.combinedDiff(s.repo.root, file, { hunks: hunks || undefined }),
   stashes: (s) => git.getStashes(s.repo.root),
   reflog: (s) => git.getReflog(s.repo.root),
   config: (s) => git.getConfig(s.repo.root),
