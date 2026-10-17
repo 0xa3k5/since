@@ -433,7 +433,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
     folds.delete(`${change.id}\0${path}`); // ticking folds it, unticking shows it again
     const old = [...readerFiles.children].find((x) => x.dataset.path === path);
     if (on && old && !old.classList.contains('folded')) foldShut(old, reader, () => replaceFile(path));
-    else replaceFile(path);
+    else replaceFile(path)?.classList.toggle('just-ticked', on); // already folded: swap in place, flash
   }
   // V: tick the first file not yet viewed.
   function markNextViewed() {

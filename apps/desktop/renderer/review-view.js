@@ -348,16 +348,16 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
       // The ticked header stays put and the next file comes up under it (AK-523), so V reads on.
       const card = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
       const shut = ticked && !delta && card && !card.classList.contains('folded');
+      // A file already folded by hand swaps in place too (AK-524): no scroll to the next file.
+      const inPlace = ticked && !delta && card && !shut;
+      const nudge = () => stack.querySelector('.review-file.active > .review-file-head')?.scrollIntoView({ block: 'nearest' });
       folds.delete(path);
-      if (delta) renderStack(); else { if (!shut) reblock(path); renderMeta(); }
+      if (delta) renderStack(); else { if (!shut) reblock(path)?.classList.toggle('just-ticked', inPlace); renderMeta(); }
       if (!next || next.path === current) { if (shut) foldShut(card, el, () => reblock(path)); return; }
-      if (!shut) return select(next.path);
+      if (!shut && !inPlace) return select(next.path);
       select(next.path, false);
-      foldShut(card, el, () => {
-        const block = reblock(path);
-        stack.querySelector('.review-file.active > .review-file-head')?.scrollIntoView({ block: 'nearest' });
-        return block;
-      });
+      if (inPlace) return nudge();
+      foldShut(card, el, () => { const block = reblock(path); nudge(); return block; });
       return;
     }
     const focused = el.contains(document.activeElement);
