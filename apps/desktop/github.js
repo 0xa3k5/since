@@ -498,11 +498,18 @@ async function viewPr({ enabled, remotes, number, dirs = searchDirs(), exec } = 
 
 // Reviewing a PR without checking it out: `run(args)` is git in the repository. Fetches the PR's
 // head into FETCH_HEAD only (forks included), so no ref moves, and returns its commit.
-async function fetchPrHead(run, remote, number) {
-  await run(['fetch', '--no-tags', '--', remote, `refs/pull/${prNumber(number)}/head`]);
-  const sha = String(await run(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
-  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) throw coded(`Couldn’t fetch pull request #${number}.`, 'gh-failed');
-  return sha;
+// One fetch at a time: another fetch writing FETCH_HEAD between this one's fetch and rev-parse would
+// hand back the other PR's head (AK-277).
+let prHeadQueue = Promise.resolve();
+function fetchPrHead(run, remote, number) {
+  const next = prHeadQueue.then(async () => {
+    await run(['fetch', '--no-tags', '--', remote, `refs/pull/${prNumber(number)}/head`]);
+    const sha = String(await run(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
+    if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) throw coded(`Couldn’t fetch pull request #${number}.`, 'gh-failed');
+    return sha;
+  });
+  prHeadQueue = next.catch(() => {});
+  return next;
 }
 
 // The upstream a checked-out PR branch pulls from: the head branch on the same remote for a

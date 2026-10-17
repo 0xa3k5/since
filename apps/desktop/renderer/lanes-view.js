@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote, needsYou } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
 import { navPos, authorsStack, fastKeys } from './reader.js';
@@ -183,6 +183,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const split = () => Boolean(pane);
   function act(id, r) {
     const { pr, lane } = r;
+    // A PR with no lane here squash-merges on GitHub: M and Merge… wait until it's ready, like the button (AK-275).
+    const why = id === 'merge' && pr && !(lane?.branch && !lane.isBase) ? mergeBlock(r, { base }) : null;
+    if (why) return toast(why);
     if (split() && ['merge', 'approve', 'close', 'checkout', 'github'].includes(id) && onPaneAction) return onPaneAction(id, r, paneCtx(r));
     if (id === 'review' && split() && paneObj?.key === r.key) paneObj.focus();
     else if (id === 'review') { if (pr) onPrReview(pr, inbox?.remote); else if (lane) onReview(lane, base); }
@@ -698,6 +701,10 @@ export async function prefetchReview({ repo, load, prsOn }) {
 }
 
 const hadPr = (l) => l.pr || l.done?.reason === 'pr';
+
+// The repo's commits moved (a lane got stuck, a PR merged outside Review): Catch up recounts locally
+// instead of showing Review's last numbers (AK-366).
+export function forgetCounts(repo) { if (lastCounts?.repo === repo) lastCounts = null; }
 
 // The pull requests of the last load for `repo` (lanes with `pr` or merged by one), for keepPrs: Branches shows "PR #N open"
 // from them without a `gh` call (AK-396).

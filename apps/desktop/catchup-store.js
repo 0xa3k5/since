@@ -6,6 +6,7 @@
 // repository was opened here, or at seven days ago when that isn't known.
 const fs = require('node:fs');
 const path = require('node:path');
+const check = require('./ipc');
 
 const WEEK = 7 * 24 * 3600 * 1000;
 const MAX_REPOS = 200;
@@ -57,4 +58,27 @@ function mark(file, root, to, now = Date.now()) {
   return before;
 }
 
-module.exports = { WEEK, checkpoint, noteOpen, mark, readAll };
+// app:catchup's options (AK-374, AK-377): { since, tag, prs, base } checked and resolved. A `base` that is
+// the default base counts as none; any other branch has no checkpoint, so a checkpoint read falls back
+// to last week. defaultRef() → the default base's full ref (only asked when `base` is given);
+// checkpoint() → this repo's checkpoint. → { kind, tag, withPrs, base, isDefault, cp, since }, `base`
+// undefined for the default one.
+const SINCE = check.oneOf('checkpoint', 'yesterday', 'week', 'tag');
+const DAY = 24 * 3600 * 1000;
+async function catchupOptions(opts, { defaultRef, checkpoint: cpOf, now = Date.now() }) {
+  if (opts != null && (typeof opts !== 'object' || Array.isArray(opts) || Object.keys(opts).some((k) => !['since', 'tag', 'prs', 'base'].includes(k)))) throw new check.IpcArgError('Invalid catch-up options');
+  let kind = opts?.since == null ? 'checkpoint' : SINCE(opts.since, 'since');
+  const tag = kind === 'tag' ? check.rev(opts.tag, 'tag') : null;
+  const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
+  const base = opts?.base == null ? null : check.rev(opts.base, 'base');
+  if (base && !/^refs\/(heads|remotes)\//.test(base)) throw new check.IpcArgError('Invalid base: not a branch');
+  const isDefault = !base || (await defaultRef()) === base;
+  const cp = isDefault ? cpOf() : null;
+  if (!cp && kind === 'checkpoint') kind = 'week';
+  const since = kind === 'checkpoint' ? { sha: cp.sha || undefined, date: cp.date }
+    : kind === 'tag' ? { ref: `refs/tags/${tag}` }
+      : { date: now - (kind === 'yesterday' ? DAY : WEEK) };
+  return { kind, tag, withPrs, base: isDefault ? undefined : base, isDefault, cp, since };
+}
+
+module.exports = { WEEK, checkpoint, noteOpen, mark, readAll, catchupOptions };

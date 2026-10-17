@@ -1654,14 +1654,7 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true } = {},
 
 // "Probably an agent", guessed from a lane's commits ahead of base and its branch name. Extend
 // the lists here; matching is case-insensitive.
-const AGENT_HINTS = {
-  // Branch name prefixes coding agents give the branches they create.
-  prefixes: ['claude/', 'codex/', 'copilot/', 'cursor/', 'devin/', 'agent/', 'agents/', 'ai/'],
-  // A word in a Co-Authored-By trailer (name or email) that means a coding agent.
-  coauthors: ['claude', 'anthropic', 'codex', 'openai', 'copilot', 'cursor', 'devin', 'aider', 'gemini', 'jules', 'openhands', 'sweep', 'cline', 'windsurf', 'codeium'],
-  // Trailer keys only agents write.
-  trailers: ['generated-by', 'generated-with', 'agent', 'ai-agent', 'assisted-by'],
-};
+const { AGENT_HINTS } = require('./renderer/agents.js'); // shared with the renderer (AK-393)
 // Lane commits read for trailers and squash checks, and base commits searched for squash merges.
 const LANE_COMMITS = 5000;
 // Squash merges older than BASE_COMMITS base commits aren't detected: such a branch reads merged: null.
