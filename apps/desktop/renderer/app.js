@@ -199,7 +199,8 @@ const refreshHistory = coalesce(async () => {
   if (state.review) reviewPage?.refresh();
   // The reflog marks entries unreachable from the loaded history.
   if (state.view === 'snapshots' || (state.view === 'reflog' && logChanged) || (state.view === 'worktrees' && worktreesChanged)) renderView();
-  if (REF_LISTS[state.view] && !state.review && !state.quick && !state.split && !state.fileHistory) renderView();
+  // Ref pages rebuild only when their rows changed, so a refresh keeps the selection and focus.
+  if (REF_LISTS[state.view] && !state.review && !state.quick && !state.split && !state.fileHistory && refListKey(state.view) !== refListShown) renderView();
 });
 
 function tipsKey(refs, head, worktrees = []) {
@@ -2532,13 +2533,21 @@ function refListRows(view) {
     ];
   }).filter(Boolean);
 }
+let refListShown = '';
+const refListSel = {};
+const refListKey = (view, rows = refListRows(view)) => view + '\n' + rows.map((r) => `${r.label}\t${r.sub || ''}`).join('\n');
+
 function refListView(view) {
   const page = SECTION_PAGES.find((p) => p.view === view);
   const rows = refListRows(view);
+  refListShown = refListKey(view, rows);
   const el = h('div.page.flush', { tabIndex: 0 });
   const list = h('div.ref-list');
-  let idx = 0;
-  const mark = () => list.querySelectorAll('.ref-row').forEach((row, i) => row.classList.toggle('selected', i === idx));
+  let idx = Math.max(0, rows.findIndex((r) => r.label === refListSel[view]));
+  const mark = () => {
+    refListSel[view] = rows[idx]?.label;
+    list.querySelectorAll('.ref-row').forEach((row, i) => row.classList.toggle('selected', i === idx));
+  };
   rows.forEach((r, i) => list.append(h('div.ref-row' + (r.nested ? '.nested' : ''), {
     onclick: () => { idx = i; mark(); },
     ondblclick: r.open,
