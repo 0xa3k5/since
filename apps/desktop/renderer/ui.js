@@ -116,6 +116,8 @@ export function timeAgo(t) {
   const sameYear = date.getFullYear() === new Date().getFullYear();
   return date.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
 }
+// "2h ago", but "just now" and "Oct 3" as they are.
+export const ago = (t) => { const s = timeAgo(t); return /^\d+[mhd]$/.test(s) ? `${s} ago` : s; };
 export const fullDate = (t) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 function hash(s) { let x = 0; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return Math.abs(x); }

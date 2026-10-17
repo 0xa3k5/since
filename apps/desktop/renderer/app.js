@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, loading, toast, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -3320,7 +3320,7 @@ async function openPr(pr) {
       prop('Branch', `${pr.branch} → ${pr.base}`),
       prop('Review', pr.draft ? 'Draft' : REVIEW_LABELS[pr.review] || 'No review yet'),
       prop('Checks', CHECK_LABELS[pr.checks] || 'No checks'),
-      Number.isFinite(updated) ? prop('Updated', `${timeAgo(updated / 1000)} ago`) : null,
+      Number.isFinite(updated) ? prop('Updated', ago(updated / 1000)) : null,
       state.prs.stale ? h('div.pr-stale-note', null, 'Not refreshed: this is the last result GitLanes got.') : null,
     ),
     submit: 'Open on GitHub',
