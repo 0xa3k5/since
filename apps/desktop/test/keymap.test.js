@@ -137,23 +137,18 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.deepEqual(keys('repo.prRefresh', { mac: true }), ['⌥', '⇧', '⌘', 'P']);
   assert.deepEqual(keys('repo.prRefresh', { mac: false }), ['Ctrl', '⌥', '⇧', 'P']);
   assert.deepEqual(keys('view.cycleTheme', { mac: true }), ['⌃', '⌘', 'T']);
-  assert.deepEqual(keys('view.worktrees', { mac: true, index: 1 }), ['G', 'W']);
+  assert.deepEqual(keys('view.worktrees', { mac: true }), ['G', 'W']);
   assert.deepEqual(keys('commit.split', { mac: true }), ['⇧', 'S']);
   assert.deepEqual(keys('commit.drop', { mac: true }), ['⌫']);
   assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
 });
 
-test('Mod+1…4 open the activities, then Mod+5…8 and Mod+0 the refs tree pages, in sidebar order', async () => {
+test('Mod+1…8 open the sidebar pages in their default order; the fold-out lists have chords (AK-491)', async () => {
   const { defaults } = await load();
-  const { SECTION_PAGES } = await import('../renderer/sidebar.js');
-  const app = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
-  const ids = [...app.match(/const VIEWS = \[([\s\S]*?)\];/)[1].matchAll(/id: '(\w+)'/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ['catchup', 'lanes', 'map', 'commit'], 'the activities (AK-463)');
-  ids.forEach((id, i) => assert.equal(defaults(`view.${id}`, true)[0], `Mod+${i + 1}`, `view.${id}`));
-  // Pull requests open Review (Mod+2); Submodules have a chord only. Mod+9 stays Preferences → Repository (AK-458).
-  const pages = SECTION_PAGES.filter((p) => !['prs', 'submodules'].includes(p.id)).map((p) => p.view);
-  pages.forEach((v, i) => assert.equal(defaults(`view.${v}`, true)[0], `Mod+${['5', '6', '7', '8', '0'][i]}`, `view.${v}`));
+  const { NAV_ITEMS, SECTION_PAGES } = await import('../renderer/sidebar.js');
+  NAV_ITEMS.forEach((p, i) => assert.equal(defaults(`view.${p.view}`, true)[0], `Mod+${i + 1}`, `view.${p.view}`));
   for (const p of SECTION_PAGES) assert.ok(defaults(`view.${p.view}`, true).length, `${p.label} has a key`);
+  // Mod+9 stays Preferences → Repository (AK-458).
   assert.equal(defaults('view.config', true)[0], 'Mod+9');
 });
 

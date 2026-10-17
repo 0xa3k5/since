@@ -6,12 +6,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('./fixtures');
 
-const branchItem = (app, name) => app.page.locator('.sidebar .sb-item', { has: app.page.locator('.sb-label', { hasText: new RegExp(`^${name}$`) }) });
-
 async function startConflict(app, op) {
-  const item = op === 'merge' ? 'Merge into main' : 'Rebase main onto feature';
-  await app.contextMenu(branchItem(app, 'feature'), item);
-  await app.toast(op === 'merge' ? 'Merge feature failed' : 'Rebase onto feature failed', 'error');
+  // Local branches have no sidebar row since AK-491, so start from feature's tip in the Map.
+  const item = op === 'merge' ? 'Merge into Current' : 'Rebase Current onto This';
+  await app.contextMenu(app.row('feature change'), item);
+  await app.toast(op === 'merge' ? 'Merge feature failed' : /^Rebase onto [0-9a-f]{7} failed/, 'error');
   const banner = app.page.locator('.banner');
   await expect(banner).toContainText(`${op === 'merge' ? 'Merge' : 'Rebase'} in progress`);
   await expect(banner).toContainText('1 conflicted file');
