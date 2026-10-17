@@ -1,7 +1,7 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
-import { landedEntries, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
-import { sharedLoad } from './lanes.js';
+import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
+import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
 import { readerHead, descriptionBlock, fileCard, miniHeader, miniContent, readerKey, navPos, fastKeys } from './reader.js';
 import { authorsOf, messageAgent } from './review-rows.js';
@@ -26,7 +26,7 @@ import { authorsOf, messageAgent } from './review-rows.js';
 // With PRs off it's git log alone.
 //
 // load(opts) → app:catchup; mark(to) → app:catchup-mark (returns the checkpoint it replaced);
-// git(method, ...args) reads a change (commitDiffs, commit); prsOn() reads the setting; counts() →
+// git(method, ...args) reads a change (commitDiffs, commit); prsOn() and markAgents() read the settings; counts() →
 // { stuck, ready } from Review (lanes-view.js reviewCounts); onReview() opens Review; onCount(n)
 // reports what landed since the checkpoint, for the sidebar badge.
 const short = (s) => (s || '').slice(0, 7);
@@ -46,7 +46,7 @@ const DEFAULT_SINCE = { since: 'checkpoint' };
 // What the reader read, per commit, for this repo: sha → Promise<{ diffs, message }>.
 const reads = new Map();
 
-export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
+export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = () => true, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
   openRepo = repo;
   if (cache && !prsOn() && cache.extra) cache = { ...cache, res: null, extra: null, loadedAt: null };
@@ -62,6 +62,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   let reloading = false;
   let review = null; // { stuck, ready }
   let seq = 0;
+  const loads = loadGuard(); // a git-only refresh can overtake a PR load: its merged PRs still count (AK-338)
   let loaded = Boolean(res);
   let readId = null; // the entry in the reader
   let readTimer = 0;
@@ -244,12 +245,26 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
   async function fetch({ prs = false } = {}) {
     const n = ++seq;
     const withPrs = Boolean(prs && prsOn());
+    const t = loads.start(withPrs);
+    const range = JSON.stringify([since, base]);
     if (withPrs) { reloading = true; renderHead(); }
     try {
       const opts = { ...since, prs: withPrs, ...(base ? { base } : {}) };
       // The default range with PRs joins the load from opening the repo, if it's still running.
       const r = await (withPrs && since.since === 'checkpoint' && !base ? prLoads.run(repo, () => load(opts)) : load(opts));
-      if (n !== seq) return;
+      if (n !== seq) {
+        // Overtaken by a newer git-only refresh of the same range: keep this load's merged PRs and CI.
+        if (r && loads.prs(t) && prsOn() && range === JSON.stringify([since, base])) {
+          extra = { merged: r.merged, ci: r.ci };
+          loadedAt = Date.now();
+          res = withLateExtra(res, extra);
+          cache = { repo, since, base, extra, loadedAt, defaultName, res };
+          entries = res ? landedEntries(res.commits, res.merged) : [];
+          if (res && since.since === 'checkpoint' && !base) onCount(entries.length);
+          if (res) render();
+        }
+        return;
+      }
       failed = null;
       loaded = true;
       if (withPrs) { extra = r ? { merged: r.merged, ci: r.ci } : null; loadedAt = Date.now(); }
@@ -346,7 +361,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, refs = () => 
     const pr = e.kind === 'pr';
     const num = pr ? `#${e.number}` : short(e.sha);
     // Who made it (AK-390): the commit's author, + the agent its message's trailers name once it's read.
-    const authors = authorsOf({ person: e.author ? { name: e.author } : null, agent: change?.id === e.id ? messageAgent(change.message) : null });
+    const authors = authorsOf({ person: e.author ? { name: e.author } : null, agent: change?.id === e.id ? messageAgent(change.message) : null, agents: markAgents() });
     const top = readerHead({
       num, numTip: e.sha, title: e.title, nav: { ...navPos(entries, e.id), onStep: step },
       authors,
