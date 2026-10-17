@@ -74,24 +74,23 @@ export function personAvatar(name, key = name, size = 18) {
   return a;
 }
 
-// Who made it (AK-390): authors = [{ name, key, agent, title }] (review-rows.js authorsOf), each an
-// initials avatar and its name, joined by "+": "(AK) AK + (CO) Claude Opus 5.5".
+// Who made it (AK-390): authors = [{ name, key, agent, title }] (review-rows.js authorsOf). One
+// person is their avatar and name; two or more are one avatar group, names in its tooltip (AK-533).
 export function authorsEl(authors = [], size = 16, cls = '') {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
-  return h('span.reader-authors' + cls, { title: list.map((a) => a.title || a.name).join('\n') },
-    ...list.flatMap((a, i) => [
-      i ? h('span.reader-authors-plus', { 'aria-hidden': 'true' }, '+') : null,
-      h('span.reader-author' + (a.agent ? '.agent' : ''), null, personAvatar(a.name, a.key || a.name, size), h('span.reader-author-name', null, a.name)),
-    ]).filter(Boolean));
+  if (list.length > 1) return authorsStack(list, size, '.reader-authors' + cls);
+  const [a] = list;
+  return h('span.reader-authors' + cls, { title: a.title || a.name },
+    h('span.reader-author' + (a.agent ? '.agent' : ''), null, personAvatar(a.name, a.key || a.name, size), h('span.reader-author-name', null, a.name)));
 }
 
 // The same people as one overlapping avatar group, no names (list rows, AK-400); like the map's
-// co-author stack. No hover: the names are only read out to screen readers.
+// co-author stack. The names are in its tooltip, one per line (AK-533).
 export function authorsStack(authors = [], size = 14, cls = '') {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
-  return h('span.avatar-stack' + cls, { role: 'img', 'aria-label': list.map((a) => a.name).join(' and ') },
+  return h('span.avatar-stack' + cls, { role: 'img', 'aria-label': list.map((a) => a.name).join(' and '), 'data-tip': list.map((a) => a.name).join('\n') },
     ...list.map((a) => { const av = personAvatar(a.name, a.key || a.name, size); av.title = ''; return av; }));
 }
 
