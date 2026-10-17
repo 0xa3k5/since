@@ -523,3 +523,15 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
   assert.equal(stuckReason(failing, { bareChecks: true }), 'test, lint');
   assert.equal(stuckReason(row({ pr: pr(1, { checks: 'failure' }) }), { bareChecks: true }), null);
 });
+
+test('needs you (the Review badge) is stuck plus ready, never the unmerged branch count', async () => {
+  const { reviewRows, needsYou } = await load();
+  const branches = Array.from({ length: 30 }, (_, i) => lane(`work-${i}`, { activity: NOW - HOUR }));
+  const stuck = pr(1, { branch: 'work-0', checks: 'failure' });
+  const r = reviewRows({ lanes: branches, prs: [stuck, pr(2)], prsOn: true, now: NOW });
+  assert.equal(needsYou(r.stages), 1);
+  assert.equal(needsYou(r.stages), r.stages.stuck.length + r.stages.ready.length);
+  const off = reviewRows({ lanes: branches, prsOn: false, now: NOW });
+  assert.equal(needsYou(off.stages), off.stages.stuck.length + off.stages.ready.length);
+  assert.ok(needsYou(off.stages) < branches.length);
+});

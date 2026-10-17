@@ -175,6 +175,9 @@ function withOverlaps(rows) {
 // `forecast` is conflictsByLane's Map (laneKey → conflicts); without it, lane.conflicts is used.
 // `previous` (row key → stage, from the last call) holds a PR GitHub is still checking in place.
 // `all` lists every row, staged ones first in stage order, then the rest by newest activity.
+// What the Review page's title calls "needs you": stuck plus ready to merge. The sidebar badge shows the same count.
+export const needsYou = (stages) => stages.stuck.length + stages.ready.length;
+
 export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecast = null, prsOn = false, now = Date.now(), previous = null } = {}) {
   const requested = new Set(prsOn ? reviewRequested : []);
   const taken = new Set();

@@ -14,9 +14,10 @@ import { branchesView } from './branches-view.js';
 import { isFinished, BRANCH_TABS } from './branches.js';
 import { stageMemory, STAGES } from './review-rows.js';
 import { catchupView, prefetchCatchup } from './catchup-view.js';
+import { landedEntries } from './catchup.js';
 import { createNav } from './nav.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
-import { laneTarget, laneKey, laneTitle, canRemove, laneBucket } from './lanes.js';
+import { laneTarget, laneKey, laneTitle, canRemove } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
@@ -494,7 +495,7 @@ const root = $('#app');
 let sidebarEl, topbarEl, bannerEl, contentEl;
 let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catchupPage = null, branchesPage = null;
 let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
-let reviewCount = 0; // Review's sidebar badge: active lanes, recent work that isn't merged (countFinished)
+let reviewCount = 0, reviewRun = null; // Review's sidebar badge: the page's Needs you count, stuck plus ready (countReview)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 let stashFocus = null; // the stash a sidebar click asked the Stashes page to select
 let stashShown = null; // the stash selected on the Stashes page (for ⌘K)
@@ -2707,6 +2708,7 @@ function openLanes() {
   lanesPage?.destroy();
   lanesPage = lanesView({
     repo: state.repo.root,
+    onCounts: (c) => setReviewCount(c.needs),
     git,
     load: (opts) => api.app('lanes-list', opts),
     forecast: () => api.app('lanes-forecast'),
@@ -2759,7 +2761,7 @@ function countCatchup() {
   countRun ??= coalesce(async () => {
     if (!state.repo) return;
     const r = await api.app('catchup', { since: 'checkpoint' }).catch(() => null);
-    setCatchupCount(r?.commits?.length || 0);
+    setCatchupCount(r ? landedEntries(r.commits, r.merged).length : 0); // the page's count (catchup-view.js)
   });
   return countRun();
 }
@@ -2812,11 +2814,21 @@ function countFinished() {
     if (!state.repo) return;
     const r = await api.app('lanes-list', { prs: false }).catch(() => null);
     if (!r?.lanes) return;
-    reviewCount = r.lanes.filter((l) => !l.isBase && !['merged', 'idle'].includes(laneBucket(l))).length;
     setFinishedCount(r.lanes.filter(isFinished).length);
-    renderNavCounts();
   });
+  countReview();
   return finishedRun();
+}
+// The sidebar badge on Review: what the page calls "needs you" (reviewCounts), never the raw branch count.
+function setReviewCount(n) { if (n === reviewCount) return; reviewCount = n; renderNavCounts(); }
+function countReview() {
+  reviewRun ??= coalesce(async () => {
+    if (!state.repo) return;
+    const root = state.repo.root;
+    const c = await reviewCounts({ repo: root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }).catch(() => null);
+    if (c && state.repo?.root === root) setReviewCount(c.needs);
+  });
+  return reviewRun();
 }
 
 // Clean up (cleanup-view.js) is the Finished tab of Branches (AK-396): finished branches and
@@ -3249,7 +3261,7 @@ function prefetchOnOpen() {
   const root = state.repo?.root;
   if (!root || !state.prs?.active) return;
   const prsOn = () => Boolean(state.prs?.active) && state.repo?.root === root;
-  prefetchReview({ repo: root, load: (opts) => api.app('lanes-list', opts), prsOn });
+  prefetchReview({ repo: root, load: (opts) => api.app('lanes-list', opts), prsOn }).then(() => { if (state.repo?.root === root) countReview(); });
   prefetchCatchup({ repo: root, load: (opts) => api.app('catchup', opts), prsOn, onCount: (n) => { if (state.repo?.root === root) setCatchupCount(n); } });
   if (lanesPage?.el.isConnected && lanesPage.canReload()) lanesPage.reload(); // joins the load above
   if (catchupPage?.el.isConnected) catchupPage.reload();
@@ -4230,7 +4242,7 @@ async function loadRepo(repo) {
   if (from) nav.record(from, placeKey());
   renderShell();
   loadPrs().then(prefetchOnOpen);
-  if (!sameRepo) { finishedCount = 0; countFinished(); }
+  if (!sameRepo) { finishedCount = 0; reviewCount = 0; countFinished(); }
   await refreshAll();
   if (state.head.oid) selectCommit(state.head.oid, 'center');
   if (state.view === 'map') mapView?.focus();

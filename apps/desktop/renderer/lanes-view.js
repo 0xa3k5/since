@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, baseConflict, conflictNote, overlapNote, needsYou } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
 import { navPos, authorsStack, fastKeys } from './reader.js';
@@ -48,7 +48,7 @@ const prLoads = sharedLoad();
 // The repo Review last opened or prefetched for: a load for another repo lands nowhere.
 let openRepo = null;
 const loadPrs = (repo, load) => prLoads.run(repo, () => withTimeout(load({ prs: true, inbox: true }), PR_TIMEOUT, 'GitHub didn’t answer in time.'));
-// Review's last stuck and ready-to-merge counts, for Catch up's line to Review: { repo, stuck, ready }.
+// Review's last stuck and ready-to-merge counts, for Catch up's line to Review and the sidebar badge: { repo, stuck, ready, needs }.
 let lastCounts = null;
 // The last tab, kept across visits to Review (this window, this session).
 let lastTab = 'needs';
@@ -66,7 +66,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, onBranches = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, onBranches = () => {}, onCounts = () => {}, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -381,7 +381,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (pendingPr != null && staged.all.some((x) => x.pr?.number === pendingPr)) { const n = pendingPr; pendingPr = null; setTimeout(() => showPr(n)); }
     const rows = [];
     const q = filter.value.trim();
-    if (loaded) lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length };
+    if (loaded) { lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length, needs: needsYou(staged.stages) }; onCounts(lastCounts); }
     if (q) {
       shown = filterRows(staged.all, q);
       for (const r of shown) rows.push(stagedRow(r));
@@ -409,7 +409,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     list.replaceChildren(...rows);
     const n = staged.stages.stuck.length;
     const ready = staged.stages.ready.length;
-    const needs = n + ready;
+    const needs = needsYou(staged.stages);
     // The counts live on the tabs; the title row only says it's loading.
     count.replaceChildren(...(!loaded ? ['Loading…'] : prsLoading ? [h('span.spinner.review-count-spin', { role: 'status', 'aria-label': 'Loading pull requests' })] : []));
     lede.textContent = !prsOn() ? 'Your branches and worktrees. What’s stuck comes first.'
@@ -702,13 +702,13 @@ export async function prefetchReview({ repo, load, prsOn }) {
 // from them without a `gh` call (AK-396).
 export const cachedPrs = (repo) => (prCache?.repo === repo ? prCache.prs : []);
 
-// Catch up's line to Review: its stuck and ready-to-merge counts. Review's last ones for this repo, or
-// worked out from local lanes and the cached PRs (no `gh` call). load → app:lanes-list.
+// Catch up's line to Review and Review's sidebar badge: its stuck, ready-to-merge and needs-you counts. Review's
+// last ones for this repo, or worked out from local lanes and the cached PRs (no `gh` call). load → app:lanes-list.
 export async function reviewCounts({ repo, load, prsOn }) {
   if (lastCounts?.repo === repo) return lastCounts;
   const res = await load({ prs: false });
   const cached = prsOn() && prCache?.repo === repo ? prCache : null;
   const lanes = cached ? keepPrs(res.lanes, cached.prs) : res.lanes;
   const { stages } = reviewRows({ lanes, prs: cached?.inbox.prs || [], reviewRequested: cached?.inbox.requested || [], forecast: null, prsOn: prsOn(), now: Date.now(), previous: null });
-  return { repo, stuck: stages.stuck.length, ready: stages.ready.length };
+  return { repo, stuck: stages.stuck.length, ready: stages.ready.length, needs: needsYou(stages) };
 }
