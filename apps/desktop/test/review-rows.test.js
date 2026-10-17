@@ -518,6 +518,7 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
   assert.equal(rowSignals(row({ pr: pr(1, { checks: 'failure' }) })).checks.text, '');
   assert.deepEqual(rowSignals(row({ pr: pr(1, { mergeable: false, base: 'develop' }) })), { checks: null, conflict: { title: 'Conflicts with develop' } });
   assert.deepEqual(rowSignals(row({ pr: pr(1, READY) })), { checks: null, conflict: null });
+  assert.equal(rowSignals(row({ pr: pr(1, { mergeable: false }) }), { conflictShown: true }).conflict, null, 'a stuck row whose note says it conflicts shows no marker too');
   assert.deepEqual(rowBadges(failing).filter((b) => b.signal).map((b) => b.text), ['CI failing']);
   assert.equal(stuckReason(failing, { bareChecks: true }), 'test, lint');
   assert.equal(stuckReason(row({ pr: pr(1, { checks: 'failure' }) }), { bareChecks: true }), null);

@@ -139,6 +139,21 @@ test('undo that deletes a branch drops its upstream config', async () => {
   assert.equal((await git.run(dir, ['config', '--get-regexp', '^branch\\.pr\\.'], { allowCodes: [0, 1] })).trim(), '');
 });
 
+test('redo that brings a deleted branch back restores its upstream config', async () => {
+  const dir = await repo();
+  await commit(dir, 'a', '1', 'one');
+  const before = await git.captureRefState(dir);
+  await git.run(dir, ['branch', 'fix/v1.2']);
+  await git.run(dir, ['config', 'branch.fix/v1.2.remote', 'origin']);
+  await git.run(dir, ['config', 'branch.fix/v1.2.merge', 'refs/heads/fix/v1.2']);
+  const after = await git.captureRefState(dir);
+  await git.restoreRefState(dir, before); // undo
+  await git.restoreRefState(dir, after); // redo
+  const cfg = (await git.run(dir, ['config', '--get-regexp', '^branch\\.fix/v1\\.2\\.'])).trim().split('\n');
+  assert.deepEqual(cfg, ['branch.fix/v1.2.remote origin', 'branch.fix/v1.2.merge refs/heads/fix/v1.2']);
+  assert.deepEqual(await git.captureRefState(dir), after);
+});
+
 test('graph layout assigns lanes for branches and merges', async () => {
   const { layout } = await import('../renderer/graph.js');
   // m merges b into a; a and b both descend from root

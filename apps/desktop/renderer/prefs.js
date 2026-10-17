@@ -72,6 +72,10 @@ export function prefRows(s) {
   return rows.filter((r) => !r.repo || s.repo);
 }
 
+// A `preferences` menu command while Preferences is open: ⌘, (no section) closes it,
+// a sectioned one (View → Repository Settings…, ⌘9) jumps to that section.
+export const openPrefsCommand = (section) => (section ? 'show' : 'close');
+
 // Which remote this repository's PR features use (AK-461). With two or more GitHub remotes it's a choice:
 // Automatic (origin when it's on GitHub, else the first GitHub remote) or one of them by name. Remote option ids are
 // prefixed so a remote literally named `auto` can't collide with Automatic (AK-484).

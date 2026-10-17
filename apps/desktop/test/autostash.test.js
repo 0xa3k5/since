@@ -96,6 +96,22 @@ test('stash and switch is one step: undo switches back and pops, redo stashes ag
   assert.equal(read('app.js'), 'mine\n');
 });
 
+test('redo with nothing to stash again refuses instead of adopting an unrelated stash', async () => {
+  const { dir, write, read, journal, head } = await repo();
+  write('app.js', 'other\n');
+  await git.stashPush(dir, { message: 'unrelated' });
+  write('app.js', 'mine\n');
+  await journal.autostash('Checkout feature', 'feature', 'Auto-stash on main before switching to feature', false);
+  await journal.step('undo');
+  assert.equal(read('app.js'), 'mine\n');
+  await git.run(dir, ['checkout', '--', 'app.js']); // the changes are cleared outside GitLanes
+  await assert.rejects(journal.step('redo'), /no changes to stash/);
+  assert.equal(await head(), 'main');
+  const stashes = await git.getStashes(dir);
+  assert.equal(stashes.length, 1, 'the unrelated stash is untouched');
+  assert.equal(stashes[0].message, 'On main: unrelated');
+});
+
 test('a switch that still fails pops the stash back and records nothing', async () => {
   const { dir, write, read, journal, head } = await repo();
   write('app.js', 'mine\n');
@@ -114,6 +130,16 @@ test('return toast: offered once on the stashed branch, dropped when the stash i
   const r = returnOffer(recs, '/r', 'main', stashes);
   assert.deepEqual(r.offer, { root: '/r', branch: 'main', sha: 'aaa', ref: 'stash@{0}', message: 'On main: Auto-stash' });
   assert.deepEqual(r.records, [{ root: '/other', branch: 'main', sha: 'zzz' }], 'offered once; stale records of this repo pruned, other repos kept');
+});
+
+test('return toast: the stash is found by sha after others were stashed on top', async () => {
+  const { stashRefBySha } = await load();
+  const before = [{ ref: 'stash@{0}', sha: 'aaa' }];
+  const after = [{ ref: 'stash@{0}', sha: 'new' }, { ref: 'stash@{1}', sha: 'aaa' }];
+  assert.equal(stashRefBySha(before, 'aaa'), 'stash@{0}');
+  assert.equal(stashRefBySha(after, 'aaa'), 'stash@{1}', 'position shifted: follow the sha, not the old index');
+  assert.equal(stashRefBySha(after, 'gone'), null);
+  assert.equal(stashRefBySha(null, 'aaa'), null);
 });
 
 test('undoing a plain checkout leaves the branch it switched to where it was', async () => {
