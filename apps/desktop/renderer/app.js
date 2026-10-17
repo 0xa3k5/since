@@ -496,6 +496,7 @@ let mapView = null, commitView = null, lanesPage = null, reviewPage = null, catc
 let finishedCount = 0, finishedRun = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let catchupCount = 0, countRun = null; // Catch up's sidebar badge (setCatchupCount)
 let stashFocus = null; // the stash a sidebar click asked the Stashes page to select
+let stashShown = null; // the stash selected on the Stashes page (for ⌘K)
 
 // ---------------------------------------------------------------------------
 // Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
@@ -1776,7 +1777,11 @@ async function pendingAutostash(branch) {
 const applyAutostash = (o, drop) => act(drop ? `Apply and drop ${o.ref}` : `Apply ${o.ref}`, 'stashApply', [o.ref, drop]);
 async function offerAutostash(branch) {
   const o = await pendingAutostash(branch);
-  if (o) toast(`You have changes stashed from ${branch}`, { detail: o.message, timeout: 15000, actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply, keep stash', run: () => applyAutostash(o, false) }] });
+  if (o) toast(['Changes stashed on ', h('span.toast-ref', { title: branch }, branch)], {
+    detail: 'Saved when you switched away. Bring them back?',
+    timeout: 15000,
+    actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply and keep', run: () => applyAutostash(o, false) }],
+  });
 }
 function checkoutCommit(c) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
@@ -2216,6 +2221,7 @@ function stashesView() {
   let current = state.stashes.some((x) => x.ref === stashFocus) ? stashFocus : state.stashes[0]?.ref;
   stashFocus = null;
   function renderList() {
+    stashShown = current;
     list.replaceChildren(
       h('div.pane-head', null, h('span', null, 'Stashes'), h('span.sb-count', null, state.stashes.length), h('span.spacer'), h('button.btn.subtle.small', { onclick: () => stashSave() }, icon('plus', 13), 'Stash changes')),
       state.stashes.length ? h('div', null, state.stashes.map((s) => h('div.list-row' + (s.ref === current ? '.active' : ''), {
@@ -2234,16 +2240,24 @@ function stashesView() {
     detail.replaceChildren(
       h('div.diff-head', null, h('span.title', null, s.message), h('span.spacer'),
         h('button.btn.ghost.small', { onclick: () => dropStash(s) }, 'Drop'),
-        h('button.btn.subtle.small', { onclick: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) }, 'Apply'),
+        h('button.btn.subtle.small', { onclick: () => applyStash(s) }, 'Apply', kbd(...keymap.keys('stashes.apply'))),
         h('button.btn.primary.small', { onclick: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) }, 'Pop')),
       h('div.diff-scroll', null, diffs.length ? diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d))) : h('div.empty', null, 'Untracked files only')),
     );
   }
-  // ↑/↓ move the selection through the list.
+  // ↑/↓ move the selection through the list; ↵ applies the selected stash (keeps it).
   el.tabIndex = 0;
   el.addEventListener('keydown', (e) => {
-    const step = { 'stashes.next': 1, 'stashes.prev': -1 }[keymap.match('stashes', e)];
-    if (!step || isEditable(e.target) || !state.stashes.length) return;
+    const id = keymap.match('stashes', e);
+    if (!id || isEditable(e.target) || !state.stashes.length) return;
+    if (id === 'stashes.apply') {
+      const s = state.stashes.find((x) => x.ref === current);
+      if (!s || document.activeElement?.tagName === 'BUTTON') return;
+      e.preventDefault();
+      return applyStash(s);
+    }
+    const step = { 'stashes.next': 1, 'stashes.prev': -1 }[id];
+    if (!step) return;
     e.preventDefault();
     const i = state.stashes.findIndex((x) => x.ref === current);
     const n = state.stashes[Math.max(0, Math.min(state.stashes.length - 1, i < 0 ? 0 : i + step))];
@@ -2259,9 +2273,11 @@ function stashesView() {
   return el;
 }
 
+const applyStash = (s) => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]);
+
 function stashMenu(x, y, s) {
   contextMenu(x, y, [
-    { label: 'Apply', icon: 'check', run: () => act(`Apply ${s.ref}`, 'stashApply', [s.ref, false]) },
+    { label: 'Apply', icon: 'check', kbd: keymap.keys('stashes.apply'), run: () => applyStash(s) },
     { label: 'Pop', icon: 'pull', run: () => act(`Pop ${s.ref}`, 'stashApply', [s.ref, true]) },
     '-',
     { label: 'Drop…', icon: 'trash', danger: true, run: () => dropStash(s) },
@@ -3753,6 +3769,8 @@ function openPalette() {
     if (nav.canBack) add('View', 'Back', goBack, { icon: 'chevronLeft', kbd: keymap.keys('view.back'), keywords: 'previous history return navigate' });
     if (nav.canForward) add('View', 'Forward', goForward, { icon: 'chevron', kbd: keymap.keys('view.forward'), keywords: 'next history navigate' });
     const snap = state.view === 'snapshots' && snapshotEntries().find((x) => x.id === state.snapSel && x.movesRefs);
+    const shownStash = state.view === 'stashes' && state.stashes.find((x) => x.ref === stashShown);
+    if (shownStash) add('Repository', `Apply ${shownStash.ref}`, () => applyStash(shownStash), { icon: 'stash', kbd: keymap.keys('stashes.apply'), detail: shownStash.message, keywords: 'stash apply unstash restore changes' });
     if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: keymap.keys('snapshots.restore'), keywords: 'snapshot undo history timeline jump back restore' });
     add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
