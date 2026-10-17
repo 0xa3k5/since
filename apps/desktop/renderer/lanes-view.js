@@ -92,7 +92,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   let wanted = place?.key ?? null; // the row to select once it's loaded
   let wantedScroll = place?.scroll ?? null;
 
-  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter…', spellcheck: false, 'aria-label': 'Filter', value: place?.filter || '' });
+  const filter = h('input.lanes-filter', { type: 'search', placeholder: 'Filter, or #123 for a PR…', spellcheck: false, 'aria-label': 'Filter', value: place?.filter || '' });
   const count = h('span.muted.lanes-count');
   const list = h('div.lanes-list', { role: 'listbox', 'aria-label': 'Review' });
   const empty = h('div.empty');
@@ -581,8 +581,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     try {
       res = await (withPrs ? loadPrs(repo, load) : load({ prs: false }));
     } catch (e) {
-      if (withPrs && loads.prs(t)) reloading = false;
-      if (!withPrs || !loads.prs(t) || !el.isConnected) { if (withPrs && el.isConnected) render(); throw e; }
+      if (withPrs && !loads.prs(t)) return; // a newer PR load took over: this error is old news (AK-315)
+      if (withPrs) reloading = false;
+      if (!withPrs || !el.isConnected) { if (withPrs && el.isConnected) render(); throw e; }
       inboxFailed = true;
       loaded = true;
       render();
@@ -601,11 +602,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (!prsOn()) { inbox = null; inboxFailed = false; loadedAt = null; seedLanes = []; prCache = null; }
     if (newest) {
       base = res.base;
-      const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, lanes.length ? lanes : seedLanes)) : res.lanes;
+      const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, [...seedLanes, ...lanes])) : res.lanes;
       lanes = sortLanes(withConflicts(next, conflicts));
-    } else lanes = sortLanes(withConflicts(takePrs(lanes, res.lanes), conflicts)); // a newer local refresh has the lanes
+      seedLanes = [];
+    } else {
+      lanes = sortLanes(withConflicts(takePrs(lanes, res.lanes), conflicts)); // a newer local refresh has the lanes
+      seedLanes = res.lanes; // and that refresh puts these PRs on branches `lanes` doesn't have yet (AK-315)
+    }
     loaded = true;
-    seedLanes = [];
     if (withPrs && inbox) remember();
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
     render();
@@ -685,7 +689,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

@@ -574,8 +574,9 @@ process.exit(1);
 
   // 1. Review: Stuck and Ready to merge.
   await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
-  await expect(page.locator('.lanes-group[data-stage="stuck"]')).toContainText('2');
-  await expect(page.locator('.lanes-group[data-stage="ready"]')).toContainText('3');
+  await page.locator('.review-reload').click(); // stage counts need a PR load (#143)
+  await expect(page.locator('.review-tab[data-tab="stuck"] .review-tab-n')).toHaveText('2', { timeout: 40_000 });
+  await expect(page.locator('.review-tab[data-tab="ready"] .review-tab-n')).toHaveText('3');
   await expect(page.locator('.review-pane .review-row').first()).toBeVisible();
   await shot('review-dark');
 

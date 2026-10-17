@@ -2296,12 +2296,13 @@ function conflictHunks(text) {
       cur = { line: i + 1, before: lines.slice(Math.max(last, i - CONFLICT_CONTEXT), i), base: [], head: [], after: [] };
       side = 'base';
     } else if (cur && l.startsWith('|||||||')) side = null;
-    else if (cur && l.startsWith('=======') && side !== 'head') side = 'head';
+    else if (cur && /^=======\r?$/.test(l) && side !== 'head') side = 'head'; // exactly: a markdown underline isn't one (AK-308)
     else if (cur && l.startsWith('>>>>>>>')) {
       last = i + 1;
       let j = last;
       while (j < lines.length && j < last + CONFLICT_CONTEXT && !lines[j].startsWith('<<<<<<<')) j++;
       cur.after = lines.slice(last, j);
+      last = j; // the next hunk's context starts after this one's (AK-308)
       hunks.push(cur);
       cur = null;
     } else if (cur && side) cur[side].push(l);
