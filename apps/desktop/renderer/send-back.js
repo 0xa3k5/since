@@ -77,6 +77,8 @@ function checkLines(row) {
 }
 
 const logBlock = (log) => (log && log.trim() ? `Last lines of the failed log:\n\`\`\`\n${log.trim()}\n\`\`\`` : '');
+// A fetched log at the end of a hand-edited prompt, when the user keeps their edits (AK-289).
+export const appendLog = (text, log) => (logBlock(log) ? `${String(text || '').trimEnd()}\n\n${logBlock(log)}` : String(text || ''));
 
 // The facts a template is filled from. `reason` is stuckReason's text for the row.
 export function promptFacts(row, { base = null, touches = {}, log = '', reason = '' } = {}) {

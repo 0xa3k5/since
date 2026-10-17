@@ -6,6 +6,11 @@ import { laneKey } from './lanes.js';
 const DAY = 24 * 3600e3;
 // "Untouched for N days": its own card, never ticked up front. The default N.
 export const STALE_DAYS = 30;
+// The "untouched for N days" field (AK-402): a whole number of days from 1 to 365, else null.
+export function daysValue(v) {
+  const n = Number(String(v ?? '').trim());
+  return Number.isInteger(n) && n >= 1 && n <= 365 ? n : null;
+}
 
 // In the order the Finished tab of Branches shows them (AK-396). Each card ticks its whole group.
 export const GROUPS = [

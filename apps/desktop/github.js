@@ -368,12 +368,16 @@ async function requestChangesPr({ enabled, remotes, number, body, dirs = searchD
 
 // `--repo` keeps `gh` away from any local checkout: it deletes only the remote branch, and the
 // local side (fetch --prune, deleting the local branch) goes through GitLanes' journal.
-async function mergePr({ enabled, remotes, number, method = 'squash', deleteBranch = false, admin = false, dirs = searchDirs(), exec } = {}) {
+// `matchHead` (Merge plan, AK-291): GitHub refuses the merge if the branch moved past that commit.
+async function mergePr({ enabled, remotes, number, method = 'squash', deleteBranch = false, admin = false, matchHead = null, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
   if (!MERGE_METHODS.includes(method)) throw coded('Unknown merge method.', 'gh-failed');
-  await ghRun(bin, ['pr', 'merge', prNumber(number), '--repo', repo, `--${method}`, ...(deleteBranch ? ['--delete-branch'] : []), ...(admin ? ['--admin'] : [])], { dirs, exec });
+  await ghRun(bin, ['pr', 'merge', prNumber(number), '--repo', repo, `--${method}`, ...(deleteBranch ? ['--delete-branch'] : []), ...(admin ? ['--admin'] : []), ...(matchHead ? ['--match-head-commit', matchHead] : [])], { dirs, exec });
   return { number, method };
 }
+
+// The error `gh pr merge --match-head-commit` gives when the PR's branch moved on.
+const headMoved = (err) => /head branch was modified|head.*(?:sha|commit).*(?:match|modified)/i.test(String(err?.message || ''));
 
 async function closePr({ enabled, remotes, number, body, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
@@ -636,4 +640,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, mergedCommit, closePr, updatePrBranch, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, closePr, updatePrBranch, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

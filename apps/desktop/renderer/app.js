@@ -2748,6 +2748,7 @@ function openCatchup() {
     load: (opts) => api.app('catchup', opts),
     mark: (to) => api.app('catchup-mark', to),
     prsOn: () => Boolean(state.prs?.active),
+    markAgents: () => state.show.agentLanes !== false,
     refs: () => state.refs,
     counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
     onReview: () => setView('lanes'),
@@ -2790,6 +2791,7 @@ function openBranches() {
       run: (items, label) => git('cleanupLanes', items, { __label: label }),
       runRemote: (names) => git('deleteRemoteBranches', names),
       days: cleanupPrefs().days,
+      onDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
       onProgress: (fn) => api.on('cleanup:progress', fn),
       onDone: refreshAll,
       onUndo: undo,
@@ -3858,7 +3860,7 @@ function openPalette() {
       const l = laneSel.lane;
       const t = laneTitle(l);
       const next = laneSel.step;
-      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', kbd: keymap.keys('lanes.step'), keywords: 'branch review next step primary button' });
+      if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', keywords: 'branch review next step primary button' });
       if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'branch conflicts update base' });
       if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'branch ci failing pull request github' });
       if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} branch ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'remove worktree branch discard stalled abandon' });
