@@ -1917,7 +1917,13 @@ function createCommitView(container) {
     onSummary: (t) => { summary.textContent = t; },
   }) : null;
   const composer = h('div.composer', null, uv ? summary : null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
-  side.append(lists, composer);
+  // Split (Unstaged and Staged lists, one file's diff) or Unified (every change on one page); same switch as Preferences → Git.
+  const layoutTip = tip('Switch between split and unified changes', 'cv.layout');
+  const layout = h('div.cv-layout', null, h('div.setup-seg', { role: 'group', 'aria-label': 'Changes layout' }, [['split', 'Split', false], ['unified', 'Unified', true]].map(([id, label, on]) => h('button', {
+    type: 'button', 'aria-pressed': String(!!state.show.unified === on), title: layoutTip, 'data-layout': id,
+    onclick: () => { if (!!state.show.unified !== on) toggleShow('unified'); },
+  }, label))));
+  side.append(layout, lists, composer);
   el.append(side, paneHandle('commit', () => el), diffPane);
   container.append(el);
 
@@ -2216,6 +2222,7 @@ function createCommitView(container) {
       // A focused tick box handles its own Enter.
       if (!id || (id === 'cv.stage' && e.target.tagName === 'BUTTON') || (id === 'cv.selectAll' && isEditable(e.target))) return;
       if (id === 'cv.message') { e.preventDefault(); textarea.focus(); return; }
+      if (id === 'cv.layout') { e.preventDefault(); toggleShow('unified'); return; }
       if (uv.key(id)) e.preventDefault();
       return;
     }
@@ -2246,6 +2253,8 @@ function createCommitView(container) {
       e.preventDefault(); discard(targets('unstaged', all[i][1]));
     } else if (id === 'cv.message') {
       e.preventDefault(); textarea.focus();
+    } else if (id === 'cv.layout') {
+      e.preventDefault(); toggleShow('unified');
     }
   });
   el.tabIndex = 0;
@@ -3965,7 +3974,7 @@ function openPalette() {
       }
     }
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made branches' : 'Mark branches that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge branch worktree settings' });
-    add('View', state.show.unified ? 'Show staged and unstaged separately' : 'Show changes as one list', () => { toggleShow('unified'); if (state.view !== 'commit') setView('commit'); }, { icon: 'commit', keywords: 'unified changes staged unstaged one list page tick box stage lines hunks commit view settings' });
+    add('View', state.show.unified ? 'Show staged and unstaged separately' : 'Show changes as one list', () => { toggleShow('unified'); if (state.view !== 'commit') setView('commit'); }, { icon: 'commit', kbd: state.view === 'commit' ? keymap.keys('cv.layout') : null, keywords: 'split unified layout changes staged unstaged one list page tick box stage lines hunks commit view settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
     add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list stash panel pane default restore drag' });
