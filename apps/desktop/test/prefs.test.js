@@ -81,3 +81,9 @@ test('Sidebar lists the refs-tree sections in order, as movable switches (AK-464
   assert.equal(rows[0].first, true);
   assert.equal(rows[1].last, true);
 });
+
+test('preferences command while open: ⌘, closes, a section jumps there', async () => {
+  const { openPrefsCommand } = await load();
+  assert.equal(openPrefsCommand(undefined), 'close');
+  assert.equal(openPrefsCommand('repository'), 'show');
+});

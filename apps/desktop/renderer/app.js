@@ -34,7 +34,7 @@ import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, return
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
-import { prefRows, PR_REMOTE_AUTO } from './prefs.js';
+import { prefRows, PR_REMOTE_AUTO, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
@@ -4294,8 +4294,8 @@ api.on('command', (cmd, ...args) => {
   // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
   if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
   if (shortcuts && cmd === 'search') return shortcuts.find();
-  // With Preferences open, ⌘, closes it and ⌘F goes to its search.
-  if (prefs && cmd === 'preferences') return prefs.close();
+  // With Preferences open, ⌘, closes it, ⌘9 jumps to Repository and ⌘F goes to its search.
+  if (prefs && cmd === 'preferences') return openPrefsCommand(args[0]) === 'show' ? prefs.show(args[0]) : prefs.close();
   if (prefs && cmd === 'search') return prefs.find();
   if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
   commands[cmd]?.(...args);
