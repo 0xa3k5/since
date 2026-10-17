@@ -8,6 +8,7 @@ import { checkoutPlan } from './checkout-plan.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
+import { unifiedChanges } from './unified-view.js';
 import { fileHistoryView } from './file-history-view.js';
 import { lanesView, reviewCounts, forgetCounts, prefetchReview, cachedPrs } from './lanes-view.js';
 import { branchesView } from './branches-view.js';
@@ -68,7 +69,7 @@ const state = {
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
   lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
-  show: loadPref('show', { tags: true, remotes: true, swatches: true, agentLanes: true }),
+  show: loadPref('show', { tags: true, remotes: true, swatches: true, agentLanes: true, unified: false }),
   search: '',
   stashes: [],
   history: { undo: [], redo: [], undoCount: 0, redoCount: 0 },
@@ -911,6 +912,7 @@ function toggleShow(key) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
   if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
+  if (key === 'unified') { if (state.view === 'commit') renderView(); return; }
   if (key === 'agentLanes') { lanesPage?.rerender(); branchesPage?.rerender(); return; }
   refreshHistory();
   renderTopbar();
@@ -1905,7 +1907,16 @@ function createCommitView(container) {
   const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(...keymap.keys('message.commit')));
   // Only shown once the user has turned AI commit messages on.
   const aiBtn = h('button.icon-btn.ai-btn', { title: tip('Write message with AI', 'repo.aiMessage'), hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
-  const composer = h('div.composer', null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
+  // Show changes as one list (Preferences → Git, or ⌘K): the unified page takes the lists' and the diff pane's place.
+  const summary = h('div.ucv-summary', { role: 'status' });
+  const uv = state.show.unified ? unifiedChanges({
+    git, lfsBadge,
+    stage: (f, sel, on, label) => act(label, on ? 'stageChanges' : 'unstageChanges', [fileRef(f), sel], { quiet: true }),
+    discard: (f) => { const u = state.status.unstaged.find((x) => x.path === f.path); if (u) discard([u]); },
+    openFile: (p) => api.app('open-file', p),
+    onSummary: (t) => { summary.textContent = t; },
+  }) : null;
+  const composer = h('div.composer', null, uv ? summary : null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
   side.append(lists, composer);
   el.append(side, paneHandle('commit', () => el), diffPane);
   container.append(el);
@@ -2199,6 +2210,15 @@ function createCommitView(container) {
 
   el.addEventListener('keydown', (e) => {
     if (e.target === textarea) return;
+    if (uv) {
+      if (e.target.tagName === 'TEXTAREA') return;
+      const id = keymap.match('commit', e);
+      // A focused tick box handles its own Enter.
+      if (!id || (id === 'cv.stage' && e.target.tagName === 'BUTTON') || (id === 'cv.selectAll' && isEditable(e.target))) return;
+      if (id === 'cv.message') { e.preventDefault(); textarea.focus(); return; }
+      if (uv.key(id)) e.preventDefault();
+      return;
+    }
     if (state.cv.list === 'conflicts' && conflictEd?.key(e)) return;
     if (e.target.tagName === 'TEXTAREA') return;
     const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
@@ -2230,11 +2250,15 @@ function createCommitView(container) {
   });
   el.tabIndex = 0;
 
-  renderLists();
-  renderDiffPane();
+  if (uv) {
+    lists.append(uv.index);
+    diffPane.append(uv.page, h('div.diff-hint', null, 'Tick a box to stage it · ↑↓ move · ⇧↑↓ select lines · ↵ stage or unstage · Esc clear'));
+  }
+  const refresh = uv ? () => { uv.load(state.status); updateCommitBtn(); } : () => { renderLists(); renderDiffPane(); };
+  refresh();
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
-    refresh: () => { renderLists(); renderDiffPane(); },
+    refresh,
     selectAll,
   };
 }
@@ -3827,7 +3851,7 @@ function openPalette() {
     add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base branch files progress' });
     add('Repository', 'File history & blame…', () => openFileHistory(), { icon: 'history', kbd: keymap.keys('repo.fileHistory'), detail: fileHistoryTarget() || null, keywords: 'blame annotate log file history who changed line follow renames' });
     add('Repository', 'Open file in difftool', () => openDifftool(), { icon: 'diff', kbd: keymap.keys('repo.difftool'), keywords: 'difftool external diff tool compare kaleidoscope beyond' });
-    if (state.view === 'commit' && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
+    if (state.view === 'commit' && !state.show.unified && (state.status[state.cv.list] || []).length) add('Repository', 'Select all files in list', () => commitView?.selectAll(), { icon: 'check', kbd: keymap.keys('cv.selectAll'), keywords: 'select all multi stage unstage discard files changes' });
     if (state.status.conflicts.length) add('Conflicts', 'Resolve conflicts…', openConflicts, { icon: 'merge', kbd: keymap.keys('repo.conflicts'), detail: `${state.status.conflicts.length} conflicted`, keywords: 'conflict editor merge resolve ours theirs' });
     if (state.view === 'commit' && state.cv.list === 'conflicts' && conflictEd?.info.kind === 'text') {
       const a = conflictEd.actions, k = CONFLICT_KEYS;
@@ -3941,6 +3965,7 @@ function openPalette() {
       }
     }
     add('View', state.show.agentLanes !== false ? 'Stop marking agent-made branches' : 'Mark branches that look agent-made', () => toggleShow('agentLanes'), { icon: 'lanes', keywords: 'agent ai coding badge branch worktree settings' });
+    add('View', state.show.unified ? 'Show staged and unstaged separately' : 'Show changes as one list', () => { toggleShow('unified'); if (state.view !== 'commit') setView('commit'); }, { icon: 'commit', keywords: 'unified changes staged unstaged one list page tick box stage lines hunks commit view settings' });
     add('View', state.show.swatches ? 'Hide colour swatches in diffs' : 'Show colour swatches in diffs', () => toggleShow('swatches'), { icon: 'theme', kbd: keymap.keys('view.swatches'), keywords: 'color colour swatch preview css hex rgb settings' });
     add('View', detailToggleLabel(), () => { setView('map'); toggleDetail(); }, { icon: 'panelRight', kbd: keymap.keys('global.detail'), keywords: 'toggle commit details inspector right panel sidebar show hide' });
     add('View', 'Reset pane sizes', resetPanes, { icon: 'sidebar', kbd: keymap.keys('global.resetPanes'), keywords: 'resize width sidebar file list stash panel pane default restore drag' });
