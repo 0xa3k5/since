@@ -267,11 +267,12 @@ export function factsBlock(facts, { after = null } = {}) {
 // Which tab is open per PR, and which failed checks show their log, for this window.
 const evOpen = new Map();
 const logOpen = new Set();
+const annOpen = new Set();
 
 // The strip at the top of a PR's reader. evidence: github.evidence, or undefined while it loads
 // (a quiet line), or null (nothing to show: no strip). key: the PR, for the open tab; openUrl(url)
-// opens a check in the browser. Returns the element, with .next() for E (false when it has no tabs).
-export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null }) {
+// opens a check in the browser; goTo { has(path), go(path, line) } finds a line in the PR's diff. Returns the element, with .next() for E (false when it has no tabs).
+export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null, goTo = null }) {
   if (evidence === undefined) return h('section.evidence.loading', { 'aria-label': 'Evidence', 'aria-busy': 'true' }, h('div.ev-note.muted', null, 'Loading checks and reviews…'));
   const tabs = evidenceTabs(evidence);
   if (!tabs.length) return null;
@@ -281,7 +282,7 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null 
   if (open) box.classList.add('open');
   const show = (id, focus = false) => {
     evOpen.set(key, id);
-    const next = evidenceStrip({ evidence, key, openUrl, loadImage });
+    const next = evidenceStrip({ evidence, key, openUrl, loadImage, goTo });
     box.replaceWith(next);
     if (focus) next.querySelector(id ? `.ev-tab[data-tab="${id}"]` : '.ev-tab')?.focus({ preventScroll: true });
   };
@@ -301,7 +302,7 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null 
     }, t.icon ? icon(t.icon, 12) : null, t.label, n));
   }
   box.append(bar);
-  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, { openUrl, loadImage }, () => show(open))));
+  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, { openUrl, loadImage, goTo }, () => show(open))));
   box.next = () => {
     const i = tabs.findIndex((t) => t.id === open);
     show(i + 1 < tabs.length ? tabs[i + 1].id : null);
@@ -317,9 +318,32 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null 
   return box;
 }
 
+// One row of the Annotations or Open threads tab: a button (↵ runs onOpen), then Go to line and
+// Open on GitHub. ↑/↓ move between rows, G and O run the two buttons (keymap scope "evidence").
+function evRow({ k, where, cls, label, main, title = null, expanded = null, onOpen = null, goto = null, github = null }) {
+  const btn = h('button.ev-item', {
+    type: 'button', 'data-k': k, 'aria-label': label, ...(expanded == null ? {} : { 'aria-expanded': String(expanded) }), ...(title ? { title } : {}),
+    onclick: () => onOpen?.(),
+    onkeydown: (e) => {
+      const id = keymap.match('evidence', e);
+      const run = id === 'evidence.open' ? onOpen : id === 'evidence.goto' ? goto : id === 'evidence.github' ? github?.run : null;
+      if (id === 'evidence.next' || id === 'evidence.prev') {
+        const all = [...btn.closest('.ev-body').querySelectorAll('.ev-item')];
+        all[all.indexOf(btn) + (id === 'evidence.next' ? 1 : -1)]?.focus();
+      } else if (run) run();
+      else return;
+      e.preventDefault(); e.stopPropagation();
+    },
+  }, ...main);
+  return h('div.ev-line' + cls, null, btn,
+    goto ? h('button.btn.ghost.icon-btn.ev-link', { type: 'button', 'data-tip': tipFor('Go to line', 'evidence.goto'), 'aria-label': `Go to ${where} in the diff`, onclick: goto }, icon('diff', 12)) : h('span'),
+    github ? h('button.btn.ghost.icon-btn.ev-link', { type: 'button', 'data-tip': tipFor(github.tip, 'evidence.github'), 'aria-label': github.tip, onclick: github.run }, icon('external', 12)) : h('span'));
+}
+const refocus = (k) => document.querySelector(`section.evidence .ev-item[data-k="${CSS.escape(k)}"]`)?.focus({ preventScroll: true });
+
 const LEVEL_ICON = { failure: ['x', 'fail'], warning: ['warning', 'warn'], notice: ['pending', 'wait'] };
 
-function evidenceBody(id, ev, key, { openUrl, loadImage }, redraw) {
+function evidenceBody(id, ev, key, { openUrl, loadImage, goTo }, redraw) {
   if (id === 'ci') {
     const head = ev.head ? ev.head.slice(0, 7) : null;
     return [h('div.ev-note', null, 'No checks ran on ', head ? h('span.mono', null, head) : 'the head', ', the head of this pull request.',
@@ -347,10 +371,22 @@ function evidenceBody(id, ev, key, { openUrl, loadImage }, redraw) {
     });
   }
   if (id === 'annotations') {
-    return ev.annotations.map((a) => {
+    return ev.annotations.flatMap((a, i) => {
       const [ic, cls] = LEVEL_ICON[a.level] || LEVEL_ICON.notice;
       const where = a.path ? `${a.path}${a.line ? `:${a.line}` : ''}` : a.check;
-      return h('div.ev-ann', { title: `${where}\n${a.message}${a.check ? `\n${a.check}` : ''}` }, h('span.ev-icon.' + cls, null, icon(ic, 12)), h('span.where', null, where), h('span.msg', null, a.message.split('\n')[0]));
+      const k = `${key}\n${i}\n${where}\n${a.message.slice(0, 80)}`;
+      const first = a.message.split('\n')[0];
+      const expanded = annOpen.has(k);
+      const toggle = () => { if (annOpen.has(k)) annOpen.delete(k); else annOpen.add(k); redraw(); refocus(k); };
+      const url = ev.checks?.find((c) => c.name === a.check)?.url;
+      const row = evRow({
+        k, where, cls: '.ev-ann', label: `${where}: ${first}`, title: expanded ? 'Hide the message' : 'Show the whole message', expanded, onOpen: toggle,
+        main: [h('span.ev-icon.' + cls, null, icon(ic, 12)), h('span.where', null, where), h('span.msg', null, first), h('span.ev-chev', null, icon(expanded ? 'chevronDown' : 'chevron', 12))],
+        goto: a.path && a.line && goTo?.has(a.path) ? () => goTo.go(a.path, a.line) : null,
+        github: url && openUrl ? { tip: `Open the ${a.check} run on GitHub`, run: () => openUrl(url) } : null,
+      });
+      if (!expanded) return [row];
+      return [row, h('pre.ev-ann-full', null, a.message, a.check ? h('span.muted', null, `\n${a.check}`) : null)];
     });
   }
   if (id === 'media') {
@@ -361,7 +397,20 @@ function evidenceBody(id, ev, key, { openUrl, loadImage }, redraw) {
   }
   if (id === 'threads') {
     const t = ev.threads;
-    return [h('div.ev-note', null, `${t.open} open of ${t.total} review thread${t.total === 1 ? '' : 's'}`, t.outdated ? h('span.muted', null, `${t.outdated} on lines that changed since`) : null)];
+    const note = h('div.ev-note', null, `${t.open} open of ${t.total} review thread${t.total === 1 ? '' : 's'}`, t.outdated ? h('span.muted', null, `${t.outdated} on lines that changed since`) : null);
+    return [note, ...(t.items || []).map((x, i) => {
+      const where = `${x.path}${x.line ? `:${x.line}` : ''}`;
+      const go = x.path && x.line && goTo?.has(x.path) ? () => goTo.go(x.path, x.line) : null;
+      const open = x.url && openUrl ? () => openUrl(x.url) : null;
+      return evRow({
+        k: `${key}\nthread\n${i}\n${where}`, where, cls: '.ev-thread' + (x.outdated ? '.outdated' : ''),
+        label: `${where}${x.author ? `, ${x.author}` : ''}: ${x.text}${x.outdated ? ' (outdated)' : ''}`,
+        onOpen: go || open,
+        main: [h('span.ev-icon.wait', null, icon('comment', 12)), h('span.where', null, where), h('span.msg', null, x.author ? h('span.who', null, x.author) : null, x.author ? ' · ' : null, x.text ? `“${x.text}”` : null)],
+        title: x.outdated ? 'On a line that changed since' : null,
+        goto: go, github: open ? { tip: 'Open the thread on GitHub', run: open } : null,
+      });
+    })];
   }
   return [];
 }

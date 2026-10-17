@@ -523,9 +523,21 @@ const mediaSources = (p) => [
   ...(Array.isArray(p.reviews) ? p.reviews.slice(0, 200).map((r) => ({ from: 'review', body: r?.body, author: text(r?.author?.login, 200) })) : []),
 ];
 
-// `gh api graphql` reviewThreads → { total, open, outdated } (outdated: open threads on lines that
-// changed since), or null with no threads. Counts only; no thread text is asked for.
-const THREADS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){totalCount nodes{isResolved isOutdated}}}}}';
+// `gh api graphql` reviewThreads → { total, open, outdated, items } (outdated: open threads on
+// lines that changed since), or null with no threads. `items` lists the open threads (at most 50):
+// [{ path, line?, author?, text, url?, outdated }], `text` the first line of the first comment,
+// trimmed. The same one query; replying and resolving stay on GitHub (AK-530).
+const THREADS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){totalCount nodes{isResolved isOutdated path line originalLine comments(first:1){nodes{author{login} body url}}}}}}}';
+function threadItem(n) {
+  const c = n?.comments?.nodes?.[0];
+  const line = count(n.line) || count(n.originalLine);
+  const author = text(c?.author?.login, 200);
+  const url = text(c?.url, 2048);
+  return {
+    path: text(n.path, 1024), ...(line ? { line } : {}), ...(author ? { author } : {}),
+    text: text(c?.body, 65_536).trim().split('\n')[0].trim().slice(0, 200), ...(url.startsWith('https://') ? { url } : {}), outdated: n.isOutdated === true,
+  };
+}
 function parseThreads(out) {
   let t;
   try { t = JSON.parse(out)?.data?.repository?.pullRequest?.reviewThreads; } catch { return null; }
@@ -533,7 +545,8 @@ function parseThreads(out) {
   const total = count(t?.totalCount) ?? nodes.length;
   if (!total) return null;
   const open = nodes.filter((n) => n?.isResolved === false);
-  return { total, open: open.length, outdated: open.filter((n) => n.isOutdated === true).length };
+  const items = open.slice(0, 50).map(threadItem);
+  return { total, open: open.length, outdated: open.filter((n) => n.isOutdated === true).length, ...(items.length ? { items } : {}) };
 }
 
 // `gh pr view --json EVIDENCE_FIELDS` (+ the optional calls' output) → the evidence object.
