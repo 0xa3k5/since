@@ -170,6 +170,7 @@ export const COMMANDS = [
   c('commit', 'commit-view', 'cv.stage', 'Stage or unstage the selected lines, else the selected files', 'Enter'),
   c('commit', 'commit-view', 'cv.discard', 'Discard the selected unstaged files (undoable)', ['Backspace', 'Delete']),
   c('commit', 'commit-view', 'cv.message', 'Write the commit message', 'c'),
+  c('commit', 'commit-view', 'cv.layout', 'Switch between split and unified changes', 'u'),
   c('message', 'commit-view', 'message.commit', 'Commit', 'Mod+Enter'),
 
   // Split commit.

@@ -665,6 +665,9 @@ kbd.inline { flex: none; }
 .commit-view > .pane-handle { left: calc(var(--cv-col) - 4px); }
 .cv-side { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
 .cv-lists { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+.cv-layout { display: flex; flex: none; padding: 8px 10px 4px 16px; }
+.cv-layout .setup-seg { flex: 1; }
+.cv-layout .setup-seg button { flex: 1; justify-content: center; }
 .cv-section.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: var(--radius); }
 .file-row[draggable="true"] { -webkit-user-drag: element; }
 .drag-pill { position: fixed; top: -100px; left: 0; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: var(--fw-strong); color: var(--accent-text); background: var(--accent); }
