@@ -689,7 +689,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, toggleDescription: () => paneObj?.toggleDescription?.(), canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows
