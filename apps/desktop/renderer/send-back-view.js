@@ -46,7 +46,7 @@ async function show({ row, base, prsOn, remote, call, git }) {
     return true;
   }
 
-  const title = pr ? `Send back #${pr.number}` : `Send back ${row.branch || row.title}`;
+  const title = pr ? `Fix prompt for #${pr.number}` : `Fix prompt for ${row.branch || row.title}`;
   const logBtn = prsOn && pr?.checks === 'failure' && remote ? h('button.btn.ghost', { type: 'button', title: 'Fetch the last 20 lines of the failed GitHub Actions log (gh run view --log-failed)', onclick: () => addLog() }, icon('external', 12), 'Add failed CI log') : null;
   const postBtn = prsOn && pr && remote ? h('button.btn.ghost', { type: 'button', title: `Post the prompt as a comment on #${pr.number} (gh pr comment)`, onclick: () => post() }, icon('external', 12), 'Post as PR comment') : null;
   const copyBtn = h('button.btn.primary', { type: 'submit' }, icon('copy', 12), 'Copy prompt', kbd(...keymap.keys('dialog.submit')));
