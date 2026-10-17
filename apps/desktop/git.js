@@ -995,7 +995,16 @@ async function captureRefState(cwd) {
   for (const l of out.split('\n')) { if (!l) continue; const [n, o] = l.split(SEP); refs[n] = o; }
   const sym = (await run(cwd, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] })).trim();
   const oid = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] })).trim();
-  return { refs, head: sym || null, headOid: oid || null };
+  // Each branch's `[branch "x"]` entries (upstream), so a redo that recreates the branch can put them back.
+  const config = {};
+  const cfg = await run(cwd, ['config', '--local', '-z', '--get-regexp', '^branch\\.'], { allowCodes: [0, 1] }).catch(() => '');
+  for (const e of cfg.split('\0')) {
+    const i = e.indexOf('\n');
+    const key = i === -1 ? e : e.slice(0, i);
+    const n = `refs/heads/${key.slice(7, key.lastIndexOf('.'))}`;
+    if (key && n in refs) (config[n] ||= []).push([key, i === -1 ? '' : e.slice(i + 1)]);
+  }
+  return { refs, head: sym || null, headOid: oid || null, config };
 }
 
 async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = {}) {
@@ -1016,6 +1025,12 @@ async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = 
   // A deleted branch takes its `[branch "x"]` config (upstream) with it, as `git branch -D` does.
   for (const n of Object.keys(current.refs)) {
     if (!(n in state.refs) && n.startsWith('refs/heads/')) await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+  }
+  // A branch brought back (redo, timeline jump) gets the config it had when the state was taken.
+  for (const [n, entries] of Object.entries(state.config || {})) {
+    if (n in current.refs) continue;
+    await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
+    for (const [k, v] of entries) await run(cwd, ['config', '--add', k, v], { env });
   }
   if (state.head) await run(cwd, ['symbolic-ref', 'HEAD', state.head], { env });
   else if (state.headOid) await run(cwd, ['update-ref', '--no-deref', 'HEAD', state.headOid], { env });

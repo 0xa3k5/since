@@ -21,7 +21,9 @@ const git = require('./git');
 const PAGE = 100; // entries per archived page; up to 2 × PAGE stay in memory per stack
 let nextId = Date.now();
 
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Ref states compare by refs and HEAD only: the branch config they carry (for redo) isn't a move.
+const bare = (s) => { if (!s) return s; const { config, ...rest } = s; return rest; };
+const same = (a, b) => JSON.stringify(bare(a)) === JSON.stringify(bare(b));
 
 // What restoring ref state `target` over `current` would change: where HEAD
 // points (a branch name, or a commit when detached), then each branch and tag.
