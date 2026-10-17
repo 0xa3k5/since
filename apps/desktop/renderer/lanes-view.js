@@ -234,8 +234,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
 
   // The line under the title (AK-400, AK-411): avatar group · failing checks ✕ 3/5 and a conflict
   // marker · the text, "·" between the parts there are. null when there's nothing to show.
-  function subLine(sel, props, r, authors, text) {
-    const s = rowSignals(r);
+  function subLine(sel, props, r, authors, text, conflictShown = false) {
+    const s = rowSignals(r, { conflictShown });
     const signals = s.checks || s.conflict ? h('span.review-signals', null,
       s.checks ? h('span.review-signal', { role: 'img', 'aria-label': s.checks.title, title: s.checks.title }, icon('x', 11), s.checks.text ? h('span.review-signal-count', null, s.checks.text) : null) : null,
       s.conflict ? h('span.review-signal', { role: 'img', 'aria-label': s.conflict.title, title: s.conflict.title }, icon('warning', 12)) : null) : null;
@@ -245,14 +245,15 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
 
   const reason = (r, max = 2) => stuckReason(r, { base, max });
-  // Why it's stuck; a conflict with the base is its own note that jumps to the conflicting files.
+  // Why it's stuck; a conflict with the base is its own note that jumps to the conflicting files
+  // (and stands in for the ⚠ marker, so the conflict shows once).
   function reasonEl(r, authors = []) {
     const note = conflictNote(r, { base, files: paneConflicts.get(r.key) });
     const rest = stuckReason(r, { base, max: 2, noBase: Boolean(note), bareChecks: true });
     return subLine('div.review-reason', { title: reason(r, 20) }, r, authors,
       note || rest ? h('span.review-row-text', null,
         note ? h('button.review-reason-link', { title: 'Show the conflicting files', onclick: (e) => { e.stopPropagation(); jumpToConflicts(r); }, ondblclick: (e) => e.stopPropagation() }, note) : null,
-        note && rest ? ' · ' : null, rest) : null);
+        note && rest ? ' · ' : null, rest) : null, Boolean(note));
   }
 
   // Details ▾: the branch, its commits, worktree and uncommitted changes, and the way into the map.
