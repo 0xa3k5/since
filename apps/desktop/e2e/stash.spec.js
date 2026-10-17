@@ -25,7 +25,7 @@ test('save, apply and undo the apply', async ({ sandbox, launch }) => {
   await saveStash(app, 'wip');
   expect(sandbox.git(repo, 'status', '--porcelain')).toBe('');
   expect(stashes(sandbox, repo)).toHaveLength(1);
-  await expect(app.page.locator('[data-section="stashes"] .sb-count')).toHaveText('1');
+  await expect(app.page.locator('.sb-nav [data-view="stashes"] .nav-badge')).toHaveText('1');
 
   await app.view('stashes');
   const row = app.page.locator('.list-row', { hasText: 'wip' });

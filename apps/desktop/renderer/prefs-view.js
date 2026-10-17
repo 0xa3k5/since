@@ -30,7 +30,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
   function control(r) {
     if (r.kind === 'switch' && r.move) {
       const mv = (dir, ic, label, off) => h('button.icon-btn.tiny', { type: 'button', tabindex: -1, disabled: off, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); run(r, dir); } }, icon(ic, 12));
-      return h('div.prefs-move', null, mv('up', 'chevronUp', 'Move up', r.first), mv('down', 'chevronDown', 'Move down', r.last), sw(r.value));
+      return h('div.prefs-move', null, mv('up', 'chevronUp', 'Move up', r.first), mv('down', 'chevronDown', 'Move down', r.last), r.fixed ? h('span.switch-spacer', { 'aria-hidden': 'true' }) : sw(r.value));
     }
     if (r.kind === 'switch') return sw(r.value);
     if (r.kind === 'info') return h('span.prefs-info', null, r.value);
@@ -59,7 +59,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
         },
       }, h('span.mono.prefs-key', null, c.key), h('span.config-val', null, c.value));
     }
-    const label = r.kind === 'switch' ? `${r.label}: ${r.value ? 'on' : 'off'}` : r.label;
+    const label = r.kind === 'switch' && !r.fixed ? `${r.label}: ${r.value ? 'on' : 'off'}` : r.label;
     return h('div.prefs-row', {
       role: 'listitem', 'aria-label': label, 'data-id': r.id,
       onclick: () => { if (r.kind === 'switch') run(r, !r.value); else if (r.kind === 'action') run(r); },
