@@ -2779,6 +2779,7 @@ function openBranches() {
       run: (items, label) => git('cleanupLanes', items, { __label: label }),
       runRemote: (names) => git('deleteRemoteBranches', names),
       days: cleanupPrefs().days,
+      onDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
       onProgress: (fn) => api.on('cleanup:progress', fn),
       onDone: refreshAll,
       onUndo: undo,

@@ -1451,6 +1451,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .cleanup-counts { color: var(--text-2); }
 .cleanup-remote-all { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); }
 .cleanup-remote-all.disabled { opacity: 0.55; }
+.cleanup-days { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; }
+.cleanup-days input { width: 4.5em; }
 .cleanup-undo { margin-left: auto; font-size: 12px; color: var(--text-4); }
 
 /* Review: one calm line under a short Needs you list (AK-396). */
