@@ -3,7 +3,7 @@ import { renderDiff } from './diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
-import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, fastKeys, factsBlock } from './reader.js';
+import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from './reader.js';
 import { factsFor, peekFacts } from './evidence-store.js';
 import { authorsOf, messageAgent } from './review-rows.js';
 
