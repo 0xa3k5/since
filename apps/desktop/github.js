@@ -409,6 +409,9 @@ async function mergedCommit({ enabled, remotes, number, dirs = searchDirs(), exe
 function parseFailedRuns(out) {
   let rollup;
   try { rollup = JSON.parse(out)?.statusCheckRollup; } catch { return []; }
+  return failedRunIds(rollup);
+}
+function failedRunIds(rollup) {
   if (!Array.isArray(rollup)) return [];
   const runs = [];
   for (const c of rollup) {
@@ -438,6 +441,153 @@ async function failedLog({ enabled, remotes, number, lines = 20, dirs = searchDi
   const logs = [];
   for (const id of runs) logs.push(await ghRun(bin, ['run', 'view', id, '--repo', repo, '--log-failed'], { dirs, exec }));
   return { runs, log: tailLog(logs.join('\n'), lines) };
+}
+
+// ── PR evidence (AK-519) ──
+// What a PR's reader shows next to its diff, from GitHub, loaded when the PR is opened and cached
+// in memory per head commit. Every field is left out when there's nothing to show; the one absence
+// stated is `ciMissing` (the head has CI set up and no checks ran on it).
+
+// `statusCheckRollup` → [{ name, result, duration?, url? }], result lower case (success, failure,
+// neutral, skipped, cancelled, pending, …), duration in seconds. At most 50.
+function checkList(rollup) {
+  if (!Array.isArray(rollup)) return [];
+  const out = [];
+  for (const c of rollup.slice(0, 50)) {
+    const name = text(c?.name || c?.context, 200);
+    if (!name) continue;
+    const v = String(c?.conclusion || c?.state || '').toLowerCase();
+    const running = (c?.status && c.status !== 'COMPLETED') || !v || v === 'expected';
+    const ms = Date.parse(c?.completedAt) - Date.parse(c?.startedAt);
+    const url = text(c?.detailsUrl || c?.targetUrl, 2048);
+    out.push({ name, result: running ? 'pending' : text(v, 32), ...(ms >= 0 ? { duration: Math.round(ms / 1000) } : {}), ...(url.startsWith('https://') ? { url } : {}) });
+  }
+  return out;
+}
+
+// The GitHub Actions check runs whose annotations are worth reading: failed or neutral (a warning)
+// runs. An Actions job's detailsUrl ends in /job/<id>, and that id is the check run's. At most 5.
+function annotatedRuns(rollup) {
+  if (!Array.isArray(rollup)) return [];
+  const out = [];
+  for (const c of rollup) {
+    const v = String(c?.conclusion || '').toUpperCase();
+    const id = /\/actions\/runs\/\d+\/job\/(\d+)/.exec(text(c?.detailsUrl, 2048))?.[1];
+    if (id && (FAILED.has(v) || v === 'NEUTRAL') && !out.some((r) => r.id === id)) out.push({ id, check: text(c.name, 200) });
+  }
+  return out.slice(0, 5);
+}
+
+// `gh api …/check-runs/<id>/annotations` → [{ check, path, line, level, message }], level one of
+// notice | warning | failure.
+const LEVELS = new Set(['notice', 'warning', 'failure']);
+function parseAnnotations(out, check) {
+  let list;
+  try { list = JSON.parse(out); } catch { return []; }
+  if (!Array.isArray(list)) return [];
+  return list.filter((a) => LEVELS.has(a?.annotation_level) && text(a.message)).map((a) => ({
+    check, path: text(a.path, 1024), line: count(a.start_line), level: a.annotation_level, message: text(a.message, 1000),
+  }));
+}
+
+// Images and videos in Markdown and HTML: ![alt](url), <img src>, <video src>, <source src>, and
+// bare GitHub attachment links. A pattern match only; the text around them is dropped here.
+const VIDEO_EXT = /\.(?:mp4|mov|webm|m4v)(?:[?#]|$)/i;
+const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|svg|avif)(?:[?#]|$)/i;
+const ATTACHMENT = /https:\/\/(?:github\.com\/user-attachments\/assets\/[\w-]+|(?:private-)?user-images\.githubusercontent\.com\/[^\s)"'<>\]]+)/g;
+const attr = (tag, name) => { const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag); return m ? m[1] ?? m[2] ?? m[3] : ''; };
+function findMedia(sources) {
+  const out = [];
+  const add = (raw, kind, alt, src) => {
+    const url = String(raw || '').trim().replace(/&amp;/g, '&');
+    if (out.length >= 50 || url.length > 2048 || !/^https:\/\/[^\s"'<>]+$/.test(url) || out.some((m) => m.url === url)) return;
+    out.push({ url, kind, ...(alt ? { alt: text(alt, 200) } : {}), from: src.from, ...(src.author ? { author: src.author } : {}) });
+  };
+  for (const src of sources) {
+    const s = text(src.body, 65_536);
+    if (!s) continue;
+    for (const m of s.matchAll(/!\[([^\]]*)\]\(\s*<?(https:\/\/[^\s)>]+)>?(?:\s+"[^"]*")?\s*\)/g)) add(m[2], VIDEO_EXT.test(m[2]) ? 'video' : 'image', m[1], src);
+    for (const m of s.matchAll(/<img\b[^>]*>/gi)) add(attr(m[0], 'src'), 'image', attr(m[0], 'alt'), src);
+    for (const m of s.matchAll(/<(?:video|source)\b[^>]*>/gi)) add(attr(m[0], 'src'), 'video', '', src);
+    // A bare attachment link is a video GitHub plays inline, unless its name says it's an image.
+    for (const m of s.matchAll(ATTACHMENT)) add(m[0], IMAGE_EXT.test(m[0]) ? 'image' : m[0].includes('/user-attachments/') || VIDEO_EXT.test(m[0]) ? 'video' : 'image', '', src);
+  }
+  return out;
+}
+const mediaSources = (p) => [
+  { from: 'description', body: p.body, author: text(p.author?.login, 200) },
+  ...(Array.isArray(p.comments) ? p.comments.slice(0, 200).map((c) => ({ from: 'comment', body: c?.body, author: text(c?.author?.login, 200) })) : []),
+  ...(Array.isArray(p.reviews) ? p.reviews.slice(0, 200).map((r) => ({ from: 'review', body: r?.body, author: text(r?.author?.login, 200) })) : []),
+];
+
+// `gh api graphql` reviewThreads → { total, open, outdated } (outdated: open threads on lines that
+// changed since), or null with no threads. Counts only; no thread text is asked for.
+const THREADS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){totalCount nodes{isResolved isOutdated}}}}}';
+function parseThreads(out) {
+  let t;
+  try { t = JSON.parse(out)?.data?.repository?.pullRequest?.reviewThreads; } catch { return null; }
+  const nodes = Array.isArray(t?.nodes) ? t.nodes : [];
+  const total = count(t?.totalCount) ?? nodes.length;
+  if (!total) return null;
+  const open = nodes.filter((n) => n?.isResolved === false);
+  return { total, open: open.length, outdated: open.filter((n) => n.isOutdated === true).length };
+}
+
+// `gh pr view --json EVIDENCE_FIELDS` (+ the optional calls' output) → the evidence object.
+const EVIDENCE_FIELDS = 'headRefOid,statusCheckRollup,latestReviews,body,author,comments,reviews';
+function buildEvidence(p, { ciConfigured = false, logs = [], annotations = [], threads = null } = {}) {
+  const head = /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(p.headRefOid) ? p.headRefOid : null;
+  const checks = checkList(p.statusCheckRollup);
+  const media = findMedia(mediaSources(p));
+  const reviews = reviewVerdicts(p.latestReviews).filter((r) => r.state === 'approved' || r.state === 'changes').map(({ login, state }) => ({ login, state }));
+  return {
+    head,
+    ...(checks.length ? { checks } : {}),
+    ...(!checks.length && ciConfigured ? { ciMissing: true } : {}),
+    ...(logs.length ? { logs } : {}),
+    ...(annotations.length ? { annotations: annotations.slice(0, 50) } : {}),
+    ...(media.length ? { media } : {}),
+    ...(reviews.length ? { reviews } : {}),
+    ...(threads ? { threads } : {}),
+  };
+}
+
+// The evidence for PR `number`, cached per repository + PR + head commit (at most 30 PRs, oldest
+// out). `head` is the head the renderer has from the PR list: when it matches the cached one, no
+// call runs. `ciConfigured(head)` answers from local git whether the head has CI set up. The
+// optional calls (failed logs, annotations, threads) run side by side; one failing leaves its
+// field out.
+const evidenceCache = new Map();
+async function evidence({ enabled, remotes, number, head = null, ciConfigured = async () => false, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote, repo } = target({ enabled, remotes, dirs });
+  const n = prNumber(number);
+  const key = `${repo}#${n}`;
+  const hit = evidenceCache.get(key);
+  if (head && hit?.head === head) return hit;
+  const p = parseJson(await ghRun(bin, ['pr', 'view', n, '--repo', repo, '--json', EVIDENCE_FIELDS], { dirs, exec }));
+  const rollup = p.statusCheckRollup;
+  const api = (args) => ghRun(bin, ['api', '--hostname', remote.host, ...args], { dirs, exec });
+  const [ci, logs, annotations, threads] = await Promise.allSettled([
+    Array.isArray(rollup) && rollup.length ? false : ciConfigured(p.headRefOid),
+    Promise.all(failedRunIds(rollup).map(async (run) => ({ run, log: tailLog(await ghRun(bin, ['run', 'view', run, '--repo', repo, '--log-failed'], { dirs, exec }), 20) }))),
+    Promise.all(annotatedRuns(rollup).map(async (r) => parseAnnotations(await api([`repos/${remote.owner}/${remote.repo}/check-runs/${r.id}/annotations?per_page=50`]), r.check))),
+    api(['graphql', '-f', `query=${THREADS_QUERY}`, '-F', `owner=${remote.owner}`, '-F', `name=${remote.repo}`, '-F', `number=${n}`]).then(parseThreads),
+  ]);
+  const ok = (r, d) => (r.status === 'fulfilled' ? r.value : d);
+  const ev = buildEvidence(p, { ciConfigured: ok(ci, false) === true, logs: ok(logs, []).filter((l) => l.log), annotations: ok(annotations, []).flat(), threads: ok(threads, null) });
+  evidenceCache.delete(key);
+  evidenceCache.set(key, ev);
+  while (evidenceCache.size > 30) evidenceCache.delete(evidenceCache.keys().next().value);
+  return ev;
+}
+
+// The `gh` login's token for `host`, for the main process's media fetches (pr-media.js), which
+// only ask for hosts of media an evidence call found while pull requests were on. The token stays
+// in the main process and is only sent to that host.
+async function authToken({ host, dirs = searchDirs(), exec } = {}) {
+  const bin = findBinary('gh', dirs);
+  if (!bin || !/^[a-z0-9.-]+$/i.test(host || '')) return '';
+  return (await ghRun(bin, ['auth', 'token', '--hostname', host], { dirs, exec })).trim();
 }
 
 // Send back's "Post as PR comment".
@@ -647,4 +797,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, closePr, updatePrBranch, parseFailedRuns, tailLog, failedLog, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

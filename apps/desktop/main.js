@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, session: electronSession } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, protocol, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -18,6 +18,7 @@ const catchupStore = require('./catchup-store');
 const ai = require('./ai');
 const github = require('./github');
 const changeFacts = require('./change-facts');
+const prMedia = require('./pr-media');
 
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
@@ -652,6 +653,25 @@ handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, 
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on
 // an explicit click in the sheet, and only while pull requests are on (target() checks).
 handle('app:pr-failed-log', prAction((t) => github.failedLog(t)));
+// PR evidence (AK-519): checks, failed CI log lines, annotations, media, approvals and open thread
+// counts for the PR reader, from `gh` (github.evidence), cached per head commit. Only while pull
+// requests are on. Media come back with ids; the main process loads them (pr-media.js).
+const media = prMedia.createMedia({ token: (host) => github.authToken({ host }) });
+const CI_FILES = /^(?:\.github\/workflows\/[^/]+\.ya?ml|\.gitlab-ci\.yml|\.circleci\/.+)$/;
+async function ciConfigured(root, head) {
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head || '')) return false;
+  const out = await git.run(root, ['ls-tree', '-r', '--name-only', head, '--', '.github/workflows', '.gitlab-ci.yml', '.circleci']).catch(() => '');
+  return out.split('\n').some((f) => CI_FILES.test(f));
+}
+handle('app:pr-evidence', okCall(async (e, remoteName, number, opts) => {
+  const root = session(e).repo.root;
+  check.prNumber(number);
+  check.obj(opts ?? {}, 'evidence options', { head: (v, w) => (v == null ? v : check.oid(v, w)) });
+  const remote = check.knownRemote(await git.getRemotes(root), remoteName);
+  const ev = await github.evidence({ enabled: await prEnabled(root), remotes: [remote], number, head: opts?.head ?? null, ciConfigured: (head) => ciConfigured(root, head) });
+  return ev.media ? { ...ev, media: media.register(ev.media, github.parseRemote(remote).host) } : ev;
+}));
+handle('app:pr-media-image', okCall((_e, id) => media.image(check.mediaId(id))));
 handle('app:pr-comment', prAction((t, o) => github.commentPr({ ...t, body: check.str(o?.body ?? '', 'comment') })));
 // Merge plan (renderer/merge-plan.js, Review's Ready to merge). Planning: `gh pr view` for each
 // ready PR (is it still ready, and where is its head), then git fetches the base and any PR heads
@@ -1289,6 +1309,8 @@ function lockDownSession(ses, allow = []) {
 }
 
 app.on('session-created', (ses) => lockDownSession(ses));
+// PR videos stream through the main process (pr-media.js); registered before ready, as Electron requires.
+protocol.registerSchemesAsPrivileged([{ scheme: prMedia.SCHEME, privileges: { stream: true, secure: true } }]);
 
 app.on('open-file', (ev, p) => {
   ev.preventDefault();
@@ -1303,6 +1325,7 @@ app.whenReady().then(() => {
     if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
   }
   lockDownSession(electronSession.defaultSession);
+  electronSession.defaultSession.protocol.handle(prMedia.SCHEME, (req) => media.video(req));
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   keymap.setOverrides(readSettings().keymap);

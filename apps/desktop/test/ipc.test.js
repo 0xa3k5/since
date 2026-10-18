@@ -180,7 +180,7 @@ test('worktree folders: shape in the schema, membership against git worktree lis
 });
 
 test('sessions reach no network, except the updater session to its feed host over https', () => {
-  for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x']) assert.ok(check.requestAllowed(url), url);
+  for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'gitlanes-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
   for (const url of ['https://github.com/x', 'http://example.com/', 'wss://example.com/', 'not a url']) assert.ok(!check.requestAllowed(url), url);
   const updater = require('../updater');
   const feed = updater.feedUrl('https://github.com/0xa3k5/gitlanes/releases/latest/download', 'arm64');
@@ -266,6 +266,8 @@ test('commit file entries, trimmed by fileRef, pass the file-entry check (AK-131
 test('PR calls: positive PR numbers, a known remote, fixed merge options', () => {
   for (const n of [1, 42, Number.MAX_SAFE_INTEGER]) assert.strictEqual(check.prNumber(n), n);
   for (const n of [0, -1, 1.5, NaN, Infinity, '7', null, undefined, 2 ** 53]) rejects(() => check.prNumber(n), /positive integer/);
+  assert.strictEqual(check.mediaId('a'.repeat(32)), 'a'.repeat(32));
+  for (const v of ['A'.repeat(32), 'a'.repeat(31), 'https://github.com/x.png', null, 7]) rejects(() => check.mediaId(v), /media id/);
   const remotes = [{ name: 'origin', url: 'git@github.com:acme/app.git' }, { name: 'fork', url: 'https://github.com/kim/app' }];
   assert.strictEqual(check.knownRemote(remotes, 'fork'), remotes[1]);
   rejects(() => check.knownRemote(remotes, 'upstream'), /not a remote/);
