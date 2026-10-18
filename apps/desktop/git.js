@@ -2514,6 +2514,8 @@ async function rebaseStack(cwd, base, heads) {
       const [tree, ...rest] = res.split('\0');
       const files = [...new Set(rest.filter(Boolean))].sort();
       if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { conflict: { index: i, commit: c, files } };
+      // Already there (e.g. an old copy of the part below, amended since): dropped, like `git rebase`.
+      if (tree === (await run(cwd, ['rev-parse', `${cur}^{tree}`])).trim()) continue;
       const [name, email, date, msg] = (await run(cwd, ['show', '-s', '--date=raw', '--format=%an%x00%ae%x00%ad%x00%B', c])).split(SEP);
       const env = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date.trim() };
       cur = (await run(cwd, ['commit-tree', ...(sign ? ['-S'] : []), tree, '-p', cur, '-F', '-'], { input: msg.replace(/\n+$/, '') + '\n', env })).trim();

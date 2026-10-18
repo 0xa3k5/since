@@ -255,6 +255,13 @@ test('rebaseStack drops merge commits, cascades onto the base, keeps authors, st
   // Already linear on the base: nothing changes.
   assert.deepEqual(await git.rebaseStack(dir, base, [n1, n2]), { heads: [n1, n2], changed: [false, false] });
 
+  // Part one amended since part two was cut: the old copy isn't replayed into part two again.
+  await g('checkout', '-q', '-b', 'one2', n1);
+  await g('commit', '-q', '--amend', '-m', 'part one, more (reworded)');
+  const amended = await git.rebaseStack(dir, base, [await sha('one2'), n2]);
+  assert.equal((await g('log', '--format=%s', `${base}..${amended.heads[1]}`)).trim(), 'part two\npart one, more (reworded)\npart one');
+  await g('checkout', '-q', 'main');
+
   // Part two clashes with the base: stops there, naming the commit and the file.
   await commit('two.txt', 'main\n', 'main adds two.txt');
   const base2 = await sha('main');
