@@ -24,9 +24,11 @@ test('the renderer has no Node, no network and cannot navigate', async ({ sandbo
       try { const ws = new WebSocket('wss://example.com/'); ws.onopen = () => resolve('allowed'); ws.onerror = () => resolve('blocked'); } catch { resolve('blocked'); }
     });
     out.img = await new Promise((resolve) => { const i = new Image(); i.onload = () => resolve('allowed'); i.onerror = () => resolve('blocked'); i.src = 'https://example.com/x.png'; });
+    // Videos only through the main process's gitlanes-media: scheme (PR media, AK-519), never straight from the web.
+    out.video = await new Promise((resolve) => { const v = document.createElement('video'); v.onloadeddata = () => resolve('allowed'); v.onerror = () => resolve('blocked'); v.src = 'https://example.com/x.mp4'; });
     return out;
   });
-  expect(net).toEqual({ fetch: 'blocked', ws: 'blocked', img: 'blocked' });
+  expect(net).toEqual({ fetch: 'blocked', ws: 'blocked', img: 'blocked', video: 'blocked' });
 
   // Inline script is refused by the CSP.
   expect(await page.evaluate(() => { const s = document.createElement('script'); s.textContent = 'window.__inline = 1'; document.body.append(s); return window.__inline; })).toBeUndefined();
