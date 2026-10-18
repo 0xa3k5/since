@@ -130,3 +130,117 @@ test('mergedCommit reads the squash commit; PR rows carry their head commit', as
   assert.equal(github.normalizePr({ number: 3, headRefOid: 'b'.repeat(40) }).head, 'b'.repeat(40));
   assert.equal(github.normalizePr({ number: 3, headRefOid: 'nope' }).head, null);
 });
+
+// AK-545: merge methods and native stacks.
+test('findStacks finds straight chains on the base, and skips forks and lone PRs', async () => {
+  const { findStacks } = await load();
+  const pr = (number, branch, baseBranch) => ({ number, branch, baseBranch, head: `h${number}` });
+  const open = [pr(1, 'a', 'main'), pr(2, 'b', 'a'), pr(3, 'c', 'b'), pr(4, 'd', 'main'), pr(5, 'e', 'main'), pr(6, 'f', 'e'), pr(7, 'g', 'e'), pr(8, 'x', 'other'), pr(9, 'y', 'x')];
+  assert.deepEqual(findStacks(open, 'main'), [{ id: 'stack-1', prs: [1, 2, 3], heads: ['h1', 'h2', 'h3'] }]);
+  // A branch that loops back on itself ends the chain.
+  assert.deepEqual(findStacks([pr(1, 'a', 'main'), pr(2, 'b', 'a'), pr(3, 'a', 'b')], 'main').map((s) => s.prs), [[1, 2]]);
+  assert.deepEqual(findStacks([], 'main'), []);
+});
+
+test('stackBlocker names the first PR that isn’t ready; startMethod picks saved, default, squash', async () => {
+  const { stackBlocker, startMethod } = await load();
+  const stack = { id: 'stack-1', prs: [1, 2, 3] };
+  assert.equal(stackBlocker(stack, new Map()), null);
+  assert.deepEqual(stackBlocker(stack, new Map([[3, 'Checks are failing.'], [2, 'A review is required.']])), { number: 2, reason: 'A review is required.' });
+  assert.equal(startMethod({ saved: 'rebase', allowed: ['squash', 'rebase'], fallback: 'squash' }), 'rebase');
+  assert.equal(startMethod({ saved: 'merge', allowed: ['squash', 'rebase'], fallback: 'rebase' }), 'rebase');
+  assert.equal(startMethod({ saved: null, allowed: ['squash', 'merge'], fallback: null }), 'squash');
+  assert.equal(startMethod({ allowed: ['merge'] }), 'merge');
+});
+
+test('planOrder places a stack as one unit and explains orders around it', async () => {
+  const { planOrder, statusText, forcedText, blockedText, unitLabel } = await load();
+  const stacks = [{ id: 'stack-4', prs: [4, 5, 6] }];
+  // #1 then the stack conflicts; the stack then #1 is clean.
+  const merge = fake({ 'B+a t': ['app.js'] });
+  const plan = await planOrder({ prs: [{ number: 1, head: 'a' }, { stack: 'stack-4', prs: [4, 5, 6], head: 't' }], baseSha: 'B', merge });
+  assert.deepEqual(plan.order, [{ stack: 'stack-4', prs: [4, 5, 6], after: null }, { number: 1, after: null }]);
+  assert.deepEqual(plan.forced, [{ first: 1, then: 'stack-4', files: ['app.js'] }]);
+  assert.equal(forcedText(plan.forced[0], stacks), '#1 before the stack #4–#6 would conflict in app.js');
+  assert.equal(statusText({ number: 1, after: 'stack-4' }, stacks), 'clean after the stack #4–#6');
+  assert.equal(unitLabel(7), '#7');
+  // A stack that never fits is left out whole.
+  const stuck = await planOrder({ prs: [{ number: 1, head: 'a' }, { stack: 'stack-4', prs: [4, 5, 6], head: 't' }], baseSha: 'B', merge: fake({ 'B+a t': ['app.js'], 'B t': ['app.js'] }) });
+  assert.deepEqual(stuck.blocked, [{ stack: 'stack-4', files: ['app.js'] }]);
+  assert.match(blockedText(stuck.blocked[0]), /^Conflicts in app\.js/);
+});
+
+test('simulateRebase catches a commit that conflicts when the whole PR merges clean; stackLinear', async () => {
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-mergeplan-'))), 'app');
+  fs.mkdirSync(dir);
+  const g = (...a) => git.run(dir, a);
+  const commit = async (file, text, msg) => { fs.writeFileSync(path.join(dir, file), text); await g('add', file); await g('commit', '-q', '-m', msg); };
+  await g('init', '-q', '-b', 'main');
+  await g('config', 'user.name', 'Test');
+  await g('config', 'user.email', 't@example.com');
+  await g('config', 'commit.gpgsign', 'false');
+  await commit('f.txt', 'a\n', 'base');
+  await commit('g.txt', '1\n', 'base 2');
+  const fork = (await g('rev-parse', 'HEAD')).trim();
+  // The PR changes f.txt and changes it back: nothing to merge as a whole, but its first commit
+  // clashes with main's own change to f.txt.
+  await g('checkout', '-q', '-b', 'pr');
+  await commit('f.txt', 'b\n', 'a to b');
+  await commit('f.txt', 'a\n', 'b back to a');
+  await commit('h.txt', 'new\n', 'add h');
+  const pr = (await g('rev-parse', 'HEAD')).trim();
+  await g('checkout', '-q', 'main');
+  await commit('f.txt', 'c\n', 'main: a to c');
+  const base = (await g('rev-parse', 'HEAD')).trim();
+
+  assert.deepEqual((await git.simulateSquash(dir, base, pr)).files, []);
+  assert.deepEqual(await git.simulateRebase(dir, base, pr), { files: ['f.txt'], commit: null });
+  // A PR with no clash replays every commit on top of the tip.
+  await g('checkout', '-q', '-b', 'ok', fork);
+  await commit('h.txt', 'one\n', 'h one');
+  await commit('h.txt', 'two\n', 'h two');
+  const ok = (await g('rev-parse', 'HEAD')).trim();
+  const r = await git.simulateRebase(dir, base, ok);
+  assert.deepEqual(r.files, []);
+  assert.equal((await g('rev-list', '--count', `${base}..${r.commit}`)).trim(), '2');
+  assert.equal((await g('show', `${r.commit}:h.txt`)), 'two\n');
+  assert.deepEqual(await git.simulateRebase(dir, base, ok), r); // fixed identity and date
+
+  // Stacks: ok-2 sits on ok; a merge commit or a sideways head isn't linear.
+  await commit('i.txt', 'i\n', 'stacked');
+  const ok2 = (await g('rev-parse', 'HEAD')).trim();
+  assert.equal(await git.stackLinear(dir, base, [ok, ok2]), true);
+  assert.equal(await git.stackLinear(dir, base, [pr, ok2]), false);
+  await g('merge', '-q', '--no-edit', 'main');
+  const merged = (await g('rev-parse', 'HEAD')).trim();
+  assert.equal(await git.stackLinear(dir, fork, [ok, merged]), false);
+});
+
+test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan needs', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
+  const ORIGIN = { name: 'origin', url: 'git@github.com:acme/app.git', web: git.remoteWebUrl('git@github.com:acme/app.git') };
+  const calls = [];
+  let reply = '';
+  const exec = async (bin, args, _in, opts) => { calls.push({ args, env: opts.env }); if (reply instanceof Error) throw reply; return reply; };
+  const t = { enabled: true, remotes: [ORIGIN], dirs: [dir], exec };
+
+  reply = JSON.stringify({ squashMergeAllowed: true, mergeCommitAllowed: false, rebaseMergeAllowed: true, viewerDefaultMergeMethod: 'REBASE' });
+  assert.deepEqual(await github.repoMergeMethods(t), { allowed: ['squash', 'rebase'], default: 'rebase' });
+  reply = JSON.stringify({ squashMergeAllowed: true, viewerDefaultMergeMethod: 'MERGE' }); // default turned off: none
+  assert.deepEqual(await github.repoMergeMethods(t), { allowed: ['squash'], default: null });
+  assert.deepEqual(calls[0].args.slice(0, 3), ['repo', 'view', 'github.com/acme/app']);
+
+  reply = JSON.stringify([{ number: 4, headRefName: 'a', baseRefName: 'main', headRefOid: 'c'.repeat(40) }, { number: 0 }, { number: 5, headRefName: 'b', baseRefName: 'a', headRefOid: 'bad' }]);
+  assert.deepEqual(await github.openPrBranches(t), [{ number: 4, branch: 'a', baseBranch: 'main', head: 'c'.repeat(40) }, { number: 5, branch: 'b', baseBranch: 'a', head: null }]);
+
+  calls.length = 0;
+  reply = '';
+  assert.deepEqual(await github.mergeStack({ ...t, number: 6, method: 'rebase' }), { number: 6, method: 'rebase' });
+  assert.deepEqual(calls[0].args, ['stack', 'merge', '6', '--merge-method=rebase', '--yes']);
+  assert.equal(calls[0].env.GH_REPO, 'github.com/acme/app');
+  assert.equal(calls[0].env.GH_PROMPT_DISABLED, '1');
+  await assert.rejects(github.mergeStack({ ...t, number: 6, method: 'octopus' }), /Unknown merge method/);
+  reply = new Error('unknown command "stack" for "gh"');
+  await assert.rejects(github.mergeStack({ ...t, number: 6 }), /gh extension install github\/gh-stack/);
+});

@@ -2447,6 +2447,46 @@ async function simulateSquash(cwd, tip, head) {
   return { files: [], commit };
 }
 
+// Merge plan, rebase (AK-545): `head`'s commits replayed one by one onto `tip`, simulated, the way
+// GitHub's rebase merge does it, since one commit can conflict even when the whole PR merges
+// clean. Each is a merge-tree against its own parent (git 2.40+ for --merge-base; older git
+// simulates the PR as one squash) and a commit-tree on top of the last. Merge commits are skipped,
+// like `git rebase`. Objects only, same fixed identity as simulateSquash. → { files, commit }.
+const REPLAY_MAX = 250;
+let replayOk = null;
+async function canReplay(cwd) {
+  replayOk ||= run(cwd, ['version']).then((v) => { const [, a, b] = /(\d+)\.(\d+)/.exec(v) || [0, 0, 0]; return Number(a) > 2 || (Number(a) === 2 && Number(b) >= 40); }, () => false);
+  return replayOk;
+}
+async function simulateRebase(cwd, tip, head) {
+  if (!(await canReplay(cwd))) return simulateSquash(cwd, tip, head);
+  let list;
+  try { list = (await run(cwd, ['rev-list', '--reverse', '--no-merges', `--max-count=${REPLAY_MAX + 1}`, head, '--not', tip, '--'])).split('\n').filter(Boolean); } catch { return { files: [], commit: null }; }
+  if (list.length > REPLAY_MAX) return simulateSquash(cwd, tip, head);
+  let cur = tip;
+  for (const c of list) {
+    let out;
+    try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', `--merge-base=${c}^`, cur, c], { allowCodes: [0, 1] }); } catch { return { files: [], commit: null }; }
+    const [tree, ...rest] = out.split('\0');
+    const files = [...new Set(rest.filter(Boolean))].sort();
+    if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { files, commit: null };
+    cur = (await run(cwd, ['commit-tree', tree, '-p', cur, '-m', 'GitLanes merge plan'], { env: SIM_ENV })).trim();
+  }
+  return { files: [], commit: cur };
+}
+
+// Merge plan, stacks (AK-545): whether a stack's history is linear, so GitHub can merge it as one:
+// each PR's head contains the one below it, and nothing between the base and the top is a merge
+// commit. heads: bottom…top.
+async function stackLinear(cwd, base, heads) {
+  try {
+    for (let i = 1; i < heads.length; i++) {
+      if (!(await run(cwd, ['merge-base', '--is-ancestor', heads[i - 1], heads[i]]).then(() => true, () => false))) return false;
+    }
+    return (await run(cwd, ['rev-list', '--merges', '--count', heads[heads.length - 1], '--not', base, '--'])).trim() === '0';
+  } catch { return false; }
+}
+
 // Review (AK-305): what conflicts when `head` merges into `base`, file by file. merge-tree writes
 // the merged tree with conflict markers in it (objects only, never refs, the index or a worktree);
 // each conflicting blob is read back and cut into hunks: the base side, the head side, and up to
@@ -2648,7 +2688,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,
