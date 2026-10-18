@@ -536,8 +536,9 @@ async function linkStack({ enabled, remotes, base, numbers, dirs = searchDirs(),
   } catch (err) {
     if (NO_STACK_EXT.test(err.message)) throw coded('Linking a stack needs GitHub CLI’s stack extension.', 'gh-no-stack');
     const after = await stackFacts({ enabled, remotes, numbers, dirs, exec }).catch(() => new Map());
-    const top = after.get(numbers[numbers.length - 1])?.stack?.number;
-    const missing = numbers.find((n) => top == null || after.get(n)?.stack?.number !== top) ?? numbers[0];
+    // Measured from the bottom PR's stack: the first PR above it that isn't in that stack.
+    const bottom = after.get(numbers[0])?.stack?.number;
+    const missing = bottom == null ? numbers[0] : numbers.find((n) => after.get(n)?.stack?.number !== bottom) ?? numbers[0];
     return { failed: { number: missing, reason: text(err.message.split('\n').pop(), 200) || 'GitHub CLI couldn’t link it.' } };
   }
   const after = await stackFacts({ enabled, remotes, numbers, dirs, exec }).catch(() => new Map());

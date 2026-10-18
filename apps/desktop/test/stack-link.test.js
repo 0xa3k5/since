@@ -82,7 +82,7 @@ test('linkStack and the extension: gh calls, all or nothing', async () => {
 
   // `gh stack link` fails part-way: the first PR not in the stack is reported.
   replies = [facts(node(4, 'main', 'a'), node(5, 'a', 'b')), new Error('Linking…\n✗ failed to add #5'), facts(node(4, 'main', 'a', { stack: { number: 3 } }), node(5, 'a', 'b'))];
-  assert.deepEqual(await github.linkStack({ ...t, base: 'main', numbers: [4, 5] }), { failed: { number: 4, reason: '✗ failed to add #5' } });
+  assert.deepEqual(await github.linkStack({ ...t, base: 'main', numbers: [4, 5] }), { failed: { number: 5, reason: '✗ failed to add #5' } });
   replies = [facts(node(4, 'main', 'a'), node(5, 'a', 'b')), new Error('unknown command "stack" for "gh"')];
   await assert.rejects(github.linkStack({ ...t, base: 'main', numbers: [4, 5] }), (e) => e.code === 'gh-no-stack');
 
