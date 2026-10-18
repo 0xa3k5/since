@@ -1,0 +1,2 @@
+ create mode 100644 .changeset/add-networks-from-token-icons.md
+ create mode 100644 .changeset/fix-network-chain-ids.md

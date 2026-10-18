@@ -1,0 +1,19 @@
+{
+ "repo": "0xa3k5/web3icons",
+ "number": 221,
+ "title": "add canton, rabbit network, rabbit wallet, cc token",
+ "manifests": {},
+ "internal": [
+  "@web3icons/chrome-extension",
+  "@web3icons/figma-plugin",
+  "@web3icons/website",
+  "nextjs-example",
+  "react-vite-example",
+  "web3icons",
+  "@web3icons/common",
+  "@web3icons/core",
+  "@web3icons/eslint-config",
+  "@web3icons/react",
+  "@web3icons/rollup-config"
+ ]
+}

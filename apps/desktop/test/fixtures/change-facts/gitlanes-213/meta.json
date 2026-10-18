@@ -1,0 +1,12 @@
+{
+ "repo": "0xa3k5/gitlanes",
+ "number": 213,
+ "title": "fix(desktop): keyboard, navigation & ui polish (AK-495)",
+ "manifests": {},
+ "internal": [
+  "@gitlanes/desktop",
+  "@gitlanes/web",
+  "gitlanes",
+  "@gitlanes/tokens"
+ ]
+}

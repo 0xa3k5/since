@@ -1,0 +1,2 @@
+ create mode 100644 apps/desktop/renderer/agents.js
+ delete mode 100644 apps/desktop/test/inbox.test.js

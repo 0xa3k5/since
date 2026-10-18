@@ -1,0 +1,14 @@
+3	2	apps/desktop/e2e/site-shots.capture.js
+2	1	apps/desktop/git.js
+3	3	apps/desktop/github.js
+11	7	apps/desktop/renderer/lanes-view.js
+3	3	apps/desktop/renderer/review-rows.js
+2	3	apps/desktop/renderer/styles.css
+4	4	apps/desktop/test/github.test.js
+9	0	apps/desktop/test/keymap.test.js
+4	1	apps/desktop/test/lanes-view.test.js
+7	0	apps/desktop/test/pr-conflicts.test.js
+3	2	apps/desktop/test/review-rows.test.js
+1	0	apps/desktop/test/theme.test.js
+3	3	packages/tokens/tokens.css
+2	2	packages/tokens/tokens.json

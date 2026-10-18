@@ -1,0 +1,7 @@
+ create mode 100644 .changeset/animica-anm.md
+ create mode 100644 packages/core/src/svgs/networks/background/animica.svg
+ create mode 100644 packages/core/src/svgs/networks/branded/animica.svg
+ create mode 100644 packages/core/src/svgs/networks/mono/animica.svg
+ create mode 100644 raw-svgs/networks/background/animica.svg
+ create mode 100644 raw-svgs/networks/branded/animica.svg
+ create mode 100644 raw-svgs/networks/mono/animica.svg

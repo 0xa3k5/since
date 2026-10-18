@@ -1,0 +1,13 @@
+ create mode 100644 .changeset/warm-plants-accept.md
+ create mode 100644 packages/core/src/svgs/networks/background/canton.svg
+ create mode 100644 packages/core/src/svgs/networks/background/rabbit.svg
+ create mode 100644 packages/core/src/svgs/networks/branded/canton.svg
+ create mode 100644 packages/core/src/svgs/networks/branded/rabbit.svg
+ create mode 100644 packages/core/src/svgs/networks/mono/canton.svg
+ create mode 100644 packages/core/src/svgs/networks/mono/rabbit.svg
+ create mode 100644 raw-svgs/networks/background/canton.svg
+ create mode 100644 raw-svgs/networks/background/rabbit.svg
+ create mode 100644 raw-svgs/networks/branded/canton.svg
+ create mode 100644 raw-svgs/networks/branded/rabbit.svg
+ create mode 100644 raw-svgs/networks/mono/canton.svg
+ create mode 100644 raw-svgs/networks/mono/rabbit.svg

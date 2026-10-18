@@ -1,0 +1,14 @@
+7	0	.changeset/silver-radios-brush.md
+11	11	bun.lock
+3	1	docs/icons.md
+20	0	packages/common/src/metadata/networks.json
+20	0	packages/common/src/metadata/networks.ts
+12	0	packages/core/src/svg-module.ts
+6	0	packages/core/src/svgs/index.ts
+12	0	packages/core/src/svgs/networks/background/anubis.svg
+4	0	packages/core/src/svgs/networks/branded/anubis.svg
+4	0	packages/core/src/svgs/networks/mono/anubis.svg
+3	0	packages/react/dynamicIconImports.js
+14	0	raw-svgs/networks/background/anubis.svg
+6	0	raw-svgs/networks/branded/anubis.svg
+6	0	raw-svgs/networks/mono/anubis.svg

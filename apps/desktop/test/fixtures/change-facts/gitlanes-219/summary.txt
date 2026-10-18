@@ -1,0 +1,1 @@
+ delete mode 100644 vercel.json

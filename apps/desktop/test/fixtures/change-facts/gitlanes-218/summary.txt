@@ -1,0 +1,2 @@
+ create mode 100644 apps/web/vercel.json
+ create mode 100644 vercel.json

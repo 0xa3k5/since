@@ -1,0 +1,9 @@
+2	2	apps/desktop/e2e/send-back.spec.js
+1	1	apps/desktop/renderer/app.js
+2	2	apps/desktop/renderer/keymap.js
+1	1	apps/desktop/renderer/merge-plan-view.js
+1	1	apps/desktop/renderer/pr-review.js
+4	7	apps/desktop/renderer/review-pane.js
+1	1	apps/desktop/renderer/review-rows.js
+1	1	apps/desktop/renderer/send-back-view.js
+14	14	apps/desktop/renderer/styles.css
