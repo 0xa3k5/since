@@ -99,7 +99,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     ].filter(Boolean);
     const button = (a) => {
       const label = a.label.replace('…', '');
-      const note = a.note || (a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt to fix it, for you or an agent' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`);
+      const note = a.id === 'merge' && row.stack?.on ? `It merges into #${row.stack.on}’s branch, not ${row.stack.base || 'the base'}: merge #${row.stack.on} first` : a.note || (a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt to fix it, for you or an agent' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`);
       const onclick = () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx));
       const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github', 'rebase', 'checkout', 'updateBranch'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
       const tip = `${tipFor(a.label, a.key)}\n${note}`;
@@ -131,7 +131,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
         updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null,
       ].filter(Boolean),
-      below: [pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
+      below: [stackLine(), pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
     });
     head.replaceChildren(...[
       top,
@@ -151,7 +151,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const stage = row.stage;
     const label = stage === 'stuck' ? 'Stuck' : stage === 'ready' ? 'Ready to merge' : stage === 'inProgress' ? 'In progress' : null;
     if (!label && !buttons.length) return null;
-    const why = stage === 'stuck' ? stuckReason(row, { base: ctx.base, max: 3 }) : null;
+    // A stacked PR merges into the one under it, so that one goes first (AK-537).
+    const why = stage === 'stuck' ? stuckReason(row, { base: ctx.base, max: 3 }) : row.stack?.on ? `Merge #${row.stack.on} first` : null;
     return h('div.review-pane-status' + (stage === 'stuck' || stage === 'ready' ? `.${stage}` : ''), { role: 'group', 'aria-label': stage === 'stuck' ? 'Fix what’s stuck' : 'Actions' },
       label ? h('div.review-pane-status-why', { title: stage === 'stuck' ? stuckReason(row, { base: ctx.base, max: 20 }) || '' : '' },
         h('span.review-pane-status-label', null, icon(stage === 'stuck' ? 'warning' : stage === 'ready' ? 'check' : 'pending', 13), label),
@@ -164,6 +165,23 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     else run(id, row, ctx);
   }
   function showConflicts() { if (view) view.showConflicts(); else jump = true; }
+
+  // The stack path (AK-537): "Stack  main ‹ ● #41 ‹ ● #42 this PR ‹ ● #43", each PR's dot in its
+  // stage's colour. A PR selects that row; [ and ] step down and up. null outside a stack.
+  function stackLine() {
+    const s = row.stack;
+    if (!s) return null;
+    const sep = () => h('span.review-stack-sep', { 'aria-hidden': 'true' }, '‹');
+    const dot = (n) => h('span.review-dot' + (ctx.stageOf?.(n) ? `.${ctx.stageOf(n)}` : ''), { 'aria-hidden': 'true' });
+    const keyOf = (n) => (n === s.path[s.at - 2] ? 'lanes.stackDown' : n === s.path[s.at] ? 'lanes.stackUp' : null);
+    return h('div.review-pane-stack', { role: 'navigation', 'aria-label': `Stack, ${s.at} of ${s.of}` },
+      h('span.muted', null, 'Stack'),
+      h('span.review-stack-path', null,
+        h('span.mono.review-stack-base', { title: `The stack merges into ${s.base || 'the base'}, bottom first` }, s.base || 'base'),
+        ...s.path.flatMap((n) => [sep(), n === row.pr?.number
+          ? h('span.review-stack-pr.current', { 'aria-current': 'true' }, dot(n), `#${n}`, h('span.review-stack-this', null, 'this PR'))
+          : h('button.review-stack-pr', { 'data-tip': keyOf(n) ? tipFor(`Select #${n}`, keyOf(n)) : `Select #${n}`, onclick: () => ctx.onSelectPr?.(n) }, dot(n), `#${n}`)])));
+  }
 
   // Merge order (AK-321), one line per open PR this one overlaps: "Overlaps #87 in lanes-view.js.
   // Whichever merges second needs a rebase. Smaller first: this one (+28 −12)." #87 selects that PR.
@@ -219,6 +237,10 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   // The reader's keys (reader.js), for the loaded view (its own handler lets them through) and the
   // pane while it's still fetching.
   el.addEventListener('keydown', (e) => {
+    const st = keymap.match('lanes', e);
+    if ((st === 'lanes.stackDown' || st === 'lanes.stackUp') && ctx.onStack && !e.target.closest?.('input, textarea')) {
+      e.preventDefault(); e.stopPropagation(); ctx.onStack(st === 'lanes.stackUp' ? 1 : -1); return;
+    }
     readerKey(e, { scroller: view?.el || el, onStep: ctx.nav?.onStep ? (d) => ctx.nav.onStep(d) : null, onBack });
   });
 

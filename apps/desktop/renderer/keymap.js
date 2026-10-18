@@ -222,6 +222,8 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.tabAll', 'Show all open', '5'),
   c('lanes', null, 'lanes.mergeReady', 'Squash-merge every pull request ready to merge', 'Shift+M'),
   c('lanes', null, 'lanes.mergePlan', 'Plan merge: merge the ready pull requests in an order with no conflicts', 'Shift+P'),
+  c('lanes', null, 'lanes.stackDown', 'Select the pull request this one is stacked on', '['),
+  c('lanes', null, 'lanes.stackUp', 'Select the next pull request up the stack', ']'),
   c('lanes', null, 'lanes.conflicts', 'Show branches that would conflict (opens Branches)', 'c'),
   c('lanes', null, 'lanes.review', 'Review the pull request, or the branch', 'r'),
   c('lanes', null, 'lanes.merge', 'Merge the pull request, or merge and tidy the branch', 'm'),

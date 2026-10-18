@@ -873,6 +873,13 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); }
 .review-dot.stuck { background: var(--red); }
 .review-dot.ready { background: var(--green); }
+/* A stack's rows next to each other (AK-537): a rail through their dots, up to the row above and
+   down to the row below. The dot sits on top of it. */
+.review-row.staged.stack-up, .review-row.staged.stack-down { position: relative; }
+.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: 17px; width: 2px; background: var(--border-strong); pointer-events: none; }
+.review-row.staged.stack-up::before { top: -1px; height: calc(50% + 1px); }
+.review-row.staged.stack-down::after { top: 50%; bottom: -1px; }
+.review-row.staged > .review-dot { position: relative; z-index: 1; }
 .lanes-fix { flex-wrap: wrap; }
 .sendback .sendback-reason { white-space: normal; }
 .sendback-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1040,6 +1047,19 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-title .badge { flex: none; }
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
+/* The stack path (AK-537): main ‹ #41 ‹ #42 this PR ‹ #43, each PR with its stage dot. */
+.review-pane-stack { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.review-pane-stack > .muted { flex: none; }
+.review-stack-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.review-stack-base { color: var(--text-3); }
+.review-stack-sep { color: var(--text-4); }
+.review-stack-pr { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; border-radius: 4px; font: inherit; font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; color: var(--text-2); background: none; border: 0; }
+button.review-stack-pr { cursor: pointer; }
+button.review-stack-pr:hover { color: var(--text); background: var(--bg-hover); }
+button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.review-stack-pr.current { color: var(--text); background: var(--accent-soft); }
+.review-stack-pr > .review-dot { width: 6px; height: 6px; flex: none; }
+.review-stack-this { font-weight: 400; color: var(--text-3); }
 .review-pane-order { display: flex; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-order > .muted { flex: none; }
 .review-pane-order .mono { color: var(--text-2); }
