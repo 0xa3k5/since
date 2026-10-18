@@ -250,6 +250,13 @@ export const COMMANDS = [
   c('mergePlan', null, 'mergePlan.collapse', 'Hide the stack’s pull requests', 'ArrowLeft'),
   c('mergePlan', null, 'mergePlan.merge', 'Merge the picked pull requests in order', 'Enter'),
   c('mergePlan', null, 'mergePlan.methods', 'Choose the merge method: squash, merge commits or rebase', 'Alt+Enter'),
+  // Fixes for what's in the way (AK-549): they act on the focused row's group, else the first that offers them.
+  c('mergePlan', null, 'mergePlan.anyway', 'Merge anyway: take PRs whose only failing checks aren’t required', 'Shift+M'),
+  c('mergePlan', null, 'mergePlan.viewFailure', 'View the failed check on GitHub', 'f'),
+  c('mergePlan', null, 'mergePlan.rerun', 'Re-run the failed checks', 'r'),
+  c('mergePlan', null, 'mergePlan.approve', 'Approve the pull requests waiting on your review', 'a'),
+  c('mergePlan', null, 'mergePlan.markReady', 'Mark the drafts ready for review', 'd'),
+  c('mergePlan', null, 'mergePlan.copyPrompts', 'Copy fix prompts for the conflicting pull requests', 'p'),
   c('catchup', null, 'catchup.next', 'Next merged pull request or commit in the timeline', 'ArrowDown'),
   c('catchup', null, 'catchup.prev', 'Previous merged pull request or commit', 'ArrowUp'),
   c('catchup', null, 'catchup.open', 'Read it: move into the reader', 'Enter'),
