@@ -160,7 +160,7 @@ function parsePrs(out) {
 
 const authProblem = (msg) => /auth login|not logged in|authenticat|HTTP 401|bad credentials/i.test(msg || '');
 
-const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli }) => exec(bin, args, '', { dirs, timeout, env: GH_ENV });
+const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli, env }) => exec(bin, args, '', { dirs, timeout, env: env ? { ...GH_ENV, ...env } : GH_ENV });
 
 // The enable sheet's check, after the user chose to turn it on: is `gh` installed, and logged in
 // to this remote's host? Returns { gh: 'missing' | 'logged-out' | 'ready', remote }.
@@ -289,7 +289,8 @@ const prNumber = (n) => {
 
 const MERGE_METHODS = ['squash', 'merge', 'rebase'];
 const PR_VIEW_FIELDS = ['number', 'state', 'isDraft', 'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'headRefName', 'headRefOid'];
-const REPO_VIEW_FIELDS = ['squashMergeAllowed', 'mergeCommitAllowed', 'rebaseMergeAllowed', 'deleteBranchOnMerge', 'viewerPermission'];
+const REPO_VIEW_FIELDS = ['squashMergeAllowed', 'mergeCommitAllowed', 'rebaseMergeAllowed', 'deleteBranchOnMerge', 'viewerPermission', 'viewerDefaultMergeMethod'];
+const DEFAULT_METHOD = { SQUASH: 'squash', MERGE: 'merge', REBASE: 'rebase' };
 
 function parseJson(out) {
   try { const v = JSON.parse(out); if (v && typeof v === 'object' && !Array.isArray(v)) return v; } catch { /* below */ }
@@ -300,6 +301,7 @@ function parseJson(out) {
 function parseMergeInfo(prOut, repoOut) {
   const p = parseJson(prOut), r = parseJson(repoOut);
   const methods = [r.squashMergeAllowed && 'squash', r.mergeCommitAllowed && 'merge', r.rebaseMergeAllowed && 'rebase'].filter(Boolean);
+  const def = DEFAULT_METHOD[r.viewerDefaultMergeMethod];
   return {
     number: Number.isSafeInteger(p.number) ? p.number : null,
     state: text(p.state, 32).toLowerCase(), // open | closed | merged
@@ -315,6 +317,8 @@ function parseMergeInfo(prOut, repoOut) {
     // GitHub is still working out mergeability (right after a push); `gh pr merge` may refuse.
     checking: p.mergeable === 'UNKNOWN',
     methods: methods.length ? methods : ['squash'],
+    // The method GitHub's merge button starts with for you here (null when it doesn't say).
+    defaultMethod: def && methods.includes(def) ? def : null,
     deleteBranchOnMerge: r.deleteBranchOnMerge === true,
     admin: r.viewerPermission === 'ADMIN',
   };
@@ -376,6 +380,45 @@ async function mergePr({ enabled, remotes, number, method = 'squash', deleteBran
   const { bin, repo } = target({ enabled, remotes, dirs });
   if (!MERGE_METHODS.includes(method)) throw coded('Unknown merge method.', 'gh-failed');
   await ghRun(bin, ['pr', 'merge', prNumber(number), '--repo', repo, `--${method}`, ...(deleteBranch ? ['--delete-branch'] : []), ...(admin ? ['--admin'] : []), ...(matchHead ? ['--match-head-commit', matchHead] : [])], { dirs, exec });
+  return { number, method };
+}
+
+// Merge plan (AK-545): the merge methods this repo allows and the one GitHub starts with.
+async function repoMergeMethods({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const out = await ghRun(bin, ['repo', 'view', repo, '--json', REPO_VIEW_FIELDS.join(',')], { dirs, exec });
+  const info = parseMergeInfo('{}', out);
+  return { allowed: info.methods, default: info.defaultMethod };
+}
+
+// Merge plan, stacks (AK-545): every open PR's branch, the branch it targets and its head, to find
+// native stacks. One `gh pr list` per plan. → [{ number, branch, baseBranch, head }].
+async function openPrBranches({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', String(LIMIT), '--json', 'number,headRefName,baseRefName,headRefOid'], { dirs, exec });
+  let list;
+  try { list = JSON.parse(out); } catch { throw coded('GitHub CLI returned something that isn’t JSON.', 'gh-failed'); }
+  if (!Array.isArray(list)) return [];
+  return list.filter((p) => Number.isSafeInteger(p?.number) && p.number > 0).map((p) => ({
+    number: p.number, branch: text(p.headRefName), baseBranch: text(p.baseRefName),
+    head: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
+  }));
+}
+
+// Merge plan, stacks (AK-545): GitHub's own stack merge, through the official `gh stack`
+// extension: `gh stack merge <top>` lands every PR up to and including the top one as a single
+// all-or-nothing operation (or queues them, when the base uses a merge queue). The extension has
+// no --repo, so GH_REPO points it at this repo and it never touches a local checkout.
+const NO_STACK_EXT = /unknown command "stack"|gh extension install github\/gh-stack|not a gh command/i;
+async function mergeStack({ enabled, remotes, number, method = 'squash', dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  if (!MERGE_METHODS.includes(method)) throw coded('Unknown merge method.', 'gh-failed');
+  try {
+    await ghRun(bin, ['stack', 'merge', prNumber(number), `--merge-method=${method}`, '--yes'], { dirs, exec, env: { GH_REPO: repo } });
+  } catch (err) {
+    if (NO_STACK_EXT.test(err.message)) throw coded('Merging a stack needs GitHub CLI’s stack extension: run `gh extension install github/gh-stack`.', 'gh-failed');
+    throw err;
+  }
   return { number, method };
 }
 
@@ -813,4 +856,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
