@@ -3675,7 +3675,7 @@ const checkFailEl = (c) => (c ? h('div.pr-check-fail', null,
   ...c.lines.map((l) => h('div.pr-check-line', null, h('span.ev-icon.fail', null, icon('x', 12)), h('span.name', null, l.name), h('span.muted', null, l.text))),
   c.more || c.passed ? h('div.muted', null, [c.more, c.passed].filter(Boolean).join(' · ')) : null) : null);
 
-const MERGE_LABELS = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
+const MERGE_LABELS = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
 const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
   if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);

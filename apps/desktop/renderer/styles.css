@@ -903,20 +903,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan-range { color: var(--text-4); font-size: 12px; }
 .mergeplan-unit.has-why { align-items: flex-start; padding-top: 3px; padding-bottom: 3px; }
 .mergeplan-unit.has-why > input, .mergeplan-unit.has-why > .mergeplan-box, .mergeplan-unit.has-why > .mergeplan-chev { margin-top: 3px; }
-.mergeplan-box { display: inline-flex; flex: none; cursor: not-allowed; }
-.mergeplan-box input { margin: 0; accent-color: var(--accent); pointer-events: none; }
 .mergeplan-sec { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
 .mergeplan-sec-hint { margin-left: auto; font-size: 12px; color: var(--text-4); }
-.dialog-desc .mergeplan-lead { color: var(--text); font-weight: var(--fw-medium); }
-.mergeplan-grp { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-content); }
-.mergeplan-grp .mergeplan-unit { margin: 0 -4px; padding-left: 4px; padding-right: 4px; }
-.mergeplan-ghead { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
-.mergeplan-glyph { display: inline-flex; margin-top: 2px; color: var(--text-3); }
-.mergeplan-grp[data-group="check-failed"] .mergeplan-glyph, .mergeplan-grp[data-group="conflicts"] .mergeplan-glyph { color: var(--warn); }
-.mergeplan-gt { flex: 1; min-width: 0; font-size: 13px; }
-.mergeplan-gtitle { color: var(--text); font-weight: var(--fw-medium); }
-.mergeplan-count { color: var(--text-3); font-weight: normal; }
-.mergeplan-gt small { display: block; margin-top: 1px; font-size: 12px; line-height: 16px; color: var(--text-3); }
 .mergeplan-who { flex: none; padding: 1px 8px; border-radius: 999px; background: var(--bg-active); color: var(--text-2); font-size: 11px; line-height: 16px; white-space: nowrap; }
 .mergeplan-who.you { background: var(--accent-soft); color: var(--accent-text); }
 .mergeplan-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
@@ -935,7 +923,42 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan-unit input { margin: 0; flex: none; accent-color: var(--accent); }
 .mergeplan-unit.off .mergeplan-pr { color: var(--text-3); }
 .mergeplan-unit[aria-disabled="true"] .mergeplan-pr { color: var(--text-3); }
-.mergeplan-chev { display: inline-flex; color: var(--text-3); cursor: pointer; }
+.mergeplan-chev { display: inline-flex; flex: none; padding: 0; border: 0; background: none; color: var(--text-3); cursor: pointer; }
+.mergeplan-chev .icon { transform: rotate(-90deg); transition: transform .16s cubic-bezier(.2,.7,.2,1); }
+.mergeplan-chev.open .icon { transform: none; }
+@media (prefers-reduced-motion: reduce) { .mergeplan-chev .icon { transition: none; } }
+.mergeplan-subs { overflow: hidden; }
+/* AK-549 v2: steps (Pick, Fix, Merge) with a stepper under the title, and a body that scrolls. */
+.mergeplan-sheet { display: flex; flex-direction: column; max-height: calc(100vh - 14vh - 32px); }
+.mergeplan-sheet > .dialog-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.mergeplan-sheet > .dialog-foot { border-top: 1px solid var(--border); padding-top: 12px; }
+.mergeplan-sheet > .dialog-head { padding-bottom: 12px; }
+.mergeplan-stepper { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; border-bottom: 1px solid var(--border); }
+.mergeplan-step { display: flex; flex-direction: column; gap: 8px; padding: 0 0 10px; border: 0; background: none; text-align: left; color: var(--text-4); font-size: 12.5px; cursor: pointer; }
+.mergeplan-step:disabled { cursor: default; }
+.mergeplan-step:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus-ring); border-radius: 4px; }
+.mergeplan-track { position: relative; height: 2px; overflow: hidden; background: var(--border-strong); }
+.mergeplan-track::after { content: ""; position: absolute; inset: 0; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform .26s cubic-bezier(.2,.7,.2,1); }
+.mergeplan-step.on .mergeplan-track::after, .mergeplan-step.done .mergeplan-track::after { transform: none; }
+.mergeplan-step.done .mergeplan-track::after { opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .mergeplan-track::after { transition: none; } }
+.mergeplan-slabel { display: flex; align-items: center; gap: 7px; padding: 0 20px; }
+.mergeplan-dot { display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-active); color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.mergeplan-step.on { color: var(--text); }
+.mergeplan-step.on .mergeplan-dot { background: var(--accent-solid); color: var(--on-accent); }
+.mergeplan-step.done { color: var(--text-2); }
+.mergeplan-step:not(:disabled):hover { color: var(--text); }
+.mergeplan-scount { color: var(--text-4); font-variant-numeric: tabular-nums; }
+.mergeplan-all { display: flex; align-items: center; gap: 8px; padding: 2px 0 8px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-2); cursor: pointer; }
+.mergeplan-all input { margin: 0; accent-color: var(--accent); }
+.mergeplan-empty { padding: 24px 0; text-align: center; color: var(--text-3); font-size: 13px; }
+.mergeplan-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-content); }
+.mergeplan-card .mergeplan-unit { margin: 0 -4px; padding-left: 4px; padding-right: 4px; }
+.mergeplan-fix { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-left: 2px solid var(--warn); border-radius: 0 6px 6px 0; background: var(--bg-active); font-size: 13px; }
+.mergeplan-card[data-group="check-running"] .mergeplan-fix { border-left-color: var(--border-strong); }
+.mergeplan-fix-t { display: flex; align-items: flex-start; gap: 8px; color: var(--text); }
+.mergeplan-fix-t > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.mergeplan-fix small { font-size: 12px; line-height: 16px; color: var(--text-3); }
 .mergeplan-tag { padding: 0 6px; border-radius: 999px; background: var(--bg-active); color: var(--text-3); font-size: 11px; }
 .mergeplan-status.muted { color: var(--text-4); }
 .mergeplan-unit.warn .mergeplan-status { white-space: normal; }

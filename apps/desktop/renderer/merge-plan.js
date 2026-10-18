@@ -276,10 +276,10 @@ export const cleanupSummary = (res, skipped = []) => ({
   worktrees: res.removed.length, branches: res.deleted.length, skipped: [...skipped, ...res.failed],
 });
 
-// The sheet's split button and method menu (AK-542). `merge` is "Merge commits" in the menu, but the
+// The sheet's split button and method menu (AK-542). `merge` is "Create a Merge Commit" in the menu, but the
 // button just says "Merge 3 in order".
-export const METHOD_NAMES = { squash: 'Squash and merge', merge: 'Create merge commits', rebase: 'Rebase and merge' };
-const VERBS = { squash: 'Squash and merge', merge: 'Merge', rebase: 'Rebase and merge' };
+export const METHOD_NAMES = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
+const VERBS = { squash: 'Squash & Merge', merge: 'Merge', rebase: 'Rebase & Merge' };
 export const mergeLabel = (method, n) => `${VERBS[method] || VERBS.squash} ${n}${n > 1 ? ' in order' : ''}`;
 // "Order · 3 of 4 picked" before merging, "Order · 3" once it runs.
 export const orderLabel = (picked, pickable, running) => (running ? `Order · ${picked}` : `Order · ${picked} of ${pickable} picked`);
