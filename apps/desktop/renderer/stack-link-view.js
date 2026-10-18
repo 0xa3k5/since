@@ -53,17 +53,17 @@ export function openStackLink({ chain, prs = new Map(), base, remote, extension 
       body.replaceChildren(
         h('p.stacklink-p', null, 'Stacks are made with GitHub CLI’s stack extension. It isn’t installed.'),
         h('p.stacklink-p', null, h('code', null, 'gh extension install github/gh-stack')),
-        error ? h('div.review-reason', null, error) : null);
+        ...(error ? [h('div.review-reason', null, error)] : []));
     } else {
       body.replaceChildren(
         h('div.stacklink-list', { role: 'list', 'aria-label': `Pull requests, bottom to top, onto ${base}` }, ...nums.map(row)),
-        error ? h('div.stacklink-error', { role: 'alert' }, error) : null,
+        ...(error ? [h('div.stacklink-error', { role: 'alert' }, error)] : []),
         h('div.stacklink-fact', null, `Changes these ${nums.length} pull requests on GitHub, for everyone who works on them. A stack can’t be unlinked.`));
     }
     const busy = phase === 'installing' || phase === 'linking' || phase === 'linked';
     primary.replaceChildren(
       phase === 'install' ? 'Install' : phase === 'installing' ? 'Installing…' : busy ? 'Linking…' : failed || error ? 'Try again' : 'Make it a stack',
-      busy ? null : kbd('↵'));
+      ...(busy ? [] : [kbd('↵')]));
     primary.disabled = busy;
     cancel.disabled = busy;
   }

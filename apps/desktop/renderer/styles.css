@@ -989,6 +989,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan-opt small, .menu-item small { display: block; font-size: 12px; color: var(--text-3); }
 .mergeplan-cleaned { gap: 12px; }
 .mergeplan-split { display: inline-flex; }
+.mergeplan-sheet .dialog-foot [hidden] { display: none; }
 .mergeplan-split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .mergeplan-caret { padding: 0 8px; border-top-left-radius: 0; border-bottom-left-radius: 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--on-accent) 25%, transparent), var(--btn-highlight); }
 .menu-item:has(small) { height: auto; padding: 6px 8px; align-items: flex-start; }

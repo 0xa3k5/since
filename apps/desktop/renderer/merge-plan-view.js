@@ -28,7 +28,7 @@ import { openStackLink } from './stack-link-view.js';
 // onSendBack(number) opens that PR's Send back sheet; onUndo() undoes the clean up; onDone()
 // refreshes Review once anything merged.
 let open = false;
-export function openMergePlan({ ready, others = [], known = [], base, remote, method: asked = null, anyway: startAnyway = false, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
+export function openMergePlan({ ready, others = [], known = [], base, remote, method: asked = null, anyway: startAnyway = true, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
   if (open) return;
   open = true;
   const prsBy = new Map([...known, ...ready, ...others].map((p) => [p.number, p]));
@@ -52,7 +52,8 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   const expanded = new Set();
   let focusKey = null;
   let cleanup = false;
-  let anyway = startAnyway === true; // take PRs whose only failing or running checks aren't required
+  // GitHub's own rules (AK): checks the base doesn't require hold nothing back. Merge lists them, with "Hold them back".
+  let anyway = startAnyway !== false;
   const blockersBy = new Map(); // number → the plan's blockers for it (AK-550)
   let groups = []; // the last render's "Needs something first" groups
   let fixing = false;
@@ -369,7 +370,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
         const st = stacks.get(k);
         const c = st && !isNative(st) ? chains.get(k) : null;
         const link = c?.linkable && editable() ? h('button.btn.small.mergeplan-link', { type: 'button', tabIndex: -1, 'data-tip': tipFor('Make it a GitHub stack', 'mergePlan.stackLink'), onclick: () => stackLink(k) }, 'Make it a GitHub stack') : null;
-        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || null, note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id], 'warn') : stText('Ready', 'ok') })));
+        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || null, note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id], 'warn') : (stacks.get(k)?.prs || [k]).some((x) => own(x).length) ? stText('Checks failed, not required', 'warn') : stText('Ready', 'ok') })));
       }
     } else if (step === 2) {
       if (!fixes.length) rows.push(h('div.mergeplan-empty', null, 'Nothing to fix.'));
