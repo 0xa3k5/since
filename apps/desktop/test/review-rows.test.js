@@ -636,16 +636,18 @@ test('rowBadges marks the badges the row shows as chips', async () => {
   assert.deepEqual(chips, ['CI passed', 'Approved']);
 });
 
-test('factLines: size and spread, then one line per fact; tests: none changed is a plain line', async () => {
+test('factLines: size and spread, then one line per fact; no test changes says nothing', async () => {
   const { factLines } = await load();
   const f = factLines(FACTS);
   assert.equal(f.added, 128);
-  assert.deepEqual(f.size.map((x) => `${x.n} ${x.label}`), ['14 files', '3 areas', '2 assets', '1 lockfile']);
+  assert.deepEqual(f.size.map((x) => `${x.n} ${x.label}`), ['14 files', '3 folders', '2 assets', '1 lockfile']);
   assert.deepEqual(f.lines.map((l) => [l.label, l.detail]), [
     ['dependency changed', 'next 15.5.21 → 15.5.24 (bun.lock)'],
     ['test deleted', 'apps/desktop/test/inbox.test.js'],
-    ['tests', 'none changed'],
   ]);
+  const two = factLines({ ...FACTS, size: { ...FACTS.size, areas: FACTS.size.areas.slice(0, 2) } });
+  assert.deepEqual(two.size.map((x) => [x.n, x.label]).slice(0, 2), [[14, 'files'], [null, 'in apps/desktop, packages/tokens']]);
+  assert.match(two.size[1].title, /apps\/desktop: 10 files, 120 lines/);
   const many = factLines({ size: { files: 1, added: 1, deleted: 0, areas: [{ area: '.' }], lockfiles: [], assets: 0, generated: 0 }, facts: [{ id: 'ci', level: 'flag', title: 'CI or build config changed', details: ['a', 'b', 'and 3 more'] }] });
   assert.deepEqual(many.size.map((x) => x.label), ['file']);
   assert.equal(many.lines[0].detail, 'a, b and 3 more');
@@ -660,7 +662,7 @@ test('evidenceTabs: only tabs with something in them; CI didn’t run is the one
     annotations: [{ path: 'a.js', line: 4, level: 'failure', message: 'x' }],
     media: [{ kind: 'image' }], reviews: [{ login: 'sam', state: 'changes' }], threads: { total: 2, open: 1, outdated: 0 },
   };
-  assert.deepEqual(evidenceTabs(ev).map((t) => t.id), ['checks', 'annotations', 'media', 'reviews', 'threads']);
+  assert.deepEqual(evidenceTabs(ev).map((t) => t.id), ['checks', 'annotations', 'media', 'threads']);
   assert.deepEqual(checkTally(ev.checks), { failed: 1, running: 1, passed: 1, total: 3 });
   assert.equal(evidenceDefault(ev), 'checks');
   assert.equal(evidenceDefault({ checks: [{ name: 'u', result: 'success' }] }), null);

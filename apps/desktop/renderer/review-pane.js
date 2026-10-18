@@ -37,15 +37,15 @@ const STATE = {
 const SHOWN_REVIEWERS = 4;
 const reviewerTip = (r) => `${r.name}${r.login && r.login !== r.name ? ` (${r.login})` : ''}: ${STATE[r.state].verb}${r.at ? ` · ${fullDate(Date.parse(r.at) / 1000)}` : ''}`;
 
-// The line under the meta: each reviewer with a state icon, "+N" past the first few. A narrow pane
-// shows the counts instead (styles.css).
-function reviewersLine(pr) {
+// The reviewers: each with a state icon, "+N" past the first few, on a line under the meta or
+// (inline) at the end of the change line. A narrow pane shows the counts instead (styles.css).
+function reviewersLine(pr, inline = false) {
   const list = reviewersOf(pr);
   if (!list.length) return null;
   const all = list.map(reviewerTip).join('\n');
   const one = (r) => h('span.review-verdict.' + r.state, { title: reviewerTip(r) }, icon(STATE[r.state].icon, 11), r.name);
   const counts = Object.keys(STATE).map((s) => [s, list.filter((r) => r.state === s).length]).filter(([, n]) => n);
-  return h('div.review-pane-reviewers', null,
+  return h((inline ? 'span' : 'div') + '.review-pane-reviewers' + (inline ? '.inline' : ''), null,
     h('span.review-reviewers-full', null,
       ...list.slice(0, SHOWN_REVIEWERS).map(one),
       list.length > SHOWN_REVIEWERS ? h('span.review-reviewers-more', { title: all }, `+${list.length - SHOWN_REVIEWERS}`) : null),
@@ -139,7 +139,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
         draft ? h('span.badge.review-badge.draft', { title: draft.title }, draft.text) : null,
         updated ? h('span.review-pane-updated', { title: fullDate(updated) }, `Updated ${ago(updated)}`) : null,
       ].filter(Boolean),
-      below: [stackLine(), factsBlock(facts), pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
+      // The reviewers sit on the change line once the facts are in (AK-516), else on a line of their own.
+      below: [stackLine(), facts ? factsBlock(facts, { after: pr ? reviewersLine(pr, true) : null }) : pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
     });
     strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u), loadImage: (id) => call('pr-media-image', id).then((r) => r?.ok ?? null) }) : null;
     head.replaceChildren(...[
@@ -155,7 +156,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   }
 
   // The status strip (AK-379): where the row stands on the left (Stuck and why, Ready to merge, In
-  // progress) as a red or green pill, its actions on the right with the primary one last, one row (AK-502).
+  // progress) in red or green text, its actions on the right with the primary one last, one row (AK-502).
   // "Stuck  conflicts with main in a.js · CI ✗ lint     [Conflicts F] [Checks O] … [Rebase onto main B]"
   function statusStrip(buttons) {
     const stage = row.stage;
