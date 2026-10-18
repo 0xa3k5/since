@@ -308,6 +308,8 @@ function parseMergeInfo(prOut, repoOut) {
     mergeState: text(p.mergeStateStatus, 32).toLowerCase(), // clean | blocked | unstable | behind | dirty | …
     review: REVIEW[p.reviewDecision] || null,
     checks: checksState(p.statusCheckRollup),
+    failing: failingChecks(p.statusCheckRollup),
+    checkCounts: checkCounts(p.statusCheckRollup),
     branch: text(p.headRefName),
     headOid: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
     // GitHub is still working out mergeability (right after a push); `gh pr merge` may refuse.
@@ -319,22 +321,23 @@ function parseMergeInfo(prOut, repoOut) {
 }
 
 // Whether the merge button is open. `hard` can't be overridden from here (draft, conflicts,
-// already closed). `soft` reasons (failing checks, review required, branch protection) need the
-// "merge anyway" tick; when GitHub itself blocks the merge, only an admin can bypass it (`--admin`).
+// already closed). `soft` reasons (checks still running, review required, branch protection) need
+// the "merge anyway" tick; when GitHub itself blocks the merge, only an admin can bypass it
+// (`--admin`). Failing checks GitHub doesn't require aren't a soft reason (AK-521): `failing` says
+// so, and the merge sheet names them in a plain confirm (renderer/check-confirm.js).
 function mergeGate(info) {
   const hard = info.state && info.state !== 'open' ? `This pull request is ${info.state}.`
     : info.draft ? 'It’s a draft. Mark it ready for review on GitHub first.'
     : info.conflicts ? 'It has conflicts with its base branch.'
     : null;
   const soft = [
-    info.checks === 'failure' ? 'Checks are failing.' : null,
     info.checks === 'pending' ? 'Checks are still running.' : null,
     info.review === 'required' ? 'A review is required.' : null,
     info.review === 'changes' ? 'Changes were requested.' : null,
   ].filter(Boolean);
   const protectedBranch = info.mergeState === 'blocked';
   if (protectedBranch && !soft.length) soft.push('Branch protection rules block this merge.');
-  return { hard, soft, needsAdmin: protectedBranch, canOverride: !protectedBranch || info.admin };
+  return { hard, soft, failing: info.checks === 'failure', needsAdmin: protectedBranch, canOverride: !protectedBranch || info.admin };
 }
 
 async function mergeInfo({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
@@ -776,7 +779,7 @@ function joinLanes(lanes = [], listed = null) {
     const head = slash > 0 ? l.upstream.slice(slash + 1) : l.branch;
     const owner = slash > 0 ? owners[l.upstream.slice(0, slash)] : null;
     const p = head && !l.isBase ? prs.find((x) => x.branch === head && (!owner || !x.headOwner || x.headOwner.toLowerCase() === owner.toLowerCase())) : null;
-    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, review: p.review, url: p.url } : null };
+    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, ...(p.failing?.length ? { failing: p.failing } : {}), review: p.review, url: p.url } : null };
   });
 }
 

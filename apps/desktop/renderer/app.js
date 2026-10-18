@@ -39,6 +39,8 @@ import { prefsWindow } from './prefs-view.js';
 import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
+import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
+import { peekEvidence } from './evidence-store.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -2997,12 +2999,14 @@ async function mergeLane(lane, base = null, onDone = null) {
   if (plan.mergeBlocker && !pr && plan.commits.length) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
   const n = plan.commits.length;
   const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
+  const laneChecks = pr && lane.pr.checks === 'failure' ? prCheckLines(lane.pr) : null;
   const tidy = plan.worktree ? `remove the worktree ${plan.worktree.name} and delete ${lane.branch}` : `delete ${lane.branch}`;
   const here = n ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}, then ${tidy}.` : `Nothing left to merge into ${plan.base || 'the base'}: this will ${tidy}.`;
   const v = await dialog({
     title: `Merge and tidy ${lane.name}?`,
     description: h('div.pr-merge', null,
       h('div', null, here),
+      checkFailEl(laneChecks),
       pr ? h('div.pr-remote-note', null, `On GitHub: #${pr.number} is squash-merged there, which ⌘Z can’t undo. The local tidy after it can be undone.`) : null,
       plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null,
       h('div.muted', null, '⌘Z undoes the local merge and tidy in one step.')),
@@ -3021,6 +3025,11 @@ async function mergeLane(lane, base = null, onDone = null) {
     if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
     const { gate } = info.ok;
     if (gate.hard || gate.soft.length) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard || `${gate.soft.join(' ')} Use Merge pull request… to merge anyway.` });
+    // Checks that failed since the list was loaded get their own confirm: a confirm, never a block.
+    if (needsCheckConfirm(Boolean(laneChecks), info.ok.failing)) {
+      const ok = await dialog({ title: `Merge #${pr.number} with a failing check?`, description: h('div.pr-merge', null, checkFailEl(prCheckLines(pr, info.ok.failing, info.ok.checkCounts))), submit: 'Merge' });
+      if (!ok) return;
+    }
     if (!info.ok.methods.includes('squash')) return toast(`#${pr.number} can’t be squash-merged`, { kind: 'error', detail: 'Use Merge pull request… to pick another method.' });
     const res = await prCall('pr-merge', pr, { method: 'squash', deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
     if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
@@ -3654,6 +3663,18 @@ const requestChangesPr = (given) => withPr(given, 'Request changes on', async (p
   refreshPrs();
 });
 
+// A PR's failing checks for a merge confirm (check-confirm.js): names from `gh`, durations and the
+// passed count from its evidence when the reader loaded it. checkFailEl draws them:
+// "✗ lint failed after 1m 12s", then "and 2 more failing checks · 5 other checks passed".
+function prChecks(pr, names = pr?.failing, counts = pr?.checkCounts) {
+  const evidence = state.prs?.active ? peekEvidence(prRemote(pr), pr) : null;
+  return { failing: failingChecks({ names, evidence }), passed: passedCount({ counts, evidence }) };
+}
+const prCheckLines = (...a) => { const c = prChecks(...a); return checkLines(c.failing, c.passed); };
+const checkFailEl = (c) => (c ? h('div.pr-check-fail', null,
+  ...c.lines.map((l) => h('div.pr-check-line', null, h('span.ev-icon.fail', null, icon('x', 12)), h('span.name', null, l.name), h('span.muted', null, l.text))),
+  c.more || c.passed ? h('div.muted', null, [c.more, c.passed].filter(Boolean).join(' · ')) : null) : null);
+
 const MERGE_LABELS = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
 const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
@@ -3663,22 +3684,24 @@ const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   if (gate.soft.length && !gate.canOverride) return toast(`GitHub blocks merging #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Only a repository admin can bypass it.` });
   // The local branch to delete afterwards, found now: the refresh after merging drops the PR.
   const local = prRef(pr, state.refs, state.prs.byRef);
+  const sheet = mergeConfirm({ gate, ...prChecks(pr, info.ok.failing, info.ok.checkCounts) });
   const v = await dialog({
     title: `Merge #${pr.number}?`,
     description: h('div.pr-merge', null,
       h('div', null, pr.title),
       h('div', null, `${pr.branch} → ${pr.base}`),
+      checkFailEl(sheet.checks),
       gate.soft.length ? h('div.pr-blocked', null, `Merge is blocked: ${gate.soft.join(' ')}`) : null,
       checking ? h('div.pr-remote-note', null, 'GitHub is still checking this pull request. If the merge fails, try again in a moment.') : null,
       h('div.pr-remote-note', null, `${REMOTE_NOTE} Fetching and deleting the local branch afterwards can be undone.`),
     ),
-    submit: gate.soft.length ? 'Merge anyway' : 'Merge',
-    destructive: gate.soft.length > 0,
-    gate: gate.soft.length ? 'anyway' : undefined,
+    submit: sheet.submit,
+    destructive: sheet.destructive,
+    gate: sheet.anyway ? 'anyway' : undefined,
     fields: [
       methods.length > 1 ? { name: 'method', type: 'select', label: 'Merge method', value: methods[0], options: methods.map((m) => ({ value: m, label: MERGE_LABELS[m] })) } : null,
       { name: 'del', type: 'checkbox', label: `Delete ${pr.branch} on GitHub${local?.kind === 'branch' ? ' and here' : ''}`, value: true },
-      gate.soft.length ? { name: 'anyway', type: 'checkbox', label: gate.needsAdmin ? 'Merge anyway, using my admin rights to bypass branch protection' : 'Merge anyway', value: false } : null,
+      sheet.anyway ? { name: 'anyway', type: 'checkbox', label: gate.needsAdmin ? 'Merge anyway, using my admin rights to bypass branch protection' : 'Merge anyway', value: false } : null,
     ].filter(Boolean),
   });
   if (!v) return;
@@ -3740,7 +3763,7 @@ async function mergeReadyPrs(prs, remote) {
   const ok = await dialog({
     title: `Squash-merge ${prs.length} pull request${prs.length === 1 ? '' : 's'}?`,
     description: h('div.pr-merge', null,
-      ...prs.map((p) => h('div', null, `#${p.number} ${p.title} · ${p.author}`)),
+      ...prs.flatMap((p) => [h('div', null, `#${p.number} ${p.title} · ${p.author}`), p.checks === 'failure' ? checkFailEl(prCheckLines(p)) : null]),
       h('div.pr-remote-note', null, `${REMOTE_NOTE} They merge one at a time and stop at the first one that fails.`)),
     submit: `Merge ${prs.length}`,
   });
@@ -3930,6 +3953,7 @@ function openPalette() {
       for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
         add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
+      if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show media of ${t}`, () => lanesPage.media(), { icon: 'image', kbd: keymap.keys('review.media'), keywords: 'media gallery images videos screenshots recordings pictures thumbnails' });
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show checks and reviews of ${t}`, () => lanesPage.evidence(), { icon: 'checks', kbd: keymap.keys('review.evidence'), keywords: 'evidence checks ci annotations media screenshots images videos reviews open threads log failed' });
       if (paneSel.row.pr && !paneSel.row.lane) add('Review', `Check out ${t} here`, () => checkoutPr(paneSel.row.pr), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
