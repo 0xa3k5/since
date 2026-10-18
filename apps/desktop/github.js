@@ -780,7 +780,7 @@ async function evidence({ enabled, remotes, number, head = null, ciConfigured = 
     Array.isArray(rollup) && rollup.length ? false : ciConfigured(p.headRefOid),
     Promise.all(failedRunIds(rollup).map(async (run) => ({ run, log: tailLog(await ghRun(bin, ['run', 'view', run, '--repo', repo, '--log-failed'], { dirs, exec }), 20) }))),
     Promise.all(annotatedRuns(rollup).map(async (r) => parseAnnotations(await api([`repos/${remote.owner}/${remote.repo}/check-runs/${r.id}/annotations?per_page=50`]), r.check))),
-    api(['graphql', '-f', `query=${THREADS_QUERY}`, '-F', `owner=${remote.owner}`, '-F', `name=${remote.repo}`, '-F', `number=${n}`]).then(parseThreads),
+    api(['graphql', '-f', `query=${THREADS_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`, '-F', `number=${n}`]).then(parseThreads),
   ]);
   const ok = (r, d) => (r.status === 'fulfilled' ? r.value : d);
   const ev = buildEvidence(p, { ciConfigured: ok(ci, false) === true, logs: ok(logs, []).filter((l) => l.log), annotations: ok(annotations, []).flat(), threads: ok(threads, null) });

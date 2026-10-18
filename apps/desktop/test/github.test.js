@@ -525,7 +525,7 @@ test('evidence: checks, failed log lines, annotations, media, approvals and open
     ['pr', 'view', '12', '--repo', 'github.com/acme/app', '--json', github.EVIDENCE_FIELDS],
     ['run', 'view', '55', '--repo', 'github.com/acme/app', '--log-failed'],
     ['api', '--hostname', 'github.com', 'repos/acme/app/check-runs/901/annotations?per_page=50'],
-    ['api', '--hostname', 'github.com', 'graphql', '-f', calls[3].args[5], '-F', 'owner=acme', '-F', 'name=app', '-F', 'number=12'],
+    ['api', '--hostname', 'github.com', 'graphql', '-f', calls[3].args[5], '-f', 'owner=acme', '-f', 'name=app', '-F', 'number=12'],
   ]);
   assert.match(calls[3].args[5], /reviewThreads\(first:100\)\{totalCount nodes\{isResolved isOutdated path line originalLine comments\(first:1\)\{nodes\{author\{login\} body url\}\}\}\}/);
   assert.equal(ev.head, '1111111111111111111111111111111111111111');

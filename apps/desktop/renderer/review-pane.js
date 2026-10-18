@@ -2,7 +2,7 @@ import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
-import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
+import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from './pr-review.js';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
 import * as keymap from './keymap.js';
@@ -301,7 +301,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   async function load() {
     const { pr, lane } = row;
     const rev = lane && !lane.isBase ? lane.branch || lane.head : null;
-    if (rev) return mount({ lane: { key: laneKey(lane), name: lane.name, rev }, base: ctx.base });
+    const own = rev && ctx.prsOn ? stackedBase(pr, ctx.base, ctx.remote) : null;
+    if (rev) return mount({ lane: { key: laneKey(lane), name: lane.name, rev }, base: own || ctx.base, fallback: own ? ctx.base : null });
     if (!pr || !ctx.prsOn) return el.replaceChildren(mini.el, head, h('div.empty', null, lane?.isBase ? 'This is the base branch.' : 'Nothing to review here.'));
     el.replaceChildren(mini.el, head, loading(`Fetching #${pr.number}…`));
     const id = `${JSON.stringify(ctx.remote ?? null)}#${pr.number}@${pr.updatedAt || ''}`;
