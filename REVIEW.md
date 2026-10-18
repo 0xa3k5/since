@@ -41,10 +41,26 @@ licence validation, Polar product/price IDs, prices and legal terms; history rew
 ## Stacked series
 
 The only allowed stacking: one feature split by one author into at most 4 parts on the same issue
-(or its sub-issues). Part 1 is based on `main`, part k on part k-1's branch. Titles end with
-`[k/n]`; each body starts with `Stacked series k/n · depends on #<PR>` (part 1: `· base`). Every part
-passes tests on its own. Merged strictly bottom-up; each next part is rebased onto `main` after
-the squash.
+(or its sub-issues). Never on another agent's or another issue's PR unless AK says so.
+
+A series is a **native GitHub stack**, made with GitHub's stack extension
+(`gh extension install github/gh-stack`; check that `gh stack --help` works). A plain chain of
+`gh pr create --base <previous branch>` is not a stack: GitHub shows no stack view for it, can't
+merge it as a stack, and won't rebase and retarget the next part after a merge.
+
+- Part 1 is based on `main`, part k on part k-1's branch. Every part passes tests on its own.
+- Author: put a local branch at the end of each part, then one command, bottom to top:
+  `gh stack link --open <branch 1> <branch 2> …`. It pushes the branches, opens the PRs with the
+  right bases and registers the stack. Then set titles and bodies with `gh pr edit`. PRs that
+  already exist are joined with `gh stack link <PR 1> <PR 2> …`.
+- Titles end with `[k/n]`; each body starts with `Stacked series k/n · depends on #<PR>`
+  (part 1: `· base`).
+- Reviewer: check that GitHub shows the series as a stack:
+  `gh api graphql -f query='{ repository(owner:"0xa3k5", name:"gitlanes") { pullRequest(number:<PR>) { stack { number size } } } }'`
+  must return a stack whose `size` is n. If it is `null`, ask the author for `gh stack link`.
+- Merged strictly bottom-up, one reviewed part at a time: `gh stack merge <PR k> --squash --yes`
+  (no `--delete-branch`). GitHub then rebases and retargets the next part onto `main`; rebase by
+  hand only if it can't. Delete the part branches after the last part has merged.
 
 ## Known recurring issues
 
