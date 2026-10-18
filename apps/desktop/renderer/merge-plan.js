@@ -30,11 +30,12 @@ export const unitLabel = (key, stacks = []) => {
 // prs: the ready units [{ number, head } | { stack, prs, head }] in their natural order (Review's:
 // waiting longest first). others: open PRs that aren't ready [{ number, head }]. Returns
 //   { order: [{ number, after } | { stack, prs, after }], forced: [{ first, then, files }],
-//     blocked: [{ number | stack, files }], warnings: [{ number, files }], tip, complete }
+//     blocked: [{ number | stack, files, with }], warnings: [{ number, files }], tip, complete }
 // order: a sequence that merges with no text conflicts, as close to the natural order as possible;
 //   `after` is null when the unit merges clean on the base alone, else the key it has to wait for.
 // forced: why the order differs from the natural one: "#first before #then would conflict in files".
-// blocked: ready PRs no clean order fits, with the files they'd conflict in at the end.
+// blocked: ready PRs no clean order fits, with the files they'd conflict in at the end and `with`,
+//   the unit in the plan after which they stop merging clean (null if that's the base itself).
 // warnings: PRs that aren't ready and merge clean today but would conflict once the plan merges.
 // complete: false when the search ran out of MAX_MERGES before trying every order.
 export async function planOrder({ prs = [], others = [], baseSha, merge, budget = MAX_MERGES }) {
@@ -94,7 +95,13 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
   const tip = tips[tips.length - 1];
   const inPlan = new Set(best.map((s) => keyOf(s.pr)));
   const blocked = [];
-  for (const p of ready) if (!inPlan.has(keyOf(p))) blocked.push({ ...(p.stack ? { stack: p.stack } : { number: p.number }), files: (await sim(tip, p.head)).files });
+  for (const p of ready) {
+    if (inPlan.has(keyOf(p))) continue;
+    // The plan step after which it stops merging clean names the PR it conflicts with (AK-550).
+    let k = 0;
+    while (k < tips.length && (await sim(tips[k], p.head)).commit) k++;
+    blocked.push({ ...(p.stack ? { stack: p.stack } : { number: p.number }), files: (await sim(tip, p.head)).files, with: k > 0 && k < tips.length ? keyOf(best[k - 1].pr) : null });
+  }
 
   const warnings = [];
   if (best.length) {
@@ -179,9 +186,71 @@ export function changedSince(snap, now) {
   return null;
 }
 
-// Whether `gh pr view` (mergeInfo) says a PR is ready: what Review's Ready to merge means.
-export const isReady = (info) => Boolean(info && info.state === 'open' && !info.draft && !info.conflicts
-  && info.review === 'approved' && (info.checks === 'success' || info.checks == null));
+// ── Blockers (AK-550) ──
+// Why GitHub won't merge a PR yet, by GitHub's own rules: from github.planFacts (or mergeInfo's
+// shape, which has no per-check list). Each is { kind, required, who?, detail?, … }; `required`
+// false means GitHub would merge past it (a check the base doesn't require), so the plan takes the
+// PR only with Merge anyway. Kinds: error, closed, draft, conflicts-base { files },
+// check-failed { checks: [{ name, required, url?, run?, quick }], rerun }, check-running { checks },
+// needs-review { approvals, canApprove, changes }, behind, protected; the plan adds
+// conflicts-pr { with, files } and stack { number }. `who` is who has to act.
+export const QUICK_FAIL = 5; // seconds: a check that failed this fast probably didn't run
+const FAILED = new Set(['failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure']);
+const checkOf = (c) => ({ name: c.name, required: c.required === true, ...(c.url ? { url: c.url } : {}), ...(c.run ? { run: c.run } : {}) });
+export function blockersOf(f) {
+  if (!f || f.error) return [{ kind: 'error', required: true, detail: f?.error || 'GitHub didn’t say where it stands.' }];
+  if (f.state && f.state !== 'open') return [{ kind: 'closed', required: true, detail: `It’s ${f.state}.` }];
+  const out = [];
+  const who = f.author ? [f.author] : [];
+  if (f.draft) out.push({ kind: 'draft', required: true, who });
+  if (f.conflicts) out.push({ kind: 'conflicts-base', required: true, who, files: f.conflictFiles || [] });
+  if (Array.isArray(f.checkList)) {
+    const failed = f.checkList.filter((c) => FAILED.has(c.result));
+    if (failed.length) {
+      const checks = failed.map((c) => ({ ...checkOf(c), quick: c.duration != null && c.duration <= QUICK_FAIL }));
+      out.push({ kind: 'check-failed', required: checks.some((c) => c.required), who, checks, rerun: checks.some((c) => c.run) });
+    }
+    const running = f.checkList.filter((c) => c.result === 'pending').map(checkOf);
+    if (running.length) out.push({ kind: 'check-running', required: running.some((c) => c.required), checks: running });
+  } else if (f.checks === 'failure') {
+    // No per-check list: GitHub's merge state says whether a failing check is required.
+    out.push({ kind: 'check-failed', required: f.mergeState !== 'unstable', who, checks: (f.failing || []).map((name) => ({ name, required: f.mergeState !== 'unstable', quick: false })), rerun: false });
+  } else if (f.checks === 'pending') out.push({ kind: 'check-running', required: f.mergeState === 'blocked', checks: [] });
+  if (f.review === 'required' || f.review === 'changes') {
+    out.push({ kind: 'needs-review', required: true, who: f.requested || [], approvals: f.approvals ?? null, canApprove: f.canApprove === true, changes: f.review === 'changes' });
+  }
+  if (f.mergeState === 'behind') out.push({ kind: 'behind', required: true, who });
+  if (f.mergeState === 'blocked' && !out.some((b) => b.required)) out.push({ kind: 'protected', required: true, detail: 'Branch protection rules block this merge.' });
+  return out;
+}
+// Whether the plan leaves a PR out: anything GitHub requires, and with `anyway` off, anything at all.
+export const waits = (blockers, anyway = false) => blockers.some((b) => b.required || !anyway);
+// Only checks GitHub doesn't require stand in the way: Merge anyway would take it.
+export const anywayOnly = (blockers) => blockers.length > 0 && blockers.every((b) => !b.required);
+// The blocker a one-line reason names: the first GitHub requires, else the first.
+export const mainBlocker = (blockers) => blockers.find((b) => b.required) || blockers[0] || null;
+
+const names = (list, max = 2) => {
+  const n = list.map((c) => c.name);
+  if (n.length <= max) return n.join(' and ');
+  return `${n.slice(0, max).join(', ')} and ${n.length - max} more`;
+};
+export function blockerText(b, stacks) {
+  switch (b?.kind) {
+    case 'draft': return 'It’s a draft.';
+    case 'conflicts-base': return b.files?.length ? `Conflicts with the base in ${fileList(b.files)}` : 'It has conflicts with its base branch.';
+    case 'conflicts-pr': return b.with ? `Conflicts with ${unitLabel(b.with, stacks)} in ${fileList(b.files)}` : blockedText(b);
+    case 'check-failed': return b.checks?.length ? `${names(b.checks)} failed${b.required ? '' : ', not required'}` : 'Checks failed.';
+    case 'check-running': return b.checks?.length ? `${names(b.checks)} still running` : 'Checks are still running.';
+    case 'needs-review': return b.changes ? 'Changes were requested.' : b.approvals > 1 ? `Needs ${b.approvals} approvals.` : 'Needs an approval.';
+    case 'behind': return 'It’s behind its base, and the base must be up to date.';
+    case 'stack': return `#${b.number} below it can’t merge yet`;
+    default: return b?.detail || 'GitHub won’t merge it yet.';
+  }
+}
+
+// Whether GitHub would merge a PR now (no blockers at all): what Review's Ready to merge means.
+export const isReady = (info) => Boolean(info) && !waits(blockersOf(info));
 
 // Clean up after merging (AK-543): what git.cleanupLanes should remove for PRs GitHub confirmed
 // merged. `merged` is [{ number, branch, head }] (head: the PR's tip, so a local branch with other

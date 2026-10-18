@@ -355,6 +355,70 @@ async function mergeInfo({ enabled, remotes, number, dirs = searchDirs(), exec }
   return { ...info, gate: mergeGate(info) };
 }
 
+// ── Merge plan facts (AK-550) ──
+// GitHub's own merge rules for one PR, in one GraphQL call: the merge state, every check with
+// whether the base requires it, the required approval count, who was asked to review, and who you
+// are (so the plan knows when you may approve). Rulesets and branch protection both show up in
+// refUpdateRule; branchProtectionRule is the fallback for older GitHub Enterprise hosts.
+const PLAN_QUERY = 'query($owner:String!,$name:String!,$number:Int!){viewer{login} repository(owner:$owner,name:$name){viewerPermission pullRequest(number:$number){number state isDraft mergeable mergeStateStatus reviewDecision headRefName headRefOid author{login} reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{name} ... on Bot{login}}}} latestReviews(first:20){nodes{author{login} state}} baseRef{refUpdateRule{requiredApprovingReviewCount} branchProtectionRule{requiredApprovingReviewCount requiresStrictStatusChecks}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion detailsUrl startedAt completedAt isRequired(pullRequestNumber:$number)} ... on StatusContext{context state targetUrl createdAt isRequired(pullRequestNumber:$number)}}}}}}}}}}';
+const CAN_REVIEW = new Set(['WRITE', 'MAINTAIN', 'ADMIN']);
+function parsePlanFacts(out) {
+  const d = parseJson(out).data || {};
+  const p = d.repository?.pullRequest;
+  if (!p || typeof p !== 'object') throw coded('GitHub didn’t return the pull request.', 'gh-failed');
+  const rollup = Array.isArray(p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes) ? p.commits.nodes[0].commit.statusCheckRollup.contexts.nodes : [];
+  const named = rollup.slice(0, 50).filter((x) => text(x?.name || x?.context, 200));
+  const checks = checkList(named).map((c, i) => {
+    const run = /\/actions\/runs\/(\d+)/.exec(c.url || '')?.[1];
+    return { ...c, required: named[i].isRequired === true, ...(run ? { run } : {}) };
+  });
+  const rule = p.baseRef?.refUpdateRule || p.baseRef?.branchProtectionRule || null;
+  const viewer = text(d.viewer?.login, 100);
+  const author = text(p.author?.login, 100);
+  const approved = (p.latestReviews?.nodes || []).some((r) => r?.state === 'APPROVED' && r.author?.login === viewer);
+  return {
+    number: Number.isSafeInteger(p.number) ? p.number : null,
+    state: text(p.state, 32).toLowerCase(),
+    draft: p.isDraft === true,
+    conflicts: p.mergeable === 'CONFLICTING' || p.mergeStateStatus === 'DIRTY',
+    checking: p.mergeable === 'UNKNOWN',
+    mergeState: text(p.mergeStateStatus, 32).toLowerCase(),
+    review: REVIEW[p.reviewDecision] || null,
+    checks: checksState(rollup),
+    checkList: checks,
+    branch: text(p.headRefName),
+    headOid: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
+    author,
+    approvals: count(rule?.requiredApprovingReviewCount),
+    requested: (p.reviewRequests?.nodes || []).map((n) => text(n?.requestedReviewer?.login || n?.requestedReviewer?.name, 100)).filter(Boolean).slice(0, 20),
+    // GitHub doesn't count an author's own approval, or one from someone without write access.
+    canApprove: Boolean(viewer && viewer !== author && CAN_REVIEW.has(d.repository?.viewerPermission) && !approved),
+  };
+}
+
+async function planFacts({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote } = target({ enabled, remotes, dirs });
+  const n = prNumber(number);
+  return parsePlanFacts(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${PLAN_QUERY}`, '-F', `owner=${remote.owner}`, '-F', `name=${remote.repo}`, '-F', `number=${n}`], { dirs, exec }));
+}
+
+// Mark a draft ready for review (`gh pr ready`).
+async function markReady({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  await ghRun(bin, ['pr', 'ready', prNumber(number), '--repo', repo], { dirs, exec });
+  return { number };
+}
+
+// Re-run the failed jobs of a PR's failed GitHub Actions runs (at most 3, as failedRunIds finds
+// them); other CI systems have no run to re-run. → { number, runs } (runs: the ids re-run).
+async function rerunFailed({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  const n = prNumber(number);
+  const runs = parseFailedRuns(await ghRun(bin, ['pr', 'view', n, '--repo', repo, '--json', 'statusCheckRollup'], { dirs, exec }));
+  for (const id of runs) await ghRun(bin, ['run', 'rerun', id, '--repo', repo, '--failed'], { dirs, exec });
+  return { number, runs };
+}
+
 const comment = (body) => (typeof body === 'string' && body.trim() ? body.trim().slice(0, 65_536) : null);
 
 async function approvePr({ enabled, remotes, number, body, dirs = searchDirs(), exec } = {}) {
@@ -856,4 +920,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
