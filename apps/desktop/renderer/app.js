@@ -958,6 +958,7 @@ function applyPanes() {
   root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
   root.style.setProperty('--cv-w', `${state.panes.commit}px`);
   root.style.setProperty('--st-w', `${state.panes.stash}px`);
+  root.style.setProperty('--cu-w', `${state.panes.catchup}px`);
   root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
 }
 function setPane(id, px, save = true) {
@@ -2383,9 +2384,9 @@ function snapshotsView() {
   const entries = [...[...r].map((e) => ({ ...e, redo: true })), ...[...u].reverse()];
   const hidden = undoCount - u.length + redoCount - r.length;
   const more = () => { state.historyLimit += 500; refreshHistory(); };
-  return h('div.page', null,
+  return h('div.page.flush.history-page', null,
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'History & recovery'), historyTabs('snapshots'), h('p.muted', null, 'Every operation that moves a branch, tag or HEAD, discards changes or drops a stash is recorded. Undo, redo, or restore any earlier state.')),
+      h('div', null, h('h1', null, 'History & recovery'), historyTabs('snapshots')),
       h('div.page-actions', null,
         h('button.btn.subtle', { disabled: !u.length, onclick: undo }, icon('undo', 14), 'Undo', kbd(...keymap.keys('edit.undo'))),
         h('button.btn.subtle', { disabled: !r.length, onclick: redo }, icon('redo', 14), 'Redo', kbd(...keymap.keys('edit.redo')))),
@@ -2450,8 +2451,8 @@ async function restoreSnapshot(e) {
 // Reflog
 
 function reflogView() {
-  const el = h('div.page.flush');
-  el.append(h('div.page-head', null, h('div', null, h('h1', null, 'History & recovery'), historyTabs('reflog'), h('p.muted', null, 'Recover lost commits from every ref’s history.'))));
+  const el = h('div.page.flush.history-page');
+  el.append(h('div.page-head', null, h('div', null, h('h1', null, 'History & recovery'), historyTabs('reflog'))));
   const rows = h('div.table');
   for (const e of state.reflog) {
     rows.append(h('div.table-row', {
@@ -2675,7 +2676,6 @@ function refListView(view) {
       h('div', null, h('h1', null, page.label), h('p.muted', null, REF_LISTS[view].lede)),
       view === 'remoteList' ? h('div.page-actions', null, h('button.btn.subtle', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), 'Add remote…')) : null),
     rows.length ? list : h('div.empty', null, REF_LISTS[view].empty),
-    rows.length ? h('div.diff-hint.wt-hint', null, `${keyText('list.open')} Open · right-click for more`) : null,
   );
   el.addEventListener('keydown', (e) => {
     const id = keymap.match('list', e);
@@ -2728,7 +2728,7 @@ function worktreesView() {
 
   el.append(
     h('div.page-head', null,
-      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'Extra working folders for this repository, each on its own branch. Work on several branches at once, or give each coding agent its own branch.')),
+      h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'A working folder per branch.')),
       h('div.page-actions', null,
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
         h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
@@ -2800,6 +2800,7 @@ function openLanes() {
 function openCatchup() {
   catchupPage = catchupView({
     repo: state.repo.root,
+    paneHandle: (box) => paneHandle('catchup', box),
     git,
     load: (opts) => api.app('catchup', opts),
     mark: (to) => api.app('catchup-mark', to),
