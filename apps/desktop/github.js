@@ -474,7 +474,7 @@ async function openPrBranches({ enabled, remotes, dirs = searchDirs(), exec } = 
 // `gh stack link` needs: open, its base, a branch in this repo, and that you may push to it and
 // edit the PR. One GraphQL call for all of them; the numbers are checked integers.
 const MAX_FACTS = 20;
-const STACK_FIELDS = 'number state baseRefName headRefName isCrossRepository viewerCanUpdate headRepository{viewerPermission} stack{number size}';
+const STACK_FIELDS = 'number state baseRefName headRefName headRefOid isCrossRepository viewerCanUpdate headRepository{viewerPermission} stack{number size}';
 const stackQuery = (numbers) => `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((n) => `p${n}:pullRequest(number:${n}){${STACK_FIELDS}}`).join(' ')}}}`;
 function parseStackFacts(out, numbers) {
   const repo = parseJson(out).data?.repository || {};
@@ -485,6 +485,7 @@ function parseStackFacts(out, numbers) {
     const st = p.stack && Number.isSafeInteger(p.stack.number) ? { number: p.stack.number, size: Number.isSafeInteger(p.stack.size) ? p.stack.size : 0 } : null;
     facts.set(n, {
       state: text(p.state, 32).toLowerCase(), baseBranch: text(p.baseRefName), branch: text(p.headRefName),
+      head: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
       fork: p.isCrossRepository === true, canUpdate: p.viewerCanUpdate === true,
       canPush: CAN_REVIEW.has(p.headRepository?.viewerPermission), stack: st,
     });

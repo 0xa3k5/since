@@ -852,6 +852,41 @@ handle('app:pr-stack-link', okCall(async (e, remoteName, baseName, numbers) => {
   if (new Set(ns).size !== ns.length) throw new check.IpcArgError('Invalid stack');
   return github.linkStack({ ...t, base, numbers: ns });
 }));
+// Rebases a stack onto its base (AK-559), so GitHub can merge it: merge commits out, each PR on
+// the one below it. All or nothing, like linking: every PR is checked first (open, its base the one
+// below it, you can push to it), the new commits are built as objects only (git.rebaseStack), and
+// the first conflict stops it with nothing changed. Then one atomic push, each branch leased to the
+// head GitHub named, so a push someone made meanwhile fails it whole. Remote, and not undoable
+// with ⌘Z. → { rebased: [numbers] } ([] when it was already linear) | { failed: { number, reason } }
+// | { conflict: { number, files } }.
+handle('app:pr-stack-rebase', okCall(async (e, remoteName, baseName, numbers) => {
+  const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
+  if (!Array.isArray(numbers) || numbers.length < 2 || numbers.length > mergePlan.MAX_STACK) throw new check.IpcArgError('Invalid stack');
+  const ns = numbers.map((n) => check.prNumber(n));
+  if (new Set(ns).size !== ns.length) throw new check.IpcArgError('Invalid stack');
+  const facts = await github.stackFacts({ ...t, numbers: ns });
+  const stop = mergePlan.linkBlocker(ns, facts, base) || ns.map((n) => (facts.get(n).head ? null : { number: n, reason: 'GitHub didn’t name its head commit.' })).find(Boolean);
+  if (stop) return { failed: stop };
+  const heads = ns.map((n) => facts.get(n).head);
+  await r(s, ['fetch', '--no-tags', '--', remote.name, `refs/heads/${base}`, ...ns.map((n) => `refs/pull/${n}/head`)]);
+  const baseSha = (await r(s, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
+  for (const [i, h] of heads.entries()) {
+    if ((await r(s, ['cat-file', '-t', h], { allowCodes: [0, 1, 128] }).catch(() => '')).trim() !== 'commit') return { failed: { number: ns[i], reason: 'Couldn’t fetch its head commit.' } };
+  }
+  const res = await git.rebaseStack(s.repo.root, baseSha, heads);
+  if (res.conflict) return { conflict: { number: ns[res.conflict.index], files: res.conflict.files } };
+  const moved = ns.map((n, i) => ({ number: n, branch: check.rev(facts.get(n).branch, 'branch'), old: heads[i], now: res.heads[i] })).filter((_, i) => res.changed[i]);
+  if (!moved.length) return { rebased: [] };
+  const refspecs = moved.map((m) => `${m.now}:refs/heads/${m.branch}`);
+  const leases = moved.map((m) => `--force-with-lease=refs/heads/${m.branch}:${m.old}`);
+  try {
+    await r(s, ['push', '--atomic', ...leases, '--', remote.name, ...refspecs]);
+  } catch (err) {
+    const why = /stale info|fetch first|rejected/i.test(err.message) ? 'It changed on GitHub meanwhile. Nothing was pushed.' : String(err.message).split('\n').filter(Boolean).pop()?.slice(0, 200) || 'Push failed. Nothing was pushed.';
+    return { failed: { number: moved[0].number, reason: why } };
+  }
+  return { rebased: moved.map((m) => m.number) };
+}));
 // One step of a plan: { snap, baseSha, method } from the plan (or the previous merge's commit), or
 // for a stack (AK-545) { stack: [{ number, snap }] bottom…top, baseSha, method } with `number` its
 // top PR. Every PR is checked before the merge. → { stop: reason } when something changed, else

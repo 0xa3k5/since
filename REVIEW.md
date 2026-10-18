@@ -58,6 +58,7 @@ merge it as a stack, and won't rebase and retarget the next part after a merge.
   `gh stack link --open <branch 1> <branch 2> …`. It pushes the branches, opens the PRs with the
   right bases and registers the stack. Then set titles and bodies with `gh pr edit`. PRs that
   already exist are joined with `gh stack link <PR 1> <PR 2> …`.
+- A part never merges the branch below into itself: when the part below changes, rebase onto it.
 - Titles end with `[k/n]`; each body starts with `Stacked series k/n · depends on #<PR>`
   (part 1: `· base`).
 - Reviewer: check that GitHub shows the series as a stack:
