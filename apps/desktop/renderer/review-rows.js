@@ -218,6 +218,16 @@ export function stackNote(row) {
   };
 }
 
+// The order the pane's stack path folds its PRs into "··· N" when the line runs out of room (AK-540):
+// indexes into `path`, the PRs farthest from this one (`at`, 1-based) first, then the bottom PR, then
+// the one above this, then the one below. This PR never folds.
+export function stackFoldOrder(path, at) {
+  const me = at - 1;
+  const kept = [me - 1, me + 1, 0];
+  const rest = path.map((_, i) => i).filter((i) => i !== me && !kept.includes(i)).sort((a, b) => Math.abs(b - me) - Math.abs(a - me) || b - a);
+  return [...rest, ...kept.filter((i, k) => i >= 0 && i < path.length && i !== me && kept.indexOf(i) === k).reverse()];
+}
+
 // Whether the rows next to rows[i] are in its stack (the list's rail joins their dots): { up, down }.
 export function stackRail(rows, i) {
   const root = rows[i]?.stack?.root;

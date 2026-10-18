@@ -866,7 +866,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row-age { flex: none; color: var(--text-4); font-variant-numeric: tabular-nums; }
 /* Staged rows (AK-379): status dot · title (led by its muted #number, AK-516) over one quiet line · age, no buttons; the
    reason line is red when stuck. Details (D) open under the title. */
-.lanes-row.review-row.staged { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 14px; border-radius: 0; border-bottom: 1px solid var(--border); }
+.lanes-row.review-row.staged { --row-pad: 14px; --row-dot: 8px; --row-gap: 10px; display: grid; grid-template-columns: var(--row-dot) minmax(0, 1fr) auto; column-gap: var(--row-gap); align-items: center; padding: 9px var(--row-pad); border-radius: 0; border-bottom: 1px solid var(--border); }
 .review-row.staged .list-title { font-weight: var(--fw-medium); }
 .review-row.staged .review-row-num { display: inline-flex; align-items: center; margin-right: 6px; vertical-align: -1px; font-size: 12px; color: var(--text-3); }
 .review-row.staged .review-row-num > .icon { color: var(--text-4); }
@@ -879,11 +879,13 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-dot.stuck { background: var(--red); }
 .review-dot.ready { background: var(--green); }
 /* A stack's rows next to each other (AK-537): a rail through their dots, up to the row above and
-   down to the row below. The dot sits on top of it. */
+   down to the row below. The dot sits on top of it. Inside a stack, the divider starts under the title
+   (AK-540), so the rail runs unbroken from the first dot to the last; the stack's last row keeps a full line. */
 .review-row.staged.stack-up, .review-row.staged.stack-down { position: relative; }
-.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: 17px; width: 2px; background: var(--border-strong); pointer-events: none; }
+.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: calc(var(--row-pad) + var(--row-dot) / 2 - 1px); width: 2px; background: var(--border-strong); pointer-events: none; }
 .review-row.staged.stack-up::before { top: -1px; height: calc(50% + 1px); }
 .review-row.staged.stack-down::after { top: 50%; bottom: -1px; }
+.review-row.staged.stack-down { --row-inset: calc(var(--row-pad) + var(--row-dot) + var(--row-gap)); border-bottom-color: transparent; background-image: linear-gradient(var(--border), var(--border)); background-repeat: no-repeat; background-origin: border-box; background-position: right bottom; background-size: calc(100% - var(--row-inset)) 1px; }
 .review-row.staged > .review-dot { position: relative; z-index: 1; }
 .lanes-fix { flex-wrap: wrap; }
 .sendback .sendback-reason { white-space: normal; }
@@ -1125,10 +1127,19 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-pane-title .badge { flex: none; }
 .review-pane-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; }
 .review-pane-meta .mono { color: var(--text-2); }
-/* The stack path (AK-537): main ‹ #41 ‹ #42 this PR ‹ #43, each PR with its stage dot. */
+/* The stack path (AK-537): main ‹ #41 ‹ #42 this PR ‹ #43, each PR with its stage dot. One line (AK-540):
+   review-pane.js foldStack() tucks the farthest PRs into a ··· N chip until it fits. */
 .review-pane-stack { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-stack > .muted { flex: none; }
-.review-stack-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.review-stack-path { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; padding: 3px; margin: -3px; overflow: hidden; white-space: nowrap; }
+.review-stack-base { flex: none; }
+.review-stack-step { display: inline-flex; flex: none; align-items: center; gap: 6px; }
+.review-stack-step[hidden] { display: none; }
+.review-stack-more { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; font: inherit; font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; color: var(--text-3); background: var(--bg-elevated); cursor: pointer; }
+.review-stack-more:hover { color: var(--text); background: var(--bg-hover); }
+.review-stack-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The chip's menu: each folded PR leads with its stage dot, in the icon's slot. */
+.menu-item > .review-dot { flex: none; width: 6px; height: 6px; margin: 0 5px; }
 .review-stack-base { color: var(--text-3); }
 .review-stack-sep { color: var(--text-4); }
 .review-stack-pr { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; border-radius: 4px; font: inherit; font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; color: var(--text-2); background: none; border: 0; }
