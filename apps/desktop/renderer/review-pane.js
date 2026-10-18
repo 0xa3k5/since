@@ -141,7 +141,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       ].filter(Boolean),
       below: [stackLine(), factsBlock(facts), pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
     });
-    strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u) }) : null;
+    strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u), loadImage: (id) => call('pr-media-image', id).then((r) => r?.ok ?? null) }) : null;
     head.replaceChildren(...[
       top,
       statusStrip([...rest.map(button), rest.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null, ...icons.map(button), github ? button(github) : null, moreBtn, lead ? button(lead) : null].filter(Boolean)),
@@ -213,8 +213,17 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     return true;
   }
 
+  // I: the Media tab, focused on its first thumbnail.
+  function showMedia() {
+    const s = strip ? head.querySelector('section.evidence') : null;
+    if (s?.media?.()) return true;
+    toast(!row.pr ? 'Only pull requests have images and videos' : !ctx.prsOn ? 'Turn on PR features to see images and videos' : ev === undefined ? 'Still loading checks and reviews' : 'No images or videos on this pull request');
+    return true;
+  }
+
   const onKey = (id) => {
     if (id === 'review.evidence') return nextEvidence();
+    if (id === 'review.media') return showMedia();
     const f = fixes.find((x) => x.key === id);
     if (f) { fix(f.id); return true; }
     const a = actions.find((x) => x.key === id);
@@ -296,6 +305,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     },
     // ⌘K "Show checks and reviews": the evidence strip's next tab.
     evidence: nextEvidence,
+    // ⌘K "Show media".
+    media: showMedia,
     destroy() { alive = false; ro.disconnect(); mini.destroy(); },
     // The row's "Conflicts in N files" note: jump to the Conflicting group.
     showConflicts,

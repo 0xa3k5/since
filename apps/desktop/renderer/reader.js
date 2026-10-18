@@ -20,6 +20,11 @@ import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkL
 //  - evidenceStrip (AK-520): a bar of tabs (Checks, CI didn't run, Annotations, Media, Reviews,
 //    Open threads), one open at a time; it opens on Checks when one fails, else it stays closed.
 //    E (review.evidence) opens the next tab. Tabs with nothing in them aren't shown.
+//  - mediaGallery (AK-521): the Media tab's 112×72 thumbnails (description, then comments, then
+//    reviews), loaded by the main process (pr-media.js): images as data: URLs kept in memory only,
+//    videos streamed from gitlanes-media: and never stored. I (review.media) opens the tab and
+//    focuses the first one; ←/→ move between them; Space enlarges the focused one over the reader
+//    (←/→ browse, K plays or pauses a video, Space or Esc closes).
 //  - readerKey: the reader's keys once focus is in it (↵ from the list): ↑/↓ scroll by a few lines,
 //    ⇧↑/⇧↓ four times as far (AK-390), Page Up/Down and Space by a page, ←/→ step the list's selection, , and . jump between files,
 //    Esc goes back to the list. ↑/↓ never change the item here.
@@ -271,7 +276,7 @@ const logOpen = new Set();
 // The strip at the top of a PR's reader. evidence: github.evidence, or undefined while it loads
 // (a quiet line), or null (nothing to show: no strip). key: the PR, for the open tab; openUrl(url)
 // opens a check in the browser. Returns the element, with .next() for E (false when it has no tabs).
-export function evidenceStrip({ evidence, key, openUrl = null }) {
+export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null }) {
   if (evidence === undefined) return h('section.evidence.loading', { 'aria-label': 'Evidence', 'aria-busy': 'true' }, h('div.ev-note.muted', null, 'Loading checks and reviews…'));
   const tabs = evidenceTabs(evidence);
   if (!tabs.length) return null;
@@ -279,7 +284,7 @@ export function evidenceStrip({ evidence, key, openUrl = null }) {
   const box = h('section.evidence', { 'aria-label': 'Evidence' });
   const show = (id, focus = false) => {
     evOpen.set(key, id);
-    const next = evidenceStrip({ evidence, key, openUrl });
+    const next = evidenceStrip({ evidence, key, openUrl, loadImage });
     box.replaceWith(next);
     if (focus) next.querySelector(id ? `.ev-tab[data-tab="${id}"]` : '.ev-tab')?.focus({ preventScroll: true });
   };
@@ -299,10 +304,17 @@ export function evidenceStrip({ evidence, key, openUrl = null }) {
     }, t.icon ? icon(t.icon, 12) : null, t.label, n));
   }
   box.append(bar);
-  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, openUrl, () => show(open))));
+  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, { openUrl, loadImage }, () => show(open))));
   box.next = () => {
     const i = tabs.findIndex((t) => t.id === open);
     show(i + 1 < tabs.length ? tabs[i + 1].id : null);
+    return true;
+  };
+  // I: the Media tab, focused on its first thumbnail. False without media.
+  box.media = () => {
+    if (!tabs.some((t) => t.id === 'media')) return false;
+    if (open !== 'media') show('media');
+    document.querySelector('section.evidence .ev-thumb')?.focus({ preventScroll: false });
     return true;
   };
   return box;
@@ -311,7 +323,7 @@ export function evidenceStrip({ evidence, key, openUrl = null }) {
 const LEVEL_ICON = { failure: ['x', 'fail'], warning: ['warning', 'warn'], notice: ['pending', 'wait'] };
 const REVIEW_TEXT = { approved: 'approved', changes: 'asked for changes' };
 
-function evidenceBody(id, ev, key, openUrl, redraw) {
+function evidenceBody(id, ev, key, { openUrl, loadImage }, redraw) {
   if (id === 'ci') {
     const head = ev.head ? ev.head.slice(0, 7) : null;
     return [h('div.ev-note', null, 'No checks ran on ', head ? h('span.mono', null, head) : 'the head', ', the head of this pull request.',
@@ -349,7 +361,7 @@ function evidenceBody(id, ev, key, openUrl, redraw) {
     const n = (k) => ev.media.filter((m) => m.kind === k).length;
     const parts = [n('image') ? `${n('image')} image${n('image') === 1 ? '' : 's'}` : null, n('video') ? `${n('video')} video${n('video') === 1 ? '' : 's'}` : null].filter(Boolean);
     const from = [...new Set(ev.media.map((m) => (m.from === 'description' ? 'the description' : m.from === 'review' ? 'reviews' : 'comments')))];
-    return [h('div.ev-note', null, `${parts.join(' and ')} in ${from.join(', ')}`)];
+    return [h('div.ev-note', null, `${parts.join(' and ')} in ${from.join(', ')}`), mediaGallery(ev.media, { openUrl, loadImage })];
   }
   if (id === 'reviews') {
     return [h('div.ev-people', null, ...ev.reviews.map((r) => h('span.ev-person', null, personAvatar(r.login, r.login, 16), h('span', null, `${r.login} ${REVIEW_TEXT[r.state] || r.state}`))))];
@@ -360,3 +372,109 @@ function evidenceBody(id, ev, key, openUrl, redraw) {
   }
   return [];
 }
+
+// ── Media gallery (AK-521) ──
+
+// Images this window has loaded: id → Promise<data: URL>. Memory only; the main process keeps its
+// own capped copy (pr-media.js), so this stays small.
+const images = new Map();
+const MAX_IMAGES = 100;
+function imageFor(m, loadImage) {
+  if (!loadImage || m.kind !== 'image') return Promise.resolve(null);
+  if (!images.has(m.id)) {
+    images.set(m.id, Promise.resolve(loadImage(m.id)).then((u) => (typeof u === 'string' && u.startsWith('data:image/') ? u : null), () => null)
+      .then((u) => { if (!u) images.delete(m.id); return u; }));
+    while (images.size > MAX_IMAGES) images.delete(images.keys().next().value);
+  }
+  return images.get(m.id);
+}
+const videoSrc = (m) => `gitlanes-media://video/${m.id}`;
+const FROM = { description: 'the description', comment: 'a comment', review: 'a review' };
+const fromText = (m) => `from ${FROM[m.from] || 'a comment'}${m.author && m.from !== 'description' ? ` by ${m.author}` : ''}`;
+const fileName = (m) => { try { return decodeURIComponent(new URL(m.url).pathname.split('/').pop()) || m.kind; } catch { return m.kind; } };
+const ORDER = { description: 0, comment: 1, review: 2 };
+
+// The thumbnails, as a row of buttons. Space (a button's click) enlarges the focused one.
+export function mediaGallery(list, { openUrl = null, loadImage = null } = {}) {
+  const media = [...(list || [])].filter((m) => m?.id).sort((a, b) => (ORDER[a.from] ?? 1) - (ORDER[b.from] ?? 1));
+  const grid = h('div.ev-media', { role: 'list', 'aria-label': 'Images and videos' });
+  const thumbs = media.map((m, i) => {
+    const label = m.alt || fileName(m);
+    const pic = h('span.ev-thumb-pic');
+    const btn = h('button.ev-thumb' + (m.kind === 'video' ? '.video' : ''), {
+      role: 'listitem', 'aria-label': `${m.kind === 'video' ? 'Video' : 'Image'} ${i + 1} of ${media.length}: ${label}, ${fromText(m)}. Space to enlarge`,
+      'data-tip': tipFor(`Enlarge ${m.kind === 'video' ? 'the video' : 'the image'}`, 'gallery.enlarge'),
+      onclick: () => mediaView(media, i, { openUrl, loadImage, back: () => thumbs[i]?.focus({ preventScroll: true }) }),
+      // Before the reader's own keys: ←/→ move between thumbnails here, not through the list.
+      onkeydown: (e) => {
+        const id = keymap.match('gallery', e);
+        const d = id === 'gallery.next' ? 1 : id === 'gallery.prev' ? -1 : 0;
+        if (id === 'gallery.enlarge') btn.click();
+        else if (d) thumbs[(i + d + media.length) % media.length].focus();
+        else return;
+        e.preventDefault(); e.stopPropagation();
+      },
+    }, pic, m.kind === 'video' ? h('span.ev-thumb-play', { 'aria-hidden': 'true' }, icon('play', 10), h('span.len')) : null);
+    if (m.kind === 'video') {
+      const v = h('video', { src: videoSrc(m), preload: 'metadata', muted: true, playsInline: true, tabIndex: -1, 'aria-hidden': 'true' });
+      v.muted = true;
+      v.addEventListener('loadedmetadata', () => { const len = btn.querySelector('.len'); if (len && Number.isFinite(v.duration)) len.textContent = clock(v.duration); });
+      pic.append(v);
+    } else {
+      pic.append(icon('image', 16));
+      imageFor(m, loadImage).then((u) => { if (u) pic.replaceChildren(h('img', { src: u, alt: '', draggable: false })); else pic.classList.add('failed'); });
+    }
+    grid.append(h('div.ev-thumb-cell', null, btn, h('span.ev-thumb-from', { title: fromText(m) }, fromText(m).replace(/^from /, ''))));
+    return btn;
+  });
+  return grid;
+}
+
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+// The enlarged view: over the reader on --scrim, with "2 of 3 · file · from the description", the
+// keys and Open on GitHub. Videos play inline, muted at first, with their controls.
+export function mediaView(media, start, { openUrl = null, loadImage = null, back = null } = {}) {
+  let i = start;
+  const stage = h('div.media-stage');
+  const bar = h('div.media-bar');
+  const overlay = h('div.media-view', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Media', tabIndex: -1 }, h('div.media-box', null, bar, stage));
+  const close = () => { overlay.remove(); back?.(); };
+  const video = () => stage.querySelector('video');
+  const draw = () => {
+    const m = media[i];
+    bar.replaceChildren(
+      h('span.media-pos', null, `${i + 1} of ${media.length}`),
+      h('span.sep', { 'aria-hidden': 'true' }, '·'), h('span.media-name.mono', { title: m.alt || fileName(m) }, fileName(m)),
+      h('span.sep', { 'aria-hidden': 'true' }, '·'), h('span.muted', null, fromText(m)),
+      h('span.media-keys.muted', null, media.length > 1 ? [kbdText(keyText('gallery.prev')), kbdText(keyText('gallery.next')), ' browse  '] : null, m.kind === 'video' ? [kbdText(keyText('gallery.play')), ' play  '] : null, kbdText(keyText('gallery.close')), ' close'),
+      openUrl && m.url ? h('button.btn.ghost.small', { type: 'button', onclick: () => openUrl(m.url) }, icon('external', 12), 'Open on GitHub') : null,
+      h('button.btn.ghost.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: close }, icon('x', 12)));
+    if (m.kind === 'video') {
+      const v = h('video', { src: videoSrc(m), controls: true, autoplay: true, muted: true, playsInline: true, preload: 'auto' });
+      v.muted = true;
+      stage.replaceChildren(v);
+    } else {
+      stage.replaceChildren(h('div.media-loading.muted', null, 'Loading…'));
+      imageFor(m, loadImage).then((u) => { if (media[i] !== m) return; stage.replaceChildren(u ? h('img', { src: u, alt: m.alt || fileName(m), draggable: false }) : h('div.media-loading.muted', null, 'Couldn’t load this image.')); });
+    }
+  };
+  // Every key stays in the view: the reader and the list behind it don't move while it's open.
+  overlay.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    let id = keymap.match('gallery', e);
+    if (id === 'gallery.enlarge' && e.target instanceof HTMLButtonElement) id = null; // Space presses the bar's buttons
+    if (id === 'gallery.close' || id === 'gallery.enlarge') close();
+    else if (id === 'gallery.next' || id === 'gallery.prev') { if (media.length > 1) { i = (i + (id === 'gallery.next' ? 1 : -1) + media.length) % media.length; draw(); } }
+    else if (id === 'gallery.play') { const v = video(); if (v) { if (v.paused) v.play().catch(() => {}); else v.pause(); } }
+    else return; // Tab and the rest keep their defaults; menu shortcuts (⌘W) still work
+    e.preventDefault();
+  });
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+  draw();
+  document.body.append(overlay);
+  overlay.focus({ preventScroll: true });
+  return { close, overlay };
+}
+const kbdText = (k) => h('kbd', null, k);
+const keyText = (id) => keymap.keys(id).join('');

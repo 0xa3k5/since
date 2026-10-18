@@ -26,6 +26,7 @@ export const SCOPES = {
   worktrees: 'Worktrees',
   catchup: 'Catch up',
   reader: 'Reader (Review and Catch up)',
+  gallery: 'Media gallery (Review)',
   lanes: 'Review',
   branches: 'Branches',
   review: 'Review branch',
@@ -276,8 +277,15 @@ export const COMMANDS = [
   c('review', null, 'review.showConflicts', 'Show the files that conflict with the base', 'f'),
   c('review', null, 'review.checks', 'Open the failing checks of the pull request', 'o'),
   c('review', null, 'review.evidence', 'Show the next evidence tab: checks, annotations, media, reviews, open threads', 'e'),
+  c('review', null, 'review.media', 'Show the pull request’s images and videos', 'i'),
   c('review', null, 'review.sendBack', 'Fix prompt: a ready-made prompt to fix the stuck row', 'p'),
   c('review', null, 'review.close', 'Back', 'Escape'),
+  // Media gallery (AK-521): on a thumbnail of the Media tab, and in the enlarged view.
+  c('gallery', null, 'gallery.enlarge', 'Enlarge the focused image or video, or close it again', 'Space'),
+  c('gallery', null, 'gallery.next', 'Next image or video', 'ArrowRight'),
+  c('gallery', null, 'gallery.prev', 'Previous image or video', 'ArrowLeft'),
+  c('gallery', null, 'gallery.play', 'Play or pause the video', 'k'),
+  c('gallery', null, 'gallery.close', 'Close the enlarged view', 'Escape'),
   // Branches (AK-396): every local branch and worktree, behind tabs.
   c('branches', null, 'branches.next', 'Next / previous branch', 'ArrowDown', { pair: 'branches.prev' }),
   c('branches', null, 'branches.prev', 'Previous branch', 'ArrowUp'),
