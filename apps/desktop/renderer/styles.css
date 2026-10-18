@@ -902,6 +902,29 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan-row.warn .mergeplan-status { white-space: normal; }
 .mergeplan-note { padding-left: 24px; font-size: 12px; color: var(--text-3); }
 .mergeplan-wrap { white-space: normal; }
+/* AK-542: picks, stack rows, the split button and the clean up option. */
+.mergeplan-unit { margin: 0 -6px; padding: 0 6px; border-radius: 6px; outline: none; }
+.mergeplan-unit:focus-visible { background: var(--bg-active); box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.mergeplan-unit input { margin: 0; flex: none; accent-color: var(--accent); }
+.mergeplan-unit.off .mergeplan-pr { color: var(--text-3); }
+.mergeplan-unit[aria-disabled="true"] .mergeplan-pr { color: var(--text-3); }
+.mergeplan-chev { display: inline-flex; color: var(--text-3); cursor: pointer; }
+.mergeplan-tag { padding: 0 6px; border-radius: 999px; background: var(--bg-active); color: var(--text-3); font-size: 11px; }
+.mergeplan-status.muted { color: var(--text-4); }
+.mergeplan-unit.warn .mergeplan-status { white-space: normal; }
+.mergeplan-sub { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-left: 30px; padding-left: 20px; border-left: 2px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+.mergeplan-sub .mergeplan-pr b { font-weight: var(--fw-medium); }
+.mergeplan-opt { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; font-size: 13px; cursor: pointer; }
+.mergeplan-opt input { margin: 2px 0 0; accent-color: var(--accent); }
+.mergeplan-opt small, .menu-item small { display: block; font-size: 12px; color: var(--text-3); }
+.mergeplan-cleaned { gap: 12px; }
+.mergeplan-split { display: inline-flex; }
+.mergeplan-split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.mergeplan-caret { padding: 0 8px; border-top-left-radius: 0; border-bottom-left-radius: 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--on-accent) 25%, transparent), var(--btn-highlight); }
+.menu-item:has(small) { height: auto; padding: 6px 8px; align-items: flex-start; }
+.menu-item:has(small) .menu-label { display: block; }
+.menu-item:has(small) > .icon { width: 16px; height: 18px; flex: none; }
+.menu-item:disabled { opacity: 0.55; cursor: default; }
 .review-prs-off { display: flex; align-items: center; gap: 6px; width: calc(100% - 32px); margin: 12px 16px 4px; padding: 8px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text-3); font-size: 12px; text-align: left; cursor: default; }
 .review-prs-off { border-top: 0; margin-top: 0; }
 .review-prs-off:hover { color: var(--accent-fg); }
