@@ -38,7 +38,7 @@ test('planOrder marks a PR clean after the one it needs, and leaves out what nev
   const plan = await planOrder({ prs: [{ number: 1, head: 'a' }, { number: 2, head: 'b' }, { number: 3, head: 'c' }], baseSha: 'B', merge });
   assert.deepEqual(plan.order, [{ number: 1, after: null }, { number: 2, after: 1 }]);
   assert.equal(statusText(plan.order[1]), 'clean after #1');
-  assert.deepEqual(plan.blocked, [{ number: 3, files: ['y.js'] }]);
+  assert.deepEqual(plan.blocked, [{ number: 3, files: ['y.js'], with: 1 }]);
   assert.match(blockedText(plan.blocked[0]), /^Conflicts in y\.js/);
 });
 
@@ -166,7 +166,7 @@ test('planOrder places a stack as one unit and explains orders around it', async
   assert.equal(unitLabel(7), '#7');
   // A stack that never fits is left out whole.
   const stuck = await planOrder({ prs: [{ number: 1, head: 'a' }, { stack: 'stack-4', prs: [4, 5, 6], head: 't' }], baseSha: 'B', merge: fake({ 'B+a t': ['app.js'], 'B t': ['app.js'] }) });
-  assert.deepEqual(stuck.blocked, [{ stack: 'stack-4', files: ['app.js'] }]);
+  assert.deepEqual(stuck.blocked, [{ stack: 'stack-4', files: ['app.js'], with: null }]);
   assert.match(blockedText(stuck.blocked[0]), /^Conflicts in app\.js/);
 });
 
@@ -309,4 +309,60 @@ test('the sheet names the method and counts the picks (AK-542)', async () => {
   assert.equal(orderLabel(3, 4), 'Order · 3 of 4 picked');
   assert.equal(orderLabel(3, 4, true), 'Order · 3');
   assert.deepEqual(Object.keys(METHOD_NAMES), ['squash', 'merge', 'rebase']);
+});
+
+// github.planFacts' shape for an open PR GitHub would merge now.
+const FACTS = (o = {}) => ({ state: 'open', draft: false, conflicts: false, mergeState: 'clean', review: null, checks: 'success', checkList: [], headOid: 'a'.repeat(40), author: 'ana', requested: [], approvals: null, canApprove: false, ...o });
+
+test('blockersOf: GitHub’s own rules, one blocker per kind (AK-550)', async () => {
+  const { blockersOf, waits, anywayOnly, isReady, blockerText, mainBlocker } = await load();
+  const kinds = (f) => blockersOf(f).map((b) => [b.kind, b.required]);
+  // No review rule: reviewDecision is empty and GitHub merges it, so the plan does too.
+  assert.deepEqual(blockersOf(FACTS()), []);
+  assert.equal(isReady(FACTS()), true);
+  assert.deepEqual(kinds(FACTS({ draft: true, mergeState: 'draft' })), [['draft', true]]);
+  assert.deepEqual(kinds(FACTS({ conflicts: true, mergeState: 'dirty', conflictFiles: ['a.js'] })), [['conflicts-base', true]]);
+  assert.equal(blockerText(blockersOf(FACTS({ conflicts: true, conflictFiles: ['a.js'] }))[0]), 'Conflicts with the base in a.js');
+  assert.deepEqual(kinds(FACTS({ mergeState: 'behind' })), [['behind', true]]);
+  assert.deepEqual(kinds(FACTS({ state: 'merged' })), [['closed', true]]);
+  assert.deepEqual(kinds({ error: 'HTTP 502' }), [['error', true]]);
+  assert.deepEqual(kinds(FACTS({ mergeState: 'blocked' })), [['protected', true]]);
+
+  // A non-required check failing in 2 s: GitHub says UNSTABLE, Merge anyway takes it.
+  const quick = FACTS({ mergeState: 'unstable', checks: 'failure', checkList: [{ name: 'changes', result: 'failure', duration: 2, required: false, url: 'https://github.com/acme/app/actions/runs/9/job/1', run: '9' }, { name: 'test', result: 'skipped', required: false }] });
+  const [cf] = blockersOf(quick);
+  assert.deepEqual(cf, { kind: 'check-failed', required: false, who: ['ana'], rerun: true, checks: [{ name: 'changes', required: false, url: 'https://github.com/acme/app/actions/runs/9/job/1', run: '9', quick: true }] });
+  assert.equal(blockerText(cf), 'changes failed, not required');
+  assert.equal(waits([cf]), true);
+  assert.equal(waits([cf], true), false);
+  assert.equal(anywayOnly([cf]), true);
+  assert.equal(isReady(quick), false);
+  // A required check failing: no Merge anyway.
+  const req = blockersOf(FACTS({ mergeState: 'blocked', checks: 'failure', checkList: [{ name: 'test', result: 'failure', duration: 90, required: true }] }));
+  assert.deepEqual(req.map((b) => [b.kind, b.required, b.checks[0].quick]), [['check-failed', true, false]]);
+  assert.equal(waits(req, true), true);
+  assert.equal(anywayOnly(req), false);
+  // Still running, required or not.
+  assert.deepEqual(kinds(FACTS({ mergeState: 'blocked', checks: 'pending', checkList: [{ name: 'e2e', result: 'pending', required: true }] })), [['check-running', true]]);
+  assert.deepEqual(kinds(FACTS({ mergeState: 'unstable', checks: 'pending', checkList: [{ name: 'lint', result: 'pending', required: false }] })), [['check-running', false]]);
+  assert.equal(blockerText(blockersOf(FACTS({ checkList: [{ name: 'lint', result: 'pending' }] }))[0]), 'lint still running');
+
+  // A required review: approvals, who was asked, and whether you may approve.
+  const [nr] = blockersOf(FACTS({ mergeState: 'blocked', review: 'required', approvals: 2, requested: ['bo'], canApprove: true }));
+  assert.deepEqual(nr, { kind: 'needs-review', required: true, who: ['bo'], approvals: 2, canApprove: true, changes: false });
+  assert.equal(blockerText(nr), 'Needs 2 approvals.');
+  assert.equal(blockerText(blockersOf(FACTS({ review: 'changes' }))[0]), 'Changes were requested.');
+  // Review plus a non-required failure: the reason names the required one.
+  const both = blockersOf(FACTS({ mergeState: 'blocked', review: 'required', checkList: [{ name: 'changes', result: 'failure', required: false }] }));
+  assert.equal(mainBlocker(both).kind, 'needs-review');
+  assert.equal(waits(both, true), true);
+
+  // mergeInfo's shape (no per-check list): the merge state says whether the failure is required.
+  assert.deepEqual(kinds({ state: 'open', headOid: 'a', checks: 'failure', failing: ['changes'], mergeState: 'unstable' }), [['check-failed', false]]);
+  assert.deepEqual(kinds({ state: 'open', headOid: 'a', checks: 'failure', failing: ['test'], mergeState: 'blocked' }), [['check-failed', true]]);
+
+  // The plan's own kinds.
+  assert.equal(blockerText({ kind: 'conflicts-pr', with: 4, files: ['x.js'] }), 'Conflicts with #4 in x.js');
+  assert.equal(blockerText({ kind: 'stack', number: 4 }), '#4 below it can’t merge yet');
+  assert.equal(blockerText({ kind: 'check-failed', required: true, checks: [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }] }), 'a, b and 2 more failed');
 });
