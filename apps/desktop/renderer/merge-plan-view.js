@@ -40,7 +40,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   const expanded = new Set();
   let focusKey = null;
   let cleanup = false;
-  const cleaned = { worktrees: 0, branches: 0, skipped: [], errors: [], undone: false };
+  const cleaned = { worktrees: 0, branches: 0, steps: 0, skipped: [], errors: [], undone: false }; // steps: journal entries
 
   const desc = h('div.dialog-desc');
   const body = h('div.dialog-body.mergeplan');
@@ -138,7 +138,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       if (phase === 'stopped') rows.push(h('div.review-reason.mergeplan-wrap', null, `Stopped: ${stopReason}. Re-plan to check the rest again.`));
       if (cleaned.worktrees || cleaned.branches) {
         const parts = [cleaned.worktrees && plural(cleaned.worktrees, 'worktree'), cleaned.branches && plural(cleaned.branches, 'branch')].filter(Boolean).join(' and ');
-        const undo = h('button.btn.ghost.small', { type: 'button', disabled: cleaned.undone || phase === 'merging', onclick: async () => { cleaned.undone = true; render(); await onUndo(); } }, icon('undo', 12), cleaned.undone ? 'Undone' : 'Undo');
+        const undo = h('button.btn.ghost.small', { type: 'button', disabled: cleaned.undone || phase === 'merging', onclick: async () => { cleaned.undone = true; render(); for (let i = 0; i < cleaned.steps; i++) await onUndo(); } }, icon('undo', 12), cleaned.undone ? 'Undone' : 'Undo');
         rows.push(h('div.mergeplan-row.mergeplan-cleaned', null, stText(`Cleaned up ${parts}`, 'ok'), undo));
       }
       for (const sk of cleaned.skipped) rows.push(h('div.mergeplan-note', null, `Kept ${sk.name}: ${sk.message}`));
@@ -288,6 +288,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       if (c) {
         cleaned.worktrees += c.worktrees;
         cleaned.branches += c.branches;
+        if (c.worktrees || c.branches) cleaned.steps++; // each merge's clean up is its own undo step
         cleaned.skipped.push(...c.skipped);
         if (c.error) cleaned.errors.push(c.error);
       }
