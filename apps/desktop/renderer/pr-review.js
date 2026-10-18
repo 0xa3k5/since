@@ -18,6 +18,15 @@ export const prActionFor = (keyId) => PR_ACTIONS.find((a) => a.key === keyId)?.i
 
 export const prLaneKey = (pr) => `pr:${pr.number}`;
 
+// A checked-out stacked PR (AK-538) is reviewed against its own base branch on the remote, so the
+// PRs below it stay out of its diff. null when the PR targets the repo's base (`base`, e.g.
+// `origin/main` or `main`) or there's no PR or remote.
+export function stackedBase(pr, base, remote) {
+  if (!pr?.base || !base || !remote) return null;
+  const name = base.startsWith(`${remote}/`) ? base.slice(remote.length + 1) : base;
+  return pr.base === name ? null : `${remote}/${pr.base}`;
+}
+
 // Fetches the PR's head and builds the `state.review` record for it. `call(channel, ...args)` is
 // api.app; it resolves to { ok } or { error }. Returns { review } or { error }.
 export async function loadPrReview(pr, remote, call) {

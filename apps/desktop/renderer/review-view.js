@@ -32,7 +32,8 @@ import { fileCard, foldShut } from './reader.js';
 // checkConflicts: the branch is known to conflict with its base (AK-305), so the files
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
 // shows the base side against the branch's side. onConflicts(files) reports what it found.
-export function reviewView({ lane, base, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
+// fallback: a base to use instead when `base` can't be resolved (a stacked PR's base not fetched here).
+export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -408,6 +409,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   async function load() {
     let r;
     try { r = await git('branchReview', lane.rev, base || undefined); } catch (e) {
+      if (fallback) { base = fallback; fallback = null; return load(); } // the stacked PR's base isn't fetched here
       if (!review) (stacked ? stack : main).replaceChildren(h('div.empty', null, 'Couldn’t review this branch', h('div.muted.small', null, e.message)));
       return;
     }
