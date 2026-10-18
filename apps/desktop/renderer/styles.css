@@ -1081,7 +1081,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
    review-pane.js foldStack() tucks the farthest PRs into a ··· N chip until it fits. */
 .review-pane-stack { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .review-pane-stack > .muted { flex: none; }
-.review-stack-path { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.review-stack-path { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; padding: 3px; margin: -3px; overflow: hidden; white-space: nowrap; }
 .review-stack-base { flex: none; }
 .review-stack-step { display: inline-flex; flex: none; align-items: center; gap: 6px; }
 .review-stack-step[hidden] { display: none; }
