@@ -47,7 +47,7 @@ const DEFAULT_SINCE = { since: 'checkpoint' };
 // What the reader read, per commit, for this repo: sha → Promise<{ diffs, message }>.
 const reads = new Map();
 
-export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = () => true, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
+export function catchupView({ repo = null, paneHandle = null, git, load, mark, prsOn, markAgents = () => true, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
   openRepo = repo;
   if (cache && !prsOn() && cache.extra) cache = { ...cache, res: null, extra: null, loadedAt: null };
@@ -95,6 +95,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
   const reader = h('div.catchup-reader', { tabIndex: -1, role: 'region', 'aria-label': 'Reader' });
   const mini = miniHeader(reader);
   const cols = h('div.catchup-cols', null, list, reader);
+  if (paneHandle) cols.append(paneHandle(() => cols));
   const hint = h('div.review-hints');
   el.append(
     h('div.page-head.review-head', null,
