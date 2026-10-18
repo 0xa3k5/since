@@ -9,7 +9,7 @@ import { PRODUCT_NAME } from '../../config';
       <h2 id="m-h">Know the merge order <span class="soft">before you merge.</span></h2>
       <p>Each PR passed on its own, but once one lands, the next might not merge cleanly. {PRODUCT_NAME} tries the ready PRs against main on your Mac, finds an order with no merge conflicts, and tells you why. Then it merges them on GitHub one by one, and stops if anything changes. If you ask, it also removes each merged PR's worktree and local branch, and that's undoable. Merges on GitHub can't be undone, so it tells you before it starts.</p>
     </div>
-    <AppShot src={plan} alt="The Merge plan sheet: the ready pull requests, each ticked, in an order that merges with no conflicts" />
+    <AppShot src={plan} alt="The Merge plan sheet: two ready pull requests ticked to merge in order, and one left out because it is behind main" />
     <div class="facts3">
       <div><h4>Checked on your Mac</h4><p>With your git, before anything touches GitHub. Warns which open PRs will conflict once these land.</p></div>
       <div><h4>You pick</h4><p>Untick any PR to leave it out. Squash, merge commits or rebase, remembered per repo.</p></div>

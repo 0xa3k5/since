@@ -554,6 +554,14 @@ if (a[0] === 'pr' && a[1] === 'view') {
 }
 if (a[0] === 'api' && has('graphql')) {
   const n = Number((a.find((x) => x.startsWith('number=')) || '').slice(7));
+  // Merge plan facts (github.js PLAN_QUERY): the open PR in GraphQL's shape.
+  if (a.some((x) => x.includes('viewerPermission pullRequest'))) {
+    const p = data.open.find((x) => x.number === n);
+    if (!p) { process.stderr.write('no pull request ' + n + '\\n'); process.exit(1); }
+    out({ data: { viewer: { login: data.me }, repository: { viewerPermission: 'WRITE', pullRequest: {
+      ...p, state: 'OPEN', reviewRequests: { nodes: [] }, latestReviews: { nodes: [] }, baseRef: null,
+      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: p.statusCheckRollup } } } }] } } } } });
+  }
   out({ data: { repository: { pullRequest: { reviewThreads: data.threads[n] || { totalCount: 0, nodes: [] } } } } });
 }
 if (a[0] === 'api' && a.some((x) => /check-runs\\/\\d+\\/annotations/.test(x))) {
@@ -695,36 +703,29 @@ process.exit(1);
     return;
   }
 
-  await expect(page.locator('.review-pane .review-row').first()).toBeVisible();
+  await expect(page.locator('.review-pane .review-file').first()).toBeVisible();
   await shot('review-dark');
 
-  // 2. Catch up (AK-365): Reload joins the merged PRs on, then the walk-through shows the first PR's diff.
+  // 2. Catch up (AK-365): Reload joins the merged PRs on; the reader beside the list shows the first PR's diff.
   await app.view('catchup');
   const catchup = page.locator('.page.catchup');
   await catchup.press('Shift+R');
-  await expect(catchup.locator('.catchup-number')).toContainText('14 PRs merged', { timeout: 40_000 });
-  await shot('catchup-timeline-dark');
-  await catchup.press('Shift+Enter');
-  await expect(page.locator('.lanes-group[data-stage="landed"]')).toContainText('· 14');
-  await expect(page.locator('.review-pane .quick-title')).toContainText('#225');
-  await expect(page.locator('.review-pane .diff-scroll')).toContainText('jitter');
+  await expect(catchup.locator('.catchup-sentence')).toContainText('14 PRs merged', { timeout: 40_000 });
+  await expect(catchup.locator('.reader-title-row')).toContainText('#225');
+  await expect(catchup.locator('.review-file').first()).toContainText('jitter');
   await shot('catchup-dark');
-  await split.focus();
-  await split.press('Escape');
-  await expect(catchup).toBeVisible();
   await app.view('lanes');
-
 
   // 3. A ready PR in the pane, two files ticked as reviewed.
   const row231 = page.locator('.lanes-row[data-key="pr:231"]');
   await row231.click({ position: { x: 8, y: 8 } });
   const pane = page.locator('.review-pane');
-  await expect(pane.locator('.review-list .review-row')).toHaveCount(5);
-  await pane.locator('.review-list .review-row', { hasText: 'usage.ts' }).first().locator('.review-tick').click();
-  await pane.locator('.review-list .review-row', { hasText: 'usage.test.ts' }).locator('.review-tick').click();
-  await expect(pane.locator('.review-list .review-row.reviewed')).toHaveCount(2);
-  await pane.locator('.review-list .review-row', { hasText: 'UsageChart.tsx' }).click();
-  await expect(pane.locator('.diff-scroll')).toContainText('ResponsiveContainer');
+  // Files are cards in the reader: ticking one folds it, so the chart's code moves up.
+  await expect(pane.locator('.review-file')).toHaveCount(5);
+  await pane.locator('.review-file[data-path$="/usage.ts"] .review-tick').click();
+  await pane.locator('.review-file[data-path$="/usage.test.ts"] .review-tick').click();
+  await expect(pane.locator('.review-file.reviewed')).toHaveCount(2);
+  await expect(pane.locator('.review-file[data-path$="/UsageChart.tsx"]')).toContainText('ResponsiveContainer');
   await shot('review-pr-dark');
 
   // 4. Send back the conflicting PR.
@@ -743,21 +744,24 @@ process.exit(1);
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
 
-  // 5. Merge plan for the ready PRs.
+  // 5. Merge plan for the ready PRs. For this shot only, GitHub says #233 is behind a base that must
+  // be up to date, so the sheet names a blocker (the fake `gh` rereads its data on every call).
+  const planData = JSON.parse(fs.readFileSync(path.join(bin, 'gh-data.json'), 'utf8'));
+  planData.open.find((x) => x.number === 233).mergeStateStatus = 'BEHIND';
+  fs.writeFileSync(path.join(bin, 'gh-data.json'), JSON.stringify(planData));
   await split.focus();
   await page.keyboard.press('Shift+P');
   const plan = page.locator('.mergeplan-sheet');
   await expect(plan.locator('.mergeplan-row')).toHaveCount(3, { timeout: 20_000 });
-  await expect(plan).toContainText('Order · 3');
+  await expect(plan).toContainText('It’s behind its base');
   await shot('merge-plan-dark');
   await page.keyboard.press('Escape');
   await expect(plan).toHaveCount(0);
 
-  // 6. Lanes → Clean up.
+  // 6. Clean up.
   await page.keyboard.press('Meta+Alt+Backspace');
-  const cleanup = page.locator('.page.cleanup');
-  await expect(cleanup).toBeVisible();
-  await expect(cleanup.locator('.lanes-row')).toHaveCount(6);
+  const cleanup = page.locator('.cleanup-panel');
+  await expect(cleanup.locator('.cleanup-item').first()).toBeVisible({ timeout: 20_000 });
   await shot('cleanup-dark');
   await page.keyboard.press('Escape');
 
