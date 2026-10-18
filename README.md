@@ -81,8 +81,9 @@ pnpm release:beta 0.1.0-beta.7    # a specific version
 pnpm release:beta --skip-e2e      # skip the end-to-end suite (prints a warning)
 ```
 
-`apps/desktop/scripts/release-beta.js` checks the setup above (each missing piece fails with the command that
-fixes it), runs `pnpm test` and `pnpm test:e2e`, builds and notarizes through the `gitlanes-notary` profile, and checks
+`apps/desktop/scripts/release-beta.js` checks the setup above and that the `pnpm` on PATH is the one `packageManager`
+pins (each missing piece fails with the command that fixes it), runs `pnpm test` and `pnpm test:e2e`, builds the version
+through `GITLANES_VERSION`, notarizes through the `gitlanes-notary` profile, and checks
 every app and the app inside each DMG with `codesign`, `spctl` and `stapler`. Then
 `apps/desktop/scripts/beta-publish.js` writes the update feeds and uploads to R2 with `curl --aws-sigv4`: `beta/<version>/`
 first, then `beta/latest/GitLanes-<arch>.dmg` (the website's download links), then the `beta/update-mac-<arch>.json`
