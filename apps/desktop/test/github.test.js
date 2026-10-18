@@ -624,7 +624,7 @@ test('planFacts: required checks, review rule and who may approve, from one Grap
   const { calls, exec } = recorder(reply());
   const f = await github.planFacts({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
   assert.deepEqual(calls[0].args.slice(0, 4), ['api', '--hostname', 'github.com', 'graphql']);
-  assert.deepEqual(calls[0].args.slice(-6), ['-F', 'owner=acme', '-F', 'name=app', '-F', 'number=7']);
+  assert.deepEqual(calls[0].args.slice(-6), ['-f', 'owner=acme', '-f', 'name=app', '-F', 'number=7']);
   assert.equal(calls[0].args.length, 12);
   assert.deepEqual([f.state, f.mergeState, f.review, f.checks, f.approvals, f.author, f.canApprove], ['open', 'blocked', 'required', 'failure', 2, 'ana', true]);
   assert.deepEqual(f.requested, ['bo', 'core']);

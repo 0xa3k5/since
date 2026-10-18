@@ -399,7 +399,7 @@ function parsePlanFacts(out) {
 async function planFacts({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
   const { bin, remote } = target({ enabled, remotes, dirs });
   const n = prNumber(number);
-  return parsePlanFacts(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${PLAN_QUERY}`, '-F', `owner=${remote.owner}`, '-F', `name=${remote.repo}`, '-F', `number=${n}`], { dirs, exec }));
+  return parsePlanFacts(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${PLAN_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`, '-F', `number=${n}`], { dirs, exec }));
 }
 
 // Mark a draft ready for review (`gh pr ready`).
