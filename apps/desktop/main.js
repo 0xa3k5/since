@@ -767,13 +767,15 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
   for (const o of rest) if (await has(o.head)) known.push(o);
   for (const p of prs.splice(0)) { if (await has(p.head)) prs.push(p); else { blockers[p.number] = [{ kind: 'error', required: true, detail: 'Couldn’t fetch its head commit.' }]; skipped.push({ number: p.number, reason: 'Couldn’t fetch its head commit.' }); } }
   // A stack plans whole, at its bottom PR's place in Review's order (else after the single PRs),
-  // only when every PR in it is ready and its history is linear.
+  // only when every PR in it is ready.
   const stacks = [];
   for (const st of found) {
     const stHeads = st.prs.map((n) => infos.get(n).headOid);
     const blocker = mergePlan.stackBlocker(st, reasons);
     if (blocker) for (const n of st.prs) if (n !== blocker.number) (blockers[n] ||= []).push({ kind: 'stack', required: true, number: blocker.number });
-    const linear = !blocker && stHeads.every(Boolean) && await git.stackLinear(s.repo.root, baseSha, stHeads);
+    // No history check of our own: GitHub merges a stack with merge commits in it (checked on a
+    // throwaway repo, 2026-10-18), and it evaluates its own rules when the merge runs.
+    const linear = !blocker && stHeads.every(Boolean);
     stacks.push({ id: st.id, prs: st.prs, linear, blocker, native: mergePlan.isNative(st, chainFacts) });
     if (blocker || !linear) continue;
     const unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
