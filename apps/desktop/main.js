@@ -760,7 +760,8 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
 // One step of a plan: { snap, baseSha, method } from the plan (or the previous merge's commit), or
 // for a stack (AK-545) { stack: [{ number, snap }] bottom…top, baseSha, method } with `number` its
 // top PR. Every PR is checked before the merge. → { stop: reason } when something changed, else
-// { merged: true, commit } (commit null when a merge queue took it, so the plan stops there).
+// { merged: true, commit } (commit null when a merge queue took it, so the plan stops there), plus
+// `cleaned` (cleanupMerged) when o.cleanup is true: only the sheet asks for it.
 const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
 const snapArg = (v, w) => check.obj(v, w, { head: oidArg, checks: nullable, review: nullable });
 handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o) => {
@@ -773,7 +774,7 @@ handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o)
     if (v[v.length - 1].number !== number) throw new check.IpcArgError(`Invalid ${w}`);
     return v;
   };
-  check.obj(o, 'merge step', { baseSha: oidArg, snap: (v, w) => (o?.stack ? v : snapArg(v, w)), method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stack: stackArg });
+  check.obj(o, 'merge step', { baseSha: oidArg, snap: (v, w) => (o?.stack ? v : snapArg(v, w)), method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stack: stackArg, cleanup: (v, w) => (v == null ? v : check.bool(v, w)) });
   if (!o.stack && !o.snap) throw new check.IpcArgError('Invalid merge step');
   const method = o.method || 'squash';
   const steps = o.stack || [{ number, snap: o.snap }];
@@ -791,8 +792,37 @@ handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o)
     }
   }
   const m = await github.mergedCommit({ ...t, number }).catch(() => ({ commit: null }));
-  return { merged: true, commit: m.state === 'merged' ? m.commit : null };
+  const res = { merged: true, commit: m.state === 'merged' ? m.commit : null };
+  if (o.cleanup === true) {
+    // Only PRs GitHub confirms merged; in a stack, each one is asked on its own.
+    const states = await Promise.all(steps.map((x) => (x.number === number ? m : github.mergedCommit({ ...t, number: x.number }).catch(() => null))));
+    const merged = steps.map((x, i) => ({ number: x.number, branch: now[i]?.branch, head: x.snap.head })).filter((x, i) => states[i]?.state === 'merged');
+    res.cleaned = await cleanupMerged(s, merged);
+  }
+  return res;
 }));
+// Clean up after merging (AK-543): remove the merged PRs' local worktrees and branches through
+// Lanes → Clean up's path (git.cleanupLanes), as one undoable journal step. Never throws: the
+// merge already happened. → { worktrees, branches, skipped: [{ name, message }], error? }
+async function cleanupMerged(s, prs) {
+  if (!prs.length) return { worktrees: 0, branches: 0, skipped: [] };
+  s.busy++;
+  try {
+    const worktrees = (await git.getWorktrees(s.repo.root)).map((w) => ({ ...w, elsewhere: ![undefined, s.win].includes(windowFor(w.path)) }));
+    const local = new Set((await git.run(s.repo.root, ['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads'])).split('\n').filter(Boolean));
+    const { items, skipped } = mergePlan.cleanupItems(prs, local, worktrees);
+    if (!items.length) return mergePlan.cleanupSummary({ removed: [], deleted: [], failed: [] }, skipped);
+    const label = `Clean up after merging ${prs.map((p) => `#${p.number}`).join(', ')}`;
+    return mergePlan.cleanupSummary(await s.journal.runCleanup(label, items), skipped);
+  } catch (err) {
+    return { worktrees: 0, branches: 0, skipped: [], error: err.message };
+  } finally {
+    s.busy--;
+    s.pending.refs = s.pending.workdir = true;
+    s.schedule();
+    buildMenu();
+  }
+}
 // The merge method last used in this repo (AK-545), remembered per repo in settings.
 const methodName = (m) => ({ squash: 'Squash and merge', merge: 'Merge commits', rebase: 'Rebase and merge' }[m]);
 const MAX_SAVED_METHODS = 200;

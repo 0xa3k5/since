@@ -244,3 +244,58 @@ test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan n
   reply = new Error('unknown command "stack" for "gh"');
   await assert.rejects(github.mergeStack({ ...t, number: 6 }), /gh extension install github\/gh-stack/);
 });
+
+test('clean up after merging: removes worktrees and branches, skips dirty and checked-out ones, one undo', async () => {
+  const { cleanupItems, cleanupSummary } = await load();
+  const { Journal } = require('../journal');
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-mergeplan-')));
+  const dir = path.join(parent, 'app');
+  fs.mkdirSync(dir);
+  const g = (...a) => git.run(dir, a);
+  const tip = (b) => g('rev-parse', '-q', '--verify', `refs/heads/${b}`).then((x) => x.trim(), () => null);
+  await g('init', '-q', '-b', 'main');
+  await g('config', 'user.name', 'Test');
+  await g('config', 'user.email', 't@example.com');
+  await g('config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+  await g('add', 'a.txt');
+  await g('commit', '-q', '-m', 'base');
+  for (const b of ['wt', 'plain', 'dirty', 'moved']) await g('branch', b);
+  await g('worktree', 'add', '-q', path.join(parent, 'app-wt'), 'wt');
+  await g('worktree', 'add', '-q', path.join(parent, 'app-dirty'), 'dirty');
+  fs.writeFileSync(path.join(parent, 'app-dirty', 'a.txt'), 'changed\n');
+  const head = await tip('main');
+  const merged = [
+    { number: 1, branch: 'wt', head }, { number: 2, branch: 'plain', head }, { number: 3, branch: 'dirty', head },
+    { number: 4, branch: 'moved', head: 'f'.repeat(40) }, { number: 5, branch: 'main', head }, { number: 6, branch: 'gone', head },
+  ];
+  const local = new Set((await g('for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads')).split('\n').filter(Boolean));
+  const { items, skipped } = cleanupItems(merged, local, await git.getWorktrees(dir));
+  assert.deepEqual(skipped, [{ name: 'main', message: 'It’s checked out in this window.' }]);
+  assert.deepEqual(items.map((i) => i.branch), ['wt', 'plain', 'dirty', 'moved']); // 'gone' has no local branch
+
+  const journal = new Journal(await git.openRepo(dir));
+  const sum = cleanupSummary(await journal.runCleanup('Clean up after merging', items), skipped);
+  assert.deepEqual([sum.worktrees, sum.branches], [1, 2]);
+  assert.deepEqual(sum.skipped.map((x) => x.name).sort(), ['app-dirty', 'main', 'moved']); // the dirty worktree's branch stays with it
+  assert.match(sum.skipped.find((x) => x.name === 'app-dirty').message, /uncommitted/);
+  assert.deepEqual([await tip('wt'), await tip('plain'), await tip('dirty'), await tip('moved')], [null, null, head, head]);
+  assert.equal(fs.existsSync(path.join(parent, 'app-wt')), false);
+  assert.equal(fs.readFileSync(path.join(parent, 'app-dirty', 'a.txt'), 'utf8'), 'changed\n');
+
+  assert.equal(await journal.step('undo'), 'Clean up after merging');
+  assert.deepEqual([await tip('wt'), await tip('plain')], [head, head]);
+  assert.ok(fs.existsSync(path.join(parent, 'app-wt', 'a.txt')));
+});
+
+test('cleanupItems skips the main worktree, other windows and locked worktrees', async () => {
+  const { cleanupItems } = await load();
+  const wts = [
+    { path: '/r', branch: 'm', main: true }, { path: '/r-e', branch: 'e', elsewhere: true },
+    { path: '/r-l', branch: 'l', locked: true }, { path: '/r-ok', branch: 'ok' },
+  ];
+  const prs = ['m', 'e', 'l', 'ok'].map((branch, i) => ({ number: i + 1, branch, head: 'h' }));
+  const { items, skipped } = cleanupItems(prs, new Set(['m', 'e', 'l', 'ok']), wts);
+  assert.deepEqual(items, [{ branch: 'ok', head: 'h', worktree: '/r-ok' }]);
+  assert.deepEqual(skipped.map((x) => x.name), ['m', 'e', 'l']);
+});
