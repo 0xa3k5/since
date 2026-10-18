@@ -682,7 +682,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     select(r.key);
     act('sendBack', r);
   }
-  // A PR picked outside Review (the sidebar, AK-385): its row, selected, on a tab that lists it.
   // [ / ] (AK-537): the PR the selected one sits on, or the next one up its stack.
   function stackTarget(d) {
     const s = current()?.stack;
@@ -705,6 +704,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // ⌘K's stack entries: the PRs below and above the selected one, or null outside a stack.
   const stackSelection = () => (current()?.stack ? { number: current().pr.number, down: stackTarget(-1), up: stackTarget(1) } : null);
 
+  // A PR picked outside Review (the sidebar, AK-385): its row, selected, on a tab that lists it.
   function showPr(number) {
     const r = (staged?.all || []).find((x) => x.pr?.number === number);
     if (!r && !loaded) { pendingPr = number; return; }
