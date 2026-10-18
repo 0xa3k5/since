@@ -776,9 +776,18 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
     // No history check of our own: GitHub merges a stack with merge commits in it (checked on a
     // throwaway repo, 2026-10-18), and it evaluates its own rules when the merge runs.
     const linear = !blocker && stHeads.every(Boolean);
-    stacks.push({ id: st.id, prs: st.prs, linear, blocker, native: mergePlan.isNative(st, chainFacts) });
+    let unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
+    // Like GitHub, a stack merges from the bottom up to any PR. When the whole stack conflicts with
+    // the base (it moved on since the branches were cut), take the longest bottom part that doesn't.
+    let partial = null;
+    if (!blocker && linear && !(await sim(s.repo.root, baseSha, unit.head)).commit) {
+      let k = st.prs.length - 2;
+      while (k >= 0 && !(await sim(s.repo.root, baseSha, stHeads[k])).commit) k--;
+      partial = { upTo: k >= 0 ? st.prs[k] : null, at: st.prs[k + 1], files: (await sim(s.repo.root, baseSha, stHeads[k + 1])).files };
+      if (k >= 0) unit = { stack: st.id, prs: st.prs.slice(0, k + 1), head: stHeads[k] };
+    }
+    stacks.push({ id: st.id, prs: st.prs, linear, blocker, partial, native: mergePlan.isNative(st, chainFacts) });
     if (blocker || !linear) continue;
-    const unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
     const at = numbers.indexOf(st.prs[0]);
     const i = at < 0 ? -1 : prs.findIndex((p) => (p.stack ? numbers.indexOf(p.prs[0]) : numbers.indexOf(p.number)) > at);
     prs.splice(i < 0 ? prs.length : i, 0, unit);

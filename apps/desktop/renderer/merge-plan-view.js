@@ -53,7 +53,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   let focusKey = null;
   let cleanup = false;
   // GitHub's own rules (AK): checks the base doesn't require hold nothing back. Merge lists them, with "Hold them back".
-  let anyway = startAnyway !== false;
+  let anyway = true; // Review passes anyway: false by default; GitHub's own rules win. ⌘K "merge anyway" is the same.
   const blockersBy = new Map(); // number → the plan's blockers for it (AK-550)
   let groups = []; // the last render's "Needs something first" groups
   let fixing = false;
@@ -86,6 +86,13 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   // Units: a ready PR's number, or a stack's id. Stack PRs never plan on their own.
   const memberOf = (n) => [...stacks.values()].find((st) => st.prs.includes(n));
   const stackOk = (st) => st.linear && !st.blocker;
+  const fileNames = (fs = []) => (fs.length <= 3 ? fs.join(', ') : `${fs.slice(0, 3).join(', ')} and ${fs.length - 3} more`);
+  const partialText = (k) => {
+    const pt = stacks.get(k)?.partial;
+    if (!pt) return null;
+    const files = pt.files.map((f) => f.split('/').pop());
+    return pt.upTo ? `Merges #${stacks.get(k).prs[0]} → #${pt.upTo}. #${pt.at} conflicts with ${base} in ${fileNames(files)}` : `#${pt.at} conflicts with ${base} in ${fileNames(files)}`;
+  };
   const singles = () => left.filter((n) => !memberOf(n) && !notReady.has(n));
   const pickable = () => [...singles(), ...[...stacks.values()].filter(stackOk).map((st) => st.id)];
   const isPicked = (k) => picked === null || picked.has(k);
@@ -373,7 +380,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
         const st = stacks.get(k);
         const c = st && !isNative(st) ? chains.get(k) : null;
         const link = c?.linkable && editable() ? h('button.btn.small.mergeplan-link', { type: 'button', tabIndex: -1, 'data-tip': tipFor('Make it a GitHub stack', 'mergePlan.stackLink'), onclick: () => stackLink(k) }, 'Make it a GitHub stack') : null;
-        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || null, note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id], 'warn') : (stacks.get(k)?.prs || [k]).some((x) => own(x).length) ? stText('Checks failed, not required', 'warn') : stText('Ready', 'ok') })));
+        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || partialText(k), note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id], 'warn') : (stacks.get(k)?.prs || [k]).some((x) => own(x).length) ? stText('Checks failed, not required', 'warn') : stText('Ready', 'ok') })));
       }
     } else if (step === 2) {
       if (!fixes.length) rows.push(h('div.mergeplan-empty', null, 'Nothing to fix.'));
@@ -383,7 +390,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       order.forEach((st, i) => {
         const key = st.stack ?? st.number;
         const s = status.get(key);
-        rows.push(h('div.mergeplan-group', null, ...unitRow({ key, n: i + 1, box: false, status: s ? stText(s.text, s.kind) : stText(statusText(st, sts), 'clean') })));
+        rows.push(h('div.mergeplan-group', null, ...unitRow({ key, n: i + 1, box: false, why: partialText(key), status: s ? stText(s.text, s.kind) : stText(statusText(st, sts), 'clean') })));
       });
       if (!running()) {
         for (const f of plan.forced) rows.push(h('div.mergeplan-note', null, forcedText(f, sts).replace(/^./, (c) => c.toUpperCase())));
@@ -552,7 +559,8 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     const first = !methods;
     plan = res.ok;
     methods = plan.methods || { allowed: METHODS, default: null, saved: null };
-    for (const st of plan.stacks || []) stacks.set(st.id, st);
+    // The plan's stacks replace the last ones: a stale "#222 holds up the stack" never lingers.
+    if (plan.stacks) { stacks.clear(); for (const st of plan.stacks) stacks.set(st.id, st); }
     if (first && stacks.size) loadChains();
     // A PR that wasn't ready and is now joins the picks; the rest stay out.
     for (const n of nums) if (notReady.has(n) && !plan.skipped.some((sk) => sk.number === n)) { notReady.delete(n); picked?.add(n); }
