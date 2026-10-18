@@ -12,10 +12,14 @@
 // AK-549: a sentence at the top names what's in the way. "Merges now" lists the order; "Needs
 // something first" groups the rest by blocker (merge-plan.js groupNeeds), each group with who has
 // to act and its fixes: View failure, Re-run, Merge anyway, Copy fix prompts, Mark ready, Approve.
+//
+// AK-556: a stack row is tagged Chain or GitHub stack. In Pick, a chain that can be linked offers
+// Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
 import { h, icon, kbd, toast, contextMenu, tipFor } from './ui.js';
 import * as keymap from './keymap.js';
 import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, stackName, cleanTitle } from './merge-plan.js';
 import { buildPrompt } from './send-back.js';
+import { openStackLink } from './stack-link-view.js';
 
 // ready / others: inbox PRs ({ number, title, head }) in Review's order; known: every inbox PR
 // (titles and links for a stack's upper PRs); base: the base branch; remote: the PRs' remote name;
@@ -42,7 +46,9 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   const tried = new Set();
   let picked = null; // unit keys ticked; null until the first plan: everything
   const notReady = new Map(); // number → why GitHub won't merge it now
-  const stacks = new Map(); // id → { id, prs, linear, blocker }
+  const stacks = new Map(); // id → { id, prs, linear, blocker, native }
+  const chains = new Map(); // id → { native, linkable, why } from app:pr-chains (AK-556)
+  let extension = false; // GitHub CLI's stack extension is installed
   const expanded = new Set();
   let focusKey = null;
   let cleanup = false;
@@ -86,7 +92,8 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   const editable = () => phase === 'planned' || phase === 'planning' || phase === 'failed' || (phase === 'stopped' && !merged);
 
   const label = (n, clean = false) => h('span.mergeplan-pr', null, h('b', null, `#${n}`), ` ${clean ? cleanTitle(titleOf(n)) : titleOf(n)}`);
-  const stackLabel = (st) => h('span.mergeplan-pr', null, h('b', null, `Stack · ${stackName(st.prs.map(titleOf)) || `#${st.prs[0]} → #${st.prs[st.prs.length - 1]}`}`), ' ',
+  const isNative = (st) => Boolean(st.native || chains.get(st.id)?.native);
+  const stackLabel = (st) => h('span.mergeplan-pr', null, h('span.mergeplan-kind' + (isNative(st) ? '.native' : ''), null, isNative(st) ? 'GitHub stack' : 'Chain'), ' ', h('b', null, `${stackName(st.prs.map(titleOf)) || `#${st.prs[0]} → #${st.prs[st.prs.length - 1]}`}`), ' ',
     h('span.mergeplan-tag', null, `${st.prs.length} PRs`), h('span.mergeplan-range', null, ` #${st.prs[0]} → #${st.prs[st.prs.length - 1]}`));
   const sendBackLink = (n) => h('button.btn.ghost.small', { type: 'button', title: `Open #${n}’s fix prompt`, onclick: () => { close(); onSendBack(n); } }, 'Fix prompt');
   const stText = (text, kind) => h('span.mergeplan-status' + (kind ? `.${kind}` : ''), null, kind === 'busy' ? icon('fetch', 11) : kind === 'ok' ? icon('check', 11) : null, text);
@@ -106,12 +113,12 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   // One row: a tick box (never disabled: a PR that can't merge yet goes to Fix), its place in the
   // order (Merge only), a chevron for a stack, the PR or stack with why it waits below it, then its
   // status. Rows are one tab stop: ↑↓ move, Space ticks.
-  function unitRow({ key, n = null, box = true, status: st = null, extra = null, why = null }) {
+  function unitRow({ key, n = null, box = true, status: st = null, extra = null, why = null, note = null }) {
     const st0 = typeof key === 'string' ? stacks.get(key) : null;
     const on = ticked(key);
     const cb = box && editable() ? h('input', { type: 'checkbox', tabIndex: -1, checked: on, 'aria-hidden': 'true', onclick: (e) => { e.preventDefault(); toggle(key); } }) : null;
     const chev = st0 ? h('button.mergeplan-chev' + (expanded.has(key) ? '.open' : ''), { type: 'button', tabIndex: -1, 'aria-label': expanded.has(key) ? 'Hide the stack’s pull requests' : 'Show the stack’s pull requests', onclick: () => expand(key, !expanded.has(key)) }, icon('chevronDown', 12)) : null;
-    const main = h('span.mergeplan-main', null, st0 ? stackLabel(st0) : label(key), why ? h('span.mergeplan-why', null, why) : null);
+    const main = h('span.mergeplan-main', null, st0 ? stackLabel(st0) : label(key), why ? h('span.mergeplan-why', null, why) : null, note ? h('span.mergeplan-why', null, note) : null);
     const row = h('div.mergeplan-row.mergeplan-unit' + (why ? '.has-why' : '') + (box && !on ? '.off' : ''), {
       tabIndex: key === focusKey ? 0 : -1, 'data-key': String(key), role: 'option', 'aria-selected': String(on),
       'aria-expanded': st0 ? String(expanded.has(key)) : undefined, onfocus: () => { focusKey = key; },
@@ -359,7 +366,10 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       for (const k of keys) {
         const g = groupOf(k);
         const e = g?.entries.find((x) => x.key === k);
-        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || null, status: g ? stText(TITLES[g.id], 'warn') : stText('Ready', 'ok') })));
+        const st = stacks.get(k);
+        const c = st && !isNative(st) ? chains.get(k) : null;
+        const link = c?.linkable && editable() ? h('button.btn.small.mergeplan-link', { type: 'button', tabIndex: -1, 'data-tip': tipFor('Make it a GitHub stack', 'mergePlan.stackLink'), onclick: () => stackLink(k) }, 'Make it a GitHub stack') : null;
+        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || null, note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id], 'warn') : stText('Ready', 'ok') })));
       }
     } else if (step === 2) {
       if (!fixes.length) rows.push(h('div.mergeplan-empty', null, 'Nothing to fix.'));
@@ -470,11 +480,33 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     if (id === 'mergePlan.toggle') toggle(key);
     else if (id === 'mergePlan.expand') expand(key, true);
     else if (id === 'mergePlan.collapse') expand(key, false);
+    else if (id === 'mergePlan.stackLink') stackLink(key);
     else if (id === 'mergePlan.next' || id === 'mergePlan.prev') {
       const els = rowEls();
       const i = els.indexOf(row) + (id === 'mergePlan.next' ? 1 : -1);
       if (els[i]) focusRow(keyOfEl(els[i]));
     }
+  }
+
+  // Chains vs GitHub stacks (AK-555/556): asked once the plan has stacks, and again after a link.
+  async function loadChains() {
+    const res = await call('pr-chains', remote, base).catch(() => null);
+    if (!open || !res?.ok) return;
+    extension = res.ok.extension;
+    chains.clear();
+    for (const c of res.ok.chains) chains.set(c.id, c);
+    render();
+  }
+  function stackLink(key) {
+    const st = stacks.get(key);
+    if (!st) return toast('Not a chain', { detail: 'Focus a chain of pull requests first.' });
+    if (isNative(st)) return toast('Already a GitHub stack');
+    const c = chains.get(key);
+    if (!c) return toast('Still checking the chain', { detail: 'Try again in a moment.' });
+    if (!c.linkable) return toast('Can’t make it a GitHub stack', { detail: c.why || undefined });
+    if (!editable()) return;
+    const prs = new Map(st.prs.map((n) => [n, { title: titleOf(n), branch: prsBy.get(n)?.branch }]));
+    openStackLink({ chain: st, prs, base, remote, extension, call, onLinked: () => { loadChains(); replan(); } });
   }
 
   function methodMenu() {
@@ -516,6 +548,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     plan = res.ok;
     methods = plan.methods || { allowed: METHODS, default: null, saved: null };
     for (const st of plan.stacks || []) stacks.set(st.id, st);
+    if (first && stacks.size) loadChains();
     // A PR that wasn't ready and is now joins the picks; the rest stay out.
     for (const n of nums) if (notReady.has(n) && !plan.skipped.some((sk) => sk.number === n)) { notReady.delete(n); picked?.add(n); }
     for (const sk of plan.skipped) notReady.set(sk.number, sk.reason);

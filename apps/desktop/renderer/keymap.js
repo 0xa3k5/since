@@ -248,6 +248,7 @@ export const COMMANDS = [
   c('mergePlan', null, 'mergePlan.toggle', 'Pick or unpick the pull request or stack (plans the order again)', 'Space'),
   c('mergePlan', null, 'mergePlan.expand', 'Show the stack’s pull requests', 'ArrowRight'),
   c('mergePlan', null, 'mergePlan.collapse', 'Hide the stack’s pull requests', 'ArrowLeft'),
+  c('mergePlan', null, 'mergePlan.stackLink', 'Make the chain a GitHub stack (asks first)', 's'),
   c('mergePlan', null, 'mergePlan.merge', 'Merge the picked pull requests in order', 'Enter'),
   c('mergePlan', null, 'mergePlan.methods', 'Choose the merge method: squash, merge commits or rebase', 'Alt+Enter'),
   // Fixes for what's in the way (AK-549): they act on the focused row's group, else the first that offers them.

@@ -960,6 +960,26 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan-fix-t > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .mergeplan-fix small { font-size: 12px; line-height: 16px; color: var(--text-3); }
 .mergeplan-tag { padding: 0 6px; border-radius: 999px; background: var(--bg-active); color: var(--text-3); font-size: 11px; }
+.mergeplan-kind { padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text-3); font-size: 11px; font-weight: 400; }
+.mergeplan-kind.native { border-color: transparent; background: var(--accent-soft); color: var(--accent-fg); }
+.mergeplan-link { flex: none; }
+/* Make it a GitHub stack (AK-556) */
+.stacklink-sheet { width: min(520px, calc(100vw - 48px)); }
+.stacklink-p { margin: 0 0 8px; color: var(--text-2); }
+.stacklink-list { max-height: min(360px, 50vh); overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.stacklink-pr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+.stacklink-pr:last-child { border-bottom: 0; }
+.stacklink-pr b { font-weight: var(--fw-medium); color: var(--text); }
+.stacklink-i { display: inline-grid; place-items: center; width: 18px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.stacklink-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stacklink-b { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
+.stacklink-pr.busy .stacklink-i { color: var(--accent-fg); }
+.stacklink-pr.ok .stacklink-i { color: var(--green); }
+.stacklink-pr.fail { background: color-mix(in srgb, var(--red) 9%, transparent); }
+.stacklink-pr.fail .stacklink-i, .stacklink-pr.fail b, .stacklink-pr.fail .stacklink-b { color: var(--red); }
+.stacklink-reason { flex-basis: 100%; padding-left: 28px; color: var(--red); font-size: 12px; }
+.stacklink-error { padding: 8px 0 0; color: var(--red); font-size: 12.5px; }
+.stacklink-fact { margin-top: 10px; padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--text-2); font-size: 12.5px; }
 .mergeplan-status.muted { color: var(--text-4); }
 .mergeplan-unit.warn .mergeplan-status { white-space: normal; }
 .mergeplan-sub { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-left: 30px; padding-left: 20px; border-left: 2px solid var(--border); font-size: 12.5px; color: var(--text-2); }
