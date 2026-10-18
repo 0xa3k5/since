@@ -168,8 +168,66 @@ function withOverlaps(rows) {
   return rows;
 }
 
-// One row per piece of work, sorted into stages:
+// Stacked PRs (AK-537): a PR whose base is another open PR's branch sits on that PR. Number →
+// { on, path, at, of, root, base } for every PR in a stack (one with a PR on it or under it): on is
+// the PR it sits on (null at the bottom), path the stack's numbers bottom first, at its 1-based place
+// in it, root the bottom PR and base the branch the stack lands on. Where two PRs sit on one, the path
+// goes up through the lower number. The PR it sits on comes from the same owner, so a fork's `main`
+// never counts as a stack.
+export function prStacks(prs = []) {
+  const byBranch = new Map();
+  for (const p of prs || []) if (p?.branch) byBranch.set(`${(p.headOwner || '').toLowerCase()}\0${p.branch}`, p);
+  const parent = (p) => { const q = byBranch.get(`${(p.headOwner || '').toLowerCase()}\0${p.base}`); return q && q.number !== p.number ? q : null; };
+  const children = new Map();
+  for (const p of prs || []) {
+    const q = p?.base && parent(p);
+    if (q) children.set(q.number, [...(children.get(q.number) || []), p].sort((a, b) => a.number - b.number));
+  }
+  const out = new Map();
+  for (const p of prs || []) {
+    if (!p?.number || (!parent(p) && !children.has(p.number))) continue;
+    const down = [p];
+    for (let q = parent(p); q && !down.includes(q); q = parent(q)) down.unshift(q);
+    const path = [...down];
+    for (let q = children.get(p.number)?.[0]; q && !path.includes(q); q = children.get(q.number)?.[0]) path.push(q);
+    out.set(p.number, { on: parent(p)?.number ?? null, path: path.map((q) => q.number), at: down.length, of: path.length, root: path[0].number, base: path[0].base || null });
+  }
+  return out;
+}
+
+// A stage's rows with each stack's rows together, bottom first, where its first row was (AK-537).
+function keepStacks(rows) {
+  const out = [];
+  const placed = new Set();
+  for (const r of rows) {
+    if (placed.has(r)) continue;
+    const mates = r.stack ? rows.filter((x) => x.stack?.root === r.stack.root).sort((a, b) => a.stack.at - b.stack.at || a.pr.number - b.pr.number) : [r];
+    for (const m of mates) { placed.add(m); out.push(m); }
+  }
+  return out;
+}
+
+// The row's stack note: "on #41 · 2 of 3", or "Stack · 1 of 3" at the bottom; null outside a stack.
+// Its tooltip spells the stack out: "Stacked: main ‹ #41 ‹ #42 ‹ #43. Merge from the bottom."
+export function stackNote(row) {
+  const s = row?.stack;
+  if (!s) return null;
+  return {
+    text: `${s.on ? `on #${s.on}` : 'Stack'} · ${s.at} of ${s.of}`,
+    title: `Stacked: ${[s.base || 'base', ...s.path.map((n) => `#${n}`)].join(' ‹ ')}. Merge from the bottom.`,
+  };
+}
+
+// Whether the rows next to rows[i] are in its stack (the list's rail joins their dots): { up, down }.
+export function stackRail(rows, i) {
+  const root = rows[i]?.stack?.root;
+  if (root == null) return { up: false, down: false };
+  return { up: rows[i - 1]?.stack?.root === root, down: rows[i + 1]?.stack?.root === root };
+}
+
+// One row per piece of work, sorted into stages, a stack's rows together (keepStacks):
 //   { stages: { stuck, ready, inProgress }, finished: { count, items }, all }
+// A PR's row carries `stack` (prStacks) when it's in one, else null.
 // With PRs on, a row is keyed by its PR and carries that PR's branch, worktree and local commits;
 // lanes without an open PR only show in `all` (Everything else), unless they're finished. With PRs off
 // (`prsOn` false) `prs` and `reviewRequested` are ignored and rows come from lanes alone.
@@ -192,6 +250,8 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
   }
   for (const lane of lanes) if (!taken.has(lane)) rows.push(toRow(null, lane, forecast));
   withOverlaps(rows);
+  const stacks = prsOn ? prStacks(prs) : new Map();
+  for (const row of rows) row.stack = (row.pr && stacks.get(row.pr.number)) || null;
 
   const stages = Object.fromEntries(STAGES.map((s) => [s.id, []]));
   const finished = [];
@@ -204,7 +264,7 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
     else if (row.stage) stages[row.stage].push(row);
     else rest.push(row);
   }
-  for (const s of STAGES) sortStage(stages[s.id], s.id, requested);
+  for (const s of STAGES) stages[s.id] = keepStacks(sortStage(stages[s.id], s.id, requested));
   sortStage(finished, 'finished', requested);
   sortStage(rest, null, requested);
   return {
