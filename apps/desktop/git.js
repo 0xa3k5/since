@@ -2487,6 +2487,43 @@ async function stackLinear(cwd, base, heads) {
   } catch { return false; }
 }
 
+// Rebasing a stack (AK-559), the way `gh stack rebase` cascades, but objects only: no checkout,
+// index, worktree or ref moves, so it never touches your work. Bottom to top, each PR's own commits
+// (those not in the PR below it nor in the base) are replayed onto the new head of the one below
+// (the base for the bottom one), merge commits skipped like `git rebase`. Authors, dates and messages
+// are kept; you are the committer, signed when commit.gpgsign is on. A PR that already sits on the
+// one below with no merge commits is left as it is. All or nothing: the first conflict stops it.
+// heads: bottom…top. → { heads: [new head per PR], changed: [bool per PR] } |
+// { conflict: { index, commit, files } } (files [] when git refuses, e.g. unrelated histories).
+async function rebaseStack(cwd, base, heads) {
+  if (!(await canReplay(cwd))) throw new GitError('Rebasing a stack needs git 2.40 or later.');
+  const sign = (await run(cwd, ['config', '--bool', 'commit.gpgsign'], { allowCodes: [0, 1] })).trim() === 'true';
+  const isAncestor = (a, b) => run(cwd, ['merge-base', '--is-ancestor', a, b]).then(() => true, () => false);
+  const out = [], changed = [];
+  for (let i = 0; i < heads.length; i++) {
+    const below = i ? heads[i - 1] : base, onto = i ? out[i - 1] : base;
+    const not = i ? [heads[i - 1], base] : [base];
+    const merges = (await run(cwd, ['rev-list', '--merges', '--count', heads[i], '--not', ...not, '--'])).trim() !== '0';
+    if ((!i || !changed[i - 1]) && !merges && await isAncestor(below, heads[i])) { out.push(heads[i]); changed.push(false); continue; }
+    const list = (await run(cwd, ['rev-list', '--reverse', '--no-merges', `--max-count=${REPLAY_MAX + 1}`, heads[i], '--not', ...not, '--'])).split('\n').filter(Boolean);
+    if (list.length > REPLAY_MAX) throw new GitError(`A pull request in this stack has more than ${REPLAY_MAX} commits.`);
+    let cur = onto;
+    for (const c of list) {
+      let res;
+      try { res = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', `--merge-base=${c}^`, cur, c], { allowCodes: [0, 1] }); } catch { return { conflict: { index: i, commit: c, files: [] } }; }
+      const [tree, ...rest] = res.split('\0');
+      const files = [...new Set(rest.filter(Boolean))].sort();
+      if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { conflict: { index: i, commit: c, files } };
+      const [name, email, date, msg] = (await run(cwd, ['show', '-s', '--date=raw', '--format=%an%x00%ae%x00%ad%x00%B', c])).split(SEP);
+      const env = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date.trim() };
+      cur = (await run(cwd, ['commit-tree', ...(sign ? ['-S'] : []), tree, '-p', cur, '-F', '-'], { input: msg.replace(/\n+$/, '') + '\n', env })).trim();
+    }
+    out.push(cur);
+    changed.push(true);
+  }
+  return { heads: out, changed };
+}
+
 // Review (AK-305): what conflicts when `head` merges into `base`, file by file. merge-tree writes
 // the merged tree with conflict markers in it (objects only, never refs, the index or a worktree);
 // each conflicting blob is read back and cut into hunks: the base side, the head side, and up to
@@ -2688,7 +2725,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, rebaseStack, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,

@@ -216,6 +216,54 @@ test('simulateRebase catches a commit that conflicts when the whole PR merges cl
   assert.equal(await git.stackLinear(dir, fork, [ok, merged]), false);
 });
 
+test('rebaseStack drops merge commits, cascades onto the base, keeps authors, stops on a conflict (AK-559)', async () => {
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-stackrebase-'))), 'app');
+  fs.mkdirSync(dir);
+  const g = (...a) => git.run(dir, a);
+  const sha = async (rev = 'HEAD') => (await g('rev-parse', rev)).trim();
+  const commit = async (file, text, msg) => { fs.writeFileSync(path.join(dir, file), text); await g('add', file); await g('commit', '-q', '-m', msg); };
+  await g('init', '-q', '-b', 'main');
+  await g('config', 'user.name', 'Me');
+  await g('config', 'user.email', 'me@example.com');
+  await g('config', 'commit.gpgsign', 'false');
+  await commit('f.txt', 'a\n', 'base');
+  await g('checkout', '-q', '-b', 'one');
+  fs.writeFileSync(path.join(dir, 'one.txt'), '1\n');
+  await g('add', 'one.txt');
+  await g('-c', 'user.name=Agent', '-c', 'user.email=agent@example.com', 'commit', '-q', '-m', 'part one\n\nbody line');
+  await g('checkout', '-q', '-b', 'two');
+  await commit('two.txt', '2\n', 'part two');
+  // One more commit on part one, merged into part two: the merge commit to get rid of.
+  await g('checkout', '-q', 'one');
+  await commit('one.txt', '1b\n', 'part one, more');
+  await g('checkout', '-q', 'two');
+  await g('merge', '-q', '--no-edit', 'one');
+  await g('checkout', '-q', 'main');
+  await commit('m.txt', 'm\n', 'main moves on');
+  const [base, one, two] = [await sha('main'), await sha('one'), await sha('two')];
+  const refsBefore = await g('for-each-ref', '--format=%(refname) %(objectname)');
+
+  const res = await git.rebaseStack(dir, base, [one, two]);
+  assert.deepEqual(res.changed, [true, true]);
+  const [n1, n2] = res.heads;
+  assert.equal(await git.stackLinear(dir, base, [n1, n2]), true);
+  assert.equal((await g('log', '--format=%s', `${base}..${n2}`)).trim(), 'part two\npart one, more\npart one');
+  assert.equal((await g('show', '-s', '--format=%an|%cn|%B', `${n1}~1`)).trim(), 'Agent|Me|part one\n\nbody line');
+  assert.equal((await g('show', `${n2}:one.txt`)), '1b\n');
+  assert.equal(await g('for-each-ref', '--format=%(refname) %(objectname)'), refsBefore, 'objects only, no ref moves');
+
+  // Already linear on the base: nothing changes.
+  assert.deepEqual(await git.rebaseStack(dir, base, [n1, n2]), { heads: [n1, n2], changed: [false, false] });
+
+  // Part two clashes with the base: stops there, naming the commit and the file.
+  await commit('two.txt', 'main\n', 'main adds two.txt');
+  const base2 = await sha('main');
+  const stuck = await git.rebaseStack(dir, base2, [n1, n2]);
+  assert.equal(stuck.conflict.index, 1);
+  assert.deepEqual(stuck.conflict.files, ['two.txt']);
+  assert.equal(stuck.conflict.commit, await sha(`${n2}`));
+});
+
 test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan needs', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
   fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
