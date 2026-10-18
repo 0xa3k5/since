@@ -677,8 +677,9 @@ handle('app:pr-comment', prAction((t, o) => github.commentPr({ ...t, body: check
 // ready PR (is it still ready, and where is its head), then git fetches the base and any PR heads
 // missing here into FETCH_HEAD only (no ref moves) and simulates the merges locally with
 // merge-tree. Merging: before each PR, `gh pr view` and `git ls-remote` check nothing changed since
-// the plan, then `gh pr merge --squash`, then `gh pr view` for the squash commit the base should be
-// at next. Only while pull requests are on, and remote merges can't be undone.
+// the plan, then `gh pr merge` with the chosen method (`gh stack merge` for a stack, AK-545), then
+// `gh pr view` for the commit the base should be at next. Only while pull requests are on, and
+// remote merges can't be undone.
 const mergePlan = require('./renderer/merge-plan.js');
 const planErr = (message, code = 'gh-failed') => Object.assign(new Error(message), { code });
 const oidArg = (v, w) => check.oid(v, w);
@@ -695,46 +696,123 @@ async function remoteBase(s, remote, base) {
   if (!/^[0-9a-f]{40,64}$/.test(oid)) throw planErr(`${base} isn’t on ${remote.name}.`);
   return oid;
 }
-handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others) => {
+// opts (AK-545): { method: squash | merge | rebase (squash when absent), stacks: plan native
+// stacks as one unit each }. → the plan plus { methods: { allowed, default, saved, used }, stacks:
+// [{ id, prs, linear, blocker }] }.
+handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, opts) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   if (!Array.isArray(ready) || !Array.isArray(others)) throw new check.IpcArgError('Invalid merge plan');
+  check.obj(opts ?? {}, 'merge plan options', { method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stacks: (v, w) => (v == null ? v : check.bool(v, w)) });
+  const method = opts?.method || 'squash';
   const numbers = ready.slice(0, mergePlan.MAX_READY).map((n) => check.prNumber(n));
-  const rest = others.slice(0, mergePlan.MAX_OTHERS).map((o) => check.obj(o, 'open pull request', { number: check.prNumber, head: oidArg }));
-  const has = async (oid) => Boolean((await r(s, ['cat-file', '-t', oid], { allowCodes: [0, 1, 128] }).catch(() => '')).trim() === 'commit');
-  const infos = await Promise.all(numbers.map((number) => github.mergeInfo({ ...t, number }).catch((err) => ({ error: err.message }))));
-  const prs = [], skipped = [];
-  infos.forEach((info, i) => {
-    if (info.error || !info.headOid || !mergePlan.isReady(info)) skipped.push({ number: numbers[i], reason: info.error || info.gate?.hard || info.gate?.soft?.[0] || 'It isn’t approved.' });
-    else prs.push({ number: numbers[i], head: info.headOid, snap: { head: info.headOid, checks: info.checks, review: info.review } });
-  });
+  let rest = others.slice(0, mergePlan.MAX_OTHERS).map((o) => check.obj(o, 'open pull request', { number: check.prNumber, head: oidArg }));
+  const repoMethods = await github.repoMergeMethods(t);
+  if (!repoMethods.allowed.includes(method)) throw planErr(`${methodName(method)} is off in this repo’s settings.`);
+  const methods = { ...repoMethods, saved: savedMethod(s.repo.root), used: method };
+  // Native stacks (AK-545): found among every open PR, then each member is checked like a ready PR.
+  let found = [];
+  if (opts?.stacks) {
+    let total = 0;
+    found = mergePlan.findStacks(await github.openPrBranches(t), base).filter((st) => (total += st.prs.length) <= mergePlan.MAX_STACKED);
+  }
+  const inStack = new Set(found.flatMap((st) => st.prs));
+  const singles = numbers.filter((n) => !inStack.has(n));
+  rest = rest.filter((o) => !inStack.has(o.number));
+  const asked = [...singles, ...inStack];
+  const infos = new Map(await Promise.all(asked.map(async (number) => [number, await github.mergeInfo({ ...t, number }).catch((err) => ({ error: err.message }))])));
+  const notReady = (info) => (info.error || !info.headOid || !mergePlan.isReady(info) ? info.error || info.gate?.hard || info.gate?.soft?.[0] || 'It isn’t approved.' : null);
+  const snapOf = (info) => ({ head: info.headOid, checks: info.checks, review: info.review });
+  const prs = [], skipped = [], reasons = new Map();
+  for (const n of asked) { const why = notReady(infos.get(n)); if (why) reasons.set(n, why); }
+  for (const n of singles) {
+    if (reasons.has(n)) skipped.push({ number: n, reason: reasons.get(n) });
+    else prs.push({ number: n, head: infos.get(n).headOid, snap: snapOf(infos.get(n)) });
+  }
   await r(s, ['fetch', '--no-tags', '--', remote.name, `refs/heads/${base}`]);
   const baseSha = (await r(s, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
+  const has = async (oid) => Boolean((await r(s, ['cat-file', '-t', oid], { allowCodes: [0, 1, 128] }).catch(() => '')).trim() === 'commit');
+  const heads = [...prs, ...rest, ...[...inStack].filter((n) => infos.get(n).headOid).map((n) => ({ number: n, head: infos.get(n).headOid }))];
   const missing = [];
-  for (const p of [...prs, ...rest]) if (!(await has(p.head))) missing.push(`refs/pull/${p.number}/head`);
+  for (const p of heads) if (!(await has(p.head))) missing.push(`refs/pull/${p.number}/head`);
   if (missing.length) await r(s, ['fetch', '--no-tags', '--', remote.name, ...missing]);
   const known = [];
   for (const o of rest) if (await has(o.head)) known.push(o);
   for (const p of prs.splice(0)) { if (await has(p.head)) prs.push(p); else skipped.push({ number: p.number, reason: 'Couldn’t fetch its head commit.' }); }
-  const plan = await mergePlan.planOrder({ prs, others: known, baseSha, merge: (tip, head) => git.simulateSquash(s.repo.root, tip, head) });
-  return { ...plan, base, baseSha, skipped, snapshots: Object.fromEntries(prs.map((p) => [p.number, p.snap])) };
+  // A stack plans whole, at its bottom PR's place in Review's order (else after the single PRs),
+  // only when every PR in it is ready and its history is linear.
+  const stacks = [];
+  for (const st of found) {
+    const stHeads = st.prs.map((n) => infos.get(n).headOid);
+    const blocker = mergePlan.stackBlocker(st, reasons);
+    const linear = !blocker && stHeads.every(Boolean) && await git.stackLinear(s.repo.root, baseSha, stHeads);
+    stacks.push({ id: st.id, prs: st.prs, linear, blocker });
+    if (blocker || !linear) continue;
+    const unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
+    const at = numbers.indexOf(st.prs[0]);
+    const i = at < 0 ? -1 : prs.findIndex((p) => (p.stack ? numbers.indexOf(p.prs[0]) : numbers.indexOf(p.number)) > at);
+    prs.splice(i < 0 ? prs.length : i, 0, unit);
+  }
+  const sim = method === 'rebase' ? git.simulateRebase : git.simulateSquash;
+  const plan = await mergePlan.planOrder({ prs, others: known, baseSha, merge: (tip, head) => sim(s.repo.root, tip, head) });
+  const snapshots = Object.fromEntries([...prs.filter((p) => !p.stack).map((p) => [p.number, p.snap]), ...[...inStack].filter((n) => !reasons.has(n)).map((n) => [n, snapOf(infos.get(n))])]);
+  return { ...plan, base, baseSha, skipped, snapshots, methods, stacks };
 }));
-// One PR of a plan: { snap, baseSha } from the plan (or the previous merge's squash commit).
-// → { stop: reason } when something changed, else { merged: true, commit }.
+// One step of a plan: { snap, baseSha, method } from the plan (or the previous merge's commit), or
+// for a stack (AK-545) { stack: [{ number, snap }] bottom…top, baseSha, method } with `number` its
+// top PR. Every PR is checked before the merge. → { stop: reason } when something changed, else
+// { merged: true, commit } (commit null when a merge queue took it, so the plan stops there).
+const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
+const snapArg = (v, w) => check.obj(v, w, { head: oidArg, checks: nullable, review: nullable });
 handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   check.prNumber(number);
-  const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
-  check.obj(o, 'merge step', { baseSha: oidArg, snap: (v, w) => check.obj(v, w, { head: oidArg, checks: nullable, review: nullable }) });
-  const why = mergePlan.changedSince(o.snap, await github.mergeInfo({ ...t, number }));
-  if (why) return { stop: `#${number}: ${why}` };
+  const stackArg = (v, w) => {
+    if (v == null) return v;
+    if (!Array.isArray(v) || v.length < 2 || v.length > mergePlan.MAX_STACK) throw new check.IpcArgError(`Invalid ${w}`);
+    v.forEach((x) => { check.obj(x, w, { number: check.prNumber, snap: snapArg }); if (!x.snap) throw new check.IpcArgError(`Invalid ${w}`); });
+    if (v[v.length - 1].number !== number) throw new check.IpcArgError(`Invalid ${w}`);
+    return v;
+  };
+  check.obj(o, 'merge step', { baseSha: oidArg, snap: (v, w) => (o?.stack ? v : snapArg(v, w)), method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stack: stackArg });
+  if (!o.stack && !o.snap) throw new check.IpcArgError('Invalid merge step');
+  const method = o.method || 'squash';
+  const steps = o.stack || [{ number, snap: o.snap }];
+  const now = await Promise.all(steps.map((x) => github.mergeInfo({ ...t, number: x.number }).catch(() => null)));
+  for (let i = 0; i < steps.length; i++) {
+    const why = mergePlan.changedSince(steps[i].snap, now[i]);
+    if (why) return { stop: `#${steps[i].number}: ${why}` };
+  }
   if ((await remoteBase(s, remote, base)) !== o.baseSha) return { stop: `${base} moved on GitHub since the plan` };
-  try { await github.mergePr({ ...t, number, method: 'squash', matchHead: o.snap.head }); } catch (err) {
-    if (github.headMoved(err)) return { stop: `#${number}: new commits were pushed since the plan` };
-    throw err;
+  if (o.stack) await github.mergeStack({ ...t, number, method });
+  else {
+    try { await github.mergePr({ ...t, number, method, matchHead: o.snap.head }); } catch (err) {
+      if (github.headMoved(err)) return { stop: `#${number}: new commits were pushed since the plan` };
+      throw err;
+    }
   }
   const m = await github.mergedCommit({ ...t, number }).catch(() => ({ commit: null }));
-  return { merged: true, commit: m.commit };
+  return { merged: true, commit: m.state === 'merged' ? m.commit : null };
 }));
+// The merge method last used in this repo (AK-545), remembered per repo in settings.
+const methodName = (m) => ({ squash: 'Squash and merge', merge: 'Merge commits', rebase: 'Rebase and merge' }[m]);
+const MAX_SAVED_METHODS = 200;
+function savedMethod(root) {
+  const m = root ? readSettings().mergeMethods?.[root] : null;
+  return mergePlan.METHODS.includes(m) ? m : null;
+}
+handle('app:merge-method', (e) => ({ saved: savedMethod(session(e).repo?.root || null) }));
+handle('app:merge-method-save', (e, method) => {
+  const root = session(e).repo?.root;
+  const m = check.oneOf(...mergePlan.METHODS)(method, 'merge method');
+  if (!root) return { saved: null };
+  const all = { ...(readSettings().mergeMethods || {}) };
+  delete all[root];
+  all[root] = m;
+  const keys = Object.keys(all);
+  for (const k of keys.slice(0, Math.max(0, keys.length - MAX_SAVED_METHODS))) delete all[k];
+  writeSettings({ mergeMethods: all });
+  return { saved: m };
+});
 // Send back's templates (renderer/send-back.js): this repository's, the user-wide default, and
 // the built-in ones, resolved. Saving one with empty text resets it to the next level.
 const sendBack = require('./renderer/send-back.js');

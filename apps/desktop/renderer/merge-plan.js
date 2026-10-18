@@ -1,20 +1,38 @@
-// Merge plan (Review, AK-279): a safe order for squash-merging the ready PRs one after another.
-// Pure: `merge(tip, head)` simulates squash-merging `head` onto `tip` (git.simulateSquash, one
-// `git merge-tree --write-tree` each) and resolves to { files, commit } — commit is the simulated
-// result when it merges clean, null with the conflicting files when it doesn't. Text conflicts only:
-// clashes that merge clean but break the build are CI's job.
+// Merge plan (Review, AK-279): a safe order for merging the ready PRs one after another.
+// Pure: `merge(tip, head)` simulates merging `head` onto `tip` with the chosen method and resolves
+// to { files, commit } — commit is the simulated result when it merges clean, null with the
+// conflicting files when it doesn't. Squash and merge commits: one `git merge-tree` each
+// (git.simulateSquash); rebase: one per commit (git.simulateRebase, AK-545), since a single commit
+// can conflict even when the whole PR merges clean. Text conflicts only: clashes that merge clean
+// but break the build are CI's job.
+//
+// A unit of the plan is a PR ({ number, head }) or a native GitHub stack ({ stack, prs, head },
+// AK-545): a stack takes one place in the order, merges as a whole, and `head` is its top PR's.
 
 // At most this many PRs are planned, and this many simulated merges per plan.
 export const MAX_READY = 10;
 export const MAX_OTHERS = 20;
 export const MAX_MERGES = 300;
+// PRs in one stack, and PRs across all stacks, that a plan looks at.
+export const MAX_STACK = 10;
+export const MAX_STACKED = 20;
+export const METHODS = ['squash', 'merge', 'rebase'];
 
-// prs: the ready PRs [{ number, head }] in their natural order (Review's: waiting longest first).
-// others: open PRs that aren't ready [{ number, head }]. Returns
-//   { order: [{ number, after }], forced: [{ first, then, files }], blocked: [{ number, files }],
-//     warnings: [{ number, files }], tip, complete }
+// A unit's key in order / forced / blocked: a PR's number or a stack's id.
+const keyOf = (u) => u.stack ?? u.number;
+// "#41", or "the stack #41–#43" for a stack id.
+export const unitLabel = (key, stacks = []) => {
+  if (typeof key === 'number') return `#${key}`;
+  const s = stacks.find((x) => x.id === key);
+  return s ? `the stack #${s.prs[0]}–#${s.prs[s.prs.length - 1]}` : 'a stack';
+};
+
+// prs: the ready units [{ number, head } | { stack, prs, head }] in their natural order (Review's:
+// waiting longest first). others: open PRs that aren't ready [{ number, head }]. Returns
+//   { order: [{ number, after } | { stack, prs, after }], forced: [{ first, then, files }],
+//     blocked: [{ number | stack, files }], warnings: [{ number, files }], tip, complete }
 // order: a sequence that merges with no text conflicts, as close to the natural order as possible;
-//   `after` is null when the PR merges clean on the base alone, else the PR it has to wait for.
+//   `after` is null when the unit merges clean on the base alone, else the key it has to wait for.
 // forced: why the order differs from the natural one: "#first before #then would conflict in files".
 // blocked: ready PRs no clean order fits, with the files they'd conflict in at the end.
 // warnings: PRs that aren't ready and merge clean today but would conflict once the plan merges.
@@ -34,7 +52,7 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
   async function dfs(tip, done, left) {
     if (done.length > best.length) best = done;
     if (!left.length || best.length === ready.length) return;
-    const key = done.map((d) => d.pr.number).sort((a, b) => a - b).join(',');
+    const key = done.map((d) => String(keyOf(d.pr))).sort().join(',');
     if (tried.has(key)) return;
     tried.add(key);
     for (const p of left) {
@@ -53,29 +71,30 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
     // The first point in the plan where it merges clean; the PR just before that is what it waits for.
     let k = 0;
     while (k < i && !(await sim(tips[k], best[i].pr.head)).commit) k++;
-    order.push({ number: best[i].pr.number, after: k ? best[k - 1].pr.number : null });
+    const u = best[i].pr;
+    order.push({ ...(u.stack ? { stack: u.stack, prs: u.prs } : { number: u.number }), after: k ? keyOf(best[k - 1].pr) : null });
   }
 
-  const rank = new Map(ready.map((p, i) => [p.number, i]));
+  const rank = new Map(ready.map((p, i) => [keyOf(p), i]));
   const forced = [];
   const explained = new Set();
   for (let i = 0; i < best.length; i++) {
     const x = best[i].pr;
     // A PR later in the plan that comes earlier naturally: say what goes wrong if it went first.
     for (const y of best.slice(i + 1).map((s) => s.pr)) {
-      if (rank.get(y.number) > rank.get(x.number) || explained.has(y.number)) continue;
+      if (rank.get(keyOf(y)) > rank.get(keyOf(x)) || explained.has(keyOf(y))) continue;
       const first = await sim(best[i].before, y.head);
       const files = first.commit ? (await sim(first.commit, x.head)).files : first.files;
       if (!files.length) continue;
-      explained.add(y.number);
-      forced.push({ first: y.number, then: x.number, files });
+      explained.add(keyOf(y));
+      forced.push({ first: keyOf(y), then: keyOf(x), files });
     }
   }
 
   const tip = tips[tips.length - 1];
-  const inPlan = new Set(best.map((s) => s.pr.number));
+  const inPlan = new Set(best.map((s) => keyOf(s.pr)));
   const blocked = [];
-  for (const p of ready) if (!inPlan.has(p.number)) blocked.push({ number: p.number, files: (await sim(tip, p.head)).files });
+  for (const p of ready) if (!inPlan.has(keyOf(p))) blocked.push({ ...(p.stack ? { stack: p.stack } : { number: p.number }), files: (await sim(tip, p.head)).files });
 
   const warnings = [];
   if (best.length) {
@@ -98,10 +117,53 @@ export function fileList(files = [], max = 2) {
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || 'some files';
 }
 
-export const statusText = (step) => (step.after ? `clean after #${step.after}` : 'clean');
-export const forcedText = (f) => `#${f.first} before #${f.then} would conflict in ${fileList(f.files)}`;
+export const statusText = (step, stacks) => (step.after ? `clean after ${unitLabel(step.after, stacks)}` : 'clean');
+export const forcedText = (f, stacks) => `${unitLabel(f.first, stacks)} before ${unitLabel(f.then, stacks)} would conflict in ${fileList(f.files)}`;
 export const blockedText = (b) => `Conflicts in ${fileList(b.files)} with the PRs above, so it’s left out`;
 export const warningText = (w) => `#${w.number} will conflict in ${fileList(w.files)} after these merge`;
+
+// The method a plan starts with (AK-545): the one last used in this repo, else the repo's GitHub
+// default, else squash, as long as the repo allows it; else the first one it does allow.
+export function startMethod({ saved, allowed = METHODS, fallback } = {}) {
+  for (const m of [saved, fallback, 'squash']) if (allowed.includes(m)) return m;
+  return allowed[0] || 'squash';
+}
+
+// Native GitHub stacks among the open PRs (AK-545): a straight chain where the bottom PR targets
+// `base` and each PR above targets the branch of the one below. open: [{ number, branch,
+// baseBranch, head }]. A chain that forks (two PRs on one branch) isn't a stack, and its bottom PR
+// plans on its own. → [{ id, prs: [bottom…top], heads }], two PRs or more, at most MAX_STACK.
+export function findStacks(open = [], base) {
+  const byBase = new Map();
+  for (const p of open) {
+    if (!p.branch || !p.baseBranch) continue;
+    if (!byBase.has(p.baseBranch)) byBase.set(p.baseBranch, []);
+    byBase.get(p.baseBranch).push(p);
+  }
+  const stacks = [];
+  for (const bottom of byBase.get(base) || []) {
+    const chain = [bottom];
+    const seen = new Set([base, bottom.branch]);
+    let straight = true;
+    for (;;) {
+      const kids = byBase.get(chain[chain.length - 1].branch) || [];
+      if (kids.length > 1) { straight = false; break; }
+      if (!kids.length || seen.has(kids[0].branch) || chain.length >= MAX_STACK) break;
+      seen.add(kids[0].branch);
+      chain.push(kids[0]);
+    }
+    if (straight && chain.length > 1) stacks.push({ id: `stack-${bottom.number}`, prs: chain.map((p) => p.number), heads: chain.map((p) => p.head) });
+  }
+  return stacks;
+}
+
+// The first PR that keeps a stack from merging: reasons maps a PR number to why it isn't ready
+// (absent when it is). → { number, reason } | null. A stack plans only when this is null and its
+// history is linear.
+export function stackBlocker(stack, reasons) {
+  for (const n of stack.prs) if (reasons.has(n)) return { number: n, reason: reasons.get(n) };
+  return null;
+}
 
 // What has to still hold before each merge, from the plan's snapshot of a PR ({ head, checks,
 // review }) and what `gh pr view` says now (github.mergeInfo). null when nothing changed, else the
