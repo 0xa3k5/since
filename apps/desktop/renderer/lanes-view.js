@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
 import { navPos, authorsStack, fastKeys } from './reader.js';
@@ -161,7 +161,10 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const paneCtx = (r) => ({
     base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
     conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
-    onSelectPr: (n) => { const x = staged?.all.find((y) => y.pr?.number === n); if (x) select(x.key); else toast(`#${n} isn’t listed`); },
+    onSelectPr: (n) => selectPr(n),
+    // The stack path (AK-537): each PR's stage for its dot, and [ / ] along the stack.
+    stageOf: (n) => staged?.all.find((y) => y.pr?.number === n)?.stage || null,
+    onStack: (d) => stackStep(d),
     // ‹ N of M › and ←/→ in the reader: the current tab's list (AK-381).
     nav: { ...navPos(shown.map((x) => x.key), r.key), onStep: (d) => move(d) },
   });
@@ -204,21 +207,23 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // A row (AK-379): status dot · #number · the title over one quiet line (why it's stuck, in red; else
   // its tags, who and where) · age. No buttons: ⌘K "Next step" runs the primary step, the pane's status strip
   // has the rest, and the context menu has them all. Details (D) open under the title.
-  function stagedRow(r) {
+  function stagedRow(r, rail = { up: false, down: false }) {
     const active = r.key === selKey;
     const open = details.has(r.key);
     const at = r.pr?.updatedAt ? Date.parse(r.pr.updatedAt) : r.lane?.activity || 0;
     const overlap = overlapNote(r);
+    const stack = stackNote(r);
     const stage = STAGES.find((x) => x.id === r.stage);
     const stuck = r.stage === 'stuck' && reason(r);
     const tags = rowBadges(r, { requested: requested() });
     // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
     const authors = rowAuthors(r, { agents: markAgents() });
     const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    const line = [...tags.filter((b) => !b.signal).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
-    return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : ''), {
+    const line = [stack?.text, ...tags.filter((b) => !b.signal).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
+    // A stack's rows next to each other share a rail through their dots (AK-537).
+    return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : '') + (rail.up ? '.stack-up' : '') + (rail.down ? '.stack-down' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
-      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, authors.length ? `By ${authors.map((a) => a.name).join(' and ')}` : null, stage?.label, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
+      title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, authors.length ? `By ${authors.map((a) => a.name).join(' and ')}` : null, stage?.label, stack?.title, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
       onclick: () => select(r.key),
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
@@ -385,7 +390,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (loaded) { lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length, needs: needsYou(staged.stages) }; onCounts(lastCounts); }
     if (q) {
       shown = filterRows(staged.all, q);
-      for (const r of shown) rows.push(stagedRow(r));
+      shown.forEach((r, i) => rows.push(stagedRow(r, stackRail(shown, i))));
     } else {
       shown = [];
       const t = TAB.get(tab);
@@ -398,7 +403,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
         if (many && !rs.length) continue;
         if (many) rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': id }, h('span', null, label, ' ', h('span.lanes-count', null, String(rs.length)))));
         if (!rs.length && loaded && !prsLoading && !(prsUnloaded && id !== 'stuck')) rows.push(h('div.review-none', null, NONE[id]));
-        for (const r of rs) { shown.push(r); rows.push(stagedRow(r)); }
+        rs.forEach((r, i) => { shown.push(r); rows.push(stagedRow(r, stackRail(rs, i))); });
       }
       if (tab === 'open' && !shown.length && settled) rows.push(h('div.review-none', null, 'Nothing is open.'));
       if (tab === 'needs' && settled && shown.length <= SHORT) rows.push(calmLine());
@@ -536,6 +541,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     else if (TABS.some((t) => t.keyId === id)) setTab(TABS.find((t) => t.keyId === id).id);
     else if (id === 'lanes.mergeReady') mergeReady();
     else if (id === 'lanes.mergePlan') mergePlan();
+    else if (id === 'lanes.stackDown' || id === 'lanes.stackUp') stackStep(id === 'lanes.stackUp' ? 1 : -1);
     else if (!x) return false;
     else if (id === 'lanes.review') act('review', x);
     else if (id === 'lanes.merge') act('merge', x);
@@ -677,6 +683,28 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     act('sendBack', r);
   }
   // A PR picked outside Review (the sidebar, AK-385): its row, selected, on a tab that lists it.
+  // [ / ] (AK-537): the PR the selected one sits on, or the next one up its stack.
+  function stackTarget(d) {
+    const s = current()?.stack;
+    return s ? s.path[s.at - 1 + d] ?? null : null;
+  }
+  function stackStep(d) {
+    const x = current();
+    if (!x?.stack) { toast(x ? `${x.pr ? `#${x.pr.number}` : x.title} isn’t in a stack` : 'Nothing selected'); return; }
+    const n = stackTarget(d);
+    if (n == null) { toast(d < 0 ? `#${x.pr.number} is the bottom of its stack: it merges into ${x.stack.base || 'the base'}` : `#${x.pr.number} is the top of its stack`); return; }
+    selectPr(n);
+  }
+  // A PR's row, from the pane's links; one the tab doesn't list opens All open first.
+  function selectPr(n) {
+    const row = staged?.all.find((y) => y.pr?.number === n);
+    if (!row) { toast(`#${n} isn’t listed`); return; }
+    if (!shown.includes(row)) setTab('open');
+    select(row.key);
+  }
+  // ⌘K's stack entries: the PRs below and above the selected one, or null outside a stack.
+  const stackSelection = () => (current()?.stack ? { number: current().pr.number, down: stackTarget(-1), up: stackTarget(1) } : null);
+
   function showPr(number) {
     const r = (staged?.all || []).find((x) => x.pr?.number === number);
     if (!r && !loaded) { pendingPr = number; return; }
@@ -687,7 +715,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

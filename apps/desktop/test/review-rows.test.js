@@ -559,3 +559,40 @@ test('needs you (the Review badge) is stuck plus ready, never the unmerged branc
   assert.equal(needsYou(off.stages), off.stages.stuck.length + off.stages.ready.length);
   assert.ok(needsYou(off.stages) < branches.length);
 });
+
+// Stacked PRs (AK-537): #41 → main, #42 → #41, #43 → #42.
+test('prStacks: a PR on another open PR’s branch sits on it, bottom first', async () => {
+  const { prStacks } = await load();
+  const prs = [pr(43, { base: 'b42' }), pr(41), pr(42, { base: 'b41' }), pr(50)];
+  const s = prStacks(prs);
+  assert.deepEqual(s.get(41), { on: null, path: [41, 42, 43], at: 1, of: 3, root: 41, base: 'main' });
+  assert.deepEqual(s.get(42), { on: 41, path: [41, 42, 43], at: 2, of: 3, root: 41, base: 'main' });
+  assert.equal(s.get(43).at, 3);
+  assert.equal(s.has(50), false); // alone, not a stack
+});
+
+test('prStacks: a fork’s same-named branch is not a stack; two PRs on one go up the lower number', async () => {
+  const { prStacks } = await load();
+  assert.equal(prStacks([pr(1, { branch: 'main', headOwner: 'someone' }), pr(2, { headOwner: 'kim' })]).size, 0);
+  const s = prStacks([pr(1), pr(3, { base: 'b1' }), pr(2, { base: 'b1' })]);
+  assert.deepEqual(s.get(1).path, [1, 2]);
+  assert.deepEqual(s.get(3).path, [1, 3]);
+  // A loop (each on the other) still ends.
+  assert.equal(prStacks([pr(1, { base: 'b2' }), pr(2, { base: 'b1' })]).get(1).of, 2);
+});
+
+test('reviewRows keeps a stack’s rows together, bottom first; stackNote and stackRail', async () => {
+  const { reviewRows, stackNote, stackRail } = await load();
+  const prs = [pr(43, { base: 'b42', updatedAt: ago(1) }), pr(50, { updatedAt: ago(2) }), pr(41, { updatedAt: ago(3) }), pr(42, { base: 'b41', updatedAt: ago(4) })];
+  const { stages } = reviewRows({ prs, prsOn: true, now: NOW });
+  const rows = stages.inProgress;
+  assert.deepEqual(rows.map((r) => r.pr.number), [41, 42, 43, 50]);
+  assert.deepEqual(stackNote(rows[1]), { text: 'on #41 · 2 of 3', title: 'Stacked: main ‹ #41 ‹ #42 ‹ #43. Merge from the bottom.' });
+  assert.equal(stackNote(rows[0]).text, 'Stack · 1 of 3');
+  assert.equal(stackNote(rows[3]), null);
+  assert.deepEqual(stackRail(rows, 0), { up: false, down: true });
+  assert.deepEqual(stackRail(rows, 2), { up: true, down: false });
+  assert.deepEqual(stackRail(rows, 3), { up: false, down: false });
+  // PR features off: no stacks.
+  assert.equal(reviewRows({ prs, prsOn: false, now: NOW }).all.some((r) => r.stack), false);
+});
