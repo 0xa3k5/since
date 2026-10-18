@@ -612,3 +612,37 @@ test('findMedia: markdown, img, video/source and bare attachment links; https on
   const many = Array.from({ length: 80 }, (_, i) => `![${i}](https://github.com/${i}.png)`).join(' ');
   assert.equal(github.findMedia([{ from: 'comment', body: many }]).length, 50);
 });
+
+test('planFacts: required checks, review rule and who may approve, from one GraphQL call (AK-550)', async () => {
+  const ctx = [
+    { __typename: 'CheckRun', name: 'changes', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/9/job/1', startedAt: '2026-10-18T10:41:43Z', completedAt: '2026-10-18T10:41:45Z', isRequired: false },
+    { __typename: 'CheckRun', name: 'test', status: 'IN_PROGRESS', conclusion: null, detailsUrl: 'https://ci.example.com/1', isRequired: true },
+    { __typename: 'StatusContext', context: 'ci/lint', state: 'SUCCESS', targetUrl: null, isRequired: true },
+    {},
+  ];
+  const reply = (o = {}) => JSON.stringify({ data: { viewer: { login: 'me' }, repository: { viewerPermission: 'WRITE', pullRequest: { number: 7, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', headRefName: 'feat', headRefOid: 'a'.repeat(40), author: { login: 'ana' }, reviewRequests: { nodes: [{ requestedReviewer: { login: 'bo' } }, { requestedReviewer: { name: 'core' } }] }, latestReviews: { nodes: [] }, baseRef: { refUpdateRule: { requiredApprovingReviewCount: 2 }, branchProtectionRule: null }, commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: ctx } } } }] }, ...o } } } });
+  const { calls, exec } = recorder(reply());
+  const f = await github.planFacts({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
+  assert.deepEqual(calls[0].args.slice(0, 4), ['api', '--hostname', 'github.com', 'graphql']);
+  assert.deepEqual(calls[0].args.slice(-6), ['-f', 'owner=acme', '-f', 'name=app', '-F', 'number=7']);
+  assert.equal(calls[0].args.length, 12);
+  assert.deepEqual([f.state, f.mergeState, f.review, f.checks, f.approvals, f.author, f.canApprove], ['open', 'blocked', 'required', 'failure', 2, 'ana', true]);
+  assert.deepEqual(f.requested, ['bo', 'core']);
+  assert.deepEqual(f.checkList.map((c) => [c.name, c.result, c.required, c.duration, c.run]), [['changes', 'failure', false, 2, '9'], ['test', 'pending', true, undefined, undefined], ['ci/lint', 'success', true, undefined, undefined]]);
+  // Your own PR, or one you already approved: no Approve.
+  assert.equal(github.parsePlanFacts(reply({ author: { login: 'me' } })).canApprove, false);
+  assert.equal(github.parsePlanFacts(reply({ latestReviews: { nodes: [{ author: { login: 'me' }, state: 'APPROVED' }] } })).canApprove, false);
+  assert.throws(() => github.parsePlanFacts('{"data":{"repository":{"pullRequest":null}}}'), { code: 'gh-failed' });
+});
+
+test('markReady and rerunFailed: gh arguments, Actions runs only (AK-550)', async () => {
+  const { calls, exec } = recorder('');
+  await github.markReady({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
+  assert.deepEqual(calls[0].args, ['pr', 'ready', '7', '--repo', 'github.com/acme/app']);
+  const rollup = JSON.stringify({ statusCheckRollup: [{ conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/9/job/1' }, { state: 'FAILURE', targetUrl: 'https://ci.example.com/2' }, { conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/app/actions/runs/8/job/2' }] });
+  const r = recorder((args) => (args[0] === 'pr' ? rollup : ''));
+  const res = await github.rerunFailed({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: r.exec });
+  assert.deepEqual(res, { number: 7, runs: ['9'] });
+  assert.deepEqual(r.calls[1].args, ['run', 'rerun', '9', '--repo', 'github.com/acme/app', '--failed']);
+  for (const fn of ['planFacts', 'markReady', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
+});

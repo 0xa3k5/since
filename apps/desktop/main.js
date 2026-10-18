@@ -649,6 +649,10 @@ handle('app:pr-merge', prAction((t, o) => github.mergePr({
   admin: check.bool(o?.admin, 'merge as admin'),
 })));
 handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str(o?.body ?? '', 'close comment', { empty: true }) })));
+// Merge plan fixes (AK-550): mark a draft ready, re-run failed Actions jobs. Opt-in like every
+// PR action: target() refuses while pull requests are off.
+handle('app:pr-ready', prAction((t) => github.markReady(t)));
+handle('app:pr-rerun-failed', prAction((t) => github.rerunFailed(t)));
 handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, rebase: check.bool(o?.rebase ?? false, 'rebase') })));
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on
 // an explicit click in the sheet, and only while pull requests are on (target() checks).
@@ -702,7 +706,9 @@ async function remoteBase(s, remote, base) {
 handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, opts) => {
   const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
   if (!Array.isArray(ready) || !Array.isArray(others)) throw new check.IpcArgError('Invalid merge plan');
-  check.obj(opts ?? {}, 'merge plan options', { method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stacks: (v, w) => (v == null ? v : check.bool(v, w)) });
+  const flag = (v, w) => (v == null ? v : check.bool(v, w));
+  check.obj(opts ?? {}, 'merge plan options', { method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stacks: flag, anyway: flag });
+  const anyway = opts?.anyway === true;
   const method = opts?.method || 'squash';
   const numbers = ready.slice(0, mergePlan.MAX_READY).map((n) => check.prNumber(n));
   let rest = others.slice(0, mergePlan.MAX_OTHERS).map((o) => check.obj(o, 'open pull request', { number: check.prNumber, head: oidArg }));
@@ -719,11 +725,17 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
   const singles = numbers.filter((n) => !inStack.has(n));
   rest = rest.filter((o) => !inStack.has(o.number));
   const asked = [...singles, ...inStack];
-  const infos = new Map(await Promise.all(asked.map(async (number) => [number, await github.mergeInfo({ ...t, number }).catch((err) => ({ error: err.message }))])));
-  const notReady = (info) => (info.error || !info.headOid || !mergePlan.isReady(info) ? info.error || info.gate?.hard || info.gate?.soft?.[0] || 'It isn’t approved.' : null);
+  // GitHub's own merge rules decide (AK-550): blockers per PR, each marked required or not.
+  const infos = new Map(await Promise.all(asked.map(async (number) => [number, await github.planFacts({ ...t, number }).catch((err) => ({ error: err.message }))])));
   const snapOf = (info) => ({ head: info.headOid, checks: info.checks, review: info.review });
-  const prs = [], skipped = [], reasons = new Map();
-  for (const n of asked) { const why = notReady(infos.get(n)); if (why) reasons.set(n, why); }
+  const prs = [], skipped = [], reasons = new Map(), blockers = {};
+  const leaveOut = (n, list) => { blockers[n] = list; reasons.set(n, mergePlan.blockerText(mergePlan.mainBlocker(list))); };
+  for (const n of asked) {
+    const info = infos.get(n);
+    const list = info.headOid || info.error ? mergePlan.blockersOf(info) : [{ kind: 'error', required: true, detail: 'GitHub didn’t name its head commit.' }];
+    if (list.length) blockers[n] = list;
+    if (mergePlan.waits(list, anyway)) leaveOut(n, list);
+  }
   for (const n of singles) {
     if (reasons.has(n)) skipped.push({ number: n, reason: reasons.get(n) });
     else prs.push({ number: n, head: infos.get(n).headOid, snap: snapOf(infos.get(n)) });
@@ -733,17 +745,31 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
   const has = async (oid) => Boolean((await r(s, ['cat-file', '-t', oid], { allowCodes: [0, 1, 128] }).catch(() => '')).trim() === 'commit');
   const heads = [...prs, ...rest, ...[...inStack].filter((n) => infos.get(n).headOid).map((n) => ({ number: n, head: infos.get(n).headOid }))];
   const missing = [];
-  for (const p of heads) if (!(await has(p.head))) missing.push(`refs/pull/${p.number}/head`);
-  if (missing.length) await r(s, ['fetch', '--no-tags', '--', remote.name, ...missing]);
+  // PRs GitHub says conflict with the base: fetched too, to name the files.
+  const dirty = singles.filter((n) => infos.get(n).conflicts && infos.get(n).headOid).map((n) => ({ number: n, head: infos.get(n).headOid }));
+  for (const p of [...heads, ...dirty]) if (!(await has(p.head))) missing.push(`refs/pull/${p.number}/head`);
+  if (missing.length) await r(s, ['fetch', '--no-tags', '--', remote.name, ...new Set(missing)]);
+  const sim = method === 'rebase' ? git.simulateRebase : git.simulateSquash;
+  for (const p of dirty) {
+    if (!(await has(p.head))) continue;
+    const files = (await sim(s.repo.root, baseSha, p.head)).files;
+    const b = blockers[p.number].find((x) => x.kind === 'conflicts-base');
+    if (!b || !files.length) continue;
+    b.files = files;
+    leaveOut(p.number, blockers[p.number]);
+    const sk = skipped.find((x) => x.number === p.number);
+    if (sk) sk.reason = reasons.get(p.number);
+  }
   const known = [];
   for (const o of rest) if (await has(o.head)) known.push(o);
-  for (const p of prs.splice(0)) { if (await has(p.head)) prs.push(p); else skipped.push({ number: p.number, reason: 'Couldn’t fetch its head commit.' }); }
+  for (const p of prs.splice(0)) { if (await has(p.head)) prs.push(p); else { blockers[p.number] = [{ kind: 'error', required: true, detail: 'Couldn’t fetch its head commit.' }]; skipped.push({ number: p.number, reason: 'Couldn’t fetch its head commit.' }); } }
   // A stack plans whole, at its bottom PR's place in Review's order (else after the single PRs),
   // only when every PR in it is ready and its history is linear.
   const stacks = [];
   for (const st of found) {
     const stHeads = st.prs.map((n) => infos.get(n).headOid);
     const blocker = mergePlan.stackBlocker(st, reasons);
+    if (blocker) for (const n of st.prs) if (n !== blocker.number) (blockers[n] ||= []).push({ kind: 'stack', required: true, number: blocker.number });
     const linear = !blocker && stHeads.every(Boolean) && await git.stackLinear(s.repo.root, baseSha, stHeads);
     stacks.push({ id: st.id, prs: st.prs, linear, blocker });
     if (blocker || !linear) continue;
@@ -752,10 +778,12 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
     const i = at < 0 ? -1 : prs.findIndex((p) => (p.stack ? numbers.indexOf(p.prs[0]) : numbers.indexOf(p.number)) > at);
     prs.splice(i < 0 ? prs.length : i, 0, unit);
   }
-  const sim = method === 'rebase' ? git.simulateRebase : git.simulateSquash;
   const plan = await mergePlan.planOrder({ prs, others: known, baseSha, merge: (tip, head) => sim(s.repo.root, tip, head) });
+  for (const b of plan.blocked) if (b.number) (blockers[b.number] ||= []).push({ kind: 'conflicts-pr', required: true, with: b.with, files: b.files });
   const snapshots = Object.fromEntries([...prs.filter((p) => !p.stack).map((p) => [p.number, p.snap]), ...[...inStack].filter((n) => !reasons.has(n)).map((n) => [n, snapOf(infos.get(n))])]);
-  return { ...plan, base, baseSha, skipped, snapshots, methods, stacks };
+  // anyway: the PRs only Merge anyway takes (just checks GitHub doesn't require failing or running).
+  const anywayable = asked.filter((n) => blockers[n] && mergePlan.anywayOnly(blockers[n]));
+  return { ...plan, base, baseSha, skipped, snapshots, methods, stacks, blockers, anyway: anywayable };
 }));
 // One step of a plan: { snap, baseSha, method } from the plan (or the previous merge's commit), or
 // for a stack (AK-545) { stack: [{ number, snap }] bottom…top, baseSha, method } with `number` its
