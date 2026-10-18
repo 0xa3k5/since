@@ -28,7 +28,7 @@ import { openStackLink } from './stack-link-view.js';
 // onSendBack(number) opens that PR's Send back sheet; onUndo() undoes the clean up; onDone()
 // refreshes Review once anything merged.
 let open = false;
-export function openMergePlan({ ready, others = [], known = [], base, remote, method: asked = null, anyway: startAnyway = true, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
+export function openMergePlan({ ready, others = [], known = [], base, remote, method: asked = null, anyway: startAnyway = true, targets = [], chosen = true, onTarget = null, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
   if (open) return;
   open = true;
   const prsBy = new Map([...known, ...ready, ...others].map((p) => [p.number, p]));
@@ -71,8 +71,20 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
   const split = h('span.mergeplan-split', null, primary, caret);
   const onward = h('button.btn', { type: 'button', onclick: () => goStep(step + 1) });
   const cancel = h('button.btn.ghost', { type: 'button', onclick: () => close() }, 'Cancel', kbd(...keymap.keys('dialog.cancel')));
+  // The branch it merges into (AK-541, option A): any landing branch with open PRs. Switching opens
+  // the plan again for that branch; the choice is remembered per repo.
+  const targetBtn = h('button.mergeplan-target', { type: 'button', 'aria-haspopup': 'menu', 'data-tip': tipFor('Merge into', 'mergePlan.target'), onclick: () => targetMenu() }, base, targets.length > 1 ? icon('chevronDown', 12) : null);
+  function targetMenu() {
+    if (!onTarget || targets.length < 2 || phase === 'merging') return;
+    const r = targetBtn.getBoundingClientRect();
+    contextMenu(r.left, r.bottom + 4, targets.map((t) => ({
+      label: [h('span.mergeplan-mname', null, t.name), h('small', null, `${t.ready} ready · ${t.open} open`)],
+      icon: t.name === base ? 'check' : null,
+      run: () => { if (t.name !== base) { close(); onTarget(t.name); } },
+    })), { focus: Math.max(0, targets.findIndex((t) => t.name === base)) });
+  }
   const form = h('form.dialog.wide.mergeplan-sheet', { onsubmit: (e) => { e.preventDefault(); next(); } },
-    h('div.dialog-head', null, h('div.dialog-title', null, `Merge plan · into ${base}`)),
+    h('div.dialog-head', null, h('div.dialog-title', null, 'Merge plan · into ', targetBtn)),
     stepper,
     body,
     h('div.dialog-foot', null, cancel, h('span.spacer'), onward, split));
@@ -474,6 +486,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     if (!id) return;
     const row = e.target.closest?.('.mergeplan-unit');
     if (id === 'mergePlan.methods') { e.preventDefault(); return methodMenu(); }
+    if (id === 'mergePlan.target') { if (e.target.tagName === 'INPUT') return; e.preventDefault(); return targetMenu(); }
     if (FIXES.has(id)) {
       if (e.target.tagName === 'INPUT') return;
       e.preventDefault();
@@ -566,6 +579,8 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     for (const n of nums) if (notReady.has(n) && !plan.skipped.some((sk) => sk.number === n)) { notReady.delete(n); picked?.add(n); }
     for (const sk of plan.skipped) notReady.set(sk.number, sk.reason);
     for (const n of nums) blockersBy.set(n, plan.blockers?.[n] || []);
+    // First time in this repo: start on its default branch when that has open PRs.
+    if (first && !chosen && onTarget && plan.defaultBranch && plan.defaultBranch !== base && targets.some((t) => t.name === plan.defaultBranch)) { close(); return onTarget(plan.defaultBranch, { save: false }); }
     if (first) {
       const want = asked && methods.allowed.includes(asked) ? asked : startMethod({ saved: methods.saved, allowed: methods.allowed, fallback: methods.default });
       if (asked && want === asked) call('merge-method-save', asked).catch(() => {});

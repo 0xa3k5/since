@@ -530,14 +530,42 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // Merge plan (merge-plan-view.js): on git 2.38+ with pull requests on. With them off nothing is
   // ever ready, so there's no plan for local branches.
   const canPlan = () => Boolean(onMergePlan && prsOn() && forecastOk && inbox?.remote);
-  function mergePlan(method = null, { anyway = false } = {}) {
-    if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : 'Merge plan needs git 2.38 or later');
+  // Merge plan's target (AK-541, option A): a landing branch, one no open PR comes from (main,
+  // master, dev, release/…). A PR lands on the branch its chain of bases reaches through other open
+  // PRs' branches; a PR's own branch is never a target. The choice is remembered per repo.
+  function landings() {
+    const prs = inbox?.prs || [];
+    const byBranch = new Map(prs.filter((p) => p.branch).map((p) => [p.branch, p]));
+    const land = (p) => { let b = p.base; const seen = new Set(); while (byBranch.has(b) && !seen.has(b)) { seen.add(b); b = byBranch.get(b).base; } return b; };
+    return new Map(prs.map((p) => [p.number, land(p)]));
+  }
+  function mergeTargets() {
+    const open = inbox?.prs || [];
+    const land = landings();
     const all = readyPrs();
-    if (!all.length) return toast('Nothing is ready to merge', { detail: 'Ready means GitHub would merge it now.' });
-    const to = all[0].base;
-    const ready = all.filter((p) => p.base === to);
-    const others = (inbox?.prs || []).filter((p) => p.base === to && !ready.some((x) => x.number === p.number));
-    onMergePlan({ ready, others, known: inbox?.prs || [], base: to, remote: inbox.remote, method, anyway });
+    return [...new Set(open.map((p) => land.get(p.number)))].filter(Boolean).map((name) => ({
+      name, open: open.filter((p) => land.get(p.number) === name).length, ready: all.filter((p) => land.get(p.number) === name).length,
+    })).sort((a, b) => b.ready - a.ready || b.open - a.open || a.name.localeCompare(b.name));
+  }
+  const targetKey = () => `pref:mergeTarget:${repo || ''}`;
+  function mergePlan(method = null, { anyway = false, target = null } = {}) {
+    if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : 'Merge plan needs git 2.38 or later');
+    const open = inbox?.prs || [];
+    if (!open.length) return toast('No open pull requests');
+    const land = landings();
+    const all = readyPrs();
+    const targets = mergeTargets();
+    let saved = null;
+    try { saved = localStorage.getItem(targetKey()); } catch { /* ignore */ }
+    const has = (n) => targets.some((t) => t.name === n);
+    const to = target && has(target) ? target : saved && has(saved) ? saved : targets[0].name;
+    const ready = all.filter((p) => land.get(p.number) === to);
+    const others = open.filter((p) => land.get(p.number) === to && !ready.some((x) => x.number === p.number));
+    const onTarget = (name, { save = true } = {}) => {
+      if (save) { try { localStorage.setItem(targetKey(), name); } catch { /* ignore */ } }
+      mergePlan(method, { anyway, target: name });
+    };
+    onMergePlan({ ready, others, known: open, base: to, remote: inbox.remote, method, anyway, targets, chosen: Boolean(target || (saved && has(saved))), onTarget });
   }
 
   function renderTabs() {
@@ -784,7 +812,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, canPlan, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows
