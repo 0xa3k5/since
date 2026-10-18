@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, checkoutHereMode, checkoutChoices } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -198,7 +198,10 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       else toast(`Nothing to merge on ${r.title}`);
     } else if (id === 'open') { if (lane) onOpen(lane); else if (pr) onPrReview(pr, inbox?.remote); }
     else if (id === 'checkout') { if (pr) onCheckout(pr, { worktree: true }); }
-    else if (id === 'checkoutHere') { if (lane) onOpen(lane); else if (pr) onCheckout(pr, { worktree: false }); }
+    else if (id === 'checkoutHere') {
+      const mode = checkoutHereMode(r);
+      if (mode === 'pr') onCheckout(pr, { worktree: false }); else if (mode) onOpen(lane);
+    }
     else if (id === 'updateBranch') { const why = updateBranchBlock(r, paneCtx(r)); if (why) toast(why); else if (onPaneAction) onPaneAction(id, r, paneCtx(r)); }
     else if (id === 'sendBack') { if (r.stage === 'stuck') onSendBack(r, paneCtx(r)); else toast(`${r.title} isn’t stuck`); }
     else if (id === 'details') toggleDetails(r.key);
@@ -349,18 +352,18 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     render();
   }
 
-  // A pull request not on this Mac: switch this window to its branch, or give it its own worktree.
-  const checkoutItems = (r) => [
-    { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), run: () => act('checkoutHere', r) },
-    { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.checkout'), run: () => act('checkout', r) },
-  ];
+  // A pull request: switch this window to its branch, or give it its own worktree. One already open
+  // in another worktree switches to it on Check Out, like ⇧W.
+  const checkoutItems = (r) => checkoutChoices(r).map((c) => (c === 'here'
+    ? { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), run: () => act('checkoutHere', r) }
+    : { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.checkout'), run: () => act('checkout', r) }));
 
   function stagedMenu(x, y, r) {
     const l = asLane(r);
     contextMenu(x, y, [
       ...(r.lane ? [{ label: r.lane.worktree && !r.lane.worktree.current && !r.lane.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: r.lane.worktree ? 'worktree' : 'map', kbd: keymap.keys('lanes.open'), run: () => onOpen(r.lane) }] : []),
       ...(r.pr ? [{ label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }] : [{ label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }]),
-      ...(r.pr && !r.lane ? checkoutItems(r) : []),
+      ...checkoutItems(r),
       { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), run: () => act('merge', r) },
       ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
       ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),

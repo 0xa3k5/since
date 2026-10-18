@@ -188,3 +188,23 @@ test('Catch up recounts Review lines from local lanes once the commits move (AK-
   assert.equal(calls, 1);
   assert.deepEqual(counts, { repo: '/r', stuck: 0, ready: 0, needs: 0 });
 });
+
+test('⇧W checks out a pull request even when its branch is local, unless it has its own worktree', async () => {
+  const { checkoutHereMode } = await load();
+  const pr = { number: 7, branch: 'feat' };
+  assert.equal(checkoutHereMode({ pr, lane: null }), 'pr');
+  assert.equal(checkoutHereMode({ pr, lane: lane('feat') }), 'pr');
+  assert.equal(checkoutHereMode({ pr, lane: lane('feat', { worktree: { path: '/w/feat', current: true } }) }), 'pr');
+  assert.equal(checkoutHereMode({ pr, lane: lane('feat', { worktree: { path: '/w/feat', current: false } }) }), 'switch');
+  assert.equal(checkoutHereMode({ pr: null, lane: lane('feat') }), 'open');
+  assert.equal(checkoutHereMode({}), null);
+});
+
+test('every pull request row lists Check Out; one open in another worktree has no New Worktree item', async () => {
+  const { checkoutChoices } = await load();
+  const pr = { number: 7, branch: 'feat' };
+  assert.deepEqual(checkoutChoices({ pr, lane: null }), ['here', 'worktree']);
+  assert.deepEqual(checkoutChoices({ pr, lane: lane('feat') }), ['here', 'worktree']);
+  assert.deepEqual(checkoutChoices({ pr, lane: lane('feat', { worktree: { path: '/w/feat', current: false } }) }), ['here']);
+  assert.deepEqual(checkoutChoices({ pr: null, lane: lane('feat') }), []);
+});
