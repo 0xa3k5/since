@@ -646,6 +646,12 @@ function personLink(name, email) {
   return h('a.prop-person.person-link', { href: p.url, title: `${p.label}\n${name} <${email}>`, onclick: (e) => { e.preventDefault(); api.app('external', p.url); } }, ...body, icon('external', 12));
 }
 
+// A person in an avatar group's popover (AK-535): picking them opens their GitHub profile, like personLink.
+function withProfile(p) {
+  const prof = authorProfile(p.email, originRemote()?.web);
+  return prof ? { ...p, open: () => api.app('external', prof.url) } : p;
+}
+
 // ⇧A: the selected commit's author on GitHub.
 function openAuthor(c) {
   const p = authorProfile(c.email, originRemote()?.web);
@@ -1186,7 +1192,7 @@ function createMapView(container) {
       refs.length ? h('span.pills', null, refs.slice(0, 4).map(refPill), refs.length > 4 ? h('span.pill.more', null, `+${refs.length - 4}`) : null) : null,
       h('span.subject', null, pending ? '' : c.subject),
       pending ? h('span.meta', null, h('span.sha', null, c.sha.slice(0, 7))) : h('span.meta', null,
-        c.coAuthors?.length ? avatarStack([{ name: c.author, email: c.email }, ...c.coAuthors]) : avatar(c.author, c.email),
+        c.coAuthors?.length ? avatarStack([{ name: c.author, email: c.email }, ...c.coAuthors].map(withProfile)) : avatar(c.author, c.email),
         h('span.author', null, c.author),
         h('span.sha', null, c.sha.slice(0, 7)),
         h('span.when', { title: fullDate(c.time) }, timeAgo(c.time)),
