@@ -182,3 +182,27 @@ export function changedSince(snap, now) {
 // Whether `gh pr view` (mergeInfo) says a PR is ready: what Review's Ready to merge means.
 export const isReady = (info) => Boolean(info && info.state === 'open' && !info.draft && !info.conflicts
   && info.review === 'approved' && (info.checks === 'success' || info.checks == null));
+
+// Clean up after merging (AK-543): what git.cleanupLanes should remove for PRs GitHub confirmed
+// merged. `merged` is [{ number, branch, head }] (head: the PR's tip, so a local branch with other
+// commits is kept); `local` is the set of local branch names; `worktrees` is git.getWorktrees,
+// each optionally marked `elsewhere` when another window shows it. A worktree in this window, the
+// main worktree or one open elsewhere is skipped, branch included. → { items, skipped: [{ name, message }] }
+export function cleanupItems(merged, local, worktrees) {
+  const items = [];
+  const skipped = [];
+  for (const pr of merged) {
+    if (!pr.branch || !local.has(pr.branch)) continue;
+    const wt = worktrees.find((w) => w.branch === pr.branch);
+    const why = wt && (wt.current ? 'It’s checked out in this window.' : wt.main ? 'It’s checked out in the main worktree.'
+      : wt.elsewhere ? 'It’s open in another window.' : wt.locked ? 'Its worktree is locked.' : null);
+    if (why) skipped.push({ name: pr.branch, message: why });
+    else items.push({ branch: pr.branch, head: pr.head || undefined, ...(wt ? { worktree: wt.path } : {}) });
+  }
+  return { items, skipped };
+}
+
+// What a clean up did, for the sheet: { worktrees, branches, skipped } from git.cleanupLanes' result.
+export const cleanupSummary = (res, skipped = []) => ({
+  worktrees: res.removed.length, branches: res.deleted.length, skipped: [...skipped, ...res.failed],
+});
