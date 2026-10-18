@@ -190,6 +190,20 @@ export function chainWhy(chain, { host = 'github.com', enabled = true } = {}) {
 
 // What GitHub says about each PR's stack (github.stackFacts) → is the whole chain one native
 // stack? Every PR has to be in the same one.
+// The part of a chain that can merge now (AK-541): its bottom PRs up to where GitHub's stacks
+// begin or end. A GitHub stack's PRs merge only through the stack (GitHub refuses them one at a
+// time); a plain chain's PRs merge one by one. The rest of the chain waits for this part.
+// chain: { id, prs, heads }; facts: Map number → { stack: { number } | null }. A plain part of a
+// single PR isn't a chain any more (null): it plans as a single PR.
+export function bottomPart(chain, facts) {
+  const stackOf = (n) => facts.get?.(n)?.stack?.number ?? null;
+  const first = stackOf(chain.prs[0]);
+  let k = 1;
+  while (k < chain.prs.length && stackOf(chain.prs[k]) === first) k++;
+  if (first == null && k < 2) return null;
+  return { ...chain, prs: chain.prs.slice(0, k), ...(chain.heads ? { heads: chain.heads.slice(0, k) } : {}) };
+}
+
 export function isNative(chain, facts) {
   const ids = chain.prs.map((n) => facts.get?.(n)?.stack?.number ?? null);
   return ids[0] != null && ids.every((x) => x === ids[0]);

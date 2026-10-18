@@ -718,11 +718,15 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
   // Native stacks (AK-545): found among every open PR, then each member is checked like a ready PR.
   let found = [];
   let chainFacts = new Map();
+  const openList = await github.openPrBranches(t).catch(() => []);
   if (opts?.stacks) {
     let total = 0;
-    found = mergePlan.findStacks(await github.openPrBranches(t), base).filter((st) => (total += st.prs.length) <= mergePlan.MAX_STACKED);
+    found = mergePlan.findStacks(openList, base).filter((st) => (total += st.prs.length) <= mergePlan.MAX_STACKED);
     // AK-555: which of them GitHub has as a stack (merged with `gh stack merge`; the rest one by one).
     if (found.length) chainFacts = await github.stackFacts({ ...t, numbers: found.flatMap((st) => st.prs) }).catch(() => new Map());
+    // Plan each chain's bottom part only, cut where GitHub's stacks begin or end (AK-541): a mix of
+    // a GitHub stack and plain PRs can't merge as one unit. What's above waits for it.
+    found = found.map((st) => mergePlan.bottomPart(st, chainFacts)).filter(Boolean);
   }
   const inStack = new Set(found.flatMap((st) => st.prs));
   const singles = numbers.filter((n) => !inStack.has(n));
@@ -738,6 +742,14 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
     const list = info.headOid || info.error ? mergePlan.blockersOf(info) : [{ kind: 'error', required: true, detail: 'GitHub didn’t name its head commit.' }];
     if (list.length) blockers[n] = list;
     if (mergePlan.waits(list, anyway)) leaveOut(n, list);
+  }
+  // Never merge a PR into another PR's branch (AK-541): one that targets a branch other than the
+  // plan's waits for the PR below it, whatever planFacts said.
+  const baseOf = new Map(openList.map((p) => [p.number, p.baseBranch]));
+  const prOn = new Map(openList.map((p) => [p.branch, p.number]));
+  for (const n of singles) {
+    const b = baseOf.get(n);
+    if (b && b !== base) leaveOut(n, [{ kind: 'other', required: true, detail: prOn.has(b) ? `Waits for #${prOn.get(b)} below it` : `Targets ${b}` }]);
   }
   for (const n of singles) {
     if (reasons.has(n)) skipped.push({ number: n, reason: reasons.get(n) });
@@ -767,16 +779,27 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
   for (const o of rest) if (await has(o.head)) known.push(o);
   for (const p of prs.splice(0)) { if (await has(p.head)) prs.push(p); else { blockers[p.number] = [{ kind: 'error', required: true, detail: 'Couldn’t fetch its head commit.' }]; skipped.push({ number: p.number, reason: 'Couldn’t fetch its head commit.' }); } }
   // A stack plans whole, at its bottom PR's place in Review's order (else after the single PRs),
-  // only when every PR in it is ready and its history is linear.
+  // only when every PR in it is ready.
   const stacks = [];
   for (const st of found) {
     const stHeads = st.prs.map((n) => infos.get(n).headOid);
     const blocker = mergePlan.stackBlocker(st, reasons);
     if (blocker) for (const n of st.prs) if (n !== blocker.number) (blockers[n] ||= []).push({ kind: 'stack', required: true, number: blocker.number });
-    const linear = !blocker && stHeads.every(Boolean) && await git.stackLinear(s.repo.root, baseSha, stHeads);
-    stacks.push({ id: st.id, prs: st.prs, linear, blocker, native: mergePlan.isNative(st, chainFacts) });
+    // No history check of our own: GitHub merges a stack with merge commits in it (checked on a
+    // throwaway repo, 2026-10-18), and it evaluates its own rules when the merge runs.
+    const linear = !blocker && stHeads.every(Boolean);
+    let unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
+    // Like GitHub, a stack merges from the bottom up to any PR. When the whole stack conflicts with
+    // the base (it moved on since the branches were cut), take the longest bottom part that doesn't.
+    let partial = null;
+    if (!blocker && linear && !(await sim(s.repo.root, baseSha, unit.head)).commit) {
+      let k = st.prs.length - 2;
+      while (k >= 0 && !(await sim(s.repo.root, baseSha, stHeads[k])).commit) k--;
+      partial = { upTo: k >= 0 ? st.prs[k] : null, at: st.prs[k + 1], files: (await sim(s.repo.root, baseSha, stHeads[k + 1])).files };
+      if (k >= 0) unit = { stack: st.id, prs: st.prs.slice(0, k + 1), head: stHeads[k] };
+    }
+    stacks.push({ id: st.id, prs: st.prs, linear, blocker, partial, native: mergePlan.isNative(st, chainFacts) });
     if (blocker || !linear) continue;
-    const unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
     const at = numbers.indexOf(st.prs[0]);
     const i = at < 0 ? -1 : prs.findIndex((p) => (p.stack ? numbers.indexOf(p.prs[0]) : numbers.indexOf(p.number)) > at);
     prs.splice(i < 0 ? prs.length : i, 0, unit);
@@ -786,7 +809,9 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
   const snapshots = Object.fromEntries([...prs.filter((p) => !p.stack).map((p) => [p.number, p.snap]), ...[...inStack].filter((n) => !reasons.has(n)).map((n) => [n, snapOf(infos.get(n))])]);
   // anyway: the PRs only Merge anyway takes (just checks GitHub doesn't require failing or running).
   const anywayable = asked.filter((n) => blockers[n] && mergePlan.anywayOnly(blockers[n]));
-  return { ...plan, base, baseSha, skipped, snapshots, methods, stacks, blockers, anyway: anywayable };
+  // The repo's default branch as this clone knows it (local, no network): the sheet starts there.
+  const defaultBranch = (await r(s, ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote.name}/HEAD`], { allowCodes: [0, 1, 128] }).catch(() => '')).trim().replace(`${remote.name}/`, '') || null;
+  return { ...plan, base, baseSha, skipped, snapshots, methods, stacks, blockers, anyway: anywayable, defaultBranch };
 }));
 // Chains vs GitHub stacks (AK-555): the open PR chains on `base`, whether each is a GitHub stack
 // already and, if not, whether it can be linked as one (why not, when it can't), plus whether
@@ -810,7 +835,8 @@ handle('app:pr-chains', okCall(async (e, remoteName, baseName) => {
     extension: ext.installed,
     chains: chains.map((c) => {
       const native = !c.branch && mergePlan.isNative(c, facts);
-      const why = native ? null : mergePlan.chainWhy(c, { host });
+      // A chain that's partly a GitHub stack already can't be linked: GitHub refuses PRs in two stacks.
+      const why = native ? null : c.prs.some((n) => facts.get(n)?.stack) ? 'Part of it is already a GitHub stack' : mergePlan.chainWhy(c, { host });
       return { id: c.id, prs: c.prs, native, linkable: !native && !why, why, ...(c.branch ? { branch: c.branch } : {}) };
     }),
   };

@@ -23,6 +23,7 @@ import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';
+import { openStackLink } from './stack-link-view.js';
 import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
@@ -2979,6 +2980,30 @@ function paneAction(id, row, ctx) {
 function sendBackRow(row, ctx) {
   return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: prRemote(row.pr, ctx?.remote), call: (...a) => api.app(...a), git });
 }
+// Make chain a GitHub stack (⌘K, AK-556): the open PR chains on the inbox's bases; one that can be
+// linked opens the dialog (a pick list when there are several), else a toast says why not.
+async function makeChainStack() {
+  const prs = lanesPage?.inboxPrs() || [];
+  const remote = lanesPage?.inboxRemote();
+  const branches = new Set(prs.map((p) => p.branch));
+  const bases = [...new Set(prs.filter((p) => p.base && !branches.has(p.base)).map((p) => p.base))];
+  if (!remote || !bases.length) return toast('No chain of pull requests here');
+  const found = [];
+  let extension = false;
+  for (const base of bases) {
+    const res = await api.app('pr-chains', remote, base).catch((e) => ({ error: { message: e.message } }));
+    if (res?.error) return toast('Couldn’t look for chains', { detail: res.error.message });
+    extension ||= res.ok.extension;
+    for (const c of res.ok.chains) if (!c.native) found.push({ ...c, base });
+  }
+  const linkable = found.filter((c) => c.linkable);
+  if (!linkable.length) return toast(found.length ? 'Can’t make it a GitHub stack' : 'No chain of pull requests to link', { detail: found[0]?.why || undefined });
+  const by = new Map(prs.map((p) => [p.number, { title: p.title, branch: p.branch }]));
+  const go = (c) => openStackLink({ chain: c, prs: by, base: c.base, remote, extension, call: (...a) => api.app(...a), onLinked: () => lanesPage?.reload() });
+  if (linkable.length === 1) return go(linkable[0]);
+  palette(() => linkable.map((c) => ({ group: 'Chains', label: `#${c.prs[0]} → #${c.prs[c.prs.length - 1]}`, detail: `${c.prs.length} pull requests onto ${c.base}`, icon: 'merge', run: () => go(c) })), { placeholder: 'Make which chain a GitHub stack…' });
+}
+
 function sendBackPr(number) {
   if (!state.repo) return;
   if (state.view !== 'lanes' || !lanesOpen()) setView('lanes');
@@ -3942,7 +3967,9 @@ function openPalette() {
     }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue' });
+    if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) for (const t of lanesPage.mergeTargets?.() || []) add('Review', `Merge plan into ${t.name}`, () => lanesPage.mergePlan(null, { target: t.name }), { icon: 'merge', keywords: `merge plan into branch target base ${t.name}` });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) for (const [m, name] of [['squash', 'squash'], ['merge', 'merge commits'], ['rebase', 'rebase']]) add('Review', `Merge plan: ${name}`, () => lanesPage.mergePlan(m), { icon: 'merge', keywords: `merge plan order ready method ${m} ${name}` });
+    if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Make chain a GitHub stack', () => makeChainStack(), { icon: 'merge', keywords: 'gh stack link chain stacked pull requests series native' });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Merge plan: merge anyway', () => lanesPage.mergePlan(null, { anyway: true }), { icon: 'merge', keywords: 'merge plan anyway failing checks not required optional ci' });
     const stackSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stackSelection() : null;
     if (stackSel?.down) add('Review', `Select #${stackSel.down}, the pull request #${stackSel.number} is stacked on`, () => lanesPage.stackStep(-1), { icon: 'merge', kbd: keymap.keys('lanes.stackDown'), keywords: 'stack stacked base parent down previous pull request' });
