@@ -3,7 +3,7 @@ import { renderDiff } from './diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
-import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, fastKeys, factsBlock } from './reader.js';
+import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from './reader.js';
 import { factsFor, peekFacts } from './evidence-store.js';
 import { authorsOf, messageAgent } from './review-rows.js';
 
@@ -211,7 +211,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
     const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
     const id = (x) => keymap.keys(x);
     const rows = reader.contains(document.activeElement)
-      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(fastKeys(), 'Faster'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('catchup.viewed'), 'Viewed'), k(id('reader.back'), 'Back to the timeline')]
+      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('catchup.viewed'), 'Viewed'), k(id('reader.back'), 'Back to the timeline')]
       : [k([...id('catchup.prev'), ...id('catchup.next')], 'Move'), k(id('catchup.open'), 'Read'), k(id('catchup.caughtUp'), 'Mark caught up'), k(id('catchup.since'), 'Since…'), k(id('catchup.reload'), 'Reload')];
     hint.replaceChildren(...rows, k(id('view.palette'), 'All commands', '.all'));
   }

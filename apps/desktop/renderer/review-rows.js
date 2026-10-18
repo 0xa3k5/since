@@ -545,7 +545,7 @@ export function conflictNote(row, { base = null, files = null } = {}) {
 // change-facts.js result, evidence a github.evidence one. Absence is never stated: a missing field
 // gives nothing, and the one absence shown is "CI didn't run" (evidence.ciMissing).
 
-// A flag-level fact's chip on a row; info-level facts ("tests: none changed") never get one.
+// A flag-level fact's chip on a row; info-level facts ("tests changed") never get one.
 export const FACT_CHIPS = { dependencies: 'deps', ci: 'ci config', 'tests-deleted': 'test deleted', 'tests-skipped': 'tests skipped', modes: 'mode changed', binaries: 'binaries', fragile: 'fragile' };
 // A fact's label in the reader's facts line.
 const FACT_LABELS = {
@@ -609,25 +609,32 @@ export function rowChips(row, { facts = null, evidence = null, requested = new S
 
 // The reader's facts line: the size and spread, then one line per fact.
 // → { size: [{ n, label }] (after the +added −deleted), added, deleted, lines: [{ id, label, detail, title, flag }] }
-// or null without facts. "tests: none changed" is a plain line here, never a chip.
+// or null without facts. No test files changed says nothing: absence is never stated (AK-516).
 export function factLines(facts) {
   if (!facts?.size) return null;
   const z = facts.size;
   const size = [
     { n: z.files, label: z.files === 1 ? 'file' : 'files' },
-    z.areas?.length > 1 ? { n: z.areas.length, label: 'areas', title: z.areas.map((a) => `${a.area}: ${plural(a.files, 'file')}, ${a.lines} lines`).join('\n') } : null,
+    folders(z.areas),
     z.assets ? { n: z.assets, label: z.assets === 1 ? 'asset' : 'assets' } : null,
     z.generated ? { n: z.generated, label: 'generated' } : null,
     z.lockfiles?.length ? { n: z.lockfiles.length, label: z.lockfiles.length === 1 ? 'lockfile' : 'lockfiles', title: z.lockfiles.map((l) => `${l.path} +${l.added} −${l.deleted}`).join('\n') } : null,
   ].filter(Boolean);
-  const lines = (facts.facts || []).map((f) => {
-    if (f.id === 'tests-changed' && !f.count) return { id: f.id, label: 'tests', detail: 'none changed', title: 'No test files changed', flag: false };
+  const lines = (facts.facts || []).filter((f) => !(f.id === 'tests-changed' && !f.count)).map((f) => {
     const d = realDetails(f);
     const more = detailCount(f) - d.length;
     const label = (FACT_LABELS[f.id] || (() => f.title))(detailCount(f));
     return { id: f.id, label, detail: d.join(', ') + (more ? ` and ${more} more` : ''), title: [f.title, ...(f.details || [])].join('\n'), flag: f.level === 'flag' };
   });
   return { added: z.added, deleted: z.deleted, size, lines };
+}
+// The top-level folders the diff touches, when it spans more than one: named up to two ("in
+// apps/desktop, packages/tokens"), else "4 folders" with the list in its tooltip (AK-516).
+function folders(areas = []) {
+  if (!areas || areas.length < 2) return null;
+  const title = areas.map((a) => `${a.area === '.' ? 'the repository root' : a.area}: ${plural(a.files, 'file')}, ${a.lines} lines`).join('\n');
+  if (areas.length > 2) return { n: areas.length, label: 'folders', title };
+  return { n: null, label: `in ${areas.map((a) => (a.area === '.' ? 'the root' : a.area)).join(', ')}`, title };
 }
 
 // The evidence strip's tabs, left to right; a tab with nothing in it isn't there.
@@ -641,7 +648,6 @@ export function evidenceTabs(evidence) {
   } else if (evidence.ciMissing) out.push({ id: 'ci', label: 'CI didn’t run', kind: 'absent', icon: 'warning', group: 'ci' });
   if (evidence.annotations?.length) out.push({ id: 'annotations', label: 'Annotations', count: evidence.annotations.length, kind: '', icon: null, group: 'ci' });
   if (evidence.media?.length) out.push({ id: 'media', label: 'Media', count: evidence.media.length, kind: '', icon: 'image', group: 'ci' });
-  if (evidence.reviews?.length) out.push({ id: 'reviews', label: 'Reviews', count: evidence.reviews.length, kind: '', icon: null, group: 'people' });
   if (evidence.threads?.open) out.push({ id: 'threads', label: 'Open threads', count: evidence.threads.open, kind: '', icon: 'comment', group: 'people' });
   return out;
 }

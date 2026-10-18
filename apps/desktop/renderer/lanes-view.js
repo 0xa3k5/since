@@ -3,7 +3,7 @@ import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWai
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
-import { navPos, authorsStack, fastKeys } from './reader.js';
+import { navPos, authorsStack } from './reader.js';
 import { factsFor, peekFacts, peekEvidence } from './evidence-store.js';
 
 
@@ -206,7 +206,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   const step = (r) => primaryAction(r, { base, requested: requested() });
 
-  // A row (AK-379): status dot · #number · the title over one quiet line (why it's stuck, in red; else
+  // A row (AK-379): status dot · the title, led by a muted #number (AK-516), over one quiet line (why it's stuck, in red; else
   // its tags, who and where) · age. No buttons: ⌘K "Next step" runs the primary step, the pane's status strip
   // has the rest, and the context menu has them all. Details (D) open under the title.
   function stagedRow(r, rail = { up: false, down: false }) {
@@ -231,9 +231,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
       h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
-      r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title), chipsEl(r)),
+        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)), r.title), chipsEl(r)),
         stuck ? reasonEl(r, authors) : subLine('div.list-sub.review-row-sub', null, r, authors, line ? h('span.review-row-text', null, line) : null),
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
@@ -504,7 +503,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const id = (x) => keymap.keys(x);
     const reading = paneHost.contains(document.activeElement) && paneObj;
     hint.replaceChildren(...(reading
-      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(fastKeys(), 'Faster'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
+      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
       : [k([...id('lanes.prev'), ...id('lanes.next')], 'Move'), k(id('lanes.open'), 'Read'), k(id('lanes.merge'), 'Merge'), k(['1–5'], 'Tabs'),
         !pane && readyPrs().length > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
     k(keymap.keys('view.palette'), 'All commands', '.all'));

@@ -15,10 +15,11 @@ import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkL
 //    path · +N −M. Clicking anywhere else on the header folds or unfolds it too.
 //  - miniHeader: a slim bar (avatar, #number, title, the primary action) that fades in at the top of
 //    the reader once its head has scrolled out of view (IntersectionObserver), and hides again.
-//  - factsBlock (AK-520): under the meta line, the size and spread, then one line per change fact
-//    (label, then its detail cut to one line; the whole text in its tooltip).
-//  - evidenceStrip (AK-520): a bar of tabs (Checks, CI didn't run, Annotations, Media, Reviews,
-//    Open threads), one open at a time; it opens on Checks when one fails, else it stays closed.
+//  - factsBlock (AK-520): under the meta line, the size and spread (then whatever the screen adds,
+//    Review's reviewers), then one line per change fact (label, then its detail cut to one line;
+//    the whole text in its tooltip).
+//  - evidenceStrip (AK-520): Review's tab set (Checks, CI didn't run, Annotations, Media, Open
+//    threads), one open at a time; it opens on Checks when one fails, else it stays closed.
 //    E (review.evidence) opens the next tab. Tabs with nothing in them aren't shown.
 //  - mediaGallery (AK-521): the Media tab's 112×72 thumbnails (description, then comments, then
 //    reviews), loaded by the main process (pr-media.js): images as data: URLs kept in memory only,
@@ -42,14 +43,6 @@ const PAGE_KEEP = 3; // lines of the last page kept in view after Page Down
 export function scrollDelta(id, page = 0) {
   const p = Math.max(LINE, page - PAGE_KEEP * LINE);
   return { 'reader.down': LINES * LINE, 'reader.up': -LINES * LINE, 'reader.downFast': FAST * LINES * LINE, 'reader.upFast': -FAST * LINES * LINE, 'reader.pageDown': p, 'reader.pageUp': -p }[id] ?? null;
-}
-
-// The footer's "⇧↑↓ Faster" keycaps: the shared modifiers once, then both arrows.
-export function fastKeys() {
-  const up = keymap.keys('reader.upFast');
-  const down = keymap.keys('reader.downFast');
-  const same = up.length > 1 && up.length === down.length && up.slice(0, -1).every((k, i) => k === down[i]);
-  return same ? [...up, down[down.length - 1]] : [...up, ...down];
 }
 
 // "3 of 21": where `id` sits in `list` (items with an `id`, or keys). → { at: 1-based or 0, of }
@@ -255,18 +248,20 @@ export function miniContent({ authors = null, author = null, authorKey = null, n
 
 // ── Change facts and evidence (AK-520) ──
 
-// "+128 −12 · 14 files · 3 areas · 2 assets · 1 lockfile", then a line per fact. null without facts.
-export function factsBlock(facts) {
+// "+128 −12 · 14 files · 3 folders · 2 assets · 1 lockfile", then `after` (on the same line), then a
+// line per fact. null without facts.
+export function factsBlock(facts, { after = null } = {}) {
   const f = factLines(facts);
   if (!f) return null;
   const sep = () => h('span.sep', { 'aria-hidden': 'true' }, '·');
   return h('div.reader-facts', { role: 'group', 'aria-label': 'Change facts' },
     h('div.facts-size', null,
       h('span.stat.small', { 'aria-label': `${f.added} added, ${f.deleted} removed` }, h('span.add', null, `+${f.added}`), h('span.del', null, `−${f.deleted}`)),
-      ...f.size.flatMap((x) => [sep(), h('span', { title: x.title || null }, h('b', null, String(x.n)), ` ${x.label}`)])),
+      ...f.size.flatMap((x) => [sep(), h('span', { title: x.title || null }, x.n == null ? x.label : [h('b', null, String(x.n)), ` ${x.label}`])]),
+      after ? [sep(), after] : null),
     ...f.lines.map((l) => h('div.fact-line' + (l.flag ? '.flag' : ''), { title: l.title },
       h('span.fact-label', null, l.label),
-      h('span.fact-detail' + (l.id === 'tests-changed' && l.detail === 'none changed' ? '' : '.mono'), null, l.detail))));
+      h('span.fact-detail.mono', null, l.detail))));
 }
 
 // Which tab is open per PR, and which failed checks show their log, for this window.
@@ -282,23 +277,25 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null 
   if (!tabs.length) return null;
   if (!evOpen.has(key)) evOpen.set(key, evidenceDefault(evidence));
   const box = h('section.evidence', { 'aria-label': 'Evidence' });
+  const open = tabs.some((t) => t.id === evOpen.get(key)) ? evOpen.get(key) : null;
+  if (open) box.classList.add('open');
   const show = (id, focus = false) => {
     evOpen.set(key, id);
     const next = evidenceStrip({ evidence, key, openUrl, loadImage });
     box.replaceWith(next);
     if (focus) next.querySelector(id ? `.ev-tab[data-tab="${id}"]` : '.ev-tab')?.focus({ preventScroll: true });
   };
-  const open = tabs.some((t) => t.id === evOpen.get(key)) ? evOpen.get(key) : null;
-  const bar = h('div.ev-bar', { role: 'tablist', 'aria-label': 'Evidence' });
+  // The same tab set as Review's lists (Needs you, Stuck, Ready…), counts after the label.
+  const bar = h('div.review-tabs.ev-bar', { role: 'tablist', 'aria-label': 'Evidence' });
   let group = tabs[0].group;
   for (const t of tabs) {
     if (t.group !== group) { bar.append(h('span.sep', { 'aria-hidden': 'true' })); group = t.group; }
     const on = t.id === open;
     const n = t.tally
-      ? h('span.n', null, t.tally.failed ? h('span.fail', null, `${t.tally.failed} failed`) : null, t.tally.failed && (t.tally.passed || t.tally.running) ? ' · ' : null,
+      ? h('span.review-tab-n', null, t.tally.failed ? h('span.fail', null, `${t.tally.failed} failed`) : null, t.tally.failed && (t.tally.passed || t.tally.running) ? ' · ' : null,
         t.tally.passed ? `${t.tally.passed} passed` : null, t.tally.passed && t.tally.running ? ' · ' : null, t.tally.running ? `${t.tally.running} running` : null)
-      : t.count ? h('span.n', null, String(t.count)) : null;
-    bar.append(h('button.ev-tab' + (on ? '.on' : '') + (t.kind ? `.${t.kind}` : ''), {
+      : t.count ? h('span.review-tab-n', null, String(t.count)) : null;
+    bar.append(h('button.review-tab.ev-tab' + (t.kind ? `.${t.kind}` : ''), {
       role: 'tab', 'aria-selected': String(on), 'data-tab': t.id, 'data-tip': tipFor(on ? `Hide ${t.label.toLowerCase()}` : `Show ${t.label.toLowerCase()}`, 'review.evidence'),
       onclick: () => show(on ? null : t.id, true),
     }, t.icon ? icon(t.icon, 12) : null, t.label, n));
@@ -321,7 +318,6 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null 
 }
 
 const LEVEL_ICON = { failure: ['x', 'fail'], warning: ['warning', 'warn'], notice: ['pending', 'wait'] };
-const REVIEW_TEXT = { approved: 'approved', changes: 'asked for changes' };
 
 function evidenceBody(id, ev, key, { openUrl, loadImage }, redraw) {
   if (id === 'ci') {
@@ -362,9 +358,6 @@ function evidenceBody(id, ev, key, { openUrl, loadImage }, redraw) {
     const parts = [n('image') ? `${n('image')} image${n('image') === 1 ? '' : 's'}` : null, n('video') ? `${n('video')} video${n('video') === 1 ? '' : 's'}` : null].filter(Boolean);
     const from = [...new Set(ev.media.map((m) => (m.from === 'description' ? 'the description' : m.from === 'review' ? 'reviews' : 'comments')))];
     return [h('div.ev-note', null, `${parts.join(' and ')} in ${from.join(', ')}`), mediaGallery(ev.media, { openUrl, loadImage })];
-  }
-  if (id === 'reviews') {
-    return [h('div.ev-people', null, ...ev.reviews.map((r) => h('span.ev-person', null, personAvatar(r.login, r.login, 16), h('span', null, `${r.login} ${REVIEW_TEXT[r.state] || r.state}`))))];
   }
   if (id === 'threads') {
     const t = ev.threads;
