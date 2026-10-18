@@ -1,9 +1,10 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { updateBranchBlock } from './pr-review.js';
 import { navPos, authorsStack, fastKeys } from './reader.js';
+import { factsFor, peekFacts, peekEvidence } from './evidence-store.js';
 
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), one list at
@@ -161,6 +162,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const paneCtx = (r) => ({
     base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
     conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
+    onFacts: () => refreshChips(r.key),
     onSelectPr: (n) => selectPr(n),
     // The stack path (AK-537): each PR's stage for its dot, and [ / ] along the stack.
     stageOf: (n) => staged?.all.find((y) => y.pr?.number === n)?.stage || null,
@@ -219,7 +221,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
     const authors = rowAuthors(r, { agents: markAgents() });
     const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    const line = [stack?.text, ...tags.filter((b) => !b.signal).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
+    const line = [stack?.text, ...tags.filter((b) => !b.signal && !b.chip).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     // A stack's rows next to each other share a rail through their dots (AK-537).
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : '') + (rail.up ? '.stack-up' : '') + (rail.down ? '.stack-down' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
@@ -231,19 +233,82 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
       r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)),
       h('div.list-main', null,
-        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title)),
+        h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.title), chipsEl(r)),
         stuck ? reasonEl(r, authors) : subLine('div.list-sub.review-row-sub', null, r, authors, line ? h('span.review-row-text', null, line) : null),
         open ? detailsEl(r) : null),
       at ? h('span.review-row-age', { title: fullDate(at / 1000) }, timeAgo(at / 1000)) : h('span'),
     );
   }
 
-  // The line under the title (AK-400, AK-411): avatar group · failing checks ✕ 3/5 and a conflict
-  // marker · the text, "·" between the parts there are. null when there's nothing to show.
+  // Compact signals after the title (AK-520, review-rows.js rowChips): check result, review state, open
+  // threads, media, then change facts, from what's already here: change facts (git only, read in the
+  // background for the rows shown) and the evidence a PR's reader loaded. The title keeps at least
+  // 8em; chips that don't fit fold into "+N", whose tooltip lists them (fitChips).
+  const rowRev = (r) => (r.lane && !r.lane.isBase ? r.lane.branch || r.lane.head : r.lane ? null : r.pr?.head || null);
+  function chipsEl(r) {
+    const rev = rowRev(r);
+    const facts = rev && base ? peekFacts(base, rev) : null;
+    const chips = rowChips(r, { facts, evidence: prsOn() ? peekEvidence(inbox?.remote || null, r.pr) : null, requested: requested() });
+    if (!chips.length) return null;
+    return h('span.row-signals', null,
+      ...chips.map((c) => h('span.sig' + (c.kind ? `.${c.kind}` : ''), { title: c.title, 'data-chip': c.id }, c.icon ? icon(c.icon, 11) : null, c.text)),
+      h('span.sig.more', { hidden: true }));
+  }
+  function fitChips(rowEl) {
+    const box = rowEl?.querySelector('.row-signals');
+    if (!box) return;
+    const chips = [...box.querySelectorAll('.sig:not(.more)')];
+    const more = box.querySelector('.sig.more');
+    for (const c of chips) c.hidden = false;
+    more.hidden = true;
+    if (box.scrollWidth <= box.clientWidth + 1) return;
+    more.hidden = false;
+    const hidden = [];
+    for (let i = chips.length - 1; i >= 0 && box.scrollWidth > box.clientWidth + 1; i--) {
+      chips[i].hidden = true;
+      hidden.unshift(chips[i]);
+      more.textContent = `+${hidden.length}`;
+    }
+    more.title = hidden.map((c) => c.title || c.textContent).join('\n');
+  }
+  let fitFrame = 0;
+  const fitAll = () => { cancelAnimationFrame(fitFrame); fitFrame = requestAnimationFrame(() => { for (const row of list.querySelectorAll('.review-row')) fitChips(row); }); };
+  new ResizeObserver(fitAll).observe(list);
+  function refreshChips(key) {
+    const rowEl = [...list.querySelectorAll('.review-row')].find((x) => x.dataset.key === key);
+    const r = staged?.all.find((x) => x.key === key);
+    if (!rowEl || !r) return;
+    const title = rowEl.querySelector('.list-title');
+    title.querySelector('.row-signals')?.remove();
+    const next = chipsEl(r);
+    if (next) { title.append(next); fitChips(rowEl); }
+  }
+  // Change facts for the rows shown, one at a time in the background (git only, cached per pair).
+  let factsQueue = [];
+  let factsBusy = false;
+  function queueFacts(rows) {
+    factsQueue = rows.filter((r) => { const rev = rowRev(r); return rev && base && peekFacts(base, rev) === undefined; });
+    pumpFacts();
+  }
+  async function pumpFacts() {
+    if (factsBusy || !git) return;
+    factsBusy = true;
+    while (factsQueue.length && el.isConnected) {
+      const r = factsQueue.shift();
+      const rev = rowRev(r);
+      if (!rev || peekFacts(base, rev) !== undefined) continue;
+      const f = await factsFor(git, base, rev);
+      if (f) refreshChips(r.key);
+    }
+    factsBusy = false;
+  }
+
+  // The line under the title (AK-400, AK-411): avatar group · a conflict marker · the text, "·"
+  // between the parts there are (failing checks are a chip after the title now, AK-520). null when
+  // there's nothing to show.
   function subLine(sel, props, r, authors, text, conflictShown = false) {
     const s = rowSignals(r, { conflictShown });
-    const signals = s.checks || s.conflict ? h('span.review-signals', null,
-      s.checks ? h('span.review-signal', { role: 'img', 'aria-label': s.checks.title, title: s.checks.title }, icon('x', 11), s.checks.text ? h('span.review-signal-count', null, s.checks.text) : null) : null,
+    const signals = s.conflict ? h('span.review-signals', null,
       s.conflict ? h('span.review-signal', { role: 'img', 'aria-label': s.conflict.title, title: s.conflict.title }, icon('warning', 12)) : null) : null;
     const parts = [authors.length ? authorsStack(authors, 14, '.review-row-authors') : null, signals, text].filter(Boolean);
     if (!parts.length) return null;
@@ -413,6 +478,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (after) { selKey = nextSelection(after.before, staged, after.key) ?? selKey; after = null; }
     if (!shown.some((r) => r.key === selKey)) selKey = shown[0]?.key ?? null;
     list.replaceChildren(...rows);
+    fitAll();
+    queueFacts(shown);
     const n = staged.stages.stuck.length;
     const ready = staged.stages.ready.length;
     const needs = needsYou(staged.stages);
@@ -715,7 +782,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, showRowConflicts, sendBack, showPr, mergePlan, canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), showRowConflicts, sendBack, showPr, mergePlan, canPlan, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

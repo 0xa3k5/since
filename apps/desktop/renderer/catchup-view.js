@@ -3,7 +3,8 @@ import { renderDiff } from './diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
-import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, fastKeys } from './reader.js';
+import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, fastKeys, factsBlock } from './reader.js';
+import { factsFor, peekFacts } from './evidence-store.js';
 import { authorsOf, messageAgent } from './review-rows.js';
 
 // Catch up (AK-365, was Review's catch-up card, AK-281): what landed on the base since your
@@ -67,6 +68,7 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
   let readId = null; // the entry in the reader
   let readTimer = 0;
   let change = null; // { id, diffs, message } once the reader's entry is read
+  let facts = null; // the reader's change facts (AK-520), once read
   const viewed = new Map(); // entry id → Set of viewed paths (this view only)
   const folds = new Map(); // "id\0path" → folded, set by hand; otherwise viewed files are folded
   const full = new Set(); // "id\0path" of diffs shown past the truncation limit
@@ -339,6 +341,9 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
     readerDesc.replaceChildren();
     readerFiles.replaceChildren(loading(`Reading ${e.kind === 'pr' ? `#${e.number}` : short(e.sha)}…`));
     const id = e.id;
+    // The change facts (AK-520) of what it brought in: the commit against its first parent, git only.
+    facts = peekFacts(`${e.sha}^`, e.sha) || null;
+    if (!facts) factsFor(git, `${e.sha}^`, e.sha).then((f) => { if (f && id === readId && el.isConnected) { facts = f; renderReaderHead(); } });
     read(e.sha).then((r) => {
       if (id !== readId || !el.isConnected) return;
       change = { id, ...r };
@@ -368,10 +373,11 @@ export function catchupView({ repo = null, git, load, mark, prsOn, markAgents = 
       branch: pr && e.branch ? e.branch : null, base: res.base,
       meta: [
         h('span.badge.catchup-chip' + (e.key ? '' : '.muted'), null, e.key || e.area),
-        sizeEl(change?.id === e.id ? changeSize(change.diffs || []) : null),
+        facts ? null : sizeEl(change?.id === e.id ? changeSize(change.diffs || []) : null),
         e.date ? h('span', { title: fullDate(e.date / 1000) }, `${pr ? 'merged' : 'committed'} ${whenText(e.date)}`) : null,
         pr ? h('span.catchup-merged', null, icon('check-circle', 12), 'Merged') : null,
       ].filter(Boolean),
+      below: [factsBlock(facts)].filter(Boolean),
     });
     headBox.replaceChildren(top);
     mini.set(miniContent({ authors, num, title: e.title }));
