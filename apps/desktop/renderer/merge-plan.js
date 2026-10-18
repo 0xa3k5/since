@@ -136,32 +136,80 @@ export function startMethod({ saved, allowed = METHODS, fallback } = {}) {
   return allowed[0] || 'squash';
 }
 
-// Native GitHub stacks among the open PRs (AK-545): a straight chain where the bottom PR targets
+// Stacks to plan among the open PRs (AK-545): a straight chain, native GitHub stack or not (AK-555), where the bottom PR targets
 // `base` and each PR above targets the branch of the one below. open: [{ number, branch,
-// baseBranch, head }]. A chain that forks (two PRs on one branch) isn't a stack, and its bottom PR
-// plans on its own. → [{ id, prs: [bottom…top], heads }], two PRs or more, at most MAX_STACK.
+// baseBranch, head }]. A chain that branches (two PRs on one branch) or crosses a fork isn't a stack,
+// and its bottom PR plans on its own. → [{ id, prs: [bottom…top], heads }], two PRs or more, at most MAX_STACK.
 export function findStacks(open = [], base) {
+  return findChains(open, base).filter((c) => !c.branch && !c.fork && c.prs.length > 1).map(({ id, prs, heads }) => ({ id, prs, heads }));
+}
+
+// Chains vs GitHub stacks (AK-555). A chain is open PRs where the bottom one targets `base` and
+// each one above targets the branch of the one below, all in this repo. findStacks keeps only the
+// straight ones (they plan as one unit); findChains also returns the ones that can't be linked as a
+// GitHub stack, and why. open: as findStacks, plus `fork` (head in another repo). → [{ id, prs,
+// heads, fork, forkPr?, branch?: { number, kids: [a, b] } }].
+export function findChains(open = [], base) {
   const byBase = new Map();
   for (const p of open) {
     if (!p.branch || !p.baseBranch) continue;
     if (!byBase.has(p.baseBranch)) byBase.set(p.baseBranch, []);
     byBase.get(p.baseBranch).push(p);
   }
-  const stacks = [];
+  const chains = [];
   for (const bottom of byBase.get(base) || []) {
     const chain = [bottom];
     const seen = new Set([base, bottom.branch]);
-    let straight = true;
+    let branch = null;
     for (;;) {
-      const kids = byBase.get(chain[chain.length - 1].branch) || [];
-      if (kids.length > 1) { straight = false; break; }
-      if (!kids.length || seen.has(kids[0].branch) || chain.length >= MAX_STACK) break;
+      const top = chain[chain.length - 1];
+      // A fork's branch isn't a branch here, so nothing in this repo stacks on it.
+      const kids = top.fork ? [] : (byBase.get(top.branch) || []).filter((k) => !seen.has(k.branch));
+      if (kids.length > 1) { branch = { number: top.number, kids: kids.slice(0, 2).map((k) => k.number) }; break; }
+      if (!kids.length || chain.length >= MAX_STACK) break;
       seen.add(kids[0].branch);
       chain.push(kids[0]);
     }
-    if (straight && chain.length > 1) stacks.push({ id: `stack-${bottom.number}`, prs: chain.map((p) => p.number), heads: chain.map((p) => p.head) });
+    if (chain.length < 2 && !branch) continue;
+    const fork = chain.find((p) => p.fork);
+    chains.push({ id: `stack-${bottom.number}`, prs: chain.map((p) => p.number), heads: chain.map((p) => p.head), fork: Boolean(fork), ...(fork ? { forkPr: fork.number } : {}), ...(branch ? { branch } : {}) });
   }
-  return stacks;
+  return chains;
+}
+
+// Why a chain can't be linked as a GitHub stack, or null when it can. host: the remote's host
+// (stacks are github.com only); enabled: pull requests on for this repo.
+export function chainWhy(chain, { host = 'github.com', enabled = true } = {}) {
+  if (!enabled) return 'Pull requests are off for this repository.';
+  if (chain.branch) return `It branches: #${chain.branch.kids[0]} and #${chain.branch.kids[1]} both build on #${chain.branch.number}.`;
+  if (String(host).toLowerCase() !== 'github.com') return 'Stacks aren’t available on GitHub Enterprise Server.';
+  if (chain.fork) return `#${chain.forkPr} comes from a fork, and a stack can’t cross forks.`;
+  if (chain.prs.length < 2) return 'A stack needs two pull requests or more.';
+  return null;
+}
+
+// What GitHub says about each PR's stack (github.stackFacts) → is the whole chain one native
+// stack? Every PR has to be in the same one.
+export function isNative(chain, facts) {
+  const ids = chain.prs.map((n) => facts.get?.(n)?.stack?.number ?? null);
+  return ids[0] != null && ids.every((x) => x === ids[0]);
+}
+
+// The all-or-nothing check before `gh stack link` (AK-555): every PR is open, you can push to its
+// branch, and its base is what the chain says (the bottom one `base`, each next one the branch
+// below it). facts: Map number → github.stackFacts entry. → { number, reason } for the first PR
+// that fails, else null.
+export function linkBlocker(numbers, facts, base) {
+  for (let i = 0; i < numbers.length; i++) {
+    const n = numbers[i], f = facts.get(n);
+    if (!f) return { number: n, reason: 'GitHub didn’t return this pull request.' };
+    if (f.state !== 'open') return { number: n, reason: `It’s ${f.state || 'not open'}.` };
+    if (f.fork) return { number: n, reason: 'It comes from a fork.' };
+    if (!f.canPush || !f.canUpdate) return { number: n, reason: 'No write access to this branch.' };
+    const want = i === 0 ? base : facts.get(numbers[i - 1])?.branch;
+    if (f.baseBranch !== want) return { number: n, reason: `It targets ${f.baseBranch || 'another branch'}, not ${want}.` };
+  }
+  return null;
 }
 
 // The first PR that keeps a stack from merging: reasons maps a PR number to why it isn't ready

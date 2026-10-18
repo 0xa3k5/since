@@ -8,6 +8,7 @@
 // they can't be undone with ⌘Z, and the renderer's confirm sheets say so.
 
 const { findBinary, runCli, searchDirs } = require('./ai');
+const { linkBlocker } = require('./renderer/merge-plan.js');
 
 const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'mergeStateStatus', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles', 'body'];
 const LIMIT = 100;
@@ -459,14 +460,97 @@ async function repoMergeMethods({ enabled, remotes, dirs = searchDirs(), exec } 
 // native stacks. One `gh pr list` per plan. → [{ number, branch, baseBranch, head }].
 async function openPrBranches({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', String(LIMIT), '--json', 'number,headRefName,baseRefName,headRefOid'], { dirs, exec });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', String(LIMIT), '--json', 'number,headRefName,baseRefName,headRefOid,isCrossRepository'], { dirs, exec });
   let list;
   try { list = JSON.parse(out); } catch { throw coded('GitHub CLI returned something that isn’t JSON.', 'gh-failed'); }
   if (!Array.isArray(list)) return [];
   return list.filter((p) => Number.isSafeInteger(p?.number) && p.number > 0).map((p) => ({
     number: p.number, branch: text(p.headRefName), baseBranch: text(p.baseRefName),
-    head: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null,
+    head: /^[0-9a-f]{40,64}$/.test(p.headRefOid) ? p.headRefOid : null, fork: p.isCrossRepository === true,
   }));
+}
+
+// Chains vs GitHub stacks (AK-555): per PR, its GitHub stack (null when it's in none) and what
+// `gh stack link` needs: open, its base, a branch in this repo, and that you may push to it and
+// edit the PR. One GraphQL call for all of them; the numbers are checked integers.
+const MAX_FACTS = 20;
+const STACK_FIELDS = 'number state baseRefName headRefName isCrossRepository viewerCanUpdate headRepository{viewerPermission} stack{number size}';
+const stackQuery = (numbers) => `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((n) => `p${n}:pullRequest(number:${n}){${STACK_FIELDS}}`).join(' ')}}}`;
+function parseStackFacts(out, numbers) {
+  const repo = parseJson(out).data?.repository || {};
+  const facts = new Map();
+  for (const n of numbers) {
+    const p = repo[`p${n}`];
+    if (!p || typeof p !== 'object' || p.number !== n) continue;
+    const st = p.stack && Number.isSafeInteger(p.stack.number) ? { number: p.stack.number, size: Number.isSafeInteger(p.stack.size) ? p.stack.size : 0 } : null;
+    facts.set(n, {
+      state: text(p.state, 32).toLowerCase(), baseBranch: text(p.baseRefName), branch: text(p.headRefName),
+      fork: p.isCrossRepository === true, canUpdate: p.viewerCanUpdate === true,
+      canPush: CAN_REVIEW.has(p.headRepository?.viewerPermission), stack: st,
+    });
+  }
+  return facts;
+}
+async function stackFacts({ enabled, remotes, numbers, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote } = target({ enabled, remotes, dirs });
+  if (!Array.isArray(numbers) || !numbers.length || numbers.length > MAX_FACTS) throw coded('Invalid pull request list.', 'gh-failed');
+  const ns = [...new Set(numbers.map((n) => Number(prNumber(n))))];
+  return parseStackFacts(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${stackQuery(ns)}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }), ns);
+}
+
+// GitHub CLI's stack extension (github/gh-stack): is it installed, and install it. Installing
+// downloads it from github.com, so only on a click, and only while pull requests are on.
+const STACK_EXT = /(?:^|\s)github\/gh-stack(?:\s|$)/m;
+async function stackExtension({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin } = target({ enabled, remotes, dirs });
+  return { installed: STACK_EXT.test(await ghRun(bin, ['extension', 'list'], { dirs, exec })) };
+}
+async function installStackExtension({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+  const { bin } = target({ enabled, remotes, dirs });
+  await ghRun(bin, ['extension', 'install', 'github/gh-stack'], { dirs, exec, timeout: 120_000 });
+  return { installed: true };
+}
+
+// `gh stack link` for a chain, bottom to top. PR URLs, never bare numbers or branch names: the
+// extension reads a number as a stack or a branch when no PR has it, and pushes branch arguments.
+function linkArgs({ host, owner, repo }, base, numbers) {
+  return ['stack', 'link', `--base=${branchArg(base, 'base')}`, ...numbers.map((n) => `https://${host}/${owner}/${repo}/pull/${prNumber(n)}`)];
+}
+
+// Link a chain as a GitHub stack, all or nothing (AK-555): every PR is checked first
+// (merge-plan.js linkBlocker) and nothing is linked if one fails. `gh stack link` is one command, but
+// GitLanes can't promise GitHub applies it atomically: if it fails, GitHub is asked again and the
+// first PR that didn't make it into the stack is reported. → { linked: true, stack } |
+// { failed: { number, reason } }.
+async function linkStack({ enabled, remotes, base, numbers, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote, repo } = target({ enabled, remotes, dirs });
+  if (!Array.isArray(numbers) || numbers.length < 2 || numbers.length > MAX_FACTS) throw coded('A stack needs two pull requests or more.', 'gh-failed');
+  if (remote.host.toLowerCase() !== 'github.com') return { failed: { number: numbers[0], reason: 'Stacks aren’t available on GitHub Enterprise Server.' } };
+  const args = linkArgs(remote, base, numbers);
+  const facts = await stackFacts({ enabled, remotes, numbers, dirs, exec });
+  const stop = linkBlocker(numbers, facts, base);
+  if (stop) return { failed: stop };
+  const env = { GH_REPO: repo };
+  try {
+    await ghRun(bin, args, { dirs, exec, env });
+  } catch (err) {
+    if (NO_STACK_EXT.test(err.message)) throw coded('Linking a stack needs GitHub CLI’s stack extension.', 'gh-no-stack');
+    const after = await stackFacts({ enabled, remotes, numbers, dirs, exec }).catch(() => new Map());
+    const top = after.get(numbers[numbers.length - 1])?.stack?.number;
+    const missing = numbers.find((n) => top == null || after.get(n)?.stack?.number !== top) ?? numbers[0];
+    return { failed: { number: missing, reason: text(err.message.split('\n').pop(), 200) || 'GitHub CLI couldn’t link it.' } };
+  }
+  const after = await stackFacts({ enabled, remotes, numbers, dirs, exec }).catch(() => new Map());
+  return { linked: true, stack: after.get(numbers[0])?.stack?.number ?? null };
+}
+
+// Merging a chain that isn't a GitHub stack (AK-555): one PR at a time, bottom up. Before each
+// one after the bottom, its base moves to `base` (`gh pr edit --base`), so it lands there and not
+// on the branch below it.
+async function retargetPr({ enabled, remotes, number, base, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  await ghRun(bin, ['pr', 'edit', prNumber(number), '--repo', repo, `--base=${branchArg(base, 'base')}`], { dirs, exec });
+  return { number, base };
 }
 
 // Merge plan, stacks (AK-545): GitHub's own stack merge, through the official `gh stack`
@@ -920,4 +1004,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
