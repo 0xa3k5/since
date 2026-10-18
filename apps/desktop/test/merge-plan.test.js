@@ -232,7 +232,7 @@ test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan n
   assert.deepEqual(calls[0].args.slice(0, 3), ['repo', 'view', 'github.com/acme/app']);
 
   reply = JSON.stringify([{ number: 4, headRefName: 'a', baseRefName: 'main', headRefOid: 'c'.repeat(40) }, { number: 0 }, { number: 5, headRefName: 'b', baseRefName: 'a', headRefOid: 'bad' }]);
-  assert.deepEqual(await github.openPrBranches(t), [{ number: 4, branch: 'a', baseBranch: 'main', head: 'c'.repeat(40) }, { number: 5, branch: 'b', baseBranch: 'a', head: null }]);
+  assert.deepEqual(await github.openPrBranches(t), [{ number: 4, branch: 'a', baseBranch: 'main', head: 'c'.repeat(40), fork: false }, { number: 5, branch: 'b', baseBranch: 'a', head: null, fork: false }]);
 
   calls.length = 0;
   reply = '';
