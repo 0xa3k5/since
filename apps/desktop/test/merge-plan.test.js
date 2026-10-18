@@ -407,3 +407,13 @@ test('the summary names a blocked stack apart from the PRs that failed (AK-549)'
   const g = groupNeeds([{ key: 's', prs: [11, 12, 13], hits: 1, blockers: [failed] }, { key: 5, prs: [5], blockers: [failed] }, { key: 8, prs: [8], blockers: [{ kind: 'draft', required: true }] }]);
   assert.equal(planSummary({ now: 2, groups: g, base: 'main' }).rest, ' 5 need something first: 1 failed a check, 1 is a draft and 3 are in a stack that can’t merge yet.');
 });
+
+test('bottomPart cuts a chain where GitHub stacks begin or end (AK-541)', async () => {
+  const { bottomPart } = await import('../renderer/merge-plan.js');
+  const facts = new Map([[226, { stack: { number: 243 } }], [227, { stack: { number: 243 } }], [237, { stack: null }], [238, { stack: null }], [240, { stack: { number: 242 } }]]);
+  const chain = { id: 'stack-226', prs: [226, 227, 237, 238, 240], heads: ['a', 'b', 'c', 'd', 'e'] };
+  assert.deepEqual(bottomPart(chain, facts), { id: 'stack-226', prs: [226, 227], heads: ['a', 'b'] });
+  assert.deepEqual(bottomPart({ id: 'x', prs: [237, 238, 240] }, facts).prs, [237, 238]);
+  assert.equal(bottomPart({ id: 'y', prs: [237, 240] }, facts), null);
+  assert.deepEqual(bottomPart({ id: 'z', prs: [240, 237] }, facts).prs, [240]);
+});

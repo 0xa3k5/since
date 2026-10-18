@@ -724,6 +724,9 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
     found = mergePlan.findStacks(openList, base).filter((st) => (total += st.prs.length) <= mergePlan.MAX_STACKED);
     // AK-555: which of them GitHub has as a stack (merged with `gh stack merge`; the rest one by one).
     if (found.length) chainFacts = await github.stackFacts({ ...t, numbers: found.flatMap((st) => st.prs) }).catch(() => new Map());
+    // Plan each chain's bottom part only, cut where GitHub's stacks begin or end (AK-541): a mix of
+    // a GitHub stack and plain PRs can't merge as one unit. What's above waits for it.
+    found = found.map((st) => mergePlan.bottomPart(st, chainFacts)).filter(Boolean);
   }
   const inStack = new Set(found.flatMap((st) => st.prs));
   const singles = numbers.filter((n) => !inStack.has(n));
@@ -832,7 +835,8 @@ handle('app:pr-chains', okCall(async (e, remoteName, baseName) => {
     extension: ext.installed,
     chains: chains.map((c) => {
       const native = !c.branch && mergePlan.isNative(c, facts);
-      const why = native ? null : mergePlan.chainWhy(c, { host });
+      // A chain that's partly a GitHub stack already can't be linked: GitHub refuses PRs in two stacks.
+      const why = native ? null : c.prs.some((n) => facts.get(n)?.stack) ? 'Part of it is already a GitHub stack' : mergePlan.chainWhy(c, { host });
       return { id: c.id, prs: c.prs, native, linkable: !native && !why, why, ...(c.branch ? { branch: c.branch } : {}) };
     }),
   };
