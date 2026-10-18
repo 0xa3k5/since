@@ -199,3 +199,12 @@ test('⇧W checks out a pull request even when its branch is local, unless it ha
   assert.equal(checkoutHereMode({ pr: null, lane: lane('feat') }), 'open');
   assert.equal(checkoutHereMode({}), null);
 });
+
+test('every pull request row lists Check Out; one open in another worktree has no New Worktree item', async () => {
+  const { checkoutChoices } = await load();
+  const pr = { number: 7, branch: 'feat' };
+  assert.deepEqual(checkoutChoices({ pr, lane: null }), ['here', 'worktree']);
+  assert.deepEqual(checkoutChoices({ pr, lane: lane('feat') }), ['here', 'worktree']);
+  assert.deepEqual(checkoutChoices({ pr, lane: lane('feat', { worktree: { path: '/w/feat', current: false } }) }), ['here']);
+  assert.deepEqual(checkoutChoices({ pr: null, lane: lane('feat') }), []);
+});

@@ -138,6 +138,13 @@ export function checkoutHereMode({ pr = null, lane = null } = {}) {
   return lane ? 'open' : null;
 }
 
+// The checkout items a review row's menu lists: every pull request gets Check Out (what ⇧W does).
+// A branch open in another worktree can't get a second one, so it has no New Worktree item.
+export function checkoutChoices(row = {}) {
+  if (!row.pr) return [];
+  return checkoutHereMode(row) === 'pr' ? ['here', 'worktree'] : ['here'];
+}
+
 // Carry PR data over to a refresh that skipped `gh` (live refreshes stay local): the open PR, and
 // "Merged in #N" while the lane's head is still the one that PR merged (AK-338).
 export function keepPrs(lanes, previous = []) {
