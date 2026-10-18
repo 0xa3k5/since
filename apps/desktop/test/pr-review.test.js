@@ -135,3 +135,13 @@ test('fetchPrHead: two fetches at once each get their own PR head (AK-277)', asy
   assert.equal(a, heads[5]);
   assert.equal(b, heads[6]);
 });
+
+test('stackedBase: a stacked PR is reviewed against its own base branch (AK-538)', async () => {
+  const { stackedBase } = await load();
+  assert.equal(stackedBase({ ...PR, base: 'theo/tables' }, 'origin/main', 'origin'), 'origin/theo/tables');
+  assert.equal(stackedBase({ ...PR, base: 'theo/tables' }, 'main', 'origin'), 'origin/theo/tables');
+  assert.equal(stackedBase(PR, 'origin/main', 'origin'), null, 'targets the repo base');
+  assert.equal(stackedBase(PR, 'main', 'origin'), null);
+  assert.equal(stackedBase(null, 'origin/main', 'origin'), null);
+  assert.equal(stackedBase(PR, 'origin/main', null), null);
+});
