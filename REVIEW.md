@@ -10,7 +10,7 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 - An IPC call whose arguments aren't validated in `apps/desktop/ipc.js`.
 - A network call beyond the ones documented in `docs/security.md`.
 - Breaking the update feed, its signature checks, or the licence checks.
-- A keyboard trap, or an action without a shortcut and a ⌘K entry.
+- A keyboard trap.
 - A diff to `CLAUDE.md` or `REVIEW.md` that the issue didn't ask for (agent runtimes write their own
   `CLAUDE.md` into worktrees; it must never be committed over the repo's file).
 
@@ -21,6 +21,8 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 - Findings in the PR's own new code are fixed in that PR: by the reviewer if small and
   mechanical, otherwise one send-back to the author.
 - Only Pre-existing findings become follow-up issues.
+- Always **Important**: a new keyboard shortcut without a stated reason in the PR body, and new
+  instructional or teaching text in the UI (hint lines, how-to notes, long descriptions).
 
 ## Review levels
 
@@ -32,6 +34,9 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 **Critical paths always need AK** (the reviewer posts a verdict, AK merges):
 signing, notarization, secrets and publishing; the auto-update feed and its signature checks;
 licence validation, Polar product/price IDs, prices and legal terms; history rewrites.
+
+**`feat` PRs** (new user-facing features or behaviour) are reviewed as usual but merged by AK, not
+the reviewer: post the verdict and assign AK.
 
 ## Verdict
 
@@ -59,8 +64,8 @@ merge it as a stack, and won't rebase and retarget the next part after a merge.
   `gh api graphql -f query='{ repository(owner:"0xa3k5", name:"gitlanes") { pullRequest(number:<PR>) { stack { number size } } } }'`
   must return a stack whose `size` is n. If it is `null`, ask the author for `gh stack link`.
 - Merged strictly bottom-up, one reviewed part at a time: `gh stack merge <PR k> --squash --yes`
-  (no `--delete-branch`). GitHub then rebases and retargets the next part onto `main`; rebase by
-  hand only if it can't. Delete the part branches after the last part has merged.
+  (no `--delete-branch`). GitHub then rebases and retargets the next part onto `main`. If it can't,
+  rebase by hand after the squash: `git rebase --onto origin/main <old part k tip> <part k+1>`. Delete the part branches after the last part has merged.
 
 ## Known recurring issues
 

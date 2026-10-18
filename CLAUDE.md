@@ -33,7 +33,10 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
 
 ## Conventions
 
-- Every action gets a keyboard shortcut and a ⌘K entry (keymap in `renderer/keymap.js`).
+- New actions get a ⌘K entry. Add a keyboard shortcut only for a frequent action in its context,
+  with the reason in the PR body (keymap in `renderer/keymap.js`).
+- No instructional or teaching copy in the UI: labels, values, status, errors and short warnings
+  about irreversible actions only. Teaching goes on the website docs.
 - Light and dark themes are both first-class for every UI change.
 - Everything that changes a local repo (refs, work tree, stashes, config) is undoable through
   `journal.js`. Identify stashes by SHA, not by `stash@{n}` index.
@@ -50,7 +53,9 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
   `<type>(<scope>): <summary> (AK-NN)`. Types: feat, fix, perf, refactor, style, docs, test,
   build, ci, chore, revert. Scopes: desktop, web, tokens, licence, release, ci, deps.
   Summary: imperative, lower case, no period, ≤72 characters.
-- No stacking across PRs, except a stacked series as defined in `REVIEW.md`.
+- Related work ships as a stacked PR series (`[k/n]`, merged bottom-up, see `REVIEW.md`).
+  Unrelated work is a separate PR on `main`. No other stacking.
+- AK's feedback on an open PR goes into that same PR.
 - UI changes include light and dark screenshots.
 - End the PR body with the review brief (files, risky spots, tests, not tested, AK-only areas).
   What the reviewer checks is in `REVIEW.md`.
