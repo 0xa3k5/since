@@ -1,0 +1,12 @@
+{
+ "repo": "0xa3k5/gitlanes",
+ "number": 216,
+ "title": "docs(web): describe the commit graph in git terms instead of lanes (AK-473)",
+ "manifests": {},
+ "internal": [
+  "@gitlanes/desktop",
+  "@gitlanes/web",
+  "gitlanes",
+  "@gitlanes/tokens"
+ ]
+}

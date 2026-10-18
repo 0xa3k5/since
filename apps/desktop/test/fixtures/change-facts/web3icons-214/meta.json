@@ -1,0 +1,19 @@
+{
+ "repo": "0xa3k5/web3icons",
+ "number": 214,
+ "title": "Add Animica (ANM) network and token icons",
+ "manifests": {},
+ "internal": [
+  "@web3icons/chrome-extension",
+  "@web3icons/figma-plugin",
+  "@web3icons/website",
+  "nextjs-example",
+  "react-vite-example",
+  "web3icons",
+  "@web3icons/common",
+  "@web3icons/core",
+  "@web3icons/eslint-config",
+  "@web3icons/react",
+  "@web3icons/rollup-config"
+ ]
+}

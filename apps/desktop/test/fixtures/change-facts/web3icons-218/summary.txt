@@ -1,0 +1,7 @@
+ create mode 100644 .changeset/silver-radios-brush.md
+ create mode 100644 packages/core/src/svgs/networks/background/anubis.svg
+ create mode 100644 packages/core/src/svgs/networks/branded/anubis.svg
+ create mode 100644 packages/core/src/svgs/networks/mono/anubis.svg
+ create mode 100644 raw-svgs/networks/background/anubis.svg
+ create mode 100644 raw-svgs/networks/branded/anubis.svg
+ create mode 100644 raw-svgs/networks/mono/anubis.svg

@@ -1,0 +1,5 @@
+3	3	apps/web/src/components/landing/Keyboard.astro
+4	4	apps/web/src/components/landing/SendBack.astro
+1	1	apps/web/src/components/landing/landing.css
+1	1	apps/web/src/pages/index.astro
+1	1	docs/security.md

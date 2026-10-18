@@ -1,0 +1,17 @@
+25	1	apps/desktop/catchup-store.js
+1	8	apps/desktop/git.js
+12	5	apps/desktop/github.js
+5	15	apps/desktop/main.js
+11	0	apps/desktop/renderer/agents.js
+15	8	apps/desktop/renderer/app.js
+1	1	apps/desktop/renderer/catchup-view.js
+8	1	apps/desktop/renderer/lanes-view.js
+7	6	apps/desktop/renderer/markdown.js
+0	47	apps/desktop/renderer/prs.js
+13	4	apps/desktop/renderer/review-rows.js
+20	0	apps/desktop/test/catchup.test.js
+0	49	apps/desktop/test/inbox.test.js
+10	0	apps/desktop/test/lanes-view.test.js
+15	0	apps/desktop/test/markdown.test.js
+15	0	apps/desktop/test/pr-review.test.js
+22	0	apps/desktop/test/review-rows.test.js

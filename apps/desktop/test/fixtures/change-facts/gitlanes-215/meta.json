@@ -1,0 +1,12 @@
+{
+ "repo": "0xa3k5/gitlanes",
+ "number": 215,
+ "title": "fix(web): stop the keyboard demo taking scroll and tab keys (AK-420)",
+ "manifests": {},
+ "internal": [
+  "@gitlanes/desktop",
+  "@gitlanes/web",
+  "gitlanes",
+  "@gitlanes/tokens"
+ ]
+}

@@ -1,0 +1,2 @@
+1	1	apps/web/src/pages/docs/the-map.astro
+1	1	apps/web/src/pages/features.astro

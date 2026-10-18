@@ -1,0 +1,129 @@
+diff --git a/apps/desktop/e2e/site-shots.capture.js b/apps/desktop/e2e/site-shots.capture.js
+index ec7b7fe..f097749 100644
+--- a/apps/desktop/e2e/site-shots.capture.js
++++ b/apps/desktop/e2e/site-shots.capture.js
+@@ -574,8 +574,9 @@ process.exit(1);
+ 
+   // 1. Review: Stuck and Ready to merge.
+   await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
+-  await expect(page.locator('.lanes-group[data-stage="stuck"]')).toContainText('2');
+-  await expect(page.locator('.lanes-group[data-stage="ready"]')).toContainText('3');
++  await page.locator('.review-reload').click(); // stage counts need a PR load (#143)
++  await expect(page.locator('.review-tab[data-tab="stuck"] .review-tab-n')).toHaveText('2', { timeout: 40_000 });
++  await expect(page.locator('.review-tab[data-tab="ready"] .review-tab-n')).toHaveText('3');
+   await expect(page.locator('.review-pane .review-row').first()).toBeVisible();
+   await shot('review-dark');
+ 
+diff --git a/apps/desktop/test/github.test.js b/apps/desktop/test/github.test.js
+index 544ad9e..e272e89 100644
+--- a/apps/desktop/test/github.test.js
++++ b/apps/desktop/test/github.test.js
+@@ -465,11 +465,11 @@ test('normalizePr: bot authors, names, drafts, mixed reviews and pending request
+   assert.equal(p.review, 'changes');
+   assert.deepEqual(p.reviews, [
+     { login: 'ana', name: 'Ana', state: 'approved', submittedAt: '2026-10-12T00:00:00Z' },
+-    { login: 'bo', name: '', state: 'changes', submittedAt: '2026-10-11T00:00:00Z' },
+-    { login: 'copilot[bot]', name: '', state: 'commented', submittedAt: '' },
+-    { login: 'dee', name: '', state: 'dismissed', submittedAt: '' },
++    { login: 'bo', name: 'bo', state: 'changes', submittedAt: '2026-10-11T00:00:00Z' },
++    { login: 'copilot[bot]', name: 'copilot', state: 'commented', submittedAt: '' },
++    { login: 'dee', name: 'dee', state: 'dismissed', submittedAt: '' },
+   ]);
+-  assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: '', team: false }, { login: 'core', name: 'Core', team: true }]);
++  assert.deepEqual(p.reviewRequests, [{ login: 'fay', name: 'fay', team: false }, { login: 'core', name: 'Core', team: true }]);
+   assert.ok(!JSON.stringify(p).includes('secret'));
+   assert.ok(github.PR_FIELDS.includes('reviewRequests'));
+ });
+diff --git a/apps/desktop/test/keymap.test.js b/apps/desktop/test/keymap.test.js
+index 9d5c74a..38d167b 100644
+--- a/apps/desktop/test/keymap.test.js
++++ b/apps/desktop/test/keymap.test.js
+@@ -251,3 +251,12 @@ test('Ctrl+Mod needs ⌘ on macOS, so plain ⌃T doesn’t match ⌃⌘T (AK-207
+   assert.equal(match('menu', ev('t', { ctrlKey: true }), null, true), null);
+   assert.equal(match('menu', ev('t', { ctrlKey: true, metaKey: true }), null, true), 'view.cycleTheme');
+ });
++
++test('tipFor: the label, two spaces, then the first binding as joined keycaps (AK-300)', async () => {
++  const { tipFor } = await import('../renderer/ui.js');
++  const { keys } = await load();
++  assert.equal(tipFor('Reload pull requests', 'lanes.reload'), `Reload pull requests  ${keys('lanes.reload').join('')}`);
++  assert.ok(keys('lanes.reload').length > 1); // ⇧ and R run together, as on a keycap
++  assert.equal(tipFor('Previous'), 'Previous');
++  assert.equal(tipFor('Previous', null), 'Previous');
++});
+diff --git a/apps/desktop/test/lanes-view.test.js b/apps/desktop/test/lanes-view.test.js
+index ac83ae5..ad23e55 100644
+--- a/apps/desktop/test/lanes-view.test.js
++++ b/apps/desktop/test/lanes-view.test.js
+@@ -122,7 +122,7 @@ test('rows lead with the title; conflicts name the other lane by title', async (
+ });
+ 
+ test('a local refresh during a PR load keeps the PR result, and a newer PR load wins', async () => {
+-  const { loadGuard, takePrs } = await load();
++  const { loadGuard, takePrs, keepPrs } = await load();
+   const g = loadGuard();
+   const prLoad = g.start(true);
+   const local = g.start(false); // the file watcher fires while `gh` runs
+@@ -133,6 +133,9 @@ test('a local refresh during a PR load keeps the PR result, and a newer PR load
+   const pr = { number: 3 };
+   const merged = takePrs([lane('a', { changes: 2 }), lane('b', { pr: { number: 1 } }), lane('new')], [lane('a', { pr }), lane('b')]);
+   assert.deepEqual(merged.map((l) => [l.name, l.pr, l.changes]), [['a', pr, 2], ['b', null, null], ['new', null, null]]);
++  // That local refresh lands after the PR load with a brand-new branch: it gets its PR from the PR load (AK-315).
++  const fresh = keepPrs([lane('a'), lane('new2')], [lane('a', { pr }), lane('new2', { pr: { number: 4 } }), ...merged]);
++  assert.deepEqual(fresh.map((l) => l.pr?.number ?? null), [3, 4]);
+   const again = g.start(true);
+   assert.equal(g.prs(prLoad), false);
+   assert.equal(g.prs(again), true);
+diff --git a/apps/desktop/test/pr-conflicts.test.js b/apps/desktop/test/pr-conflicts.test.js
+index ac9bab9..590c544 100644
+--- a/apps/desktop/test/pr-conflicts.test.js
++++ b/apps/desktop/test/pr-conflicts.test.js
+@@ -32,6 +32,13 @@ test('conflictHunks cuts marked text into base and head sides with context', ()
+   assert.deepEqual(git.conflictHunks(''), []);
+ });
+ 
++test('conflictHunks shows shared context once and only splits on an exact ======= (AK-308)', () => {
++  const two = git.conflictHunks('x\n<<<<<<< a\n1\n=======\n2\n>>>>>>> b\ny\n<<<<<<< a\n3\n=======\n4\n>>>>>>> b\nz\n');
++  assert.deepEqual(two.map((h) => [h.before, h.after]), [[['x'], ['y']], [[], ['z']]]);
++  const md = git.conflictHunks('<<<<<<< a\nTitle\n========\n=======\nOther\n>>>>>>> b\n');
++  assert.deepEqual(md.map((h) => [h.base, h.head]), [[['Title', '========'], ['Other']]]);
++});
++
+ test('mergeConflictHunks lists conflicting files with both sides, and nothing for a clean merge', async () => {
+   const dir = await repo();
+   await commit(dir, { 'a.txt': lines(20), 'b.txt': 'b\n', 'gone.txt': 'g\n' }, 'base');
+diff --git a/apps/desktop/test/review-rows.test.js b/apps/desktop/test/review-rows.test.js
+index cfd017e..2b94524 100644
+--- a/apps/desktop/test/review-rows.test.js
++++ b/apps/desktop/test/review-rows.test.js
+@@ -181,7 +181,8 @@ test('one primary button per stage', async () => {
+   assert.equal(primaryAction(row('inProgress', { pr: pr(1) }), { requested: new Set([1]) }), 'review');
+   assert.equal(primaryAction(row('inProgress', { pr: pr(1) })), 'open');
+   assert.equal(primaryAction(row(null, { lane: lane('x') })), 'open');
+-  for (const id of ['review', 'merge', 'rebase', 'checks', 'open', 'sendBack']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
++  for (const id of ['review', 'merge', 'rebase', 'open', 'sendBack']) assert.ok(STEPS[id].label && STEPS[id].keyId.startsWith('lanes.'));
++  assert.equal(STEPS.checks, undefined); // never a primary step (AK-325)
+ });
+ 
+ test('badges: CI and review state, conflicts and uncommitted changes', async () => {
+@@ -211,7 +212,7 @@ test('reviewers: requests are pending, then by state, dismissed left out', async
+     reviews: [
+       { login: 'ana', name: 'Ana', state: 'approved', submittedAt: 'x' },
+       { login: 'bo', name: '', state: 'changes' },
+-      { login: 'copilot[bot]', name: '', state: 'commented' },
++      { login: 'copilot[bot]', name: 'copilot', state: 'commented' }, // github.js cleans the name (AK-312)
+       { login: 'dee', name: '', state: 'dismissed' },
+       { login: 'fay', name: '', state: 'approved' },
+     ],
+diff --git a/apps/desktop/test/theme.test.js b/apps/desktop/test/theme.test.js
+index fb68caa..b01aaf8 100644
+--- a/apps/desktop/test/theme.test.js
++++ b/apps/desktop/test/theme.test.js
+@@ -62,6 +62,7 @@ for (const [name, t] of Object.entries(THEMES)) {
+     for (const k of ['text', 'text-2', 'text-3', 'accent-fg', 'green', 'merged', 'red', 'warn']) atLeast(k, 4.5);
+     atLeast('text-4', 3); // hints, line numbers, placeholders
+     atLeast('yellow', 3); // tag icon
++    atLeast('on-accent', 4.5, ['accent-solid', 'accent-solid-hover']); // primary buttons, hover too (AK-296)
+   });
+ 
+   test(`${name} theme: text on accent and danger fills meets WCAG AA`, () => {

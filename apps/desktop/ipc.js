@@ -183,6 +183,7 @@ const gitSchemas = {
   checkSplit: [rev],
   compare: [rev, rev],
   branchReview: [rev, optional(rev)],
+  changeFacts: [rev, rev],
   mergeConflicts: [rev, rev],
   mergeLanePlan: [rev, optional(rev)],
   status: [],
