@@ -276,10 +276,88 @@ export const cleanupSummary = (res, skipped = []) => ({
   worktrees: res.removed.length, branches: res.deleted.length, skipped: [...skipped, ...res.failed],
 });
 
-// The sheet's split button and method menu (AK-542). `merge` is "Merge commits" in the menu, but the
+// The sheet's split button and method menu (AK-542). `merge` is "Create a Merge Commit" in the menu, but the
 // button just says "Merge 3 in order".
-export const METHOD_NAMES = { squash: 'Squash and merge', merge: 'Create merge commits', rebase: 'Rebase and merge' };
-const VERBS = { squash: 'Squash and merge', merge: 'Merge', rebase: 'Rebase and merge' };
+export const METHOD_NAMES = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
+const VERBS = { squash: 'Squash & Merge', merge: 'Merge', rebase: 'Rebase & Merge' };
 export const mergeLabel = (method, n) => `${VERBS[method] || VERBS.squash} ${n}${n > 1 ? ' in order' : ''}`;
 // "Order · 3 of 4 picked" before merging, "Order · 3" once it runs.
 export const orderLabel = (picked, pickable, running) => (running ? `Order · ${picked}` : `Order · ${picked} of ${pickable} picked`);
+
+// ── What the sheet shows for PRs that can't merge yet (AK-549) ──
+// A stack's readable name: the issue-key range of its titles ("AK-518 → AK-530"), else the title
+// they share without the Conventional Commits prefix, the "[k/n]" and the key.
+const ISSUE_KEY = /\(([A-Z][A-Z0-9]*-\d+)\)/;
+export const cleanTitle = (t) => {
+  const s = String(t || '').replace(/^\s*[a-z]+(\([^)]*\))?!?:\s*/i, '').replace(/\s*\[\d+\/\d+\]\s*$/, '').replace(/\s*\([A-Z][A-Z0-9]*-\d+\)\s*$/, '').trim();
+  return s.replace(/^./, (c) => c.toUpperCase());
+};
+export function stackName(titles = []) {
+  const keys = titles.map((t) => ISSUE_KEY.exec(t || '')?.[1] || null);
+  if (keys.length > 1 && keys.every(Boolean) && keys[0] !== keys[keys.length - 1]) return `${keys[0]} → ${keys[keys.length - 1]}`;
+  const clean = titles.map(cleanTitle);
+  return clean.find(Boolean) || keys.find(Boolean) || '';
+}
+
+// "Needs something first", grouped by what's in the way, in the order to deal with them.
+export const GROUPS = ['check-failed', 'check-running', 'conflicts', 'review', 'draft', 'behind', 'other'];
+const GROUP_OF = { 'check-failed': 'check-failed', 'check-running': 'check-running', 'conflicts-base': 'conflicts', 'conflicts-pr': 'conflicts', 'needs-review': 'review', draft: 'draft', behind: 'behind' };
+export const groupOf = (b) => GROUP_OF[b?.kind] || 'other';
+// A PR's own blockers: the plan also marks every PR above a stack's blocker with `stack`.
+export const ownBlockers = (list = []) => list.filter((b) => b.kind !== 'stack');
+// entries: [{ key, prs, blockers }] (a stack's blockers are its blocking PR's). → [{ id, entries }].
+export function groupNeeds(entries = []) {
+  const by = new Map();
+  for (const e of entries) {
+    const id = groupOf(mainBlocker(e.blockers || []));
+    if (!by.has(id)) by.set(id, []);
+    by.get(id).push(e);
+  }
+  return GROUPS.filter((id) => by.has(id)).map((id) => ({ id, entries: by.get(id) }));
+}
+// Failing (or running) check names across a group, each once.
+export const groupChecks = (entries, kind = 'check-failed') => {
+  const seen = new Map();
+  for (const e of entries) for (const b of e.blockers || []) if (b.kind === kind) for (const c of b.checks || []) if (!seen.has(c.name)) seen.set(c.name, c);
+  return [...seen.values()];
+};
+const prCount = (entries) => entries.reduce((n, e) => n + (e.prs?.length || 1), 0);
+const isAre = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const PHRASES = {
+  'check-failed': (n) => isAre(n, 'failed a check', 'failed a check'),
+  'check-running': (n) => isAre(n, 'is waiting on checks', 'are waiting on checks'),
+  conflicts: (n) => isAre(n, 'has conflicts', 'have conflicts'),
+  review: (n) => isAre(n, 'needs a review', 'need a review'),
+  draft: (n) => isAre(n, 'is a draft', 'are drafts'),
+  behind: (n, base) => isAre(n, `is behind ${base}`, `are behind ${base}`),
+  other: (n) => isAre(n, 'can’t merge for another reason', 'can’t merge for other reasons'),
+};
+const andList = (parts) => (parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
+
+// The sentence at the top of the sheet: { lead, rest }. now: PRs that merge now (a stack counts
+// each PR); groups: groupNeeds' output.
+export function planSummary({ now = 0, groups = [], base = 'the base' } = {}) {
+  const waiting = groups.reduce((n, g) => n + prCount(g.entries), 0);
+  const total = now + waiting;
+  if (!waiting) return now ? { lead: now === 1 ? 'It can merge' : `All ${now} can merge`, rest: now === 1 ? ' with no conflicts.' : ', in this order, with no conflicts.' } : { lead: 'Nothing to merge.', rest: '' };
+  // A stack held up by one PR counts as its own phrase: its other PRs didn't fail anything.
+  const singles = groups.map((g) => [g.id, prCount(g.entries.filter((e) => !(e.prs?.length > 1)))]).filter(([, n]) => n);
+  const stacked = groups.reduce((n, g) => n + prCount(g.entries.filter((e) => e.prs?.length > 1)), 0);
+  const list = andList([...singles.map(([id, n]) => PHRASES[id](n, base)), ...(stacked ? [`${stacked} ${stacked === 1 ? 'is' : 'are'} in a stack that can’t merge yet`] : [])]);
+  if (now) return { lead: `${now} of ${total} can merge now.`, rest: ` ${waiting} need${waiting === 1 ? 's' : ''} something first: ${list}.` };
+  if (groups.length > 1) return { lead: 'Nothing can merge yet.', rest: ` ${waiting === 1 ? 'It needs' : `${waiting} need`} something first: ${list}.` };
+  const g = groups[0];
+  const all = waiting > 1 ? `all ${waiting}` : 'it';
+  if (g.id === 'check-failed') {
+    const checks = groupChecks(g.entries);
+    const optional = checks.length > 0 && checks.every((c) => !c.required);
+    const what = checks.length === 1 ? `the ${checks[0].name} check failed` : checks.length ? `${andList(checks.map((c) => c.name))} failed` : 'checks failed';
+    const inStack = g.entries.length === 1 && g.entries[0].prs?.length > 1 ? ' in the stack' : '';
+    // hits: the PRs in an entry the check failed on (a stack's other PRs may be fine).
+    const hits = g.entries.reduce((n, e) => n + (e.hits ?? (e.prs?.length || 1)), 0);
+    const on = waiting === 1 ? 'it' : hits >= waiting ? `${all} PRs${inStack}` : `${hits} of the ${waiting} PRs${inStack}`;
+    const why = optional ? ` ${base} doesn’t require ${checks.length === 1 ? 'it' : 'them'}, so GitHub would let you merge.` : '';
+    return { lead: 'Nothing can merge yet, and it’s one thing:', rest: ` ${what} on ${on}.${why}` };
+  }
+  return { lead: 'Nothing can merge yet:', rest: ` ${list}.` };
+}
