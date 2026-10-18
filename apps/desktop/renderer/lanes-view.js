@@ -530,14 +530,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // Merge plan (merge-plan-view.js): on git 2.38+ with pull requests on. With them off nothing is
   // ever ready, so there's no plan for local branches.
   const canPlan = () => Boolean(onMergePlan && prsOn() && forecastOk && inbox?.remote);
-  function mergePlan(method = null) {
+  function mergePlan(method = null, { anyway = false } = {}) {
     if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : 'Merge plan needs git 2.38 or later');
     const all = readyPrs();
     if (!all.length) return toast('Nothing is ready to merge', { detail: 'Ready means GitHub would merge it now.' });
     const to = all[0].base;
     const ready = all.filter((p) => p.base === to);
     const others = (inbox?.prs || []).filter((p) => p.base === to && !ready.some((x) => x.number === p.number));
-    onMergePlan({ ready, others, known: inbox?.prs || [], base: to, remote: inbox.remote, method });
+    onMergePlan({ ready, others, known: inbox?.prs || [], base: to, remote: inbox.remote, method, anyway });
   }
 
   function renderTabs() {

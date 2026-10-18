@@ -302,10 +302,10 @@ test('cleanupItems skips the main worktree, other windows and locked worktrees',
 
 test('the sheet names the method and counts the picks (AK-542)', async () => {
   const { mergeLabel, orderLabel, METHOD_NAMES } = await import('../renderer/merge-plan.js');
-  assert.equal(mergeLabel('squash', 3), 'Squash and merge 3 in order');
+  assert.equal(mergeLabel('squash', 3), 'Squash & Merge 3 in order');
   assert.equal(mergeLabel('merge', 2), 'Merge 2 in order');
-  assert.equal(mergeLabel('rebase', 1), 'Rebase and merge 1');
-  assert.equal(mergeLabel('nope', 1), 'Squash and merge 1');
+  assert.equal(mergeLabel('rebase', 1), 'Rebase & Merge 1');
+  assert.equal(mergeLabel('nope', 1), 'Squash & Merge 1');
   assert.equal(orderLabel(3, 4), 'Order · 3 of 4 picked');
   assert.equal(orderLabel(3, 4, true), 'Order · 3');
   assert.deepEqual(Object.keys(METHOD_NAMES), ['squash', 'merge', 'rebase']);
@@ -365,4 +365,45 @@ test('blockersOf: GitHub’s own rules, one blocker per kind (AK-550)', async ()
   assert.equal(blockerText({ kind: 'conflicts-pr', with: 4, files: ['x.js'] }), 'Conflicts with #4 in x.js');
   assert.equal(blockerText({ kind: 'stack', number: 4 }), '#4 below it can’t merge yet');
   assert.equal(blockerText({ kind: 'check-failed', required: true, checks: [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }] }), 'a, b and 2 more failed');
+});
+
+test('stack names: issue-key range, else the shared title without its prefix and part (AK-549)', async () => {
+  const { stackName, cleanTitle } = await load();
+  assert.equal(stackName(['feat(desktop): change facts for a PR diff (AK-518) [1/4]', 'fix(desktop): offer check out (AK-530) [7/7]']), 'AK-518 → AK-530');
+  assert.equal(stackName(['feat(desktop): merge plan engine (AK-541) [1/3]', 'feat(desktop): merge plan sheet (AK-541) [2/3]']), 'Merge plan engine');
+  assert.equal(stackName(['Good stack', 'Good stack, part two']), 'Good stack');
+  assert.equal(cleanTitle('feat(desktop)!: pick PRs (AK-542) [3/3]'), 'Pick PRs');
+  assert.equal(stackName([]), '');
+});
+
+test('needs groups and the summary sentence (AK-549)', async () => {
+  const { groupNeeds, planSummary } = await load();
+  const failed = (req) => ({ kind: 'check-failed', required: req, checks: [{ name: 'changes', required: req, quick: true }] });
+  const stack = { key: 's1', prs: Array.from({ length: 10 }, (_, i) => i + 1), blockers: [failed(false)] };
+  const one = groupNeeds([stack]);
+  assert.deepEqual(one.map((g) => g.id), ['check-failed']);
+  const s = planSummary({ now: 0, groups: one, base: 'main' });
+  assert.equal(s.lead, 'Nothing can merge yet, and it’s one thing:');
+  assert.equal(s.rest, ' the changes check failed on all 10 PRs in the stack. main doesn’t require it, so GitHub would let you merge.');
+  const mixed = groupNeeds([
+    { key: 8, prs: [8], blockers: [{ kind: 'draft', required: true }] },
+    { key: 4, prs: [4], blockers: [{ kind: 'conflicts-pr', required: true, with: 3, files: ['a'] }] },
+    { key: 5, prs: [5], blockers: [failed(false), { kind: 'needs-review', required: true }] },
+  ]);
+  assert.deepEqual(mixed.map((g) => g.id), ['conflicts', 'review', 'draft'], 'grouped by the required blocker first');
+  assert.deepEqual(planSummary({ now: 4, groups: mixed, base: 'main' }), { lead: '4 of 7 can merge now.', rest: ' 3 need something first: 1 has conflicts, 1 needs a review and 1 is a draft.' });
+  assert.equal(planSummary({ now: 3, groups: [] }).lead, 'All 3 can merge');
+});
+
+test('the summary counts only the stack PRs a check failed on (AK-549)', async () => {
+  const { groupNeeds, planSummary } = await load();
+  const g = groupNeeds([{ key: 's', prs: [1, 2, 3], hits: 1, blockers: [{ kind: 'check-failed', required: true, checks: [{ name: 'test', required: true }] }] }]);
+  assert.equal(planSummary({ groups: g, base: 'main' }).rest, ' the test check failed on 1 of the 3 PRs in the stack.');
+});
+
+test('the summary names a blocked stack apart from the PRs that failed (AK-549)', async () => {
+  const { groupNeeds, planSummary } = await load();
+  const failed = { kind: 'check-failed', required: true, checks: [{ name: 'ci/test', required: true }] };
+  const g = groupNeeds([{ key: 's', prs: [11, 12, 13], hits: 1, blockers: [failed] }, { key: 5, prs: [5], blockers: [failed] }, { key: 8, prs: [8], blockers: [{ kind: 'draft', required: true }] }]);
+  assert.equal(planSummary({ now: 2, groups: g, base: 'main' }).rest, ' 5 need something first: 1 failed a check, 1 is a draft and 3 are in a stack that can’t merge yet.');
 });
