@@ -141,7 +141,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     for (const st of sts) {
       if (stackOk(st)) continue;
       const by = st.blocker ? own(st.blocker.number) : [];
-      const blockers = st.blocker ? (by.length ? by : [{ kind: 'other', required: true, detail: st.blocker.reason }]) : [{ kind: 'rebase', required: true, detail: 'Its history isn’t linear, so it needs a rebase first' }];
+      const blockers = st.blocker ? (by.length ? by : [{ kind: 'other', required: true, detail: st.blocker.reason }]) : [{ kind: 'rebase', required: true, detail: 'It has merge commits. GitHub merges a stack only after it’s rebased' }];
       const kind = mainBlocker(blockers).kind;
       const text = blockerText(mainBlocker(blockers), sts).replace(/\.$/, '');
       const hits = st.prs.filter((x) => own(x).some((b) => b.kind === kind)).length || 1;
@@ -231,6 +231,9 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     // Two picked PRs that change the same lines: only one merges now. Taking the other unticks this one's rival.
     const rival = plan.blocked.find((b) => (b.stack ?? b.number) === e.key)?.with;
     if (rival != null) acts.unshift(h('button.btn.small.primary', { type: 'button', disabled: busy, onclick: () => instead(e.key, rival) }, `Merge ${unitLabel(e.key, [...stacks.values()])} instead`));
+    // GitHub's stack page has the Rebase stack button.
+    const url = e.blockers?.some((b) => b.kind === 'rebase') && prsBy.get(e.prs[0])?.url;
+    if (url) acts.unshift(h('button.btn.small.primary', { type: 'button', disabled: busy, onclick: () => call('external', url) }, 'Rebase on GitHub'));
     acts.push(h('button.btn.small.ghost', { type: 'button', disabled: busy, onclick: () => leaveOut(e.key) }, 'Leave it out'));
     const more = ['conflicts', 'other'].includes(g.id) ? '' : explain(one);
     return h('div.mergeplan-card', { 'data-key': `card-${e.key}`, 'data-group': g.id },
@@ -534,7 +537,8 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     status.clear();
     render();
     tried.add(method);
-    const anyStack = !stacks.size || [...stacks.values()].some((st) => stackOk(st) && isPicked(st.id));
+    // A stack that's held back is always planned again, so a fix (Merge anyway, a rebase) shows up.
+    const anyStack = !stacks.size || [...stacks.values()].some((st) => !stackOk(st) || isPicked(st.id));
     const nums = left.filter((n) => (memberOf(n) ? anyStack : isPicked(n) || notReady.has(n)));
     const res = await call('merge-plan', remote, base, nums, othersArg, { method, stacks: anyStack, anyway }).catch((e) => ({ error: { message: e.message } }));
     if (!open) return;
