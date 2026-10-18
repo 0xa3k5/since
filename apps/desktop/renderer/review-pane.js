@@ -1,7 +1,7 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from './ui.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
-import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason } from './review-rows.js';
+import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
 import { loadPrReview, paneActions, fixActions, prDescription } from './pr-review.js';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
@@ -79,6 +79,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   const ro = new ResizeObserver(() => fit());
   ro.observe(head);
   function fit() {
+    foldStack();
     const bar = head.querySelector('.review-pane-actions');
     if (!bar) return;
     bar.classList.remove('fit-github', 'fit-shrink');
@@ -179,19 +180,54 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
 
   // The stack path (AK-537): "Stack  main ‹ ● #41 ‹ ● #42 this PR ‹ ● #43", each PR's dot in its
   // stage's colour. A PR selects that row; [ and ] step down and up. null outside a stack.
+  // One line, never wrapped (AK-540): out of room, foldStack() tucks PRs into a "··· N" chip whose menu lists them.
   function stackLine() {
     const s = row.stack;
     if (!s) return null;
     const sep = () => h('span.review-stack-sep', { 'aria-hidden': 'true' }, '‹');
     const dot = (n) => h('span.review-dot' + (ctx.stageOf?.(n) ? `.${ctx.stageOf(n)}` : ''), { 'aria-hidden': 'true' });
     const keyOf = (n) => (n === s.path[s.at - 2] ? 'lanes.stackDown' : n === s.path[s.at] ? 'lanes.stackUp' : null);
+    const steps = s.path.map((n) => h('span.review-stack-step', { 'data-pr': n }, sep(), n === row.pr?.number
+      ? h('span.review-stack-pr.current', { 'aria-current': 'true' }, dot(n), `#${n}`, h('span.review-stack-this', null, 'this PR'))
+      : h('button.review-stack-pr', { 'data-tip': keyOf(n) ? tipFor(`Select #${n}`, keyOf(n)) : `Select #${n}`, onclick: () => ctx.onSelectPr?.(n) }, dot(n), `#${n}`)));
+    const more = h('button.review-stack-more', { 'aria-haspopup': 'menu', onclick: (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      const hidden = steps.filter((x) => x.hidden).map((x) => Number(x.dataset.pr));
+      contextMenu(r.left, r.bottom + 4, hidden.map((n) => ({ label: `#${n}`, lead: dot(n), run: () => ctx.onSelectPr?.(n) })), { focus: e.detail === 0 ? 0 : -1 });
+    } });
+    const chip = h('span.review-stack-step.review-stack-fold', { hidden: true }, sep(), more);
     return h('div.review-pane-stack', { role: 'navigation', 'aria-label': `Stack, ${s.at} of ${s.of}` },
       h('span.muted', null, 'Stack'),
       h('span.review-stack-path', null,
         h('span.mono.review-stack-base', { title: `The stack merges into ${s.base || 'the base'}, bottom first` }, s.base || 'base'),
-        ...s.path.flatMap((n) => [sep(), n === row.pr?.number
-          ? h('span.review-stack-pr.current', { 'aria-current': 'true' }, dot(n), `#${n}`, h('span.review-stack-this', null, 'this PR'))
-          : h('button.review-stack-pr', { 'data-tip': keyOf(n) ? tipFor(`Select #${n}`, keyOf(n)) : `Select #${n}`, onclick: () => ctx.onSelectPr?.(n) }, dot(n), `#${n}`)])));
+        chip, ...steps));
+  }
+
+  // Fold the stack path until it fits on its line: farthest PRs first, this PR's neighbours last (stackFoldOrder).
+  // The chip stands where the first folded PR was.
+  function foldStack() {
+    const path = head.querySelector('.review-stack-path');
+    const s = row.stack;
+    if (!path || !s) return;
+    const steps = [...path.querySelectorAll('.review-stack-step[data-pr]')];
+    const chip = path.querySelector('.review-stack-fold');
+    const order = stackFoldOrder(s.path, s.at);
+    const hide = (k) => {
+      const out = new Set(order.slice(0, k));
+      steps.forEach((x, i) => { x.hidden = out.has(i); });
+      chip.hidden = !k;
+      if (!k) return;
+      const first = steps.find((x) => x.hidden);
+      first.before(chip);
+      const btn = chip.lastChild;
+      btn.textContent = `··· ${k}`;
+      btn.setAttribute('aria-label', `${k} more PR${k === 1 ? '' : 's'} in the stack`);
+      btn.dataset.tip = steps.filter((x) => x.hidden).map((x) => `#${x.dataset.pr}`).join(', ');
+    };
+    for (let k = 0; k <= order.length; k++) {
+      hide(k);
+      if (path.scrollWidth <= path.clientWidth) return;
+    }
   }
 
   // Merge order (AK-321), one line per open PR this one overlaps: "Overlaps #87 in lanes-view.js.

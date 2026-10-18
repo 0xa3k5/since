@@ -678,3 +678,12 @@ test('duration and checkLog', async () => {
   assert.equal(checkLog({ url: 'https://github.com/o/r/actions/runs/42/job/7' }, logs), 'Error: boom');
   assert.equal(checkLog({ url: 'https://example.com/ci' }, logs), '');
 });
+
+test('stackFoldOrder folds the farthest PRs first, then the bottom one, then the neighbours (AK-540)', async () => {
+  const { stackFoldOrder } = await load();
+  // #4 of 7: #7, #6, #2 go first, then the bottom (#1), the one above (#5), the one below (#3).
+  assert.deepEqual(stackFoldOrder([1, 2, 3, 4, 5, 6, 7], 4), [6, 5, 1, 0, 4, 2]);
+  assert.deepEqual(stackFoldOrder([1, 2, 3], 1), [2, 1]);
+  assert.deepEqual(stackFoldOrder([1, 2], 2), [0]);
+  assert.deepEqual(stackFoldOrder([1, 2, 3, 4, 5], 5), [1, 2, 0, 3]);
+});

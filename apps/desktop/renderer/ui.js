@@ -247,7 +247,7 @@ export function contextMenu(x, y, items, { focus = -1 } = {}) {
       disabled: it.disabled,
       onclick: () => { closeMenu(); it.run(); },
       onmouseenter: () => focusItem(actionable.indexOf(el)),
-    }, it.icon ? icon(it.icon) : h('span.icon'), h('span.menu-label', null, it.label), it.kbd ? kbd(...[].concat(it.kbd)) : null);
+    }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')), h('span.menu-label', null, it.label), it.kbd ? kbd(...[].concat(it.kbd)) : null);
     if (!it.disabled) actionable.push(el);
     menu.append(el);
   });
