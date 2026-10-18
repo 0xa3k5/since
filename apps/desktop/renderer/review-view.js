@@ -297,7 +297,7 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     }
     listEl.querySelectorAll('.review-row').forEach((r) => { const on = r.dataset.path === path && (r.dataset.conflict === '1') === conflict; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
     if (scroll) listEl.querySelector('.review-row.active')?.scrollIntoView({ block: 'nearest' });
-    renderFile();
+    return renderFile();
   }
   function move(d) {
     const list = entries();
@@ -318,6 +318,35 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
     renderList();
     if (jump) showConflicts();
     else if (onConflict) renderFile();
+  }
+
+  // Go to line (AK-530): an annotation's or a review thread's line in the file's diff, centred and
+  // flashed; the nearest shown line when that one isn't in a hunk. False when the file isn't here.
+  const hasFile = (path) => Boolean(review?.files.some((f) => f.path === path));
+  async function goToLine(path, line) {
+    if (!hasFile(path)) return false;
+    if (delta) { delta = false; renderList(); }
+    let box;
+    if (stacked) {
+      if (folds.has(path) ? folds.get(path) : states.get(path)?.state === 'reviewed') fold(path);
+      select(path, false);
+      box = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+      if (!box) return false;
+      if (!box.querySelector('.diff')) await fill(box);
+      if (!fulls.has(path) && box.querySelector('.diff-more')) { fulls.add(path); showDiff(box, diffs.get(diffId(box.file, box.since))); }
+    } else {
+      if (current !== path || onConflict) await select(path, true);
+      else if (!main.querySelector('.diff')) await renderFile();
+      if (!full && main.querySelector('.diff-more')) { full = true; await renderFile(); }
+      box = main;
+    }
+    const rows = [...box.querySelectorAll('.dl')].map((r) => ({ r, n: Number(r.children[1]?.textContent) })).filter((x) => x.n > 0);
+    if (!rows.length) return true;
+    const at = rows.reduce((a, b) => (Math.abs(b.n - line) < Math.abs(a.n - line) ? b : a));
+    at.r.scrollIntoView({ block: 'center' });
+    at.r.classList.add('flash');
+    setTimeout(() => at.r.classList.remove('flash'), 1200);
+    return true;
   }
 
   // The row note "Conflicts in N files": select the first conflicting file, its group in view.
@@ -427,5 +456,5 @@ export function reviewView({ lane, base, root, git, store, onClose, onMerge = nu
   }
 
   setTimeout(() => { if (!embedded) el.focus({ preventScroll: true }); load(); });
-  return { el, refresh, showConflicts };
+  return { el, refresh, showConflicts, hasFile, goToLine };
 }

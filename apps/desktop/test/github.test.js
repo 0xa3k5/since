@@ -527,7 +527,7 @@ test('evidence: checks, failed log lines, annotations, media, approvals and open
     ['api', '--hostname', 'github.com', 'repos/acme/app/check-runs/901/annotations?per_page=50'],
     ['api', '--hostname', 'github.com', 'graphql', '-f', calls[3].args[5], '-F', 'owner=acme', '-F', 'name=app', '-F', 'number=12'],
   ]);
-  assert.match(calls[3].args[5], /reviewThreads\(first:100\)\{totalCount nodes\{isResolved isOutdated\}\}/);
+  assert.match(calls[3].args[5], /reviewThreads\(first:100\)\{totalCount nodes\{isResolved isOutdated path line originalLine comments\(first:1\)\{nodes\{author\{login\} body url\}\}\}\}/);
   assert.equal(ev.head, '1111111111111111111111111111111111111111');
   assert.deepEqual(ev.checks, [
     { name: 'test', result: 'failure', duration: 200, url: 'https://github.com/acme/app/actions/runs/55/job/901' },
@@ -548,9 +548,13 @@ test('evidence: checks, failed log lines, annotations, media, approvals and open
     { url: 'https://user-images.githubusercontent.com/2/spacing.png', kind: 'image', alt: 'spacing', from: 'review', author: 'lee' },
   ]);
   assert.deepEqual(ev.reviews, [{ login: 'sam', state: 'approved' }]);
-  assert.deepEqual(ev.threads, { total: 3, open: 2, outdated: 1 });
+  // Open threads only, each with its line (the original one once outdated), author, first line and link.
+  assert.deepEqual(ev.threads, { total: 3, open: 2, outdated: 1, items: [
+    { path: 'apps/desktop/github.js', line: 42, author: 'sam', text: 'Should this count skipped checks too?', url: 'https://github.com/acme/app/pull/12#discussion_r101', outdated: false },
+    { path: 'apps/desktop/renderer/reader.js', line: 7, text: 'Typo', outdated: true },
+  ] });
   assert.equal('ciMissing' in ev, false);
-  // No comment or review text reaches the evidence.
+  // No PR comment or review text reaches the evidence (only a review thread's first line does).
   assert.doesNotMatch(JSON.stringify(ev), /Thanks, fixed|Spacing looks off|Adds the lanes view/);
 
   // Cached per head: the same head runs nothing; another head fetches again.
