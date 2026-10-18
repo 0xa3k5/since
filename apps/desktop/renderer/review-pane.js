@@ -142,7 +142,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       // The reviewers sit on the change line once the facts are in (AK-516), else on a line of their own.
       below: [stackLine(), facts ? factsBlock(facts, { after: pr ? reviewersLine(pr, true) : null }) : pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
     });
-    strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u), loadImage: (id) => call('pr-media-image', id).then((r) => r?.ok ?? null) }) : null;
+    strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u), loadImage: (id) => call('pr-media-image', id).then((r) => r?.ok ?? null), goTo: view ? { has: view.hasFile, go: view.goToLine } : null }) : null;
     head.replaceChildren(...[
       top,
       statusStrip([...rest.map(button), rest.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null, ...icons.map(button), github ? button(github) : null, moreBtn, lead ? button(lead) : null].filter(Boolean)),

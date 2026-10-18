@@ -27,6 +27,7 @@ export const SCOPES = {
   catchup: 'Catch up',
   reader: 'Reader (Review and Catch up)',
   gallery: 'Media gallery (Review)',
+  evidence: 'Annotations and open threads (Review)',
   lanes: 'Review',
   branches: 'Branches',
   review: 'Review branch',
@@ -286,6 +287,12 @@ export const COMMANDS = [
   c('gallery', null, 'gallery.prev', 'Previous image or video', 'ArrowLeft'),
   c('gallery', null, 'gallery.play', 'Play or pause the video', 'k'),
   c('gallery', null, 'gallery.close', 'Close the enlarged view', 'Escape'),
+  // Annotations and open threads (AK-530): on a row of the Annotations or Open threads tab.
+  c('evidence', null, 'evidence.open', 'Show the whole annotation, or go to the thread’s line', 'Enter'),
+  c('evidence', null, 'evidence.goto', 'Go to the line in the diff', 'l'),
+  c('evidence', null, 'evidence.github', 'Open the check run or thread on GitHub', 'o'),
+  c('evidence', null, 'evidence.next', 'Next row', 'ArrowDown'),
+  c('evidence', null, 'evidence.prev', 'Previous row', 'ArrowUp'),
   // Branches (AK-396): every local branch and worktree, behind tabs.
   c('branches', null, 'branches.next', 'Next / previous branch', 'ArrowDown', { pair: 'branches.prev' }),
   c('branches', null, 'branches.prev', 'Previous branch', 'ArrowUp'),

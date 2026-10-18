@@ -524,7 +524,11 @@ exec '${realGit}' "$@"
       { path: 'apps/web/src/components/InvoicePreview.test.tsx', start_line: 12, annotation_level: 'failure', message: 'Setting up fake worker failed: Cannot find module pdfjs-dist/build/pdf.worker.mjs' },
       { path: 'apps/web/src/components/InvoicePreview.tsx', start_line: 5, annotation_level: 'warning', message: 'react-pdf: set pdfjs.GlobalWorkerOptions.workerSrc before the first render' },
     ] },
-    threads: { 230: { totalCount: 3, nodes: [{ isResolved: false, isOutdated: false }, { isResolved: false, isOutdated: true }, { isResolved: true, isOutdated: false }] } },
+    threads: { 230: { totalCount: 3, nodes: [
+      { isResolved: false, isOutdated: false, path: 'apps/web/src/components/InvoicePreview.tsx', line: 5, comments: { nodes: [{ author: { login: 'mira' }, body: 'Can we load the worker once, outside the component?', url: 'https://github.com/acme/invoices/pull/230#discussion_r1' }] } },
+      { isResolved: false, isOutdated: true, path: 'apps/web/src/components/InvoicePreview.test.tsx', originalLine: 9, comments: { nodes: [{ author: { login: 'tomas' }, body: 'Nit: name this test after the behaviour.', url: 'https://github.com/acme/invoices/pull/230#discussion_r2' }] } },
+      { isResolved: true, isOutdated: false, path: 'README.md', line: 1, comments: { nodes: [] } },
+    ] } },
   };
   fs.writeFileSync(path.join(bin, 'gh-data.json'), JSON.stringify(data));
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
@@ -602,7 +606,7 @@ process.exit(1);
     fs.mkdirSync(dir, { recursive: true });
     await page.locator('.lanes-row[data-key="pr:230"]').click({ position: { x: 8, y: 8 } });
     const pane = page.locator('.review-pane');
-    await expect(pane.locator('.evidence .ev-tab.on')).toContainText('Checks', { timeout: 30_000 });
+    await expect(pane.locator('.evidence .ev-tab[aria-selected="true"]')).toContainText('Checks', { timeout: 30_000 });
     await expect(pane.locator('.reader-facts')).toBeVisible({ timeout: 30_000 });
     await pane.locator('.ev-fold').first().click();
     await expect(pane.locator('.ev-log')).toBeVisible();
@@ -615,6 +619,15 @@ process.exit(1);
       await pane.locator('.ev-tab[data-tab="annotations"]').click();
       await page.waitForTimeout(200);
       await page.screenshot({ path: path.join(dir, `evidence-annotations-${theme}.png`) });
+      // AK-530: an annotation opened in place, and the open threads.
+      await pane.locator('.ev-ann .ev-item').first().click();
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: path.join(dir, `evidence-annotation-open-${theme}.png`) });
+      await pane.locator('.ev-ann .ev-item').first().click();
+      await pane.locator('.ev-tab[data-tab="threads"]').click();
+      await page.waitForTimeout(200);
+      await pane.locator('.ev-thread .ev-item').first().focus();
+      await page.screenshot({ path: path.join(dir, `evidence-threads-${theme}.png`) });
       await pane.locator('.ev-tab[data-tab="checks"]').click();
     }
     console.log('\n== rows\n' + (await page.locator('.lanes-list').innerText()).slice(0, 1500));
