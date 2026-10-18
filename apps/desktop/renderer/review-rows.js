@@ -298,16 +298,17 @@ export const STEPS = {
 // Small CI and review badges for a row: [{ text, kind, title, signal }], kind '' | 'ok' | 'warn' | 'busy'.
 // An agent shows as an author (rowAuthors, AK-390), not as a badge. `signal` marks the ones Review
 // shows as glyphs instead (rowSignals).
+// chip: Review's row shows it as a chip after the title (rowChips), so its line leaves it out.
 export function rowBadges(row, { requested = new Set() } = {}) {
   const { pr } = row;
   const out = [];
   if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
-  if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed' });
-  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing', signal: true });
+  if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed', chip: true });
+  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing', signal: true, chip: true });
   else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
   if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
-  else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check' });
-  else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes', icon: 'x' });
+  else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check', chip: true });
+  else if (pr?.review === 'changes') out.push({ text: 'Changes requested', kind: 'warn', title: 'A reviewer requested changes', icon: 'x', chip: true });
   else if (pr?.review === 'required') out.push({ text: 'Needs review', kind: '', title: 'Waiting for a review', icon: 'pending' });
   if (pr?.mergeState === 'unknown') out.push({ text: 'Checking', kind: 'busy', spin: true, title: 'GitHub is still checking whether it merges cleanly' });
   if (conflicted(row)) out.push({ text: 'Conflicts', kind: 'warn', title: `Conflicts with ${pr?.base || 'its base'}`, signal: true });
@@ -537,4 +538,124 @@ export function conflictNote(row, { base = null, files = null } = {}) {
   if (!c) return null;
   const n = (files?.length ? files : c.files)?.length;
   return n ? `Conflicts in ${n} file${n === 1 ? '' : 's'}` : `Conflicts with ${c.with}`;
+}
+
+// ── Change facts and evidence (AK-520) ──
+// Pure helpers for Review's row chips and the reader's facts line and evidence strip. facts is a
+// change-facts.js result, evidence a github.evidence one. Absence is never stated: a missing field
+// gives nothing, and the one absence shown is "CI didn't run" (evidence.ciMissing).
+
+// A flag-level fact's chip on a row; info-level facts ("tests: none changed") never get one.
+export const FACT_CHIPS = { dependencies: 'deps', ci: 'ci config', 'tests-deleted': 'test deleted', 'tests-skipped': 'tests skipped', modes: 'mode changed', binaries: 'binaries', fragile: 'fragile' };
+// A fact's label in the reader's facts line.
+const FACT_LABELS = {
+  dependencies: (n) => (n === 1 ? 'dependency changed' : 'dependencies changed'), ci: () => 'ci config', 'tests-deleted': (n) => (n === 1 ? 'test deleted' : 'tests deleted'),
+  'tests-skipped': () => 'tests skipped', modes: () => 'mode changed', binaries: (n) => (n === 1 ? 'binary' : 'binaries'), fragile: () => 'fragile',
+  'tests-changed': () => 'tests changed', deleted: () => 'deleted', 'lockfile-drift': () => 'locked versions',
+};
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// "and 3 more" (change-facts.js listed) isn't a detail of its own.
+const realDetails = (f) => (f.details || []).filter((d) => !/^and \d+ more$/.test(d));
+const detailCount = (f) => { const d = f.details || []; const more = /^and (\d+) more$/.exec(d[d.length - 1] || ''); return realDetails(f).length + (more ? +more[1] : 0); };
+
+// Checks a PR's result counts as failed, as GitHub's rollup does.
+const FAILED = new Set(['failure', 'timed_out', 'action_required', 'startup_failure', 'error', 'cancelled']);
+export const checkFailed = (c) => FAILED.has(c?.result);
+// evidence.checks → { failed, passed, running, total }
+export function checkTally(checks = []) {
+  const failed = checks.filter(checkFailed).length;
+  const running = checks.filter((c) => c.result === 'pending').length;
+  return { failed, running, passed: checks.length - failed - running, total: checks.length };
+}
+
+// The row's compact signals, in order: check result, review state, open threads, media, then change
+// facts. → [{ id, kind ('pass' | 'fail' | 'fact' | ''), icon, text, title }]. The row folds what
+// doesn't fit into "+N" (lanes-view.js), so this returns them all.
+export function rowChips(row, { facts = null, evidence = null, requested = new Set() } = {}) {
+  const { pr } = row;
+  const out = [];
+  if (pr?.checks === 'failure') {
+    const failing = pr.failing || [];
+    const c = pr.checkCounts;
+    const n = failing.length || (c && Number.isSafeInteger(c.total) && Number.isSafeInteger(c.passed) ? c.total - c.passed : 0);
+    const s = rowSignals(row);
+    out.push({ id: 'checks', kind: 'fail', icon: 'x', text: failing.length === 1 ? failing[0] : n ? `${n} failed` : 'failed', title: s.checks?.title || 'Checks are failing' });
+  } else if (pr?.checks === 'success') {
+    const c = pr.checkCounts;
+    const counted = c && Number.isSafeInteger(c.passed) && Number.isSafeInteger(c.total) && c.total > 0;
+    out.push({ id: 'checks', kind: 'pass', icon: 'check', text: counted ? `${c.passed}/${c.total}` : 'passed', title: counted ? `${c.passed} of ${c.total} checks passed` : 'Checks passed' });
+  } else if (evidence?.ciMissing) {
+    out.push({ id: 'checks', kind: '', icon: 'warning', text: 'CI didn’t run', title: 'No checks ran on the head of this pull request, and this repository has CI set up' });
+  }
+  if (pr && !requested.has(pr.number)) {
+    if (pr.review === 'approved') out.push({ id: 'review', kind: '', icon: 'check', text: 'approved', title: 'Approved' });
+    else if (pr.review === 'changes') out.push({ id: 'review', kind: '', icon: 'undo', text: 'changes requested', title: 'A reviewer requested changes' });
+  }
+  const open = evidence?.threads?.open || 0;
+  if (open) out.push({ id: 'threads', kind: '', icon: 'comment', text: plural(open, 'open thread'), title: `${plural(open, 'open review thread')}${evidence.threads.outdated ? `, ${evidence.threads.outdated} on lines that changed since` : ''}` });
+  const media = evidence?.media || [];
+  const images = media.filter((m) => m.kind === 'image').length;
+  const videos = media.filter((m) => m.kind === 'video').length;
+  if (images) out.push({ id: 'images', kind: '', icon: 'image', text: plural(images, 'image'), title: `${plural(images, 'image')} in the description, comments or reviews` });
+  if (videos) out.push({ id: 'videos', kind: '', icon: 'play', text: plural(videos, 'video'), title: `${plural(videos, 'video')} in the description, comments or reviews` });
+  for (const f of facts?.facts || []) {
+    if (f.level !== 'flag' || !FACT_CHIPS[f.id]) continue;
+    const d = realDetails(f).slice(0, 5);
+    const more = detailCount(f) - d.length;
+    out.push({ id: `fact:${f.id}`, kind: 'fact', icon: null, text: FACT_CHIPS[f.id], title: [f.title, ...d, more ? `and ${more} more` : null].filter(Boolean).join('\n') });
+  }
+  return out;
+}
+
+// The reader's facts line: the size and spread, then one line per fact.
+// → { size: [{ n, label }] (after the +added −deleted), added, deleted, lines: [{ id, label, detail, title, flag }] }
+// or null without facts. "tests: none changed" is a plain line here, never a chip.
+export function factLines(facts) {
+  if (!facts?.size) return null;
+  const z = facts.size;
+  const size = [
+    { n: z.files, label: z.files === 1 ? 'file' : 'files' },
+    z.areas?.length > 1 ? { n: z.areas.length, label: 'areas', title: z.areas.map((a) => `${a.area}: ${plural(a.files, 'file')}, ${a.lines} lines`).join('\n') } : null,
+    z.assets ? { n: z.assets, label: z.assets === 1 ? 'asset' : 'assets' } : null,
+    z.generated ? { n: z.generated, label: 'generated' } : null,
+    z.lockfiles?.length ? { n: z.lockfiles.length, label: z.lockfiles.length === 1 ? 'lockfile' : 'lockfiles', title: z.lockfiles.map((l) => `${l.path} +${l.added} −${l.deleted}`).join('\n') } : null,
+  ].filter(Boolean);
+  const lines = (facts.facts || []).map((f) => {
+    if (f.id === 'tests-changed' && !f.count) return { id: f.id, label: 'tests', detail: 'none changed', title: 'No test files changed', flag: false };
+    const d = realDetails(f);
+    const more = detailCount(f) - d.length;
+    const label = (FACT_LABELS[f.id] || (() => f.title))(detailCount(f));
+    return { id: f.id, label, detail: d.join(', ') + (more ? ` and ${more} more` : ''), title: [f.title, ...(f.details || [])].join('\n'), flag: f.level === 'flag' };
+  });
+  return { added: z.added, deleted: z.deleted, size, lines };
+}
+
+// The evidence strip's tabs, left to right; a tab with nothing in it isn't there.
+// → [{ id, label, count?, tally?, kind ('fail' | 'pass' | 'absent' | ''), icon, group ('ci' | 'people') }]
+export function evidenceTabs(evidence) {
+  if (!evidence) return [];
+  const out = [];
+  if (evidence.checks?.length) {
+    const t = checkTally(evidence.checks);
+    out.push({ id: 'checks', label: 'Checks', tally: t, kind: t.failed ? 'fail' : t.running ? '' : 'pass', icon: t.failed ? 'x' : t.running ? 'pending' : 'check', group: 'ci' });
+  } else if (evidence.ciMissing) out.push({ id: 'ci', label: 'CI didn’t run', kind: 'absent', icon: 'warning', group: 'ci' });
+  if (evidence.annotations?.length) out.push({ id: 'annotations', label: 'Annotations', count: evidence.annotations.length, kind: '', icon: null, group: 'ci' });
+  if (evidence.media?.length) out.push({ id: 'media', label: 'Media', count: evidence.media.length, kind: '', icon: 'image', group: 'ci' });
+  if (evidence.reviews?.length) out.push({ id: 'reviews', label: 'Reviews', count: evidence.reviews.length, kind: '', icon: null, group: 'people' });
+  if (evidence.threads?.open) out.push({ id: 'threads', label: 'Open threads', count: evidence.threads.open, kind: '', icon: 'comment', group: 'people' });
+  return out;
+}
+// Which tab the strip opens on: Checks when one fails, else none (closed).
+export const evidenceDefault = (evidence) => (evidence?.checks?.some(checkFailed) ? 'checks' : null);
+// "3m 05s", "48s"
+export function duration(s) {
+  if (!Number.isFinite(s) || s < 0) return '';
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ${String(Math.round(s % 60)).padStart(2, '0')}s` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+// A failed check's log lines (evidence.logs: [{ run, log }]), matched by the run in its link.
+export function checkLog(check, logs = []) {
+  const run = /\/actions\/runs\/(\d+)/.exec(check?.url || '')?.[1];
+  return run ? logs.find((l) => String(l.run) === run)?.log || '' : '';
 }

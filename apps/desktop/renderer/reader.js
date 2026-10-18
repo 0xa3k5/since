@@ -1,6 +1,7 @@
 import { h, icon, avatar, tipFor } from './ui.js';
 import * as keymap from './keymap.js';
 import { markdown } from './markdown.js';
+import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.js';
 
 // The reader (AK-381): one set of building blocks for Review's right-hand pane (review-pane.js +
 // review-view.js) and Catch up's reader (catchup-view.js), so both read the same way.
@@ -14,6 +15,11 @@ import { markdown } from './markdown.js';
 //    path · +N −M. Clicking anywhere else on the header folds or unfolds it too.
 //  - miniHeader: a slim bar (avatar, #number, title, the primary action) that fades in at the top of
 //    the reader once its head has scrolled out of view (IntersectionObserver), and hides again.
+//  - factsBlock (AK-520): under the meta line, the size and spread, then one line per change fact
+//    (label, then its detail cut to one line; the whole text in its tooltip).
+//  - evidenceStrip (AK-520): a bar of tabs (Checks, CI didn't run, Annotations, Media, Reviews,
+//    Open threads), one open at a time; it opens on Checks when one fails, else it stays closed.
+//    E (review.evidence) opens the next tab. Tabs with nothing in them aren't shown.
 //  - readerKey: the reader's keys once focus is in it (↵ from the list): ↑/↓ scroll by a few lines,
 //    ⇧↑/⇧↓ four times as far (AK-390), Page Up/Down and Space by a page, ←/→ step the list's selection, , and . jump between files,
 //    Esc goes back to the list. ↑/↓ never change the item here.
@@ -240,4 +246,117 @@ export function miniContent({ authors = null, author = null, authorKey = null, n
     h('span.reader-mini-title', { title }, title),
     action ? h('button.btn.primary.small.reader-mini-act', { onclick: () => action.run() }, action.icon ? icon(action.icon, 13) : null, action.label) : null,
   ];
+}
+
+// ── Change facts and evidence (AK-520) ──
+
+// "+128 −12 · 14 files · 3 areas · 2 assets · 1 lockfile", then a line per fact. null without facts.
+export function factsBlock(facts) {
+  const f = factLines(facts);
+  if (!f) return null;
+  const sep = () => h('span.sep', { 'aria-hidden': 'true' }, '·');
+  return h('div.reader-facts', { role: 'group', 'aria-label': 'Change facts' },
+    h('div.facts-size', null,
+      h('span.stat.small', { 'aria-label': `${f.added} added, ${f.deleted} removed` }, h('span.add', null, `+${f.added}`), h('span.del', null, `−${f.deleted}`)),
+      ...f.size.flatMap((x) => [sep(), h('span', { title: x.title || null }, h('b', null, String(x.n)), ` ${x.label}`)])),
+    ...f.lines.map((l) => h('div.fact-line' + (l.flag ? '.flag' : ''), { title: l.title },
+      h('span.fact-label', null, l.label),
+      h('span.fact-detail' + (l.id === 'tests-changed' && l.detail === 'none changed' ? '' : '.mono'), null, l.detail))));
+}
+
+// Which tab is open per PR, and which failed checks show their log, for this window.
+const evOpen = new Map();
+const logOpen = new Set();
+
+// The strip at the top of a PR's reader. evidence: github.evidence, or undefined while it loads
+// (a quiet line), or null (nothing to show: no strip). key: the PR, for the open tab; openUrl(url)
+// opens a check in the browser. Returns the element, with .next() for E (false when it has no tabs).
+export function evidenceStrip({ evidence, key, openUrl = null }) {
+  if (evidence === undefined) return h('section.evidence.loading', { 'aria-label': 'Evidence', 'aria-busy': 'true' }, h('div.ev-note.muted', null, 'Loading checks and reviews…'));
+  const tabs = evidenceTabs(evidence);
+  if (!tabs.length) return null;
+  if (!evOpen.has(key)) evOpen.set(key, evidenceDefault(evidence));
+  const box = h('section.evidence', { 'aria-label': 'Evidence' });
+  const show = (id, focus = false) => {
+    evOpen.set(key, id);
+    const next = evidenceStrip({ evidence, key, openUrl });
+    box.replaceWith(next);
+    if (focus) next.querySelector(id ? `.ev-tab[data-tab="${id}"]` : '.ev-tab')?.focus({ preventScroll: true });
+  };
+  const open = tabs.some((t) => t.id === evOpen.get(key)) ? evOpen.get(key) : null;
+  const bar = h('div.ev-bar', { role: 'tablist', 'aria-label': 'Evidence' });
+  let group = tabs[0].group;
+  for (const t of tabs) {
+    if (t.group !== group) { bar.append(h('span.sep', { 'aria-hidden': 'true' })); group = t.group; }
+    const on = t.id === open;
+    const n = t.tally
+      ? h('span.n', null, t.tally.failed ? h('span.fail', null, `${t.tally.failed} failed`) : null, t.tally.failed && (t.tally.passed || t.tally.running) ? ' · ' : null,
+        t.tally.passed ? `${t.tally.passed} passed` : null, t.tally.passed && t.tally.running ? ' · ' : null, t.tally.running ? `${t.tally.running} running` : null)
+      : t.count ? h('span.n', null, String(t.count)) : null;
+    bar.append(h('button.ev-tab' + (on ? '.on' : '') + (t.kind ? `.${t.kind}` : ''), {
+      role: 'tab', 'aria-selected': String(on), 'data-tab': t.id, 'data-tip': tipFor(on ? `Hide ${t.label.toLowerCase()}` : `Show ${t.label.toLowerCase()}`, 'review.evidence'),
+      onclick: () => show(on ? null : t.id, true),
+    }, t.icon ? icon(t.icon, 12) : null, t.label, n));
+  }
+  box.append(bar);
+  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, openUrl, () => show(open))));
+  box.next = () => {
+    const i = tabs.findIndex((t) => t.id === open);
+    show(i + 1 < tabs.length ? tabs[i + 1].id : null);
+    return true;
+  };
+  return box;
+}
+
+const LEVEL_ICON = { failure: ['x', 'fail'], warning: ['warning', 'warn'], notice: ['pending', 'wait'] };
+const REVIEW_TEXT = { approved: 'approved', changes: 'asked for changes' };
+
+function evidenceBody(id, ev, key, openUrl, redraw) {
+  if (id === 'ci') {
+    const head = ev.head ? ev.head.slice(0, 7) : null;
+    return [h('div.ev-note', null, 'No checks ran on ', head ? h('span.mono', null, head) : 'the head', ', the head of this pull request.',
+      h('span.muted', null, 'This repository has CI set up. Checks may need approval for outside contributors.'))];
+  }
+  if (id === 'checks') {
+    const list = [...ev.checks].sort((a, b) => Number(checkFailed(b)) - Number(checkFailed(a)));
+    return list.flatMap((c) => {
+      const failed = checkFailed(c);
+      const log = failed ? checkLog(c, ev.logs) : '';
+      const k = `${key}\n${c.name}`;
+      const expanded = Boolean(log) && logOpen.has(k);
+      const toggle = () => { if (logOpen.has(k)) logOpen.delete(k); else logOpen.add(k); redraw(); };
+      const [ic, cls] = failed ? [log ? (expanded ? 'chevronDown' : 'chevron') : 'x', 'fail'] : c.result === 'pending' ? ['pending', 'wait'] : c.result === 'success' ? ['check', 'pass'] : ['pending', 'wait'];
+      const row = h('div.ev-row' + (log ? '.has-log' : ''), { title: `${c.name}: ${c.result}` },
+        log ? h('button.ev-fold.' + cls, { 'aria-expanded': String(expanded), 'aria-label': `${expanded ? 'Hide' : 'Show'} the log of ${c.name}`, onclick: toggle }, icon(ic, 12)) : h('span.ev-icon.' + cls, null, icon(ic, 12)),
+        h('span.name', null, c.name, c.result !== 'success' && !failed && c.result !== 'pending' ? h('span.muted', null, c.result) : null),
+        h('span.dur', null, c.duration != null ? duration(c.duration) : c.result === 'pending' ? 'running' : ''),
+        c.url && openUrl ? h('button.btn.ghost.icon-btn.ev-link', { 'data-tip': 'Open on GitHub', 'aria-label': `Open ${c.name} on GitHub`, onclick: () => openUrl(c.url) }, icon('external', 12)) : h('span'));
+      if (!expanded) return [row];
+      const lines = log.split('\n');
+      return [row,
+        h('pre.ev-log', null, ...lines.map((l) => h('span' + (/\berror\b|✖|##\[error\]/i.test(l) ? '.err' : ''), null, l + '\n'))),
+        h('div.ev-log-foot', null, `Last ${lines.length} line${lines.length === 1 ? '' : 's'}`)];
+    });
+  }
+  if (id === 'annotations') {
+    return ev.annotations.map((a) => {
+      const [ic, cls] = LEVEL_ICON[a.level] || LEVEL_ICON.notice;
+      const where = a.path ? `${a.path}${a.line ? `:${a.line}` : ''}` : a.check;
+      return h('div.ev-ann', { title: `${where}\n${a.message}${a.check ? `\n${a.check}` : ''}` }, h('span.ev-icon.' + cls, null, icon(ic, 12)), h('span.where', null, where), h('span.msg', null, a.message.split('\n')[0]));
+    });
+  }
+  if (id === 'media') {
+    const n = (k) => ev.media.filter((m) => m.kind === k).length;
+    const parts = [n('image') ? `${n('image')} image${n('image') === 1 ? '' : 's'}` : null, n('video') ? `${n('video')} video${n('video') === 1 ? '' : 's'}` : null].filter(Boolean);
+    const from = [...new Set(ev.media.map((m) => (m.from === 'description' ? 'the description' : m.from === 'review' ? 'reviews' : 'comments')))];
+    return [h('div.ev-note', null, `${parts.join(' and ')} in ${from.join(', ')}`)];
+  }
+  if (id === 'reviews') {
+    return [h('div.ev-people', null, ...ev.reviews.map((r) => h('span.ev-person', null, personAvatar(r.login, r.login, 16), h('span', null, `${r.login} ${REVIEW_TEXT[r.state] || r.state}`))))];
+  }
+  if (id === 'threads') {
+    const t = ev.threads;
+    return [h('div.ev-note', null, `${t.open} open of ${t.total} review thread${t.total === 1 ? '' : 's'}`, t.outdated ? h('span.muted', null, `${t.outdated} on lines that changed since`) : null)];
+  }
+  return [];
 }

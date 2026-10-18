@@ -275,6 +275,7 @@ export const COMMANDS = [
   c('review', null, 'review.updateBranch', 'Update the stuck pull request’s branch with its base on GitHub', 'u'),
   c('review', null, 'review.showConflicts', 'Show the files that conflict with the base', 'f'),
   c('review', null, 'review.checks', 'Open the failing checks of the pull request', 'o'),
+  c('review', null, 'review.evidence', 'Show the next evidence tab: checks, annotations, media, reviews, open threads', 'e'),
   c('review', null, 'review.sendBack', 'Fix prompt: a ready-made prompt to fix the stuck row', 'p'),
   c('review', null, 'review.close', 'Back', 'Escape'),
   // Branches (AK-396): every local branch and worktree, behind tabs.
