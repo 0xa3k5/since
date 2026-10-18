@@ -299,3 +299,14 @@ test('cleanupItems skips the main worktree, other windows and locked worktrees',
   assert.deepEqual(items, [{ branch: 'ok', head: 'h', worktree: '/r-ok' }]);
   assert.deepEqual(skipped.map((x) => x.name), ['m', 'e', 'l']);
 });
+
+test('the sheet names the method and counts the picks (AK-542)', async () => {
+  const { mergeLabel, orderLabel, METHOD_NAMES } = await import('../renderer/merge-plan.js');
+  assert.equal(mergeLabel('squash', 3), 'Squash and merge 3 in order');
+  assert.equal(mergeLabel('merge', 2), 'Merge 2 in order');
+  assert.equal(mergeLabel('rebase', 1), 'Rebase and merge 1');
+  assert.equal(mergeLabel('nope', 1), 'Squash and merge 1');
+  assert.equal(orderLabel(3, 4), 'Order · 3 of 4 picked');
+  assert.equal(orderLabel(3, 4, true), 'Order · 3');
+  assert.deepEqual(Object.keys(METHOD_NAMES), ['squash', 'merge', 'rebase']);
+});
