@@ -129,14 +129,45 @@ export function avatar(name, email, size = 18) {
 }
 
 // Overlapping avatars for [{ name, email }], at most `max`, then a +N chip. Who they are is in
-// the group's tooltip, one per line (AK-533).
+// the group's popover (AK-535): people take the peoplePop fields (open, sub, agent).
 export function avatarStack(people, size = 18, max = 3) {
-  const label = (p) => `${p.name} <${p.email}>`;
   const rest = people.slice(max);
   const quiet = (el) => { el.title = ''; return el; };
-  return h('span.avatar-stack', { role: 'img', 'aria-label': people.map((p) => p.name).join(' and '), 'data-tip': people.map(label).join('\n') },
-    people.slice(0, max).map((p) => quiet(avatar(p.name, p.email, size))),
+  const el = h('span.avatar-stack', { tabindex: '0', title: '', 'data-pop': '', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': people.map((p) => p.name).join(' and ') },
+    people.slice(0, max).map((p) => { const a = quiet(avatar(p.name, p.email || p.key || p.name, size)); if (p.agent) a.classList.add('agent'); return a; }),
     rest.length ? h('span.avatar.more', { 'aria-hidden': 'true', style: { height: size + 'px', minWidth: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } }, `+${rest.length}`) : null);
+  el.popContent = () => peoplePop(people);
+  return el;
+}
+
+// Popover order for [{ name, agent }]: agents first, then people; above 8 a count header shows
+// and the list scrolls.
+export const POP_ROWS = 8;
+export function peopleOrder(people = []) {
+  const agents = people.filter((p) => p.agent), humans = people.filter((p) => !p.agent);
+  return { agents, humans, head: people.length > POP_ROWS };
+}
+
+// The popover body for an avatar group: one row per person with their avatar, name and email (sub),
+// or an "agent" tag. A row with `open` runs it when picked; the others are plain.
+export function peoplePop(people, label = 'Authors') {
+  const { agents, humans, head } = peopleOrder(people);
+  const row = (p) => {
+    const a = avatar(p.name, p.email || p.key || p.name, 20);
+    a.title = '';
+    if (p.agent) a.classList.add('agent');
+    const sub = p.agent ? h('span.pop-tag', null, 'agent') : (p.sub ?? p.email) ? h('span.pop-sub', null, p.sub ?? p.email) : null;
+    return h('button.pop-row', { type: 'button', tabindex: '-1', 'aria-disabled': p.open ? null : 'true', onclick: p.open ? () => { closePopover(); p.open(); } : null },
+      a, h('span.pop-text', null, h('span.pop-name', null, p.name), sub));
+  };
+  const list = h('div.popover-list', { role: 'group', 'aria-label': label },
+    agents.map(row), agents.length && humans.length ? h('div.popover-sep', { role: 'separator' }) : null, humans.map(row));
+  if (head) {
+    const edge = () => list.classList.toggle('fade', list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+    list.addEventListener('scroll', edge);
+    requestAnimationFrame(edge);
+  }
+  return [head ? h('div.popover-head', null, h('span', null, label), h('span.count', null, String(people.length))) : null, list, head];
 }
 
 // Quiet placeholder for slow loads (huge commits, big diffs). It fades in after a short delay,
@@ -315,6 +346,88 @@ if (typeof document !== 'undefined') {
   });
   // Any key hides it (Tab shows the next one on focus).
   for (const ev of ['focusout', 'pointerdown', 'scroll', 'keydown']) document.addEventListener(ev, hideTip, true);
+}
+
+// --- Popovers ----------------------------------------------------------------
+// Richer than a tooltip (AK-535): an element with `data-pop` and a `popContent()` builder opens a
+// small panel on hover after the tooltip delay, or on click, ↵ or ↓ with its rows focused (the
+// dialog keys: ↑↓ move, Esc closes). It stays open while the pointer is over the element or the
+// panel; a click elsewhere or focus leaving closes it. One at a time, kept inside the window.
+let pop = null; // { el, target, held } held: opened by click or key, so leaving with the pointer keeps it
+let popTimer = 0, popLeave = 0;
+const popRows = () => [...(pop?.el.querySelectorAll('.pop-row') || [])];
+function placePop(el, target) {
+  const r = target.getBoundingClientRect();
+  const t = el.getBoundingClientRect();
+  const below = r.bottom + 6 + t.height < innerHeight - 4;
+  el.style.left = Math.max(4, Math.min(r.left, innerWidth - t.width - 4)) + 'px';
+  el.style.top = Math.max(4, below ? r.bottom + 6 : r.top - 6 - t.height) + 'px';
+}
+function popKeys(e) {
+  e.stopPropagation(); // the list underneath keeps its keys
+  const rows = popRows(), at = rows.indexOf(document.activeElement);
+  const id = keymap.match('dialog', e);
+  if (id === 'dialog.cancel') { e.preventDefault(); closePopover({ refocus: true }); }
+  else if (id === 'menu.next') { e.preventDefault(); rows[(at + 1) % rows.length]?.focus(); }
+  else if (id === 'menu.prev') { e.preventDefault(); rows[at < 0 ? rows.length - 1 : (at - 1 + rows.length) % rows.length]?.focus(); }
+}
+export function openPopover(target, { held = false, focus = false } = {}) {
+  clearTimeout(popTimer); clearTimeout(popLeave);
+  if (pop?.target !== target) {
+    closePopover();
+    const built = target.popContent?.();
+    if (!built || !target.isConnected) return;
+    const [head, list, scrolls] = built;
+    hideTip();
+    const el = h('div.popover' + (scrolls ? '.scrolls' : ''), { role: 'dialog', 'aria-label': target.getAttribute('aria-label') || '', onkeydown: popKeys }, head, list);
+    document.body.append(el);
+    placePop(el, target);
+    target.classList.add('is-open');
+    target.setAttribute('aria-expanded', 'true');
+    pop = { el, target, held };
+  }
+  pop.held ||= held;
+  if (focus) popRows()[0]?.focus();
+}
+export function closePopover({ refocus = false } = {}) {
+  clearTimeout(popTimer); clearTimeout(popLeave);
+  if (!pop) return;
+  const { el, target } = pop;
+  pop = null;
+  el.remove();
+  target.classList.remove('is-open');
+  target.setAttribute('aria-expanded', 'false');
+  if (refocus && target.isConnected) target.focus();
+}
+if (typeof document !== 'undefined') {
+  const inPop = (n) => pop && (pop.el.contains(n) || pop.target.contains(n));
+  document.addEventListener('pointerover', (e) => {
+    if (inPop(e.target)) { clearTimeout(popLeave); return; }
+    const t = e.target.closest?.('[data-pop]');
+    clearTimeout(popTimer);
+    if (pop && !pop.held) popLeave = setTimeout(() => closePopover(), 150);
+    if (t) popTimer = setTimeout(() => { if (!pop?.held) openPopover(t); }, 450);
+  });
+  // A group's click is its own: it doesn't select or open the row around it.
+  for (const ev of ['mousedown', 'dblclick']) {
+    document.addEventListener(ev, (e) => { if (e.target.closest?.('[data-pop]')) e.stopPropagation(); }, true);
+  }
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest?.('[data-pop]');
+    if (t) { e.stopPropagation(); e.preventDefault(); if (pop?.target === t && pop.held) closePopover(); else openPopover(t, { held: true }); }
+  }, true);
+  document.addEventListener('pointerdown', (e) => { if (pop && !inPop(e.target)) closePopover(); }, true);
+  document.addEventListener('keydown', (e) => {
+    const t = e.target.closest?.('[data-pop]');
+    if (!t || e.target !== t) return;
+    const id = keymap.match('dialog', e);
+    if (id === 'menu.choose' || id === 'menu.next') { e.preventDefault(); e.stopPropagation(); openPopover(t, { held: true, focus: true }); }
+    else if (id === 'dialog.cancel' && pop?.target === t) { e.preventDefault(); e.stopPropagation(); closePopover(); }
+  }, true);
+  document.addEventListener('focusout', (e) => {
+    if (pop && inPop(e.target) && !inPop(e.relatedTarget)) closePopover();
+  });
+  document.addEventListener('scroll', (e) => { if (pop && !pop.el.contains(e.target)) closePopover(); }, true);
 }
 
 // --- Command palette ---------------------------------------------------------------

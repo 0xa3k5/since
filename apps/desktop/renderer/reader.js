@@ -1,4 +1,4 @@
-import { h, icon, avatar, tipFor } from './ui.js';
+import { h, icon, avatar, avatarStack, tipFor } from './ui.js';
 import * as keymap from './keymap.js';
 import { markdown } from './markdown.js';
 import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.js';
@@ -90,12 +90,14 @@ export function authorsEl(authors = [], size = 16, cls = '') {
 }
 
 // The same people as one overlapping avatar group, no names (list rows, AK-400); like the map's
-// co-author stack. The names are in its tooltip, one per line (AK-533).
+// co-author stack. Who they are is in its popover (AK-535): the login under each name, agents tagged.
 export function authorsStack(authors = [], size = 14, cls = '') {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
-  return h('span.avatar-stack' + cls, { role: 'img', 'aria-label': list.map((a) => a.name).join(' and '), 'data-tip': list.map((a) => a.name).join('\n') },
-    ...list.map((a) => { const av = personAvatar(a.name, a.key || a.name, size); av.title = ''; return av; }));
+  const people = list.map((a) => ({ name: a.name, key: a.key || a.name, agent: !!a.agent, sub: a.key && a.key !== a.name && !a.agent ? a.key : '' }));
+  const el = avatarStack(people, size, list.length);
+  if (cls) el.classList.add(...cls.split('.').filter(Boolean));
+  return el;
 }
 
 // "‹ 3 of 21 ›": nav = { at, of, onStep }. Nothing when the list has one item or fewer.
