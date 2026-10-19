@@ -129,7 +129,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
 
     const chosen = selected();
     const s = summarize(chosen);
-    const remotes = chosen.filter(remoteOf).length;
+    const remotes = chosen.filter((l) => remoteOf(l, base)).length;
     goBtn.disabled = busy || !chosen.length;
     goBtn.replaceChildren(chosen.length ? `Clean up ${chosen.length}` : 'Clean up', kbd(...keymap.keys('cleanup.run')));
     counts.textContent = chosen.length ? [chosen.length === 1 ? 'branch' : 'branches', s.worktrees ? plural(s.worktrees, 'worktree') : null].filter(Boolean).join(' · ') : 'Tick what can go';
@@ -184,8 +184,8 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
   async function go() {
     const lanesToGo = selected();
     if (busy || !lanesToGo.length) return;
-    const remoteSet = new Set(alsoRemote ? lanesToGo.filter(remoteOf).map(laneKey) : []);
-    const s = summarize(lanesToGo, remoteSet);
+    const remoteSet = new Set(alsoRemote ? lanesToGo.filter((l) => remoteOf(l, base)).map(laneKey) : []);
+    const s = summarize(lanesToGo, remoteSet, { all: lanes, base });
     const parts = [s.worktrees ? `removes ${plural(s.worktrees, 'worktree')}` : null, s.branches ? `deletes ${plural(s.branches, 'local branch', 'local branches')}` : null].filter(Boolean).join(' and ');
     const fields = [];
     let description = `This ${parts}. ${mod}Z puts the branches and worktrees back in one step. Ignored files in removed worktrees (build output, dependencies) are deleted for good.`;
@@ -216,9 +216,9 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
       res = await run(lanesToGo.map(cleanupItem), `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}`);
       if (remoteNames.length) {
         progress.lastChild.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on GitHub…`;
-        const r = await runRemote(remoteNames).catch((err) => ({ deleted: [], failed: [{ name: 'remote', message: err.message }] }));
+        const r = await runRemote(remoteNames).catch((err) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));
         res.remoteDeleted = r.deleted;
-        res.failed.push(...r.failed);
+        res.remoteFailed = r.failed;
       }
     } catch (err) {
       error = err;
@@ -238,9 +238,9 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
   function report(res) {
     const done = [res.removed.length ? plural(res.removed.length, 'worktree') + ' removed' : null, res.deleted.length ? plural(res.deleted.length, 'branch', 'branches') + ' deleted' : null, res.remoteDeleted?.length ? `${res.remoteDeleted.length} on GitHub` : null].filter(Boolean).join(', ');
     if (done) toast(`Cleaned up: ${done}`, { kind: 'success', action: res.removed.length || res.deleted.length ? { label: 'Undo', run: onUndo } : null });
-    if (res.failed.length) {
-      toast(`${plural(res.failed.length, 'branch was', 'branches were')} kept`, { kind: 'error', timeout: 0, detail: res.failed.slice(0, 6).map((f) => `${f.name}: ${f.message}`).join('\n') + (res.failed.length > 6 ? `\n…and ${res.failed.length - 6} more` : '') });
-    }
+    const detail = (list) => list.slice(0, 6).map((f) => `${f.name}: ${f.message}`).join('\n') + (list.length > 6 ? `\n…and ${list.length - 6} more` : '');
+    if (res.failed.length) toast(`${plural(res.failed.length, 'branch was', 'branches were')} kept`, { kind: 'error', timeout: 0, detail: detail(res.failed) });
+    if (res.remoteFailed?.length) toast(`${plural(res.remoteFailed.length, 'branch was', 'branches were')} not deleted on GitHub`, { kind: 'error', timeout: 0, detail: detail(res.remoteFailed) });
   }
 
   // The panel's keys (cleanup scope); true when one ran.

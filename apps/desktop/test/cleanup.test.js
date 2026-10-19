@@ -203,6 +203,41 @@ test('deleteRemoteBranches deletes on the remote in one push per remote', async 
   assert.ok(await tip(bare, 'refs/heads/main'));
 });
 
+test('deleteRemoteBranches never deletes the default branch or a tracked one (AK-576)', async () => {
+  const { parent, dir } = await repo();
+  const bare = path.join(parent, 'remote.git');
+  await git.run(parent, ['init', '-q', '--bare', bare]);
+  await g(dir, ['remote', 'add', 'origin', bare]);
+  await g(dir, ['branch', 'x']); await g(dir, ['branch', 'y']);
+  await g(dir, ['push', '-q', 'origin', 'main', 'x', 'y']);
+  await g(dir, ['fetch', '-q', 'origin']);
+  await g(dir, ['branch', '--set-upstream-to=origin/y', 'x']);
+  const res = await git.deleteRemoteBranches(dir, ['origin/main', 'origin/main', 'origin/y', 'origin/x', 'origin/x']);
+  assert.deepEqual(res.deleted, ['origin/x']);
+  assert.deepEqual(res.failed.map((f) => f.name), ['origin/main', 'origin/y']);
+  assert.ok(await tip(bare, 'refs/heads/main'));
+  assert.ok(await tip(bare, 'refs/heads/y'));
+});
+
+test('only a branch\'s own remote branch is offered for deletion on GitHub (AK-576)', async () => {
+  const { summarize, remoteOf } = await load();
+  const lane = (name, upstream) => ({ name, branch: name, head: 'h', upstream, upstreamGone: false, worktree: null });
+  const fromMain = lane('ak-530-a', 'origin/main');
+  const renamed = lane('ak-530-b', 'origin/ak-530-other');
+  const own = lane('feature/x', 'origin/feature/x');
+  assert.equal(remoteOf(fromMain), null);
+  assert.equal(remoteOf(renamed), null);
+  assert.equal(remoteOf(own), 'origin/feature/x');
+  assert.equal(remoteOf(lane('main', 'origin/main'), 'main'), null);
+  // Two branches tracking the same remote branch: deleted once when both go, kept while one stays.
+  const x = lane('x', 'origin/x');
+  const y = lane('y', 'origin/x');
+  assert.deepEqual(summarize([x, y], new Set(['b:x', 'b:y'])).remotes, ['origin/x']);
+  assert.deepEqual(summarize([x], new Set(['b:x']), { all: [x, y] }).remotes, []);
+  assert.deepEqual(summarize([own, own], new Set(['b:feature/x'])).remotes, ['origin/feature/x']);
+  assert.deepEqual(summarize([fromMain, renamed], new Set(['b:ak-530-a', 'b:ak-530-b']), { all: [fromMain, renamed], base: 'main' }).remotes, []);
+});
+
 test('ipc: cleanupLanes items need a branch or a worktree; remote names need remote/branch', () => {
   const head = 'a'.repeat(40);
   assert.ok(checkGit('cleanupLanes', [[{ branch: 'x', head }, { worktree: '/tmp/w', force: true }]]));

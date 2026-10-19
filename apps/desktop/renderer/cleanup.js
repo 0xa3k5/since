@@ -75,8 +75,15 @@ export function blocked(lane) {
 // worktree and the base branch are never offered.
 export const preselect = (lane) => !blocked(lane) && !dirty(lane) && lane.group !== 'old';
 
-// Its remote branch, when it still has one (deleting it there is a separate, opt-in tick).
-export const remoteOf = (lane) => (lane.upstream && !lane.upstreamGone ? lane.upstream : null);
+// Its own remote branch (`<remote>/<same name>`), when it still has one; deleting it there is a
+// separate, opt-in tick. A branch tracking something else (usually the base it was made from,
+// `origin/main`) has none: its upstream is never deleted.
+export function remoteOf(lane, base = null) {
+  const up = lane.upstream;
+  if (!up || lane.upstreamGone || !lane.branch || lane.branch === base) return null;
+  const remote = up.slice(0, -lane.branch.length - 1);
+  return up.endsWith(`/${lane.branch}`) && remote ? up : null;
+}
 
 // Finished lanes as [{ group, lanes }] in GROUPS order, each lane with `group` set.
 export function groupLanes(lanes, opts) {
@@ -99,13 +106,16 @@ export function cleanupItem(lane) {
 }
 
 // Counts for the confirmation: { worktrees, branches, dirty: [lanes], remotes: [names] }.
-// `remote` holds the laneKeys ticked for deletion on the remote too.
-export function summarize(lanes, remote = new Set()) {
+// `remote` holds the laneKeys ticked for deletion on the remote too. `all` is every lane: a remote
+// branch that a lane not being cleaned up still tracks stays. `base` is never deleted.
+export function summarize(lanes, remote = new Set(), { all = lanes, base = null } = {}) {
+  const going = new Set(lanes.map(laneKey));
+  const kept = new Set(all.filter((l) => !going.has(laneKey(l))).map((l) => l.upstream).filter(Boolean));
   return {
     worktrees: lanes.filter((l) => l.worktree).length,
     branches: lanes.filter((l) => l.branch).length,
     dirty: lanes.filter(dirty),
-    remotes: lanes.map((l) => remote.has(laneKey(l)) && remoteOf(l)).filter(Boolean),
+    remotes: [...new Set(lanes.map((l) => remote.has(laneKey(l)) && remoteOf(l, base)).filter((r) => r && !kept.has(r)))],
   };
 }
 
