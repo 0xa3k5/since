@@ -332,15 +332,17 @@ async function quiet(method, ...args) {
 
 // `opts.stash`: stash what's in the way first (offerStashStep). `opts.force`: take the step though
 // branches moved since (offerMovedStep). Click handlers pass an event here.
-const stepOpts = (o) => (o?.stash || o?.force || o?.discard ? Object.fromEntries(['stash', 'force', 'discard'].filter((k) => o[k]).map((k) => [k, true])) : null);
+const stepOpts = (o) => (o?.stash || o?.force || o?.skip || o?.discard ? Object.fromEntries(['stash', 'force', 'skip', 'discard'].filter((k) => o[k]).map((k) => [k, true])) : null);
 async function undo(opts) {
   opts = stepOpts(opts);
   closeStickyToast();
   if (!opts && stepWhileStopped('undo')) return;
   try {
     const label = await git('undo', ...(opts ? [opts] : []));
-    toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
+    if (opts?.skip) toast(`Skipped “${label}”`);
+    else toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
   } catch (e) {
+    if (await offerSkipStep('undo', e)) return;
     if (!opts?.force && await offerMovedStep('undo', e, opts)) return;
     if (!opts?.stash && !opts?.discard && await offerStashStep('undo', e, opts)) return;
     if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message });
@@ -359,6 +361,16 @@ async function offerStashStep(dir, err, opts) {
   ] });
   if (!v) return false;
   await (dir === 'undo' ? undo : redo)({ ...opts, [v.id]: true });
+  return true;
+}
+
+// The step's stash was applied or dropped since: it can never be taken, so offer to drop it.
+async function offerSkipStep(dir, err) {
+  if (err.code !== 'stash-gone') return false;
+  const title = dir === 'undo' ? undoTitle() : redoTitle();
+  const v = await resolveSheet({ title, reason: 'Its stash no longer exists.', actions: [{ id: 'skip', label: 'Skip this step' }] });
+  if (!v) return false;
+  await (dir === 'undo' ? undo : redo)({ skip: true });
   return true;
 }
 
@@ -387,8 +399,9 @@ async function redo(opts) {
   if (!opts && stepWhileStopped('redo')) return;
   try {
     const label = await git('redo', ...(opts ? [opts] : []));
-    toast(label ? `Redid “${label}”` : 'Nothing to redo');
+    toast(opts?.skip ? `Skipped “${label}”` : label ? `Redid “${label}”` : 'Nothing to redo');
   } catch (e) {
+    if (await offerSkipStep('redo', e)) return;
     if (!opts?.force && await offerMovedStep('redo', e, opts)) return;
     if (!opts?.stash && !opts?.discard && await offerStashStep('redo', e, opts)) return;
     if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message });

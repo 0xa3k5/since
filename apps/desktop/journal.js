@@ -805,8 +805,20 @@ class Journal {
 
   // `stash`: stash what blocks the step first (see stashThenStep). `force`: take the step even
   // though branches or HEAD moved since (see adoptMoved).
-  step(dir, { stash = false, force = false, discard = false } = {}) {
-    return this.lock(() => (stash || discard ? this.stashThenStep(dir, { force }, discard) : this.stepNow(dir, { force })));
+  step(dir, { stash = false, force = false, skip = false, discard = false } = {}) {
+    return this.lock(() => (skip ? this.skipStep(dir) : stash || discard ? this.stashThenStep(dir, { force }, discard) : this.stepNow(dir, { force })));
+  }
+
+  // "Skip this step": the step can't be taken (its stash is gone), so drop it from the stack
+  // without touching the repository. Returns its label.
+  async skipStep(dir) {
+    const from = dir === 'undo' ? this.undo : this.redo;
+    const entry = from.top;
+    if (!entry) return null;
+    from.hot.pop();
+    const loaded = this.unarchive(from);
+    if (this.persist()) this.removePages(loaded);
+    return entry.label;
   }
 
   // "Stash and undo" (or redo): stash what blocks the step, then take it. For a work step, the
@@ -867,7 +879,7 @@ class Journal {
       else if (entry.autostash || ['switchDelete', 'switchMerge', 'switchRewrite'].includes(entry.method)) await this.restoreAutostash(entry, dir);
       else if (entry.remote) await this.restoreRemote(entry, dir);
       else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
-      else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
+      else await this.restoreRefs(entry, dir);
     } catch (err) {
       if (adopted) entry[adopted.side] = adopted.state; // refused anyway: the entry stays as it was
       // Uncommitted changes in the way (git's own codes are exit numbers): the renderer offers
@@ -892,12 +904,22 @@ class Journal {
     return note ? `${entry.label} (${note})` : entry.label;
   }
 
+  // A plain ref step (checkout, branch, commit, merge, rewrite…). Branches and HEAD must still be
+  // where the step left them, so commits made outside GitLanes since are never reset away.
+  async restoreRefs(entry, dir) {
+    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const expected = dir === 'undo' ? entry.after : entry.before, now = await git.captureRefState(this.root);
+    if (!same(now, expected)) throw movedError(fail, expected, now);
+    await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
+  }
+
   // "Undo anyway": branches or HEAD moved since the step. Take where they are now as the step's
   // other side, so the step restores its snapshot and the opposite step brings today's refs back.
   // Only for steps that refuse over moved refs. Returns what it replaced, or null.
   async adoptMoved(entry, dir) {
     if (entry.cleanup || entry.remote || entry.submodules) return null;
-    if (!entry.autostash && entry.method !== 'switchDelete' && same(entry.before, entry.after)) return null;
+    const plain = !entry.freed && !entry.worktree && !entry.work && !entry.stash && !entry.autostash;
+    if (!plain && !entry.autostash && entry.method !== 'switchDelete' && same(entry.before, entry.after)) return null;
     const side = dir === 'undo' ? 'after' : 'before';
     const now = await git.captureRefState(this.root);
     if (same(now, entry[side])) return null;
@@ -932,7 +954,7 @@ class Journal {
     }
     // A dropped stash comes back on undo; an added one goes away on undo.
     const removing = entry.stash && (dir === 'undo') === !!entry.stash.added;
-    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw fail(`the stash “${entry.stash.message}” no longer exists.`);
+    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw Object.assign(fail(`the stash “${entry.stash.message}” no longer exists.`), { code: 'stash-gone' });
     if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
     if (entry.work) await git.restoreWork(cwd, entry.work[next]);
     if (entry.stash) {
@@ -952,7 +974,7 @@ class Journal {
     if (!a) return git.restoreRefState(cwd, dir === 'undo' ? entry.before : entry.after);
     if (dir === 'undo') {
       const i = (await git.getStashes(cwd)).findIndex((x) => x.sha === a.sha);
-      if (i === -1) throw fail(`its stash “${a.message}” was applied or dropped since.`);
+      if (i === -1) throw Object.assign(fail(`its stash “${a.message}” was applied or dropped since.`), { code: 'stash-gone' });
       await git.restoreRefState(cwd, entry.before);
       await git.stashApply(cwd, `stash@{${i}}`, true);
     } else {

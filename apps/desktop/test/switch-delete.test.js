@@ -134,3 +134,28 @@ test('ipc: switchDelete arguments are checked', () => {
   assert.throws(() => checkGit('switchDelete', ['-x']));
   assert.throws(() => checkGit('switchDelete', ['main', { message: 'm', cmd: 'x' }]));
 });
+
+test('plain ref step: undo refuses once a commit was made outside the app, and nothing is lost', async () => {
+  const { dir, journal, tip } = await repo();
+  await journal.record('Create branch topic', 'createBranch', () => git.run(dir, ['branch', 'topic']));
+  await git.run(dir, ['commit', '-q', '--allow-empty', '-m', 'terminal']);
+  const later = await tip('feature');
+  const err = await journal.step('undo').catch((e) => e);
+  assert.equal(err.code, 'moved');
+  assert.equal(await tip('feature'), later);
+  assert.ok(await tip('topic'));
+  assert.equal(await journal.step('undo', { force: true }), 'Create branch topic');
+  assert.equal(await tip('topic'), '');
+});
+
+test('stash gone: undo says so with a code, and skip drops the step without touching the repo', async () => {
+  const { dir, journal, write, head } = await repo();
+  write('app.js', 'dirty\n');
+  await journal.autostash('Switch to main', 'main', 'wip', false);
+  await git.run(dir, ['stash', 'drop', '-q']);
+  const err = await journal.step('undo').catch((e) => e);
+  assert.equal(err.code, 'stash-gone');
+  assert.equal(await journal.step('undo', { skip: true }), 'Switch to main');
+  assert.equal(await head(), 'main');
+  assert.equal(await journal.step('undo'), null);
+});
