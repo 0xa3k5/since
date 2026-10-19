@@ -1,0 +1,97 @@
+---
+// Prototype (not linked, noindex): the Catch up section with three visuals, to pick a direction for the
+// landing and features pages. A = today's full-window capture. B = a vignette drawn with tokens.
+// C = real app components captured on their own (assets/app/fragments) and layered.
+import Base from '../../layouts/Base.astro';
+import { Image } from 'astro:assets';
+import AppShot from '../../components/landing/AppShot.astro';
+import full from '../../assets/app/catchup-dark.png';
+import head from '../../assets/app/fragments/catchup-head-dark.png';
+import rows from '../../assets/app/fragments/catchup-rows-dark.png';
+import reader from '../../assets/app/fragments/catchup-reader-dark.png';
+import '../../components/landing/landing.css';
+
+const prs = [
+  ['10:43 PM', '#225', 'fix(billing): add jitter to the retry backoff', 'ORB-142'],
+  ['04:32 PM', '#224', 'feat(web): filter invoices by status', 'ORB-160'],
+  ['10:21 AM', '#223', 'chore(ci): cache the pnpm store', '.github'],
+  ['04:10 AM', '#221', 'test(billing): cover retry exhaustion', 'ORB-142'],
+];
+---
+<Base title="Prototype: Catch up visuals" description="Internal prototype." noindex>
+  <div class="lp proto">
+    {['A · today: full window', 'B · drawn vignette', 'C · real components'].map((label, i) => (
+      <section class="s wrap rule" aria-labelledby={`p${i}`}>
+        <p class="proto-label" id={`p${i}`}>{label}</p>
+        <div class="feat">
+          <div class="copy">
+            <h2>See what happened <span class="soft">since you last looked.</span></h2>
+            <p>It remembers the commit you were caught up to, not a clock, and shows everything that reached main after it.</p>
+          </div>
+          <div class="halo">
+            {i === 0 && <AppShot src={full} class="fade-out" alt="Catch up: the full app window" />}
+
+            {i === 1 && (
+              <figure class="vig" aria-label="Catch up: 14 pull requests merged on origin/main since your checkpoint">
+                <p class="vig-head"><b>14 PRs merged</b> on <span>origin/main</span> since your checkpoint</p>
+                <p class="vig-sub">CI <span class="ok">✓</span> on origin/main</p>
+                <div class="vig-list">
+                  <p class="vig-day">Yesterday</p>
+                  {prs.map(([t, n, title, tag], k) => (
+                    <div class={`vig-row${k === 0 ? ' on' : ''}`}><span class="t">{t}</span><span class="n">{n}</span><span class="ti">{title}</span><span class="tag">{tag}</span></div>
+                  ))}
+                  <div class="vig-cp"><span>Your checkpoint · Friday 11:19 AM</span></div>
+                </div>
+              </figure>
+            )}
+
+            {i === 2 && (
+              <figure class="frag" aria-label="Catch up, real app parts: the summary line, the timeline of merged pull requests and the reader header">
+                <Image class="f-head" src={head} alt="" widths={[600, 1200, head.width]} sizes="700px" format="webp" quality={85} />
+                <Image class="f-rows" src={rows} alt="" widths={[347, rows.width]} sizes="347px" format="webp" quality={85} />
+                <Image class="f-reader" src={reader} alt="" widths={[818, reader.width]} sizes="520px" format="webp" quality={85} />
+              </figure>
+            )}
+          </div>
+        </div>
+      </section>
+    ))}
+  </div>
+</Base>
+
+<style>
+  .proto-label { font: 500 13px var(--mono); color: var(--accent-fg); margin: 0 0 40px; }
+  .proto section.s { padding-block: 110px; }
+
+  /* B: a calm, enlarged slice of Catch up. Tokens only, so it follows the theme. */
+  .vig { margin: 0; padding: 36px 36px 28px; background: var(--sunk); border: 1px solid var(--line); border-radius: 16px; }
+  .vig-head { margin: 0; max-width: none; font: 500 26px/1.25 var(--display); letter-spacing: -0.01em; color: var(--text-3); }
+  .vig-head b { font-weight: 500; color: var(--text); }
+  .vig-head span { color: var(--text-2); }
+  .vig-sub { margin: 8px 0 0; font-size: 14px; color: var(--text-4); }
+  .vig-sub .ok { color: var(--green); }
+  .vig-list { margin-top: 26px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow); }
+  .vig-day { margin: 0; padding: 12px 12px 6px; font-size: 13px; font-weight: 550; color: var(--text-3); }
+  .vig-row { display: grid; grid-template-columns: 5.6em auto minmax(0, 1fr) auto; gap: 14px; align-items: center; height: 42px; padding: 0 12px; border-radius: 8px; font-size: 15px; }
+  .vig-row.on { background: var(--bg-selected); }
+  .vig-row .t { font: 12.5px var(--mono); color: var(--text-4); }
+  .vig-row .n { color: var(--text-3); font-weight: 500; }
+  .vig-row .ti { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vig-row .tag { font: 12px var(--mono); color: var(--text-3); padding: 2px 7px; border: 1px solid var(--line-strong); border-radius: 5px; }
+  .vig-cp { display: flex; align-items: center; gap: 10px; margin: 10px 12px 8px; font: 12px var(--mono); color: var(--accent-fg); }
+  .vig-cp::before, .vig-cp::after { content: ""; height: 1px; background: var(--accent); opacity: .6; }
+  .vig-cp::before { width: 14px; }
+  .vig-cp::after { flex: 1; }
+
+  /* C: real parts on a plain stage, layered with depth. Each part keeps its own pixels. */
+  .frag { position: relative; margin: 0; height: 470px; background: var(--sunk); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .frag :global(img) { position: absolute; display: block; height: auto; border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); }
+  .frag :global(.f-head) { left: 28px; top: 28px; width: 700px; max-width: none; }
+  .frag :global(.f-rows) { left: 28px; top: 150px; width: 347px; }
+  .frag :global(.f-reader) { left: 230px; top: 330px; width: 520px; max-width: none; }
+
+  @media (max-width: 900px) {
+    .frag { height: auto; display: grid; gap: 14px; padding: 18px; }
+    .frag :global(img) { position: static; width: 100% !important; }
+  }
+</style>
