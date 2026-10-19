@@ -1833,10 +1833,10 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
           Object.assign(wt, await findWorktree(cwd, wt.path)); // the branch it was rebasing is back
         } else if (op) throw opInProgress(`It has a ${op} in progress.`, op);
         lost = await worktreeChanges(wt.path);
-        if (lost && !item.force && !item.stash) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
+        if (lost && !item.force && !item.stash && !item.abort) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
       }
-      // Uncommitted changes are stashed first (the stash dropped again unless `stash`), so undo has them.
-      const saved = lost ? await saveWorktree(wt, !!item.stash) : null;
+      // Uncommitted changes are stashed first (the stash dropped again unless `stash` or `abort`), so undo has them.
+      const saved = lost ? await saveWorktree(wt, !!(item.stash || item.abort)) : null;
       await run(cwd, ['worktree', 'remove', ...(lost || wt.missing ? ['--force'] : []), wt.path], { env: W_ENV });
       removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost, ...(saved ? { saved } : {}) });
     } catch (err) {
@@ -2069,7 +2069,7 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true, abort 
     done.commit = commit;
   }
   if (plan.keep) return { commit: done.commit || null, base: plan.base, worktree: null, kept: plan.keep };
-  if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path, { abort });
+  if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path, abort ? { abort, changes: 'stash' } : {});
   await run(cwd, ['branch', '-D', '--', branch]);
   return { commit: done.commit || null, base: plan.base, worktree: plan.worktree, kept: null };
 }

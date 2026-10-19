@@ -123,3 +123,15 @@ test('ipc: abortAnd only wraps ref mutations, checked with their own schema; abo
   assert.doesNotThrow(() => checkGit('mergeLanePlan', ['feature', null, { abort: true }]));
   assert.throws(() => checkGit('tidyLane', ['feature', { abort: 'yes' }]));
 });
+
+test('abort with files left in the worktree: tidy and clean up stash them instead of failing after the abort', async () => {
+  for (const how of ['tidy', 'cleanup']) {
+    const r = await repo();
+    const wt = await rebasingWorktree(r);
+    r.write('scratch.txt', 'notes\n', wt);
+    if (how === 'tidy') await r.journal.runLane('Tidy feature', 'tidyLane', (done) => git.mergeLane(r.dir, { branch: 'feature', merge: false, abort: true }, done));
+    else assert.deepEqual((await r.journal.runCleanup('Clean up', [{ branch: 'feature', worktree: wt, abort: true }])).failed, []);
+    assert.equal(fs.existsSync(wt), false, how);
+    assert.equal((await git.getStashes(r.dir)).length, 1, `${how}: the leftover file is in the stash list`);
+  }
+});

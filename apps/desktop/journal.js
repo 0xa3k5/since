@@ -955,7 +955,9 @@ class Journal {
         delete entry.pin;
         if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
       } else {
-        await git.removeWorktree(cwd, wt.path);
+        // Changes stashed by the removal (`saved`, a lane's tidy) are stashed again, so undo can bring them back once more.
+        const res = await git.removeWorktree(cwd, wt.path, wt.saved ? { changes: wt.saved.kept ? 'stash' : 'discard' } : {});
+        if (wt.saved) await this.resave(entry, wt, res.saved);
         if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
       }
     } catch (err) {
