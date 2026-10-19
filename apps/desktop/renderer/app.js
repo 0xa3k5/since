@@ -147,7 +147,7 @@ async function act(label, method, args = [], opts = {}) {
       await refreshAll();
       // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
       const n = state.opState ? state.status.conflicts.length : 0;
-      const skip = method === 'cherryPick' && state.opState === 'cherry-pick' ? { label: 'Skip', run: () => act('Skip cherry-pick', 'abortOp', [], { success: 'Skipped cherry-pick' }) } : null;
+      const skip = method === 'cherryPick' && state.opState === 'cherry-pick' ? { label: 'Skip', run: () => act('Skip cherry-pick', 'abortOp', [], { success: 'Skipped cherry-pick', undoable: false }) } : null;
       if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, skip
         ? { timeout: 0, actions: [{ label: 'Open conflicts', primary: true, run: openConflicts }, skip] }
         : { action: { label: 'Open conflicts', run: openConflicts } });
