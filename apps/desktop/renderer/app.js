@@ -6,7 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
-import { opSentence, divergeSheet } from './resolve-text.js';
+import { opSentence, divergeSheet, pushIntent, pushAfterContinue } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -123,17 +123,24 @@ const OP_BLOCKED = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'rever
 async function act(label, method, args = [], opts = {}) {
   const { busy, success, detail, undoable = true, quiet = false, then, actions } = opts;
   closeMenu();
+  closeStickyToast();
   if (state.opState && (OP_BLOCKED.has(method) || (method === 'mergeLane' && args[1] === state.head?.branch && !args[3]?.abort))) return resolveOp(label, method, args, opts);
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
     const res = await git(method, ...args, { __label: label });
     t?.close();
-    if (!quiet) {
+    // A continued "Rebase and push" offers the push instead of the generic toast.
+    const offer = method === 'continueOp' && pendingPush;
+    const done = () => {
+      if (quiet) return;
       const undoBtn = undoable ? { label: 'Undo', run: undo } : null;
       // A toast with a choice stays until it's dismissed or used.
       toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [...actions, undoBtn].filter(Boolean) } : { kind: 'success', detail, action: undoBtn });
-    }
+    };
+    if (!offer) done();
     await refreshAll();
+    if (offer && !offerPushAfterContinue()) done();
+    if (!state.opState) pendingPush = null;
     await then?.(res);
     return true;
   } catch (e) {
@@ -147,6 +154,7 @@ async function act(label, method, args = [], opts = {}) {
       await refreshAll();
       // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
       const n = state.opState ? state.status.conflicts.length : 0;
+      if (state.opState) rememberPush(method, args);
       const skip = method === 'cherryPick' && state.opState === 'cherry-pick' ? { label: 'Skip', run: () => act('Skip cherry-pick', 'abortOp', [], { success: 'Skipped cherry-pick', undoable: false }) } : null;
       if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, skip
         ? { timeout: 0, actions: [{ label: 'Open conflicts', primary: true, run: openConflicts }, skip] }
@@ -223,8 +231,27 @@ async function resolveOp(label, method, args, opts) {
       : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
   }
   const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
-  if (ok && !state.opState) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
+  if (ok && !state.opState && !stickyToast) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
   return false;
+}
+
+// "Rebase and push" stopped on conflicts: once the operation is continued to the end, offer the push
+// it was on the way to. The toast stays until the next action.
+let pendingPush = null, stickyToast = null;
+function rememberPush(method, args) {
+  const branch = state.head?.branch;
+  const upstream = state.refs.find((r) => r.kind === 'branch' && r.short === branch)?.upstream;
+  const intent = pushIntent(method, args, branch, upstream);
+  if (intent) pendingPush = { ...intent, root: state.repo?.root };
+}
+function closeStickyToast() { stickyToast?.close(); stickyToast = null; }
+function offerPushAfterContinue() {
+  if (pendingPush && pendingPush.root !== state.repo?.root) pendingPush = null;
+  const t = pushAfterContinue(pendingPush, { opState: state.opState, branch: state.head?.branch });
+  if (!state.opState) pendingPush = null;
+  if (!t) return false;
+  stickyToast = toast(t.message, { kind: 'success', timeout: 0, actions: [{ label: t.push, primary: true, run: () => push() }, { label: 'Undo', run: undo }] });
+  return true;
 }
 
 async function quiet(method, ...args) {
@@ -237,6 +264,7 @@ async function quiet(method, ...args) {
 const stepOpts = (o) => (o?.stash ? { stash: true } : o?.discard ? { discard: true } : null);
 async function undo(opts) {
   opts = stepOpts(opts);
+  closeStickyToast();
   try {
     const label = await git('undo', ...(opts ? [opts] : []));
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
@@ -267,6 +295,7 @@ const baseName = (p) => p.split('/').pop();
 
 async function redo(opts) {
   opts = stepOpts(opts);
+  closeStickyToast();
   try {
     const label = await git('redo', ...(opts ? [opts] : []));
     toast(label ? `Redid “${label}”` : 'Nothing to redo');

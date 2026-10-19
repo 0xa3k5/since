@@ -129,3 +129,19 @@ test('divergeSheet: lists, forecast and what each button ends with', async () =>
   assert.equal(many.lists[0].rows.length, 5);
   assert.equal(many.lists[0].more, 4);
 });
+
+test('a continued "Rebase and push" offers the push it was on the way to', async () => {
+  const { pushIntent, pushAfterContinue } = await import('../renderer/resolve-text.js');
+  const intent = pushIntent('pullAndPush', ['rebase'], 'feature/api', 'origin/feature/api');
+  assert.deepEqual(intent, { branch: 'feature/api', remote: 'origin', mode: 'rebase' });
+  assert.equal(pushIntent('stashAnd', ['pullAndPush', ['merge']], 'feature/api', null).mode, 'merge');
+  assert.equal(pushIntent('abortAnd', ['pullAndPush', ['rebase']], 'main', 'up/main').remote, 'up');
+  assert.equal(pushIntent('pull', ['rebase'], 'main', 'origin/main'), null);
+  assert.equal(pushIntent('pullAndPush', ['rebase'], '', 'origin/main'), null);
+  assert.deepEqual(pushAfterContinue(intent, { opState: null, branch: 'feature/api' }), { message: 'Rebased feature/api', push: 'Push now' });
+  assert.equal(pushAfterContinue({ ...intent, mode: 'merge' }, { branch: 'feature/api' }).message, 'Merged feature/api');
+  assert.equal(pushAfterContinue(intent, { opState: 'rebase', branch: 'feature/api' }), null);
+  assert.equal(pushAfterContinue(intent, { branch: 'main' }), null);
+  assert.equal(pushAfterContinue(null, { branch: 'feature/api' }), null);
+});
+
