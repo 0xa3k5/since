@@ -39,7 +39,7 @@ import { AUTOSTASH_DEFAULT, blockedCheckout, blockedByChanges, stashMessage, aut
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
-import { GIT_NEEDS, GIT_FEATURES, gitMeets } from './git-version.js';
+import { GIT_NEEDS, GIT_FEATURES, gitMeets, mergeHereBlock } from './git-version.js';
 import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
@@ -3258,6 +3258,7 @@ function openBranches() {
     onMerge: mergeLane,
     onAction: laneAction,
     canSwitch: canSwitchFrom,
+    gitWhy,
     onNewWorktree: () => addWorktree(),
     onCount: setFinishedCount,
     paneWidth: () => loadPref('reviewPane', {}).width || null,
@@ -3469,8 +3470,9 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
     return toast(`Merging in ${plan.baseWorktree.name}`);
   }
-  if (plan.mergeBlockerCode === 'git-version' && !pr && n) return updateGit('mergeHere', () => mergeLane(lane, base, onDone));
-  if (plan.mergeBlocker && !pr && n) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
+  const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
+  if (block?.kind === 'git-version') return toast(block.message, { detail: block.detail, timeout: 0, actions: [{ label: 'Choose git…', run: chooseGit }] });
+  if (block) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: block.detail });
   // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
   // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).
   let move = null;

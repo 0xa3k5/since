@@ -2138,7 +2138,10 @@ async function mergeLanePlan(cwd, branch, base, { abort = false } = {}) {
   plan.commits = (await run(cwd, ['log', '--format=%s%x00%b%x1e', `${baseSha}..${head}`, '--'])).split('\x1e').map((r) => r.replace(/^\n+/, '')).filter(Boolean)
     .map((r) => { const i = r.indexOf('\0'); return { subject: r.slice(0, i).trim(), body: r.slice(i + 1).trim() }; });
   if (plan.commits.length) {
-    const tree = await squashTree(cwd, baseSha, head).catch((err) => { if (!plan.mergeBlocker) { plan.mergeBlocker = err.message; plan.mergeBlockerCode = err.code || null; } return null; });
+    // Gated on the git version before trying: a merge-tree failure on a new enough git is a real error.
+    const old = !(await canForecast(cwd));
+    if (old && !plan.mergeBlocker) { plan.mergeBlocker = tooOld('mergeHere').message; plan.mergeBlockerCode = 'git-version'; }
+    const tree = old ? null : await squashTree(cwd, baseSha, head).catch((err) => { plan.mergeBlocker ||= err.message; return null; });
     if (tree?.conflicts.length) {
       plan.conflicts = tree.conflicts;
       plan.mergeBlocker ||= `It conflicts with ${into} in ${tree.conflicts.length} file${tree.conflicts.length > 1 ? 's' : ''}. Rebase it or merge ${into} into it first.`;
@@ -2147,15 +2150,9 @@ async function mergeLanePlan(cwd, branch, base, { abort = false } = {}) {
   return plan;
 }
 
-// The tree of `head` merged onto `baseSha`, or the conflicted paths. Needs git 2.38.
+// The tree of `head` merged onto `baseSha`, or the conflicted paths. Needs git 2.38 (callers check).
 async function squashTree(cwd, baseSha, head) {
-  let out;
-  try {
-    out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
-  } catch (err) {
-    if (!(await canForecast(cwd))) throw tooOld('mergeHere');
-    throw err;
-  }
+  const out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
   // A clean merge prints only the tree; a conflicted one lists the conflicted paths after it.
   const [tree, ...rest] = out.split('\0');
   return { tree: tree.trim(), conflicts: [...new Set(rest.filter(Boolean))] };
@@ -2864,7 +2861,7 @@ async function simulateSquash(cwd, tip, head) {
 const REPLAY_MAX = 250;
 let replayOk = null;
 async function canReplay(cwd) {
-  replayOk ||= run(cwd, ['version']).then((v) => gitMeets(v, GIT_NEEDS.stackRebase), () => false);
+  replayOk ||= run(cwd, ['version']).then((v) => gitMeets(v, '2.40'), () => false);
   return replayOk;
 }
 async function simulateRebase(cwd, tip, head) {
@@ -2905,7 +2902,7 @@ async function stackLinear(cwd, base, heads) {
 // heads: bottom…top. → { heads: [new head per PR], changed: [bool per PR] } |
 // { conflict: { index, commit, files } } (files [] when git refuses, e.g. unrelated histories).
 async function rebaseStack(cwd, base, heads) {
-  if (!(await canReplay(cwd))) throw tooOld('stackRebase');
+  if (!(await canReplay(cwd))) throw new GitError('Rebasing a stack needs git 2.40 or later.');
   const sign = (await run(cwd, ['config', '--bool', 'commit.gpgsign'], { allowCodes: [0, 1] })).trim() === 'true';
   const isAncestor = (a, b) => run(cwd, ['merge-base', '--is-ancestor', a, b]).then(() => true, () => false);
   const out = [], changed = [];
