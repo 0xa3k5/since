@@ -18,7 +18,7 @@ import { catchupView, prefetchCatchup } from './catchup-view.js';
 import { landedEntries } from './catchup.js';
 import { createNav } from './nav.js';
 import { STALE_DAYS, cleanupItem } from './cleanup.js';
-import { laneTarget, laneKey, laneTitle, canRemove, checkoutHereMode } from './lanes.js';
+import { laneTarget, laneKey, laneTitle, canRemove, switchAway, checkoutHereMode } from './lanes.js';
 import { reviewView } from './review-view.js';
 import { reviewPane } from './review-pane.js';
 import { openSendBack } from './send-back-view.js';
@@ -1703,6 +1703,7 @@ function commitMenu(x, y, c) {
     { label: 'Create Tag…', icon: 'tag', kbd: keymap.keys('commit.tag'), run: () => createTag(c.sha) },
     { label: 'New Worktree Here…', icon: 'worktree', kbd: keymap.keys('commit.worktree'), run: () => addWorktree({ base: c.sha }) },
     state.head.branch && !isHead ? { label: `Move “${state.head.branch}” here`, icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
+    ...locals.map((b) => deleteBranchItem(b)),
     '-',
     { section: state.head.branch ? `Into ${state.head.branch}` : 'Into HEAD' },
     { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), disabled: off('commit.merge'), run: () => mergeCommit(c) },
@@ -1724,6 +1725,13 @@ function commitMenu(x, y, c) {
     authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => openAuthor(c) } : null,
     remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
   ]);
+}
+
+// Delete a branch label: the one checked out here through the switch-and-delete sheet.
+function deleteBranchItem(r) {
+  const cur = r.short === state.head.branch;
+  const why = cur ? (canSwitchFrom(r.short) ? null : 'Only branch') : worktreeOf(r.short) ? 'In another worktree' : null;
+  return { label: `Delete Branch “${r.short}”${cur ? '…' : ''}`, icon: 'trash', danger: true, disabled: Boolean(why), why, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) };
 }
 
 function refMenu(x, y, r) {
@@ -1898,6 +1906,7 @@ async function deleteBranch(r) {
 
 // Local branches this window can switch to instead of `name` (not checked out in another worktree).
 const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
+const canSwitchFrom = (name) => switchTargets(name).length > 0;
 
 // Delete the checked-out branch: pick a branch to switch to (`base` first, when given), optionally
 // stash, then switch and delete as one undo step.
@@ -2852,6 +2861,7 @@ function openLanes() {
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
+    canSwitch: canSwitchFrom,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
     onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
@@ -2909,6 +2919,7 @@ function openBranches() {
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
+    canSwitch: canSwitchFrom,
     onNewWorktree: () => addWorktree(),
     onCount: setFinishedCount,
     paneWidth: () => loadPref('reviewPane', {}).width || null,
@@ -3225,7 +3236,8 @@ async function rebaseLane(lane, base) {
 // Delete a lane (Lanes: conflicts → Delete, stalled → Discard): its worktree and branch, one undo
 // step. Its remote branch stays.
 async function deleteLane(lane) {
-  if (!state.repo || !lane || !canRemove(lane)) return;
+  if (!state.repo || !lane || !canRemove(lane, canSwitchFrom)) return;
+  if (switchAway(lane)) return switchAndDelete({ short: lane.branch });
   const n = lane.changes || 0;
   const verb = n ? 'Discard' : 'Delete';
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
@@ -4092,7 +4104,7 @@ function openPalette() {
       if (next) add('Repository', `Next step on ${t}: ${next.toLowerCase()}`, () => lanesPage.step(), { icon: 'lanes', keywords: 'branch review next step primary button' });
       if (l.branch && !l.isBase && laneSel.base) add('Repository', `Rebase ${t} onto ${laneSel.base}`, () => rebaseLane(l, laneSel.base), { icon: 'rebase', kbd: keymap.keys('lanes.rebase'), keywords: 'branch conflicts update base' });
       if (l.pr?.url) add('Repository', `Open checks of ${t}`, () => laneAction('checks', l), { icon: 'external', kbd: keymap.keys('lanes.checks'), keywords: 'branch ci failing pull request github' });
-      if (canRemove(l)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} branch ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'remove worktree branch discard stalled abandon' });
+      if (canRemove(l, canSwitchFrom)) add('Repository', `${l.changes ? 'Discard' : 'Delete'} branch ${t}…`, () => deleteLane(l), { icon: 'trash', kbd: keymap.keys('lanes.delete'), keywords: 'remove worktree branch discard stalled abandon' });
       if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'branch merged shipped tidy remove' });
     }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });

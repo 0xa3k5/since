@@ -217,3 +217,15 @@ test('removeWhy says in a few words why a lane can’t be deleted (AK-581)', asy
   assert.equal(removeWhy({ branch: 'f', worktree: { main: true } }), 'In the main worktree');
   assert.equal(removeWhy({ branch: 'f', worktree: { locked: true } }), 'Worktree is locked');
 });
+
+test('the branch open in this window can go when there is a branch to switch to (AK-581)', async () => {
+  const { canRemove, removeWhy } = await load();
+  const here = { branch: 'f', worktree: { current: true, main: true } };
+  assert.equal(canRemove(here), false);
+  assert.equal(canRemove(here, () => true), true);
+  assert.equal(removeWhy(here, () => true), null);
+  assert.equal(canRemove(here, () => false), false);
+  assert.equal(removeWhy(here, () => false), 'Only branch');
+  assert.equal(canRemove({ branch: 'main', isBase: true, worktree: { current: true } }, () => true), false);
+  assert.equal(canRemove({ branch: 'g', worktree: { main: true } }, () => true), false);
+});
