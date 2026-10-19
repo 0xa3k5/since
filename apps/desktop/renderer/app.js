@@ -5015,12 +5015,33 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
   el.focus();
 }
 
+// Resolves true once a repository is showing (loaded here or focused in another window).
 async function bound(promise) {
   const r = await promise;
-  if (r.error) { toast('Could not open repository', { kind: 'error', detail: r.error.message }); return; }
-  if (!r.ok || r.ok.focused) return;
-  await loadRepo(r.ok);
-  takeHandoff();
+  if (r.notRepo) return offerNotRepo(r.notRepo);
+  if (r.error) { toast('Could not open repository', { kind: 'error', detail: r.error.message }); return false; }
+  if (!r.ok) return false;
+  if (!r.ok.focused) {
+    await loadRepo(r.ok);
+    takeHandoff();
+  }
+  return true;
+}
+
+// A folder that isn't a repository: open one of the repositories inside it, or make it one.
+async function offerNotRepo({ dir, name, repos }) {
+  if (!state.repo && !root.childElementCount) renderShell();
+  const count = new Set(repos.map((r) => r.commonDir)).size;
+  const only = count === 1 ? repos.find((r) => r.main) || repos[0] : null;
+  const v = await resolveSheet({
+    title: `Open ${name}`,
+    reason: 'Not a git repository.',
+    rows: repos.map((r, i) => [r.name, tildePath(r.root), `repo:${i}`]),
+    actions: [only && { id: `repo:${repos.indexOf(only)}`, label: `Open ${only.name}` }, { id: 'init', label: 'Create repository here' }],
+  });
+  if (!v) return false;
+  if (v.id === 'init') return bound(api.app('init-here', dir));
+  return openRepo(repos[Number(v.id.slice(5))].root);
 }
 
 async function loadRepo(repo) {
@@ -5395,6 +5416,5 @@ api.on('keymap', (o) => {
   const params = new URLSearchParams(location.search);
   if (params.get('view') === 'map') startView = 'map';
   const dir = params.get('repo');
-  if (dir) await openRepo(dir);
-  else renderShell();
+  if (!dir || !(await openRepo(dir))) renderShell();
 })();

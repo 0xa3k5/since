@@ -154,9 +154,41 @@ function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 *
 // gitDir is this worktree's own admin dir; commonDir holds the refs and objects
 // every worktree of the repository shares (the same dir for the main worktree).
 async function openRepo(dir) {
-  const out = await run(dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
+  const out = await run(dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']).catch((err) => {
+    if (/not a git repository/i.test(err.stderr || '')) err.code = 'not-repo';
+    throw err;
+  });
   const [root, gitDir, commonDir] = out.trim().split('\n');
   return { root, gitDir, commonDir: path.resolve(commonDir), name: path.basename(root) };
+}
+
+// Repositories directly inside `dir` (one level down, main or linked worktrees), plus the other
+// worktrees of each, for a folder that isn't a repository itself. Main worktrees come first.
+async function findRepos(dir) {
+  let entries;
+  try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return []; }
+  const found = [];
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    const child = path.join(dir, e.name);
+    if (!fs.existsSync(path.join(child, '.git'))) continue;
+    try {
+      const repo = await openRepo(child);
+      if (samePath(repo.root, child)) found.push(repo);
+    } catch { /* not a repository after all */ }
+  }
+  const seen = new Set(found.map((r) => realpath(r.root)));
+  const out = [];
+  for (const repo of found) {
+    out.push({ root: repo.root, name: repo.name, commonDir: repo.commonDir, main: samePath(repo.gitDir, repo.commonDir) });
+    for (const w of await getWorktrees(repo.root).catch(() => [])) {
+      const key = realpath(w.path);
+      if (seen.has(key) || w.missing) continue;
+      seen.add(key);
+      out.push({ root: w.path, name: w.name, commonDir: repo.commonDir, main: w.main });
+    }
+  }
+  return [...out.filter((r) => r.main), ...out.filter((r) => !r.main)];
 }
 
 async function initRepo(dir) {
@@ -3125,7 +3157,7 @@ module.exports = {
   setGitPath, gitInfo,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
-  GitError, run, remoteFailure, pull, divergence, cherryPick, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
+  GitError, run, remoteFailure, pull, divergence, cherryPick, openRepo, findRepos, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, getOperationInfo, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
