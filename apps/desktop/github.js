@@ -179,6 +179,14 @@ async function detect({ remotes, dirs = searchDirs(), exec } = {}) {
   }
 }
 
+// "Open Terminal" for a logged-out `gh` (AK-588): a .command script Terminal runs as-is, with the
+// login for this remote's host, then a normal shell. The host comes from the remote URL, so it's
+// checked before it goes into a script.
+function loginScript(host = 'github.com') {
+  if (typeof host !== 'string' || !/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?$/i.test(host)) throw coded('Invalid GitHub host.', 'gh-failed');
+  return `#!/bin/sh\ngh auth login${host === 'github.com' ? '' : ` --hostname ${host}`}\nexec "\${SHELL:-/bin/zsh}" -l\n`;
+}
+
 // One refresh. While the repository's toggle is off, nothing runs: no binary lookup, no process.
 async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   if (!enabled) return null;
@@ -566,7 +574,7 @@ async function mergeStack({ enabled, remotes, number, method = 'squash', dirs = 
   try {
     await ghRun(bin, ['stack', 'merge', prNumber(number), `--merge-method=${method}`, '--yes'], { dirs, exec, env: { GH_REPO: repo } });
   } catch (err) {
-    if (NO_STACK_EXT.test(err.message)) throw coded('Merging a stack needs GitHub CLI’s stack extension: run `gh extension install github/gh-stack`.', 'gh-failed');
+    if (NO_STACK_EXT.test(err.message)) throw coded('Merging a stack needs GitHub CLI’s stack extension.', 'gh-no-stack');
     throw err;
   }
   return { number, method };
@@ -1006,4 +1014,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

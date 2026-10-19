@@ -61,7 +61,7 @@ export function prActionRemote(pr, prs, fallback = null) {
   return pr?.remote || fallback || prs?.data?.remote?.name || prs?.remote?.name || null;
 }
 
-export const NO_GITHUB_REMOTE = { code: 'no-remote', message: 'This repository has no GitHub remote. Add one (for example origin pointing at github.com), then try again.' };
+export const NO_GITHUB_REMOTE = { code: 'no-remote', message: 'This repository has no GitHub remote.' };
 
 // Runs a pull request action through `call` (api.app) with the resolved remote. Without one it
 // doesn't call at all and returns a readable error instead of the IPC guard's.

@@ -1,4 +1,5 @@
-import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { mergeGateFix, methodFix, ghErrorFix } from './gh-gates.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -3560,17 +3561,25 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   if (!v) return;
   const label = `Merge and tidy ${lane.branch}`;
   if (v.via === 'github') {
-    const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
     if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
+    if (info.ok.gate.hard) {
+      const fixed = await fixMergeGate(pr, info.ok);
+      if (!fixed) return;
+      info = { ok: fixed };
+    }
     const { gate } = info.ok;
-    if (gate.hard || gate.soft.length) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard || `${gate.soft.join(' ')} Use Merge pull request… to merge anyway.` });
+    if (gate.soft.length) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Use Merge pull request… to merge anyway.` });
     // Checks that failed since the list was loaded get their own confirm: a confirm, never a block.
     if (needsCheckConfirm(Boolean(laneChecks), info.ok.failing)) {
       const ok = await dialog({ title: `Merge #${pr.number} with a failing check?`, description: h('div.pr-merge', null, checkFailEl(prCheckLines(pr, info.ok.failing, info.ok.checkCounts))), submit: 'Merge' });
       if (!ok) return;
     }
-    if (!info.ok.methods.includes('squash')) return toast(`#${pr.number} can’t be squash-merged`, { kind: 'error', detail: 'Use Merge pull request… to pick another method.' });
-    const res = await prCall('pr-merge', pr, { method: 'squash', deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
+    // Squash merging off in the repo's settings: name what's on and offer it (AK-588).
+    const off = methodFix(info.ok.methods, 'squash');
+    const how = off ? await resolveSheet({ title: `Merge #${pr.number}`, reason: off.reason, actions: off.actions }) : { id: 'squash' };
+    if (!how) return;
+    const res = await prCall('pr-merge', pr, { method: how.id, deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
     if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
     toast(`Merged #${pr.number} on GitHub`, { kind: 'success', detail: 'The merge on GitHub can’t be undone.' });
     onDone?.();
@@ -4050,10 +4059,11 @@ async function checkoutPr(pr, { worktree = false } = {}) {
     if (!v) return;
     res = await run(update, w.path, v.id === 'move' ? { stash: v.stash } : null);
   }
-  if (res.error) return toast(`Couldn’t check out #${pr.number}`, { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : res.error.stderr || res.error.message });
+  if (res.error) return prError(`Couldn’t check out #${pr.number}`, { ...res.error, message: res.error.stderr || res.error.message });
   const { branch, worktree: wt } = res.ok;
   toast(wt ? `New worktree for #${pr.number} on ${branch}` : `Switched to ${branch} (#${pr.number})`, { kind: 'success', action: { label: 'Undo', run: undo } });
   if (wt && opts.open) openRepo(wt.path);
+  return res.ok;
 }
 
 // ⌘⌥⇧O / ⌘⌥⇧L: pick an open PR to check out here or in a new worktree.
@@ -4144,7 +4154,7 @@ async function refreshPrs({ manual = false } = {}) {
     // Offline or a `gh` error: keep what we had, marked stale. After a fetch this stays quiet.
     p.stale = Boolean(p.data);
     p.error = res.error.message;
-    if (manual) toast('Couldn’t refresh pull requests', { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then refresh.' : res.error.message });
+    if (manual) prError('Couldn’t refresh pull requests', res.error);
   }
   showPrs();
 }
@@ -4157,7 +4167,7 @@ async function setupPrs({ ask = true } = {}) {
   const st = await api.app('pr-state').catch(() => null);
   if (!st) return toast('Open a repository to turn on pull requests', { detail: 'After that they’re on in every repository.' });
   if (st.enabled && st.hidden) return hidePrs(false);
-  if (st.enabled && !st.remote) return toast('This repository has no GitHub remote', { detail: 'Pull requests are on and show in repositories that have one.' });
+  if (st.enabled && !st.remote) return toast('This repository has no GitHub remote', { action: { label: 'Add remote…', run: () => addRemote() } });
   if (ask) {
     const ok = await dialog({
       title: 'Show pull requests from GitHub?',
@@ -4178,9 +4188,8 @@ async function setupPrs({ ask = true } = {}) {
     prLoggedOut = det.ok.gh === 'logged-out';
     if (prLoggedOut) {
       const host = st.remote.host;
-      const cmd = host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${host}`;
-      const login = await dialog({ title: `Log in to ${host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
-      if (login) copy(cmd, 'Copied the login command');
+      const login = await resolveSheet({ title: 'Turn on pull requests', reason: `GitHub CLI isn’t logged in to ${host}.`, actions: [{ id: 'login', label: 'Open Terminal' }] });
+      if (login) api.app('gh-login');
       return;
     }
   }
@@ -4219,7 +4228,7 @@ async function setPrRemote(name) {
 }
 function pickPrRemote() {
   const st = state.prs;
-  if (!st?.choices?.length) return toast('This repository has no GitHub remote');
+  if (!st?.choices?.length) return toast('This repository has no GitHub remote', { action: { label: 'Add remote…', run: () => addRemote() } });
   palette(() => [
     { group: 'Remote for pull requests', label: 'Automatic', detail: 'origin when it is on GitHub, else the first GitHub remote', icon: st.chosen ? 'cloud' : 'check', run: () => setPrRemote(null) },
     ...st.choices.map((c) => ({ group: 'Remote for pull requests', label: c.name, detail: `${c.owner}/${c.repo}`, icon: st.chosen === c.name ? 'check' : 'cloud', run: () => setPrRemote(c.name) })),
@@ -4266,7 +4275,15 @@ async function prCall(channel, pr, opts, busy) {
   t.close();
   return res;
 }
-const prError = (title, err) => toast(title, { kind: 'error', detail: err.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : err.message });
+// gh errors with a fix one click away (AK-588): log in from Terminal, or add a GitHub remote.
+const ghFixAction = (err) => {
+  const fix = ghErrorFix(err);
+  if (fix?.id === 'login') return { label: fix.label, run: () => api.app('gh-login') };
+  if (fix?.id === 'addRemote') return { label: fix.label, run: () => addRemote() };
+  return null;
+};
+const ghErrorDetail = (err) => (err.code === 'gh-auth' ? 'GitHub CLI isn’t logged in.' : err.message);
+const prError = (title, err) => toast(title, { kind: 'error', detail: ghErrorDetail(err), action: ghFixAction(err) });
 
 const approvePr = (given, onDone) => withPr(given, 'Approve', async (pr) => {
   const v = await dialog({
@@ -4310,12 +4327,46 @@ const checkFailEl = (c) => (c ? h('div.pr-check-fail', null,
   ...c.lines.map((l) => h('div.pr-check-line', null, h('span.ev-icon.fail', null, icon('x', 12)), h('span.name', null, l.name), h('span.muted', null, l.text))),
   c.more || c.passed ? h('div.muted', null, [c.more, c.passed].filter(Boolean).join(' · ')) : null) : null);
 
+// A merge GitHub refuses outright (AK-588): a draft is marked ready, a conflicting PR is rebased
+// here. → the fresh merge info when the merge can go on, else null (cancelled, failed or rebasing).
+async function fixMergeGate(pr, info) {
+  const local = prRef(pr, state.refs, state.prs.byRef);
+  const branch = local?.kind === 'branch' ? local.short : null;
+  const fix = mergeGateFix(info, { local: Boolean(branch) });
+  if (!fix) { toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: info.gate.hard }); return null; }
+  const v = await resolveSheet({ title: `Merge #${pr.number}`, reason: fix.reason, actions: fix.actions });
+  if (!v) return null;
+  if (v.id === 'rebase') { await rebasePr(pr, branch); return null; }
+  const ready = await prCall('pr-ready', pr, undefined, `Marking #${pr.number} ready for review…`);
+  if (ready.error) { prError(`Couldn’t mark #${pr.number} ready`, ready.error); return null; }
+  const again = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+  if (again.error) { prError(`Couldn’t check #${pr.number}`, again.error); return null; }
+  return again.ok.gate.hard ? fixMergeGate(pr, again.ok) : again.ok;
+}
+
+// Rebase a PR's branch onto its base as GitHub has it: the local branch when there is one (one
+// undo step), else check the PR out first.
+async function rebasePr(pr, branch) {
+  const remote = prRemote(pr);
+  const onto = state.refs.some((r) => r.kind === 'remote' && r.short === `${remote}/${pr.base}`) ? `${remote}/${pr.base}` : pr.base;
+  if (branch) {
+    const wt = state.worktrees.find((w) => w.branch === branch);
+    return rebaseLane({ branch, worktree: wt ? { path: wt.path, current: wt.current } : null }, onto);
+  }
+  const out = await checkoutPr(pr);
+  if (out?.branch && !out.worktree) return act(`Rebase ${out.branch} onto ${onto}`, 'rebaseOnto', [onto], { busy: 'Rebasing…' });
+}
+
 const MERGE_LABELS = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
 const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
-  const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+  let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
   if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
+  if (info.ok.gate.hard) {
+    const fixed = await fixMergeGate(pr, info.ok);
+    if (!fixed) return;
+    info = { ok: fixed };
+  }
   const { gate, methods, headOid, checking } = info.ok;
-  if (gate.hard) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard });
   if (gate.soft.length && !gate.canOverride) return toast(`GitHub blocks merging #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Only a repository admin can bypass it.` });
   // The local branch to delete afterwards, found now: the refresh after merging drops the PR.
   const local = prRef(pr, state.refs, state.prs.byRef);
