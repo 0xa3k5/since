@@ -39,3 +39,8 @@ export function ghErrorFix(err) {
   if (err?.code === 'gh-no-stack') return { id: 'installStack', label: 'Install' };
   return null;
 }
+
+// Merge and tidy on a branch with an open PR: the line under the "Merge" select for each choice.
+export function mergeViaNote(via, number) {
+  return via === 'github' ? { text: 'Can’t be undone on GitHub.', warn: true } : { text: `#${number} stays open on GitHub.` };
+}

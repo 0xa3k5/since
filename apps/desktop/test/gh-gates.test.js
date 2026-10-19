@@ -54,3 +54,16 @@ test('loginScript: gh auth login for the host, then a shell; odd hosts are refus
   assert.match(github.loginScript('ghe.example.com:8443'), /^gh auth login --hostname ghe\.example\.com:8443$/m);
   for (const bad of ['a b', 'x;rm -rf ~', '$(id)', '-oops', '', 'host\nnext', 42]) assert.throws(() => github.loginScript(bad), /Invalid GitHub host/);
 });
+
+test('mergeGateFix: a draft PR with a local branch, merged from Review, gets the draft sheet', async () => {
+  const { mergeGateFix } = await load();
+  const fix = mergeGateFix(info({ draft: true, conflicts: true }), { local: true });
+  assert.equal(fix.reason, 'It’s a draft.');
+  assert.deepEqual(fix.actions, [{ id: 'ready', label: 'Mark ready and merge' }]);
+});
+
+test('mergeViaNote: GitHub warns it can’t be undone, here says the PR stays open', async () => {
+  const { mergeViaNote } = await load();
+  assert.deepEqual(mergeViaNote('github', 1), { text: 'Can’t be undone on GitHub.', warn: true });
+  assert.deepEqual(mergeViaNote('here', 1), { text: '#1 stays open on GitHub.' });
+});

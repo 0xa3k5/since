@@ -1,5 +1,5 @@
 import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
-import { mergeGateFix, methodFix, ghErrorFix } from './gh-gates.js';
+import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -3505,6 +3505,11 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const lopt = ab.length || close.length ? [{ ...ab[0], ...close[0] }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   const n = plan.commits.length;
+  // An open PR GitHub would refuse (a draft, conflicts): fix that first, from every entry point.
+  if (pr) {
+    const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    if (info.ok?.gate.hard && !(await fixMergeGate(pr, info.ok))) return;
+  }
   const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
   // Too old a git: offer another one first, then carry on from here.
   if (block?.kind === 'git-version') return updateGit('mergeHere', () => mergeLane(lane, base, onDone, { handed }));
@@ -3547,13 +3552,11 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     description: h('div.pr-merge', null,
       h('div', null, here),
       checkFailEl(laneChecks),
-      pr ? h('div.pr-remote-note', null, `On GitHub: #${pr.number} is squash-merged there, which ⌘Z can’t undo. The local tidy after it can be undone.`) : null,
-      plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null,
-      kept ? null : h('div.muted', null, '⌘Z undoes the local merge and tidy in one step.')),
+      plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null),
     submit: kept ? 'Merge' : 'Merge and tidy',
     wide: n > 0,
     fields: [
-      pr ? { name: 'via', type: 'select', label: 'Merge', value: plan.mergeBlocker && n ? 'github' : 'here', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }] } : null,
+      pr ? { name: 'via', type: 'select', label: 'Merge', value: 'github', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }], note: (via) => mergeViaNote(via, pr.number) } : null,
       n ? { name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message } : null,
       remote && !kept ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
     ].filter(Boolean),
