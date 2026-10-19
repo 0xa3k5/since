@@ -193,6 +193,7 @@ const reads = {
   // Read-only: the tool gets temporary copies; for the working tree it may edit the real file.
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
   opState: (s) => git.getOperationState(s.repo.gitDir),
+  opInfo: (s) => git.getOperationInfo(s.repo.root, s.repo.gitDir),
   conflict: (s, p) => git.getConflict(s.repo.root, p),
   fileHistory: (s, p, page) => git.fileHistory(s.repo.root, page?.path || p, page),
   trackedFiles: (s) => git.trackedFiles(s.repo.root),
@@ -227,6 +228,12 @@ const reads = {
   worktreeOp: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
     return wt.missing ? null : git.worktreeOp(wt.path);
+  },
+  // The same, named (AK-584): what it's merging, picking or rebasing, and how far it got.
+  worktreeOpInfo: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    if (wt.missing) return null;
+    return git.getOperationInfo(wt.path, (await git.run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
   },
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };

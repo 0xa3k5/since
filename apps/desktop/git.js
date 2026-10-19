@@ -642,6 +642,41 @@ async function getOperationState(gitDir) {
   return null;
 }
 
+// What the stopped operation is doing, to name it (AK-584). merge: `from` merging into `branch`;
+// cherry-pick/revert: the commit (`sha`, `subject`); rebase: `branch` onto `onto`, at `step` of
+// `total`, on `subject`. null when nothing is stopped.
+async function getOperationInfo(cwd, gitDir) {
+  const op = await getOperationState(gitDir);
+  if (!op) return null;
+  const read = (p) => { try { return fs.readFileSync(path.join(gitDir, p), 'utf8').trim(); } catch { return ''; } };
+  const short = (ref) => ref.replace(/^refs\/(heads|remotes)\//, '');
+  const subjectOf = async (sha) => (sha ? (await run(cwd, ['log', '-1', '--format=%s', sha, '--']).catch(() => '')).trim() : '');
+  // A branch whose tip is `sha` names it better than the sha itself.
+  const nameOf = async (sha) => {
+    const out = await run(cwd, ['for-each-ref', '--points-at', sha, '--format=%(refname)', 'refs/heads', 'refs/remotes']).catch(() => '');
+    const ref = out.split('\n').find((r) => r && !r.endsWith('/HEAD'));
+    return ref ? short(ref) : sha.slice(0, 7);
+  };
+  const branch = (await run(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowCodes: [0, 1] }).catch(() => '')).trim();
+  if (op === 'merge') {
+    const sha = read('MERGE_HEAD').split('\n')[0];
+    const m = /^Merge (?:remote-tracking )?branch '([^']+)'/.exec(read('MERGE_MSG'));
+    return { op, branch, from: m ? m[1] : await nameOf(sha), sha };
+  }
+  if (op === 'cherry-pick' || op === 'revert') {
+    const sha = read(op === 'revert' ? 'REVERT_HEAD' : 'CHERRY_PICK_HEAD');
+    return { op, branch, sha, subject: await subjectOf(sha) };
+  }
+  const dir = fs.existsSync(path.join(gitDir, 'rebase-merge')) ? 'rebase-merge' : 'rebase-apply';
+  const merge = dir === 'rebase-merge';
+  const onto = read(`${dir}/onto`);
+  const step = Number(read(merge ? `${dir}/msgnum` : `${dir}/next`)) || 0;
+  const total = Number(read(merge ? `${dir}/end` : `${dir}/last`)) || 0;
+  const stopped = read(`${dir}/stopped-sha`) || read(`${dir}/original-commit`);
+  const subject = (merge ? read(`${dir}/message`).split('\n')[0] : '') || await subjectOf(stopped);
+  return { op, branch: short(read(`${dir}/head-name`)) || branch, onto: onto ? await nameOf(onto) : '', step, total, subject };
+}
+
 async function workingDiff(cwd, file, { staged }) {
   if (file.status === '?') {
     const out = await run(cwd, ['diff', '--no-color', '--no-index', '--', '/dev/null', file.path], { allowCodes: [0, 1] });
@@ -2940,7 +2975,7 @@ module.exports = {
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
-  getStatus, getOperationState, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
+  getStatus, getOperationState, getOperationInfo, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,

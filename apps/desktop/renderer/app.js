@@ -6,6 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
+import { opSentence } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -73,6 +74,7 @@ const state = {
   split: null,
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
+  opInfo: null,
   lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
   show: loadPref('show', { tags: true, remotes: true, swatches: true, agentLanes: true, unified: false }),
   search: '',
@@ -162,7 +164,7 @@ async function resolveOp(label, method, args, opts) {
   const verb = label.split(' ')[0];
   const v = await resolveSheet({
     title: label,
-    reason: (n ? `A ${op} is stopped on ${n} conflict${n > 1 ? 's' : ''}.` : `A ${op} is in progress.`) + ' Aborting can’t be undone.',
+    reason: `${opSentence(state.opInfo, n)} Aborting can’t be undone.`,
     actions: [n ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${op}` }, { id: 'abort', label: abortAnd(op, verb.toLowerCase()) }],
   });
   if (!v) return false;
@@ -247,9 +249,9 @@ const refreshHistory = coalesce(async () => {
   if (!state.repo) return;
   // On a first load, start reading the newest commits while the refs load.
   if (!state.logKey && !previewAhead) previewAhead = readPreview(logOpts()).catch(() => null);
-  const [{ refs, head }, opState, history, worktrees] = await Promise.all([
+  const [{ refs, head }, opInfo, history, worktrees] = await Promise.all([
     git('refs'),
-    git('opState'),
+    git('opInfo'),
     git('history', state.historyLimit),
     git('worktrees').catch(() => []),
   ]);
@@ -257,7 +259,8 @@ const refreshHistory = coalesce(async () => {
   state.worktrees = worktrees;
   state.refs = refs;
   state.head = head;
-  state.opState = opState;
+  state.opInfo = opInfo;
+  state.opState = opInfo?.op ?? null;
   state.history = history;
   // The log is fully determined by the tips it starts from, so only reload when they move.
   const key = tipsKey(refs, head, worktrees);
@@ -483,10 +486,11 @@ function cancelHistory() {
 
 const refreshStatus = coalesce(async () => {
   if (!state.repo) return;
-  const [status, opState] = await Promise.all([git('status'), git('opState')]);
+  const [status, opInfo] = await Promise.all([git('status'), git('opInfo')]);
+  const opChanged = JSON.stringify(opInfo) !== JSON.stringify(state.opInfo) || status.conflicts.length !== state.status?.conflicts?.length;
   state.status = status;
-  const opChanged = opState !== state.opState;
-  state.opState = opState;
+  state.opInfo = opInfo;
+  state.opState = opInfo?.op ?? null;
   renderNavCounts();
   if (opChanged) renderBanner();
   if (state.view === 'commit') commitView?.refresh();
@@ -1120,7 +1124,7 @@ function renderBanner() {
   const name = { rebase: 'Rebase', merge: 'Merge', 'cherry-pick': 'Cherry-pick', revert: 'Revert' }[state.opState];
   bannerEl.replaceChildren(h('div.banner', null,
     icon('warning'),
-    h('span', null, h('b', null, `${name} in progress`), n ? ` · ${n} conflicted file${n > 1 ? 's' : ''}` : ' · ready to continue'),
+    h('span', null, state.opInfo ? opSentence(state.opInfo, n) : h('b', null, `${name} in progress`)),
     h('span.spacer'),
     state.view !== 'commit' ? h('button.btn.subtle', { onclick: () => setView('commit') }, 'Resolve') : null,
     h('button.btn.subtle', { onclick: () => act(`Abort ${name.toLowerCase()}`, 'abortOp', [], { undoable: false }) }, 'Abort'),
@@ -3287,7 +3291,8 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   // Its worktree has an operation stopped in it: abort that as part of the tidy (one undo step).
   const abort = Boolean(plan.blockerOp && plan.worktree);
   if (abort) {
-    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: `“${plan.worktree.name}” has a ${plan.blockerOp} in progress. Aborting can’t be undone.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
+    const info = await git('worktreeOpInfo', plan.worktree.path).catch(() => null);
+    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: `${info ? opSentence(info) : `“${plan.worktree.name}” has a ${plan.blockerOp} in progress.`} Aborting can’t be undone.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
     if (!go) return;
     try { plan = await git('mergeLanePlan', lane.branch, base, { abort: true }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   }
@@ -3443,8 +3448,8 @@ async function deleteLane(lane) {
   const verb = n ? 'Discard' : 'Delete';
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
   const lost = n ? ` with ${n} uncommitted file${n > 1 ? 's' : ''}` : '';
-  const op = lane.worktree && await git('worktreeOp', lane.worktree.path).catch(() => null);
-  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: `It has a ${op} in progress. Aborting can’t be undone.`, actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
+  const op = lane.worktree && await git('worktreeOpInfo', lane.worktree.path).catch(() => null);
+  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: `${opSentence(op)} Aborting can’t be undone.`, actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
   if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: verb }))) return;
   act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[{ ...cleanupItem(lane), ...(op ? { abort: true } : {}) }]], {
     busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,

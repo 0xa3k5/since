@@ -135,3 +135,25 @@ test('abort with files left in the worktree: tidy and clean up stash them instea
     assert.equal((await git.getStashes(r.dir)).length, 1, `${how}: the leftover file is in the stash list`);
   }
 });
+
+test('opInfo and opSentence (AK-584): name what is stopped', async () => {
+  const { opSentence } = await import('../renderer/resolve-text.js');
+  const r = await repo();
+  await git.run(r.dir, ['checkout', '-q', '-b', 'feature/conflict']);
+  await r.commit('app.js', 'feature\n', 'Add footer');
+  await git.run(r.dir, ['checkout', '-q', 'main']);
+  await r.commit('app.js', 'main\n', 'main');
+  const gitDir = path.join(r.dir, '.git');
+  await assert.rejects(git.run(r.dir, ['merge', 'feature/conflict']));
+  assert.equal(opSentence(await git.getOperationInfo(r.dir, gitDir), 1), 'Merging feature/conflict into main is stopped on 1 conflict.');
+  await git.run(r.dir, ['merge', '--abort']);
+  const sha = await r.tip('feature/conflict');
+  await assert.rejects(git.run(r.dir, ['cherry-pick', sha]));
+  assert.equal(opSentence(await git.getOperationInfo(r.dir, gitDir), 1), `Cherry-picking ${sha.slice(0, 7)} Add footer is stopped on 1 conflict.`);
+  await git.run(r.dir, ['cherry-pick', '--abort']);
+  await git.run(r.dir, ['checkout', '-q', 'feature/conflict']);
+  await assert.rejects(git.run(r.dir, ['rebase', 'main']));
+  assert.equal(opSentence(await git.getOperationInfo(r.dir, gitDir), 1), 'Rebasing feature/conflict onto main is stopped at 1 of 1: Add footer.');
+  await git.run(r.dir, ['rebase', '--abort']);
+  assert.equal(await git.getOperationInfo(r.dir, gitDir), null);
+});
