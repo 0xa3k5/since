@@ -484,6 +484,22 @@ handle('app:recent', () => readRecent());
 handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
 handle('app:platform', () => process.platform);
 handle('app:theme', () => currentTheme());
+
+// The git in use, and Use another git… (AK-586): pick a git program, which must run and say its
+// version, and keep using it in every window. The path comes from the open dialog, not the renderer.
+function useGit(p) {
+  const ok = typeof p === 'string' && path.isAbsolute(p) && (() => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } })();
+  git.setGitPath(ok ? p : null);
+}
+handle('app:git-info', okCall(() => git.gitInfo()));
+handle('app:git-choose', okCall(async (e) => {
+  const res = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile', 'treatPackageAsDirectory'], defaultPath: '/opt/homebrew/bin', message: 'Choose a git program' });
+  if (res.canceled || !res.filePaths[0]) return null;
+  const info = await git.gitInfo(res.filePaths[0]);
+  git.setGitPath(info.path);
+  writeSettings({ gitPath: info.path });
+  return info;
+}));
 handle('app:set-theme', (_e, mode) => setTheme(check.oneOf(...THEMES)(mode, 'theme')));
 handle('app:cycle-theme', () => cycleTheme());
 handle('app:update-state', () => ({ ...updater.getState(), page: updater.page() }));
@@ -773,7 +789,7 @@ const oidArg = (v, w) => check.oid(v, w);
 async function planTarget(e, remoteName, base) {
   const s = session(e);
   if (!(await prEnabled(s.repo.root))) throw planErr('Pull requests are off for this repository.', 'gh-off');
-  if (!(await git.canForecast(s.repo.root))) throw planErr('Merge plan needs git 2.38 or later.');
+  if (!(await git.canForecast(s.repo.root))) throw planErr('Merge plan needs git 2.38 or later.', 'git-version');
   const remote = check.knownRemote(await git.getRemotes(s.repo.root), remoteName);
   return { s, remote, base: check.rev(base, 'base branch'), t: { enabled: true, remotes: [remote] } };
 }
@@ -1708,6 +1724,7 @@ app.whenReady().then(() => {
   }
   lockDownSession(electronSession.defaultSession);
   electronSession.defaultSession.protocol.handle(prMedia.SCHEME, (req) => media.video(req));
+  useGit(readSettings().gitPath);
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   keymap.setOverrides(readSettings().keymap);

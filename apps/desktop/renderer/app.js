@@ -39,6 +39,7 @@ import { AUTOSTASH_DEFAULT, blockedCheckout, blockedByChanges, stashMessage, aut
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
+import { GIT_NEEDS, GIT_FEATURES, gitMeets } from './git-version.js';
 import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
@@ -145,6 +146,8 @@ async function act(label, method, args = [], opts = {}) {
     return true;
   } catch (e) {
     t?.close();
+    // An old git refused `stash push --staged`: Update git, then stash.
+    if (method === 'stashSave' && args[2]?.staged && 'git-version' === e.code) return updateGit('stashStaged', () => act(label, method, args, opts));
     const fixed = e.readOnly ? undefined : await offerFix(label, method, args, opts, e);
     if (fixed !== undefined) return fixed;
     if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
@@ -165,6 +168,31 @@ async function act(label, method, args = [], opts = {}) {
     await refreshAll();
     return false;
   }
+}
+
+// Git version gates (AK-586). `state.gitInfo`: { path, version } of the git in use.
+api.app('git-info').then((r) => { state.gitInfo = r?.ok || null; }, () => {});
+const gitTooOld = (feature) => Boolean(state.gitInfo && !gitMeets(state.gitInfo.version, GIT_NEEDS[feature]));
+const gitWhy = (feature) => (gitTooOld(feature) ? `Needs git ${GIT_NEEDS[feature]}` : null);
+// The Update git sheet: the git in use and Use another git…; `then` carries on once the git is new enough.
+async function updateGit(feature, then) {
+  const need = GIT_NEEDS[feature];
+  const cur = await api.app('git-info').catch(() => null);
+  if (cur?.ok) state.gitInfo = cur.ok;
+  const info = state.gitInfo;
+  const v = await resolveSheet({
+    title: `${GIT_FEATURES[feature]} needs git ${need} or later`,
+    reason: info ? `In use: git ${info.version} at ${info.path}` : 'No git found.',
+    actions: [{ id: 'choose', label: 'Use another git…' }],
+  });
+  if (!v) return false;
+  const res = await api.app('git-choose');
+  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
+  if (!res.ok) return false;
+  state.gitInfo = res.ok;
+  if (!gitMeets(res.ok.version, need)) return updateGit(feature, then);
+  toast(`Using git ${res.ok.version}`, { detail: res.ok.path });
+  return then?.();
 }
 
 // A push, pull or cherry-pick git refused for a cause we know: offer the fix together with the
@@ -2411,7 +2439,7 @@ function createCommitView(container) {
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
       ] : null),
       section('Staged', staged, 'staged', staged.length ? [
-        h('button.btn.ghost.tiny', { title: tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
+        h('button.btn.ghost.tiny' + (gitTooOld('stashStaged') ? '.gated' : ''), { title: gitWhy('stashStaged') || tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
       ] : null),
     ].filter(Boolean));
@@ -2741,6 +2769,7 @@ async function dropStash(s) {
 async function stashSave({ staged = false, paths = null, untracked = false } = {}) {
   const what = staged ? 'staged changes' : paths ? (paths.length === 1 ? baseName(paths[0]) : `${paths.length} files`) : 'changes';
   if (staged && !state.status?.staged?.length) return toast('Nothing staged to stash');
+  if (staged && gitTooOld('stashStaged')) return updateGit('stashStaged', () => stashSave({ staged }));
   const fields = [{ name: 'msg', label: 'Message', placeholder: 'WIP' }];
   if (!staged && !untracked) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
   const v = await dialog({ title: `Stash ${what}`, submit: 'Stash', fields });
@@ -3152,6 +3181,7 @@ function openLanes() {
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
+    onGitTooOld: updateGit,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
     onBranches: (tab) => showBranches(tab),
     onReview: (lane, base) => openReview(lane, base),
@@ -3427,6 +3457,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
     return toast(`Merging in ${plan.baseWorktree.name}`);
   }
+  if (plan.mergeBlockerCode === 'git-version' && !pr && n) return updateGit('mergeHere', () => mergeLane(lane, base, onDone));
   if (plan.mergeBlocker && !pr && n) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
   // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
   // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).
@@ -4418,7 +4449,7 @@ function openPalette() {
     if (state.head?.branch && loadPref('autostashes', { list: [] }).list.some((x) => x.root === state.repo?.root && x.branch === state.head.branch)) {
       add('Repository', `Apply auto-stash for ${state.head.branch}`, async () => { const o = await pendingAutostash(state.head.branch); if (o) applyAutostash(o, true); else toast('That auto-stash is gone'); }, { icon: 'stash', keywords: 'autostash auto stash pop apply drop' });
     }
-    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
+    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index', detail: gitWhy('stashStaged') });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
     if (nav.canBack) add('View', 'Back', goBack, { icon: 'chevronLeft', kbd: keymap.keys('view.back'), keywords: 'previous history return navigate' });
@@ -4493,7 +4524,7 @@ function openPalette() {
       if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'branch merged shipped tidy remove' });
     }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });
-    if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue' });
+    if (state.view === 'lanes' && lanesOpen() && (lanesPage?.canPlan() || lanesPage?.planGated())) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue', detail: lanesPage.planGated() ? `Needs git ${GIT_NEEDS.mergePlan}` : null });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) for (const t of lanesPage.mergeTargets?.() || []) add('Review', `Merge plan into ${t.name}`, () => lanesPage.mergePlan(null, { target: t.name }), { icon: 'merge', keywords: `merge plan into branch target base ${t.name}` });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) for (const [m, name] of [['squash', 'squash'], ['merge', 'merge commits'], ['rebase', 'rebase']]) add('Review', `Merge plan: ${name}`, () => lanesPage.mergePlan(m), { icon: 'merge', keywords: `merge plan order ready method ${m} ${name}` });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Make chain a GitHub stack', () => makeChainStack(), { icon: 'merge', keywords: 'gh stack link chain stacked pull requests series native' });

@@ -65,7 +65,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, onBranches = () => {}, onCounts = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, onGitTooOld = null, onBranches = () => {}, onCounts = () => {}, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -530,6 +530,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // Merge plan (merge-plan-view.js): on git 2.38+ with pull requests on. With them off nothing is
   // ever ready, so there's no plan for local branches.
   const canPlan = () => Boolean(onMergePlan && prsOn() && forecastOk && inbox?.remote);
+  // Plan merge on a git too old for it: shown greyed, and opens Update git (AK-586).
+  const planGated = () => Boolean(onMergePlan && onGitTooOld && prsOn() && !forecastOk && inbox?.remote);
   // Merge plan's target (AK-541, option A): a landing branch, one no open PR comes from (main,
   // master, dev, release/…). A PR lands on the branch its chain of bases reaches through other open
   // PRs' branches; a PR's own branch is never a target. The choice is remembered per repo.
@@ -549,6 +551,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   const targetKey = () => `pref:mergeTarget:${repo || ''}`;
   function mergePlan(method = null, { anyway = false, target = null } = {}) {
+    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target }); });
     if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : 'Merge plan needs git 2.38 or later');
     const open = inbox?.prs || [];
     if (!open.length) return toast('No open pull requests');
@@ -579,7 +582,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       }, t.label, loaded ? h('span.review-tab-n', null, String(n)) : null);
     }),
     h('span.spacer'),
-    ...[(tab === 'needs' || tab === 'ready') && canPlan() && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act', { onclick: () => mergePlan(), 'data-tip': tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null].filter(Boolean)); // nothing (not "null") when Plan merge isn't offered
+    ...[(tab === 'needs' || tab === 'ready') && (canPlan() || planGated()) && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act' + (planGated() ? '.gated' : ''), { onclick: () => mergePlan(), 'data-tip': planGated() ? 'Needs git 2.38' : tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null].filter(Boolean)); // nothing (not "null") when Plan merge isn't offered
   }
   // 1–5 and the tabs: one list at a time; the selection moves to the tab's first row unless it's on the tab.
   function setTab(id) {
@@ -812,7 +815,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

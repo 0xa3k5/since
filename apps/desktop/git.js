@@ -6,6 +6,7 @@ const { execFile, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { GIT_NEEDS, GIT_FEATURES, gitMeets } = require('./renderer/git-version.js');
 
 // GPG_TTY is dropped so a terminal pinentry never waits on a terminal the user can't see.
 // ssh/ssh-keygen ask through SSH_ASKPASS instead of /dev/tty, so a locked SSH key fails
@@ -97,10 +98,36 @@ async function cherryPick(cwd, sha, keepEmpty) {
   }
 }
 
+// The git binary: `git` on PATH, or the one picked with Use another git… (AK-586).
+let GIT = 'git';
+function setGitPath(p) {
+  GIT = p || 'git';
+  gitVersion = mergeTreeOk = replayOk = null;
+}
+// The git in use (or `bin`): { path, version }, e.g. { path: '/usr/bin/git', version: '2.39.5' }.
+function gitInfo(bin = GIT) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, ['--version'], { env: BASE_ENV, timeout: 10e3 }, (err, out) => {
+      const m = !err && /^git version (\d+\.\d+(?:\.\d+)?)/.exec(String(out));
+      if (!m) return reject(new GitError(err?.code === 'ENOENT' ? 'No git found.' : 'That isn’t a git program.', { code: 'not-git' }));
+      resolve({ path: bin === 'git' ? onPath('git') : bin, version: m[1] });
+    });
+  });
+}
+function onPath(name) {
+  for (const dir of (BASE_ENV.PATH || '').split(':').filter(Boolean)) {
+    const p = path.join(dir, name);
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
+  }
+  return name;
+}
+// A feature git is too old for: the message names the version, `code` lets the app offer Update git.
+const tooOld = (feature) => new GitError(`${GIT_FEATURES[feature]} needs git ${GIT_NEEDS[feature]} or later.`, { code: 'git-version' });
+
 function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 * 1024, encoding = 'utf8' } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
-      'git',
+      GIT,
       args,
       // detached = own session with no controlling terminal, so gpg and ssh-keygen fail
       // fast instead of waiting for a passphrase typed into a terminal.
@@ -139,7 +166,7 @@ async function initRepo(dir) {
 
 function cloneRepo(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', ['clone', '--progress', '--', url, dest], { env: { ...BASE_ENV, GIT_ALLOW_PROTOCOL: 'file:git:http:https:ssh' } });
+    const child = spawn(GIT, ['clone', '--progress', '--', url, dest], { env: { ...BASE_ENV, GIT_ALLOW_PROTOCOL: 'file:git:http:https:ssh' } });
     let err = '';
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d) => {
@@ -254,7 +281,7 @@ function streamLog(cwd, { kind = 'topo', preview = false, limit, batch = 256 << 
   const args = logArgs(opts).filter((a) => !(preview && a === '--date-order'));
   if (limit) args.push(`--max-count=${limit}`);
   args.push(LOG_FORMATS[kind]);
-  const child = spawn('git', args, { cwd, env: LOG_ENV });
+  const child = spawn(GIT, args, { cwd, env: LOG_ENV });
   const chunks = [];
   let size = 0, tail = '', ended = false, waiting = null, first = true, closed = false, failure = null;
   const wake = () => { if (waiting) { const w = waiting; waiting = null; w(); } };
@@ -1641,7 +1668,7 @@ async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
     if (gone.length) await run(cwd, ['checkout', 'HEAD', '--', ...gone]);
   } catch (e) {
     // `stash push --staged` arrived in Git 2.35; older git rejects the option with a usage dump.
-    if (staged && /unknown option|usage: git stash/i.test(`${e.stderr || ''}\n${e.message}`)) throw new GitError('Stash staged changes needs Git 2.35 or newer.');
+    if (staged && /unknown option|usage: git stash/i.test(`${e.stderr || ''}\n${e.message}`)) throw tooOld('stashStaged');
     throw e;
   }
 }
@@ -2111,7 +2138,7 @@ async function mergeLanePlan(cwd, branch, base, { abort = false } = {}) {
   plan.commits = (await run(cwd, ['log', '--format=%s%x00%b%x1e', `${baseSha}..${head}`, '--'])).split('\x1e').map((r) => r.replace(/^\n+/, '')).filter(Boolean)
     .map((r) => { const i = r.indexOf('\0'); return { subject: r.slice(0, i).trim(), body: r.slice(i + 1).trim() }; });
   if (plan.commits.length) {
-    const tree = await squashTree(cwd, baseSha, head).catch((err) => { plan.mergeBlocker ||= err.message; return null; });
+    const tree = await squashTree(cwd, baseSha, head).catch((err) => { if (!plan.mergeBlocker) { plan.mergeBlocker = err.message; plan.mergeBlockerCode = err.code || null; } return null; });
     if (tree?.conflicts.length) {
       plan.conflicts = tree.conflicts;
       plan.mergeBlocker ||= `It conflicts with ${into} in ${tree.conflicts.length} file${tree.conflicts.length > 1 ? 's' : ''}. Rebase it or merge ${into} into it first.`;
@@ -2126,7 +2153,7 @@ async function squashTree(cwd, baseSha, head) {
   try {
     out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', baseSha, head], { allowCodes: [0, 1] });
   } catch (err) {
-    if (!(await canForecast(cwd))) throw new GitError('Merging here needs git 2.38 or later.');
+    if (!(await canForecast(cwd))) throw tooOld('mergeHere');
     throw err;
   }
   // A clean merge prints only the tree; a conflicted one lists the conflicted paths after it.
@@ -2524,8 +2551,8 @@ const PATCH_TIMEOUT = 30000;
 function patchIds(cwd, args, { input, maxBytes = PATCH_MAX_BYTES, timeout = PATCH_TIMEOUT } = {}) {
   return new Promise((resolve, reject) => {
     const opts = { cwd, env: BASE_ENV, detached: process.platform !== 'win32' };
-    const src = spawn('git', args, opts);
-    const ids = spawn('git', ['patch-id', '--stable'], opts);
+    const src = spawn(GIT, args, opts);
+    const ids = spawn(GIT, ['patch-id', '--stable'], opts);
     let bytes = 0; let out = ''; let err = ''; let capped = null; let failed = null; let open = 2;
     const codes = {};
     const stop = (why) => { if (capped) return; capped = why; src.kill(); ids.kill(); };
@@ -2748,10 +2775,7 @@ async function baseTouches(cwd, head, base, files = []) {
 // Results are cached by the two tips, so a refresh only re-runs pairs where a tip moved.
 
 // git 2.38 added `merge-tree --write-tree`; older git gets no forecast at all.
-const mergeTreeSupported = (version) => {
-  const [major, minor] = (/(\d+)\.(\d+)/.exec(version) || [0, 0, 0]).slice(1).map(Number);
-  return major > 2 || (major === 2 && minor >= 38);
-};
+const mergeTreeSupported = (version) => gitMeets(version, GIT_NEEDS.mergeHere);
 let mergeTreeOk = null;
 function canForecast(cwd) {
   mergeTreeOk ||= run(cwd, ['version']).then(mergeTreeSupported, () => false);
@@ -2840,7 +2864,7 @@ async function simulateSquash(cwd, tip, head) {
 const REPLAY_MAX = 250;
 let replayOk = null;
 async function canReplay(cwd) {
-  replayOk ||= run(cwd, ['version']).then((v) => { const [, a, b] = /(\d+)\.(\d+)/.exec(v) || [0, 0, 0]; return Number(a) > 2 || (Number(a) === 2 && Number(b) >= 40); }, () => false);
+  replayOk ||= run(cwd, ['version']).then((v) => gitMeets(v, GIT_NEEDS.stackRebase), () => false);
   return replayOk;
 }
 async function simulateRebase(cwd, tip, head) {
@@ -2881,7 +2905,7 @@ async function stackLinear(cwd, base, heads) {
 // heads: bottom…top. → { heads: [new head per PR], changed: [bool per PR] } |
 // { conflict: { index, commit, files } } (files [] when git refuses, e.g. unrelated histories).
 async function rebaseStack(cwd, base, heads) {
-  if (!(await canReplay(cwd))) throw new GitError('Rebasing a stack needs git 2.40 or later.');
+  if (!(await canReplay(cwd))) throw tooOld('stackRebase');
   const sign = (await run(cwd, ['config', '--bool', 'commit.gpgsign'], { allowCodes: [0, 1] })).trim() === 'true';
   const isAncestor = (a, b) => run(cwd, ['merge-base', '--is-ancestor', a, b]).then(() => true, () => false);
   const out = [], changed = [];
@@ -3101,6 +3125,7 @@ function parseBlame(out) {
 
 module.exports = {
   saveResolved, restoreResolved, resolvedPaths,
+  setGitPath, gitInfo,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, remoteFailure, pull, divergence, cherryPick, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
