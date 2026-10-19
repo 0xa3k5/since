@@ -47,7 +47,7 @@ import { markdown } from './markdown.js';
 import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
 import { peekEvidence } from './evidence-store.js';
 import { commitBlock } from './commit-guards.js';
-import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -1388,7 +1388,7 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
-  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction }); return contentEl.append(reviewPage.el); }
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : null) }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -3431,7 +3431,7 @@ function paneAction(id, row, ctx) {
   const done = () => lanesPage?.afterAction(row.key, id);
   const local = lane?.branch && !lane.isBase ? (pr && !lane.pr ? { ...lane, pr } : lane) : null;
   if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
-  if (id === 'approve' && pr) return approvePr(pr, done);
+  if (id === 'approve' && pr) return approvePr(pr, done, ctx?.viewer);
   if (id === 'close' && pr) return closePr(pr, done);
   if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
   if (id === 'github' && pr) return openPrOnGitHub(pr);
@@ -4248,7 +4248,7 @@ function prList() {
     { group: 'Pull requests', label: 'New pull request…', icon: 'plus', kbd: keymap.keys('repo.prCreate'), run: () => createPr() },
     { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => pickPr(false) },
     { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => pickPr(true) },
-    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: keymap.keys('repo.prApprove'), run: () => approvePr() },
+    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: keymap.keys('repo.prApprove'), detail: approveTargetWhy(), gated: Boolean(approveTargetWhy()), run: () => approvePr() },
     { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: keymap.keys('repo.prMerge'), run: mergePrCmd },
     { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: keymap.keys('repo.prClose'), run: closePrCmd },
     { group: 'Pull requests', label: 'Show in sidebar', icon: 'sidebar', run: () => openSidebarAt('prs') },
@@ -4261,7 +4261,7 @@ const REMOTE_NOTE = 'This happens on GitHub. ⌘Z can’t undo it.';
 const prRemote = (pr, fallback) => prActionRemote(pr, state.prs, fallback);
 
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
-function withPr(pr, verb, fn) {
+function withPr(pr, verb, fn, whyOf = () => null) {
   if (!state.prs?.active) return setupPrs();
   pr ||= state.review?.pr; // the PR on the review page
   if (pr) return fn(pr);
@@ -4269,8 +4269,14 @@ function withPr(pr, verb, fn) {
   if (mine) return fn(mine);
   const prs = state.prs.data?.prs || [];
   if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${keyText('repo.prRefresh')}) to load them.` });
-  palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
+  palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: whyOf(p) || p.branch, gated: Boolean(whyOf(p)), keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
 }
+// The PR a bare Approve acts on without asking (withPr), and why it can't be approved, for ⌘K (AK-577).
+const approveTargetWhy = () => {
+  if (!state.prs?.active) return null;
+  const pr = state.review?.pr || (state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null);
+  return pr ? approveWhy(pr, prViewer()) : null;
+};
 
 async function prCall(channel, pr, opts, busy) {
   const t = toast(busy, { kind: 'busy', timeout: 0 });
@@ -4296,7 +4302,11 @@ async function installStack() {
 const ghErrorDetail = (err) => (err.code === 'gh-auth' ? 'GitHub CLI isn’t logged in.' : err.message);
 const prError = (title, err) => toast(title, { kind: 'error', detail: ghErrorDetail(err), action: ghFixAction(err) });
 
-const approvePr = (given, onDone) => withPr(given, 'Approve', async (pr) => {
+// Who you are on GitHub for Approve's reason (AK-577): the caller's (Review's), else the PR list's.
+const prViewer = (viewer) => viewer || state.prs?.data?.viewer || null;
+const approvePr = (given, onDone, viewer) => withPr(given, 'Approve', async (pr) => {
+  const why = approveWhy(pr, prViewer(viewer));
+  if (why) return toast(`Can’t approve #${pr.number}`, { detail: why });
   const v = await dialog({
     title: `Approve #${pr.number}?`,
     description: `${pr.title}\n${REMOTE_NOTE}`,
@@ -4309,7 +4319,7 @@ const approvePr = (given, onDone) => withPr(given, 'Approve', async (pr) => {
   toast(`Approved #${pr.number}`, { kind: 'success' });
   onDone?.();
   refreshPrs();
-});
+}, (p) => approveWhy(p, prViewer(viewer)));
 
 const requestChangesPr = (given) => withPr(given, 'Request changes on', async (pr) => {
   const v = await dialog({
@@ -4487,7 +4497,7 @@ function prMenu(e, pr) {
     { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => checkoutPr(pr) },
     { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => checkoutPr(pr, { worktree: true }) },
     '-',
-    { label: 'Approve…', icon: 'check', run: () => approvePr(pr) },
+    { label: 'Approve…', icon: 'check', disabled: Boolean(approveWhy(pr, prViewer())), why: approveWhy(pr, prViewer()), run: () => approvePr(pr) },
     { label: 'Merge…', icon: 'merge', run: () => mergePr(pr) },
     { label: 'Close…', icon: 'x', danger: true, run: () => closePr(pr) },
     '-',
@@ -4546,7 +4556,7 @@ function openPalette() {
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
     add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh branch review' });
     if (state.prs?.active) {
-      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
+      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), detail: approveTargetWhy(), gated: Boolean(approveTargetWhy()), keywords: 'pr github gh review approve' });
       add('Repository', 'Request changes on pull request…', () => requestChangesPr(), { icon: 'edit', kbd: keymap.keys(state.review?.pr ? 'review.changes' : 'repo.prChanges'), keywords: 'pr github gh review request changes reject' });
       add('Repository', 'Review pull request…', pickPrReview, { icon: 'diff', keywords: 'pr github gh review diff files inbox' });
       if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} in a new worktree`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree branch checkout' });
@@ -4655,8 +4665,8 @@ function openPalette() {
     const paneSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.paneSelection() : null;
     if (paneSel) {
       const t = paneSel.row.pr ? `#${paneSel.row.pr.number}` : paneSel.row.title;
-      for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
-        add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
+      for (const a of paneActions(paneSel.row, paneSel.ctx.step, { viewer: paneSel.ctx.viewer }).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
+        add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), gated: a.gated, detail: a.gated ? a.note : null, keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show media of ${t}`, () => lanesPage.media(), { icon: 'image', kbd: keymap.keys('review.media'), keywords: 'media gallery images videos screenshots recordings pictures thumbnails' });
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show checks and reviews of ${t}`, () => lanesPage.evidence(), { icon: 'checks', kbd: keymap.keys('review.evidence'), keywords: 'evidence checks ci annotations media screenshots images videos reviews open threads log failed' });

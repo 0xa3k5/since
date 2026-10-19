@@ -566,7 +566,7 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
     let group = null;
     results.forEach((it, i) => {
       if (!q && it.group !== group) { group = it.group; list.append(h('div.palette-group', null, group)); }
-      const row = h('div.palette-item' + (i === idx ? '.active' : ''), {
+      const row = h('div.palette-item' + (i === idx ? '.active' : '') + (it.gated ? '.gated' : ''), {
         onmousemove: () => { if (idx !== i) { idx = i; mark(); } },
         onclick: () => choose(i),
       }, icon(it.icon || 'command'), h('span.palette-label', null, it.label), it.detail ? h('span.palette-detail', null, it.detail) : null, it.kbd ? kbd(...[].concat(it.kbd)) : null);

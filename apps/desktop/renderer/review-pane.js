@@ -93,7 +93,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
 
   function renderHead() {
     const { pr, lane } = row;
-    const { actions: list, primary: paneP } = paneActions(row, ctx.step);
+    const { actions: list, primary: paneP } = paneActions(row, ctx.step, { viewer: ctx.viewer });
     actions = list;
     const size = pr?.size;
     const updated = pr?.updatedAt ? Date.parse(pr.updatedAt) / 1000 : 0;
@@ -110,7 +110,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       const label = a.label.replace('…', '');
       const note = a.id === 'merge' && row.stack?.on ? `It merges into #${row.stack.on}’s branch, not ${row.stack.base || 'the base'}: merge #${row.stack.on} first` : a.note || (a.remote ? `${label} on GitHub: ⌘Z can’t undo it` : a.id === 'github' ? 'Opens in your browser' : a.id === 'sendBack' ? 'A ready-made prompt to fix it, for you or an agent' : a.id === 'checks' ? 'Opens the failing checks' : `${label} (undoable)`);
       const onclick = () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx));
-      const cls = (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github', 'rebase', 'checkout', 'updateBranch'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
+      const cls = (a.gated ? '.gated' : '') + (a.id === primary ? '.primary' : a.id === 'github' ? '.ghost' : '.subtle') + (a.id === primary ? '' : '.pane-secondary' + (['merge', 'approve', 'sendBack', 'github', 'rebase', 'checkout', 'updateBranch'].includes(a.id) ? '.pane-shrink' : '') + (a.id === 'github' ? '.pane-github' : ''));
       const tip = `${tipFor(a.label, a.key)}\n${note}`;
       if (a.id === 'close' || (a.id === 'checks' && !fixing.has('checks'))) return h('button.btn.ghost.icon-btn.pane-secondary' + (a.danger ? '.danger-hover' : ''), { 'data-tip': a.id === 'close' ? `${tipFor('Close PR…', a.key)}\n${note}` : tip, 'aria-label': a.id === 'close' ? 'Close PR…' : a.label, onclick }, icon(a.icon, 15));
       return h('button.btn' + cls, { 'data-tip': tip, 'aria-label': a.label, onclick }, icon(a.id === 'github' ? 'github' : a.icon, 14), h('span.btn-label', null, a.label), kbd(...keymap.keys(a.key)));
@@ -125,7 +125,7 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const more = [...rest, ...icons, github].filter(Boolean);
     const moreBtn = more.length ? h('button.btn.ghost.icon-btn.pane-more', {
       'data-tip': 'More actions', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
-      onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
+      onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, disabled: a.gated, why: a.gated ? a.note : null, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
     }, icon('more', 15)) : null;
     // Who made it (AK-390): the person, + the agent when its lane looks agent-made, or the bot alone.
     const authors = rowAuthors(row, { agents: ctx.agents });

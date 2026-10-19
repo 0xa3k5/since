@@ -310,6 +310,20 @@ test('next selection: the next row below that still needs you, else the first, e
   assert.equal(nextSelection([], staged(inbox), 'pr:9'), 'pr:3');
 });
 
+test('approve: greyed with its reason on your own PR or without write access (AK-577)', async () => {
+  const { paneActions } = await import('../renderer/pr-review.js');
+  const { approveWhy } = await import('../renderer/prs.js');
+  const mine = { pr: pr(1, { author: 'Ana' }), lane: null };
+  assert.equal(approveWhy(mine.pr, { login: 'ana', write: true }), 'Your own pull request');
+  assert.equal(approveWhy(pr(2, { author: 'bo' }), { login: 'ana', write: false }), 'Needs write access');
+  assert.equal(approveWhy(pr(2, { author: 'bo' }), { login: 'ana', write: true }), null);
+  assert.equal(approveWhy(mine.pr, null), null); // unknown: GitHub decides
+  const a = paneActions(mine, 'review', { viewer: { login: 'ana', write: true } });
+  assert.deepEqual(a.actions.find((x) => x.id === 'approve'), { ...a.actions.find((x) => x.id === 'approve'), gated: true, note: 'Your own pull request' });
+  assert.notEqual(a.primary, 'approve');
+  assert.equal(paneActions(mine, 'review').actions.find((x) => x.id === 'approve').gated, undefined);
+});
+
 test('pane actions: every PR action with a primary by stage; local branches merge and tidy', async () => {
   const { paneActions } = await import('../renderer/pr-review.js');
   const ids = (r, s) => paneActions(r, s).actions.map((a) => a.id);

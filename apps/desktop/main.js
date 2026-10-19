@@ -689,7 +689,7 @@ handle('app:lanes-list', async (e, opts) => {
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
   if (!withInbox) return { ...rest, lanes: joined, prError };
-  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, inbox, inboxError };
+  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, viewer: listed?.viewer || null, inbox, inboxError };
 });
 
 // Conflict forecast for the lanes app:lanes-list last returned in this window (git-only, no

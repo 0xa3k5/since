@@ -15,7 +15,8 @@ import { fileCard, foldShut } from './reader.js';
 // git(method, ...args) calls the main process; store is localStorage; onClose() goes back;
 // onMerge() merges and tidies the branch (null: not offered, e.g. a detached head).
 // pr: an Inbox pull request (pr-review.js): the head shows its author and checks, and
-// onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) on it.
+// onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) on it; prWhy(id) is why
+// one doesn't apply (greyed, its click says why), or null.
 // Embedded in Review's pane (review-pane.js): `header` replaces the title, PR line and buttons and
 // runs across the full width above the files and the diff; there's no Back button and it doesn't
 // take focus; onKey(keyId) runs first and returns true when
@@ -33,7 +34,7 @@ import { fileCard, foldShut } from './reader.js';
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
 // shows the base side against the branch's side. onConflicts(files) reports what it found.
 // fallback: a base to use instead when `base` can't be resolved (a stacked PR's base not fetched here).
-export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
+export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -65,7 +66,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.authorName || pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
-      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : ''), { title: a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it', onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
+      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
     listEl,
     embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · ↑/↓ Move · Esc Back`),
   );
