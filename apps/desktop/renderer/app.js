@@ -375,10 +375,7 @@ async function offerSkipStep(dir, err) {
     ['stash', [step.stash.message, h('span.muted', null, ` · saved ${clock(step.stash.time || step.time)}`)]],
     ['step', `${step.label} · ${clock(step.time)}`],
   ] : null;
-  const v = await resolveSheet({ title, reason: 'The stash this step made was applied or dropped outside GitLanes.', rows, actions: [{
-    id: 'skip', label: 'Skip this step',
-    sub: dir === 'undo' ? `${keyText('edit.undo')} then undoes the step before it` : `${keyText('edit.redo')} then redoes the step after it`,
-  }] });
+  const v = await resolveSheet({ title, reason: 'The stash this step made was applied or dropped outside GitLanes.', rows, actions: [{ id: 'skip', label: 'Skip this step' }] });
   if (!v) return false;
   await (dir === 'undo' ? undo : redo)({ skip: true });
   return true;
