@@ -3182,6 +3182,7 @@ function openLanes() {
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
     onGitTooOld: updateGit,
+    gitWhy,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
     onBranches: (tab) => showBranches(tab),
     onReview: (lane, base) => openReview(lane, base),
@@ -4512,7 +4513,7 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
-    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'squash merge tidy cleanup remove worktree delete branch land' });
+    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'squash merge tidy cleanup remove worktree delete branch land', detail: gitWhy('mergeHere') });
     if (laneSel && !state.review) {
       const l = laneSel.lane;
       const t = laneTitle(l);
@@ -4572,7 +4573,7 @@ function openPalette() {
         const can = (id) => branchesPage.can(id);
         add('Branches', `Show ${n} in the Map`, () => branchesPage.run('open'), { icon: 'map', kbd: keymap.keys('branches.open'), keywords: 'branch open worktree switch map' });
         if (can('review')) add('Branches', `Review ${n}`, () => branchesPage.run('review'), { icon: 'check', kbd: keymap.keys('branches.review'), keywords: 'branch review diff changes' });
-        if (can('merge')) add('Branches', `Merge and tidy ${n}…`, () => branchesPage.run('merge'), { icon: 'merge', kbd: keymap.keys('branches.merge'), keywords: 'branch squash merge tidy land' });
+        if (can('merge')) add('Branches', `Merge and tidy ${n}…`, () => branchesPage.run('merge'), { icon: 'merge', kbd: keymap.keys('branches.merge'), keywords: 'branch squash merge tidy land', detail: gitWhy('mergeHere') });
         if (can('rebase')) add('Branches', `Rebase ${n} onto ${sel.base}`, () => branchesPage.run('rebase'), { icon: 'rebase', kbd: keymap.keys('branches.rebase'), keywords: 'branch rebase update base conflicts' });
         if (can('checks')) add('Branches', `Open checks of ${n}`, () => branchesPage.run('checks'), { icon: 'external', kbd: keymap.keys('branches.checks'), keywords: 'branch ci checks pull request github' });
         if (can('delete')) add('Branches', `${sel.lane.changes ? 'Discard' : 'Delete'} ${n}…`, () => branchesPage.run('delete'), { icon: 'trash', kbd: keymap.keys('branches.delete'), keywords: 'branch delete remove worktree undo' });
