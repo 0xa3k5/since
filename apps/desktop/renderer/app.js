@@ -4280,8 +4280,16 @@ const ghFixAction = (err) => {
   const fix = ghErrorFix(err);
   if (fix?.id === 'login') return { label: fix.label, run: () => api.app('gh-login') };
   if (fix?.id === 'addRemote') return { label: fix.label, run: () => addRemote() };
+  if (fix?.id === 'installStack') return { label: fix.label, run: installStack };
   return null;
 };
+async function installStack() {
+  const t = toast('Installing the stack extension…', { kind: 'busy', timeout: 0 });
+  const res = await api.app('pr-stack-install').catch((e) => ({ error: { message: e.message } }));
+  t.close();
+  if (res?.error) toast('Couldn’t install the stack extension', { kind: 'error', detail: res.error.message });
+  else toast('Installed the stack extension', { kind: 'success' });
+}
 const ghErrorDetail = (err) => (err.code === 'gh-auth' ? 'GitHub CLI isn’t logged in.' : err.message);
 const prError = (title, err) => toast(title, { kind: 'error', detail: ghErrorDetail(err), action: ghFixAction(err) });
 
