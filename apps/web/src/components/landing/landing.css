@@ -27,10 +27,11 @@ section.s { padding-block: 150px; }
 .hero .small { margin: 14px 0 0; max-width: none; }
 .hero-shot { margin: 52px auto 0; max-width: 1100px; text-align: left; }
 
-/* The hero number scrambles with a soft blur, lands, and changes again a few seconds later. */
-.glitch { display: inline-block; position: relative; min-width: 1.18em; text-align: right; font-variant-numeric: tabular-nums;
-  transition: filter .35s ease-out, opacity .35s ease-out, letter-spacing .35s ease-out; }
-.glitch.scr { filter: blur(.06em); opacity: .55; letter-spacing: .06em; color: var(--text); }
+/* The hero number scrambles with a soft blur, lands, and changes again a few seconds later.
+   Fixed width, so the headline never rewraps while the number changes. */
+.glitch { display: inline-block; position: relative; width: 1.25em; text-align: right; font-variant-numeric: tabular-nums;
+  transition: filter .35s ease-out, opacity .35s ease-out; }
+.glitch.scr { filter: blur(.06em); opacity: .55; color: var(--text); }
 
 /* ---------------------------------------------------------------- App frames (real captures in AppShot) */
 .app { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; font-size: 13px; color: var(--text-2); }
@@ -225,9 +226,12 @@ section.s { padding-block: 150px; }
 /* ---------------------------------------------------------------- Narrower screens */
 @media (max-width: 860px) {
   section.s, .problem { padding-block: 100px; }
+  .hero { padding-top: 72px; }
   .feat, #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 40px; }
   #review .copy, #unblock .copy, #merge .copy { grid-template-columns: 1fr; }
-  #review .copy > *, #unblock .copy > *, #merge .copy > * { grid-column: 1; grid-row: auto; }
+  #review .copy > h2, #unblock .copy > h2, #merge .copy > h2,
+  #review .copy > p, #unblock .copy > p, #merge .copy > p,
+  #review .copy > ul, #unblock .copy > ul { grid-column: 1; grid-row: auto; }
   #review .copy > p, #unblock .copy > p, #merge .copy > p { margin-top: 20px; }
   .fit-facts, .facts3 { grid-template-columns: 1fr; }
   .fit-facts div + div, .facts3 > div + div { padding-left: 0; border-left: 0; }
@@ -246,6 +250,8 @@ section.s { padding-block: 150px; }
   .close .small, .hero .small { text-align: left; }
   .kb-console, .faq { margin-left: 0; margin-right: 0; }
   .statement { font-size: 30px; }
+  section.s, .problem { padding-block: 72px; }
+  .hero { padding-top: 48px; }
 }
 
 /* Buttons drawn inside the app frames are pictures, not controls. */
