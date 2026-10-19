@@ -1,10 +1,11 @@
-import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
+import { removalPlan } from './worktree-removal.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -110,7 +111,7 @@ async function git(method, ...args) {
   return r.ok;
 }
 
-async function act(label, method, args = [], { busy, success, undoable = true, quiet = false, then, actions } = {}) {
+async function act(label, method, args = [], { busy, success, detail, undoable = true, quiet = false, then, actions } = {}) {
   closeMenu();
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
@@ -118,7 +119,8 @@ async function act(label, method, args = [], { busy, success, undoable = true, q
     t?.close();
     if (!quiet) {
       const undoBtn = undoable ? { label: 'Undo', run: undo } : null;
-      toast(success || label, actions?.length ? { kind: 'success', actions: [...actions, undoBtn].filter(Boolean) } : { kind: 'success', action: undoBtn });
+      // A toast with a choice stays until it's dismissed or used.
+      toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [...actions, undoBtn].filter(Boolean) } : { kind: 'success', detail, action: undoBtn });
     }
     await refreshAll();
     await then?.(res);
@@ -1499,13 +1501,14 @@ function quickView({ sha, path }) {
 // ---------------------------------------------------------------------------
 // Split commit: pick the lines that become the first commit; the rest become the second.
 
-async function openSplit(c) {
+// `branch`: the commit is on that branch, not this one: Split switches there first (switchRewrite).
+async function openSplit(c, branch = null) {
   if (!c) return;
-  try { await git('checkSplit', c.sha); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
+  try { await git('checkSplit', c.sha, ...(branch ? [branch] : [])); } catch (e) { toast('Can’t split this commit', { kind: 'error', detail: e.message }); return; }
   state.quick = null;
   state.fileHistory = null;
   state.review = null;
-  state.split = { sha: c.sha };
+  state.split = { sha: c.sha, branch };
   renderTopbar();
   renderView();
 }
@@ -1517,7 +1520,7 @@ function closeSplit(select = true) {
   if (select && sha) selectCommit(sha, 'center');
 }
 
-function splitView({ sha }) {
+function splitView({ sha, branch }) {
   const el = h('div.quick.split', { tabIndex: 0 });
   const side = h('div.quick-side.split-side');
   const files = h('div.file-list.split-files');
@@ -1615,7 +1618,8 @@ function splitView({ sha }) {
   async function submit() {
     update();
     if (splitBtn.disabled) { (!first.value.trim() ? first : !second.value.trim() ? second : null)?.focus(); return; }
-    const ok = await act('Split commit', 'rewrite', ['split', sha, { files: selection(), messages: [first.value, second.value] }], { busy: 'Splitting commit…' });
+    const extra = { files: selection(), messages: [first.value, second.value] };
+    const ok = branch ? await switchRewrite('split', { sha }, branch, extra) : await act('Split commit', 'rewrite', ['split', sha, extra], { busy: 'Splitting commit…' });
     if (ok) closeSplit(false);
   }
 
@@ -1666,9 +1670,10 @@ function commitShortcut(e, id, c) {
   const run = {
     'commit.branch': () => createBranch(c.sha), 'commit.tag': () => createTag(c.sha), 'commit.merge': () => mergeCommit(c),
     'commit.rebase': () => rebaseOnto(c), 'commit.cherryPick': () => cherryPick(c), 'commit.revert': () => revertCommit(c),
-    'commit.edit': () => editMessage(c), 'commit.squash': () => rewriteOp('squash', c), 'commit.fixup': () => rewriteOp('fixup', c),
-    'commit.drop': () => rewriteOp('drop', c), 'commit.checkout': () => checkoutCommit(c), 'commit.diffHead': () => diffWithHead(c),
-    'commit.worktree': () => addWorktree({ base: c.sha }), 'commit.split': () => openSplit(c), 'commit.author': () => openAuthor(c),
+    'commit.edit': () => rewriteVia(c, 'reword', (b) => editMessage(c, b)), 'commit.squash': () => rewriteVia(c, 'squash', (b) => rewriteOp('squash', c, b)),
+    'commit.fixup': () => rewriteVia(c, 'fixup', (b) => rewriteOp('fixup', c, b)), 'commit.drop': () => rewriteVia(c, 'drop', (b) => rewriteOp('drop', c, b)),
+    'commit.checkout': () => checkoutCommit(c), 'commit.diffHead': () => diffWithHead(c),
+    'commit.worktree': () => addWorktree({ base: c.sha }), 'commit.split': () => rewriteVia(c, 'split', (b) => openSplit(c, b)), 'commit.author': () => openAuthor(c),
   }[id];
   if (!run) return;
   e.preventDefault();
@@ -1684,7 +1689,9 @@ function guarded(id, c, run) {
   else run();
 }
 
-function commitMenu(x, y, c) {
+async function commitMenu(x, y, c) {
+  // Not on this branch: each rewrite switches to a local branch containing it first (AK-581).
+  const targets = await rewriteTargets(c);
   const locals = branchesAt(c.sha);
   const isHead = c.sha === state.head.oid;
   const remote = originRemote();
@@ -1712,12 +1719,12 @@ function commitMenu(x, y, c) {
     { label: 'Revert', icon: 'revert', kbd: keymap.keys('commit.revert'), run: () => revertCommit(c) },
     '-',
     { section: 'Rewrite' },
-    { label: 'Edit Message…', icon: 'edit', kbd: keymap.keys('commit.edit'), run: () => editMessage(c) },
-    { label: 'Squash with Parent', icon: 'squash', kbd: keymap.keys('commit.squash'), disabled: off('commit.squash'), run: () => rewriteOp('squash', c) },
-    { label: 'Fixup with Parent', icon: 'squash', kbd: keymap.keys('commit.fixup'), disabled: off('commit.fixup'), run: () => rewriteOp('fixup', c) },
-    { label: 'Swap with Parent', icon: 'swap', disabled: off('swapParent'), run: () => rewriteOp('swapParent', c) },
-    { label: 'Split Commit…', icon: 'split', kbd: keymap.keys('commit.split'), disabled: off('commit.split'), run: () => openSplit(c) },
-    { label: 'Delete Commit', icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: off('commit.drop'), run: () => rewriteOp('drop', c) },
+    rewriteItem(targets, 'reword', 'Edit Message…', { icon: 'edit', kbd: keymap.keys('commit.edit') }, (b) => editMessage(c, b)),
+    rewriteItem(targets, 'squash', 'Squash with Parent', { icon: 'squash', kbd: keymap.keys('commit.squash'), disabled: off('commit.squash') }, (b) => rewriteOp('squash', c, b)),
+    rewriteItem(targets, 'fixup', 'Fixup with Parent', { icon: 'squash', kbd: keymap.keys('commit.fixup'), disabled: off('commit.fixup') }, (b) => rewriteOp('fixup', c, b)),
+    rewriteItem(targets, 'swapParent', 'Swap with Parent', { icon: 'swap', disabled: off('swapParent') }, (b) => rewriteOp('swapParent', c, b)),
+    rewriteItem(targets, 'split', 'Split Commit…', { icon: 'split', kbd: keymap.keys('commit.split'), disabled: off('commit.split') }, (b) => openSplit(c, b)),
+    rewriteItem(targets, 'drop', 'Delete Commit', { icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: off('commit.drop') }, (b) => rewriteOp('drop', c, b)),
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
     remote?.web ? { label: 'Copy Link to Commit', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
@@ -1977,14 +1984,62 @@ function rebaseOnto(c) {
 }
 function cherryPick(c) { act(`Cherry-pick ${c.sha.slice(0, 7)}`, 'cherryPick', [c.sha]); }
 function revertCommit(c) { act(`Revert ${c.sha.slice(0, 7)}`, 'revert', [c.sha]); }
-async function editMessage(c) {
+async function editMessage(c, branch = null) {
   const full = await loadCommit(c.sha);
   const msg = await prompt('Edit commit message', { value: full.message, multiline: true, submit: 'Save', description: `${c.sha.slice(0, 7)} · descendants will be rewritten` });
-  if (msg && msg !== full.message) act('Edit message', 'rewrite', ['reword', c.sha, { message: msg + '\n' }], { busy: 'Rewriting history…' });
+  if (!msg || msg === full.message) return;
+  if (branch) return switchRewrite('reword', c, branch, { message: msg + '\n' });
+  act('Edit message', 'rewrite', ['reword', c.sha, { message: msg + '\n' }], { busy: 'Rewriting history…' });
 }
-function rewriteOp(op, c) {
-  const label = { squash: 'Squash with parent', fixup: 'Fixup with parent', swapParent: 'Swap with parent', drop: 'Delete commit' }[op];
-  act(label, 'rewrite', [op, c.sha], { busy: 'Rewriting history…' });
+const REWRITE_LABELS = { reword: 'Edit message', squash: 'Squash with parent', fixup: 'Fixup with parent', swapParent: 'Swap with parent', split: 'Split commit', drop: 'Delete commit' };
+function rewriteOp(op, c, branch = null) {
+  if (branch) return switchRewrite(op, c, branch);
+  act(REWRITE_LABELS[op], 'rewrite', [op, c.sha], { busy: 'Rewriting history…' });
+}
+
+// The local branches to switch to for rewriting `c` when it isn't on this branch (AK-581): those
+// containing it, except ones checked out in another worktree. null: it's on this branch.
+async function rewriteTargets(c) {
+  const where = await git('commitBranches', c.sha).catch(() => null);
+  return !where || where.onHead ? null : where.branches.filter((b) => !worktreeOf(b));
+}
+// A Rewrite menu item that says what happens: run here, "Switch to feature/api & Squash", or a
+// "Switch to" submenu when several branches contain the commit.
+const REWRITE_VERBS = { reword: 'Edit Message…', squash: 'Squash', fixup: 'Fixup', swapParent: 'Swap', split: 'Split…', drop: 'Delete' };
+function rewriteItem(targets, op, label, props, run) {
+  if (!targets) return { label, ...props, run: () => run(null) };
+  if (props.disabled) return { label, ...props };
+  if (!targets.length) return { label, ...props, kbd: null, disabled: true, why: 'Not on a branch here' };
+  const verb = REWRITE_VERBS[op];
+  if (targets.length === 1) return { label: `Switch to ${targets[0]} & ${verb}`, ...props, kbd: null, run: () => run(targets[0]) };
+  return { label: `Switch & ${verb.replace('…', '')} ▸`, ...props, kbd: null, submenu: [{ section: 'Switch to' }, ...targets.map((b) => ({ label: b, icon: 'branch', run: () => run(b) }))] };
+}
+
+// A rewrite shortcut: here, on the one branch containing the commit, or with a "Switch to" choice.
+async function rewriteVia(c, op, run) {
+  const t = await rewriteTargets(c);
+  if (!t || t.length === 1) return run(t ? t[0] : null);
+  if (!t.length) return toast('This commit isn’t on a branch here', { kind: 'error' });
+  const row = document.querySelector('.map-list .row.selected')?.getBoundingClientRect();
+  contextMenu(row ? row.left + 48 : innerWidth / 3, row ? row.bottom + 2 : innerHeight / 3, rewriteItem(t, op, '', {}, run).submenu, { focus: 0 });
+}
+
+// Switch to `branch` (stashing this window's changes), then rewrite `c` there: one undo step that
+// brings back the branch, the switch and the stash (Journal.switchRewrite).
+function switchRewrite(op, c, branch, extra = null) {
+  const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
+  const n = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+  const from = state.head.branch;
+  const stash = n ? { message: stashMessage(from, branch), untracked } : null;
+  const done = { reword: 'Reworded', squash: 'Squashed', fixup: 'Fixed up', swapParent: 'Swapped', split: 'Split', drop: 'Deleted' }[op];
+  return act(`${REWRITE_LABELS[op]} on ${branch}`, 'switchRewrite', [branch, op, c.sha, extra, ...(stash ? [stash] : [])], {
+    busy: 'Rewriting history…',
+    success: `${done} ${c.sha.slice(0, 7)} on ${branch}`,
+    detail: `Switched from ${from || 'detached HEAD'}.${n ? ` ${n} change${n === 1 ? '' : 's'} stashed.` : ''}`,
+    actions: stash ? [showStashAction(stash.message)] : null,
+    // Offered back on returning to `from`, like any stash-and-switch.
+    then: (a) => { if (a?.branch) savePref('autostashes', { list: [...loadPref('autostashes', { list: [] }).list, { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
+  });
 }
 async function diffWithHead(c) {
   if (!state.head.oid || c.sha === state.head.oid) return;
@@ -3126,21 +3181,23 @@ function sendBackPr(number) {
 // commit, then remove its worktree and delete its branch, as one undo step. A lane with an open
 // PR (pull requests on) can be merged on GitHub instead (`gh pr merge --squash`, not undoable);
 // the local tidy after it is. Deleting the remote branch is opt-in and never undoable.
-async function mergeLane(lane, base = null, onDone = null) {
+// `handed`: another window handed this over (the base is checked out here); the window showing the
+// lane's worktree, if any, is closed when it's tidied.
+async function mergeLane(lane, base = null, onDone = null, { handed = false } = {}) {
   if (!state.repo || !lane) return;
   if (!lane.branch) return toast(`${lane.name} is not on a branch`, { detail: 'Merge and tidy works on branches.' });
   let plan;
   try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
   const away = plan.worktree && state.worktrees.find((w) => w.path === plan.worktree.path);
-  if (away?.elsewhere) return openElsewhere(`Merge and tidy ${lane.name}`, away);
+  if (away?.elsewhere && !handed) return openElsewhere(`Merge and tidy ${lane.name}`, away);
+  const close = away?.elsewhere ? [{ close: true }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   const n = plan.commits.length;
-  // The base is checked out in another worktree: merging happens in that worktree's window.
-  if (plan.mergeBlocker && !pr && n && plan.baseWorktree) {
-    const go = await resolveSheet({ title: `Merge ${lane.name} into ${plan.base}`, reason: plan.mergeBlocker, actions: [{ id: 'open', label: 'Open that window' }] });
-    if (go) api.app('open-window', plan.baseWorktree.path);
-    return;
+  // The base is checked out in another worktree: that worktree's window opens and merges there.
+  if (plan.mergeBlocker && !pr && n && plan.baseWorktree && !handed) {
+    try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+    return toast(`Merging in ${plan.baseWorktree.name}`);
   }
   if (plan.mergeBlocker && !pr && n) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
   // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
@@ -3210,14 +3267,14 @@ async function mergeLane(lane, base = null, onDone = null) {
     if (move) return act(`Delete branch ${lane.branch}`, 'switchDelete', [move.to, ...(move.stash ? [move.stash] : [])], { success: `Switched to ${move.to} and deleted ${lane.branch}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null });
     if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
     if (kept) return;
-    return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
+    return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...close], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
   const ok = move
     ? await act(label, 'switchMerge', [move.to, lane.branch, plan.base, v.message, ...(move.stash ? [move.stash] : [])], { busy: 'Merging…', success: `Switched to ${move.to} and merged ${lane.branch} into ${plan.base}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null })
     : n
-    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
-    : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
+    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message, ...close], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
+    : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...close], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
   if (ok) onDone?.();
   if (ok && state.review && !kept) closeReview();
@@ -3320,26 +3377,69 @@ async function addWorktree({ base = null, branch = '' } = {}) {
   });
 }
 
-async function removeWorktree(w) {
-  if (w.missing) return pruneWorktrees();
-  if (w.main) return toast('The main worktree can’t be removed', { kind: 'error' });
-  if (w.locked) return toast(`“${w.name}” is locked`, { kind: 'error', detail: 'Unlock it first.' });
-  if (w.elsewhere) return openElsewhere(`Remove worktree “${w.name}”?`, w);
-  // Blocked while dirty: the check is repeated in the main process, this one just saves a dialog.
-  const n = await git('worktreeChanges', w.path).catch(() => 0);
-  if (n) return toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: `It has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.` });
-  // This window shows it: switch to the main worktree, then remove it from there.
-  if (w.current) {
-    const main = state.worktrees.find((x) => x.main);
-    if (!main) return;
-    const go = await resolveSheet({ title: `Remove worktree “${w.name}”?`, reason: 'This window is showing it.', actions: [{ id: 'switch', label: 'Switch to main worktree and remove' }] });
-    if (!go) return;
-    await switchWorktree(main);
-    if (state.repo?.root !== main.path) return; // open in another window, or it failed to open
+// Remove a worktree (AK-581). Its changes are stashed and the window showing it is closed first:
+// ⌘Z brings it all back. Asks first, on the menu item, only when that window holds work undo
+// can't bring back. When this window shows it, the main worktree's window (or this one, switched
+// there) removes it. `handed`: another window asked already and handed it over.
+async function removeWorktree(w, { handed = false } = {}) {
+  const at = menuAnchor();
+  const main = state.worktrees.find((x) => x.main);
+  const facts = w.missing || w.main || w.locked ? {} : await git('removalFacts', w.path).catch(() => ({}));
+  let draft = false;
+  try { draft = !!localStorage.getItem('draft:' + w.path)?.trim(); } catch { /* ignore */ }
+  let plan = removalPlan(w, { main, facts, draft });
+  if (plan.kind === 'prune') return pruneWorktrees();
+  if (plan.kind === 'blocked') return toast(plan.why, { kind: 'error' });
+  const asked = plan.kind === 'ask';
+  if (asked) {
+    if (!handed && !(await askAt(at, plan.why, plan.then.close || plan.then.kind === 'handoff' ? 'Close and remove' : 'Remove'))) return;
+    plan = plan.then;
   }
-  const what = w.branch ? `Branch ${w.branch} is kept.` : `Its detached HEAD (${w.head?.slice(0, 7)}) is kept for undo.`;
-  if (!(await confirm(`Remove worktree “${w.name}”?`, `Deletes the folder ${tildify(w.path)}. ${what} Ignored files in it, such as build output, are deleted for good; ${MOD}Z brings everything else back.`, { submit: 'Remove' }))) return;
-  act(`Remove worktree ${w.name}`, 'removeWorktree', [w.path], { busy: 'Removing worktree…' });
+  if (plan.kind === 'handoff') {
+    try { await api.app('handoff', { kind: 'removeWorktree', dir: plan.dir, path: w.path }); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: e.message }); }
+    return;
+  }
+  if (!w.elsewhere && !handed && !asked) {
+    const what = w.branch ? `Branch ${w.branch} is kept.` : `Its detached HEAD (${w.head?.slice(0, 7)}) is kept for undo.`;
+    const stashed = facts.changes ? ` ${facts.changes} uncommitted change${facts.changes > 1 ? 's are' : ' is'} stashed.` : '';
+    if (!(await confirm(`Remove worktree “${w.name}”?`, `Deletes the folder ${tildify(w.path)}. ${what}${stashed} Ignored files in it, such as build output, are deleted for good; ${MOD}Z brings everything else back.`, { submit: 'Remove' }))) return;
+  }
+  if (plan.kind === 'switch') {
+    await switchWorktree(main);
+    if (state.repo?.root !== main.path) return toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: `${main.name} didn’t open in this window.` });
+    plan = plan.then;
+  }
+  const stash = plan.stash ? `GitLanes: ${w.name} before removing it` : null;
+  act(`Remove worktree ${w.name}`, 'removeWorktree', [w.path, { close: plan.close, stash: plan.stash, abort: plan.abort }], {
+    busy: 'Removing worktree…',
+    success: `Removed ${w.name}`,
+    detail: plan.close ? 'Closed its window first.' : undefined,
+    actions: stash ? [showStashAction(stash)] : null,
+  });
+}
+
+// A question about the menu item just chosen, on the same spot: `ok` or Cancel. Dismissing it is Cancel.
+function askAt(at, why, ok) {
+  return new Promise((resolve) => {
+    const a = at || { x: innerWidth / 3, y: innerHeight / 3 };
+    let answered = false;
+    const pick = (v) => () => { answered = true; resolve(v); };
+    contextMenu(a.x, a.y, [{ section: why }, { label: ok, icon: 'trash', danger: true, run: pick(true) }, { label: 'Cancel', icon: 'x', run: pick(false) }], { focus: 1 });
+    const menu = document.querySelector('.menu');
+    new MutationObserver((_, obs) => { if (!menu.isConnected) { obs.disconnect(); setTimeout(() => { if (!answered) resolve(false); }); } }).observe(document.body, { childList: true });
+  });
+}
+
+// A step another window handed to this one (main process app:handoff, AK-581).
+async function takeHandoff() {
+  const h = await api.app('take-handoff').catch(() => null);
+  if (!h || !state.repo) return;
+  await refreshHistory();
+  if (h.kind === 'removeWorktree') {
+    const w = state.worktrees.find((x) => x.path === h.path);
+    return w ? removeWorktree(w, { handed: true }) : toast('That worktree is already gone');
+  }
+  if (h.kind === 'mergeLane') return mergeLane({ name: h.branch, branch: h.branch }, h.base, null, { handed: true });
 }
 
 async function toggleLock(w) {
@@ -4491,6 +4591,7 @@ async function bound(promise) {
   if (r.error) { toast('Could not open repository', { kind: 'error', detail: r.error.message }); return; }
   if (!r.ok || r.ok.focused) return;
   await loadRepo(r.ok);
+  takeHandoff();
 }
 
 async function loadRepo(repo) {
@@ -4550,6 +4651,7 @@ async function closeRepo() {
 // ---------------------------------------------------------------------------
 // Global events
 
+// `refs` is also set when a window opened, closed or switched worktree (which are open elsewhere).
 api.on('repo:changed', ({ refs, workdir }) => {
   if (!state.repo) return;
   if (refs) { refreshHistory(); refreshAux(); }
@@ -4609,6 +4711,7 @@ const commands = {
   licence: () => openLicence(),
   buy,
   shortcuts: () => openShortcuts(),
+  handoff: () => takeHandoff(),
 };
 api.on('command', (cmd, ...args) => {
   // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
@@ -4617,7 +4720,7 @@ api.on('command', (cmd, ...args) => {
   // With Preferences open, ⌘, closes it, ⌘9 jumps to Repository and ⌘F goes to its search.
   if (prefs && cmd === 'preferences') return openPrefsCommand(args[0]) === 'show' ? prefs.show(args[0]) : prefs.close();
   if (prefs && cmd === 'search') return prefs.find();
-  if (document.querySelector('.overlay') && cmd !== 'undo' && cmd !== 'redo') return;
+  if (document.querySelector('.overlay') && !['undo', 'redo', 'handoff'].includes(cmd)) return;
   commands[cmd]?.(...args);
 });
 

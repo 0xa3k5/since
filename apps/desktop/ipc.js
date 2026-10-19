@@ -182,7 +182,8 @@ const gitSchemas = {
   commit: [rev],
   commitFileDiff: [rev, fileEntry, optional(rev)],
   commitDiffs: [rev],
-  checkSplit: [rev],
+  checkSplit: [rev, optional(rev)],
+  commitBranches: [oid],
   compare: [rev, rev],
   branchReview: [rev, optional(rev)],
   changeFacts: [rev, rev],
@@ -207,6 +208,7 @@ const gitSchemas = {
   worktreeChanges: [worktreeDir],
   freeBlocker: [worktreeDir],
   worktreeHold: [worktreeDir],
+  removalFacts: [worktreeDir],
   baseTouches: [rev, rev, repoPaths],
   conflict: [repoPath],
   fileHistory: [repoPath, optional((v, w) => obj(v, w, { from: rev, skip: int, limit: int, path: repoPath }))],
@@ -232,6 +234,8 @@ const gitSchemas = {
   rebaseOnto: [rev],
   rebaseBranch: [rev, rev],
   rewrite: [oneOf('drop', 'reword', 'squash', 'fixup', 'swapParent', 'split'), oid, optional(rewriteExtra)],
+  // Switch to a branch containing the commit (stashing first), then rewrite it there: one undo step.
+  switchRewrite: [rev, oneOf('drop', 'reword', 'squash', 'fixup', 'swapParent', 'split'), oid, optional(rewriteExtra), optional((v, w) => obj(v, w, { message: text, untracked: optional(bool) }))],
   createCommit: [text, optional(bool)],
   pull: [],
   continueOp: [],
@@ -264,7 +268,8 @@ const gitSchemas = {
   pruneWorktrees: [],
   // undoable worktree operations (journal.worktreeOps)
   addWorktree: [worktreeSpec],
-  removeWorktree: [worktreeDir],
+  // `close`: close the window showing it first; `stash` its changes; `abort` a stopped operation there.
+  removeWorktree: [worktreeDir, optional((v, w) => obj(v, w, { close: optional(bool), stash: optional(bool), abort: optional(bool) }))],
   // bulk cleanup from Lanes (journal.runCleanup); worktree paths are resolved in main.js
   cleanupLanes: [(v, w) => list(v, w, cleanupItem)],
   // undoable working-tree operations (journal.workOps)
@@ -276,8 +281,9 @@ const gitSchemas = {
   stashApply: [rev, optional(bool)],
   stashDrop: [rev],
   // undoable merge and tidy of a lane (journal.runLane): branch, base, commit message; branch
-  mergeLane: [rev, rev, text],
-  tidyLane: [rev],
+  // `close`: close the window showing the lane's worktree first (a merge handed over from it).
+  mergeLane: [rev, rev, text, optional((v, w) => obj(v, w, { close: optional(bool) }))],
+  tidyLane: [rev, optional((v, w) => obj(v, w, { close: optional(bool) }))],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
   updateSubmodules: [optional(repoPaths)],
   // history
@@ -361,6 +367,13 @@ function insideRepo(root, rel) {
   return abs;
 }
 
+// A step handed to another window of this repository (AK-581): remove a worktree, or merge and tidy a branch there.
+const handoff = (v) => {
+  obj(v, 'handoff', { kind: oneOf('removeWorktree', 'mergeLane'), dir: absDir, path: absDir, branch: rev, base: rev });
+  const need = v.kind === 'removeWorktree' ? ['path'] : ['branch', 'base'];
+  for (const k of ['kind', 'dir', ...need]) if (v[k] == null) fail(`handoff.${k}`, 'is required');
+  return v;
+};
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, mediaId, knownRemote, remoteName, obj };
+module.exports = { IpcArgError, checkGit, handoff, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, mediaId, knownRemote, remoteName, obj };
