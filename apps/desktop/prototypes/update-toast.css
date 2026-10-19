@@ -1,0 +1,24 @@
+/* Prototype-only page chrome. The .toast.updated rules are the part that would move to styles.css. */
+.proto { margin: 0; min-height: 100vh; background: var(--bg-content); color: var(--text); font: 13px/1.45 var(--font); }
+.proto-board { display: flex; align-items: flex-start; gap: 32px; padding: 40px; }
+.proto-col { display: flex; flex-direction: column; gap: 12px; }
+.proto-label { margin: 0; font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
+.proto-slot .toast { opacity: 1; transform: none; }
+.proto-play { position: fixed; left: 40px; bottom: 24px; display: flex; gap: 6px; }
+
+/* --- Post-update toast -------------------------------------------------------- */
+.toast.updated { width: 360px; padding: 12px 10px 12px 12px; gap: 10px; }
+.toast.updated .toast-title { white-space: nowrap; }
+.toast.updated .toast-detail { font: inherit; font-size: 12.5px; color: var(--text-2); white-space: normal; }
+.toast-badge { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent-fg); }
+.toast-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; padding: 0 2px; margin-left: -2px; border-radius: 4px; color: var(--accent-fg); font-weight: var(--fw-strong); background: none; border: 0; font-size: 12.5px; cursor: pointer; }
+.toast-link:hover { text-decoration: underline; }
+.toast-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.toast-link .icon { opacity: .8; }
+.toast-notes { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--text-2); }
+.toast-notes li { display: flex; gap: 7px; }
+.toast-notes li::before { content: ""; flex: none; width: 4px; height: 4px; margin-top: 7px; border-radius: 50%; background: var(--text-4); }
+.toast.updated.compact { width: auto; align-items: center; padding: 8px 8px 8px 10px; }
+.toast.updated.compact .toast-badge { width: 22px; height: 22px; }
+.toast.updated.compact .toast-link { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .toast.updated { transition: opacity .14s; transform: none; } }

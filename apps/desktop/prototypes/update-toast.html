@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- Prototype (AK-574): the toast shown once on the first launch after GitLanes updated itself.
+     Not loaded by the app. Open this file in a browser; the theme follows macOS appearance. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Prototype: post-update toast</title>
+  <link rel="stylesheet" href="../renderer/styles.css">
+  <link rel="stylesheet" href="update-toast.css">
+</head>
+<body class="proto">
+  <main class="proto-board">
+    <section class="proto-col" data-variant="a"><h2 class="proto-label">A · Compact</h2><div class="proto-slot"></div></section>
+    <section class="proto-col" data-variant="b"><h2 class="proto-label">B · Headline (recommended)</h2><div class="proto-slot"></div></section>
+    <section class="proto-col" data-variant="c"><h2 class="proto-label">C · Highlights</h2><div class="proto-slot"></div></section>
+  </main>
+  <div class="proto-play">
+    <button class="btn small subtle" data-play="a">Play A</button>
+    <button class="btn small subtle" data-play="b">Play B</button>
+    <button class="btn small subtle" data-play="c">Play C</button>
+  </div>
+  <div id="toasts"></div>
+  <script src="update-toast.js"></script>
+</body>
+</html>
