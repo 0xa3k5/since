@@ -5037,7 +5037,8 @@ async function offerNotRepo({ dir, name, repos }) {
     title: `Open ${name}`,
     reason: 'Not a git repository.',
     rows: repos.map((r, i) => [r.name, tildePath(r.root), `repo:${i}`]),
-    actions: [only && { id: `repo:${repos.indexOf(only)}`, label: `Open ${only.name}` }, { id: 'init', label: 'Create repository here' }],
+    // With several repositories inside, creating one here (irreversible) is never the default.
+    actions: [only && { id: `repo:${repos.indexOf(only)}`, label: `Open ${only.name}` }, { id: 'init', label: 'Create repository here', primary: !!only }],
   });
   if (!v) return false;
   if (v.id === 'init') return bound(api.app('init-here', dir));
