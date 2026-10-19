@@ -1938,21 +1938,16 @@ async function inUseSheet(branch, wt) {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   const mine = switchChanges();
   const p = inUsePlan(wt, hold, mine);
-  const name = h('span', { title: wt.path }, wt.name);
-  const v = await resolveSheet({
-    title: ['Check out ', ref(branch)],
-    reason: p.kind === 'blocked' ? ['Checked out in ', name, `. ${p.why}`] : p.kind === 'clean' ? ['Checked out in ', name, '.'] : [ref(branch), ' is in use by the worktree ', name, '.'],
-    detail: p.kind === 'dirty' ? [{ text: `${wt.name} · ${p.where} · ${p.changes}`, kind: 'warn' }, p.changed && { text: p.changed, kind: 'muted' }] : null,
-    checkbox: p.stash ? { label: p.stash, checked: true } : null,
-    actions: p.actions.map((id) => ({ free: { id, label: 'Free it & check out' }, move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
-  const why = wt.missing ? 'Its folder no longer exists.' : await git('freeBlocker', wt.path).catch((e) => e.message);
-  const n = wt.missing ? 0 : await git('worktreeChanges', wt.path).catch(() => 0);
-  const status = wt.missing ? 'missing' : n ? `${n} uncommitted change${n === 1 ? '' : 's'}` : why || 'clean';
+  const status = p.kind === 'dirty' ? p.changes : p.kind === 'clean' ? 'clean' : wt.missing ? 'missing' : p.why;
   const v = await resolveSheet({
     title: ['Check out ', ref(branch)],
     reason: [ref(branch), ' is in use by the worktree ', h('span.sheet-strong', null, wt.name), '.'],
-    rows: [[[wt.name, h('span.sheet-row-path', null, tildify(wt.path))], h(status === 'clean' ? 'span' : 'span.warn', null, status)]],
-    actions: [!why && { id: 'free', label: 'Free it and check out here' }, !wt.missing && { id: 'open', label: 'Open that worktree' }],
+    rows: [
+      [[wt.name, h('span.sheet-row-path', null, p.where)], h(status === 'clean' ? 'span' : 'span.warn', null, status)],
+      p.changed && [h('span.muted', null, p.changed), ''],
+    ].filter(Boolean),
+    checkbox: p.stash ? { label: p.stash, checked: true } : null,
+    actions: p.actions.map((id) => ({ free: { id, label: 'Free it & check out' }, move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
   });
   if (v?.id === 'open') wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path);
   if (v?.id === 'move') return { id: 'move', stash: v.checked ? { message: stashMessage(state.head.branch, branch), untracked } : null };

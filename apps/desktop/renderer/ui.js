@@ -285,7 +285,6 @@ export function sheetActions(actions = []) {
   return [...list.slice(1), ...list.slice(0, 1)];
 }
 
-export function resolveSheet({ title, reason, detail, actions = [], pick, checkbox }) {
 // `rows`: [[name, value, id?]] shown under the reason (what moved, say); a row with an id is a
 // button that closes the sheet with that id. `lists`: [{ title, rows: [[sha, subject, author, age]], more }]
 // commit lists (AK-585); `forecast`: { text, ok } the deciding fact under them. An action's `sub` is
@@ -313,8 +312,6 @@ export function resolveSheet({ title, reason, rows, lists, forecast, actions = [
       h('div.dialog-head', null,
         h('div.dialog-title', null, title),
         reason ? h('div.sheet-reason', null, icon('warning', 14), h('span', null, reason)) : null),
-      pick || checkbox || detail ? h('div.dialog-body', null,
-        detail ? h('div.sheet-detail', null, detail.filter(Boolean).map((d) => h('div.sheet-detail-line.' + d.kind, null, d.text))) : null,
       pick || checkbox || rows?.length || lists?.length || forecast ? h('div.dialog-body', null,
         lists?.length ? lists.map((l) => h('div.sheet-list', null,
           h('div.sheet-list-title', null, l.title),
