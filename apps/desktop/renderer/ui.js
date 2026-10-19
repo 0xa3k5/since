@@ -203,12 +203,18 @@ export function toast(message, { kind = 'info', action, actions = [], timeout = 
 // --- Modal dialogs -------------------------------------------------------------
 // `gate` names a checkbox field that must be ticked before submit is enabled ("merge anyway").
 // `content`: elements shown above the fields (e.g. a list of what the action touches).
+// A `required` text field left blank keeps the dialog open and marks the field.
 export function dialog({ title, description, content = [], fields = [], submit = 'Continue', destructive = false, wide = false, gate }) {
   return new Promise((resolve) => {
     const inputs = {};
     const prev = document.activeElement;
     const form = h('form.dialog' + (wide ? '.wide' : ''), {
-      onsubmit: (e) => { e.preventDefault(); finish(Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.type === 'checkbox' ? el.checked : el.value]))); },
+      onsubmit: (e) => {
+        e.preventDefault();
+        const blank = fields.find((f) => f.required && !inputs[f.name].value.trim());
+        if (blank) { inputs[blank.name].setAttribute('aria-invalid', 'true'); inputs[blank.name].focus(); return; }
+        finish(Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.type === 'checkbox' ? el.checked : el.value])));
+      },
     },
       h('div.dialog-head', null, h('div.dialog-title', null, title), description ? h('div.dialog-desc', null, description) : null),
       fields.length || content.length ? h('div.dialog-body', null, ...content, ...fields.map((f) => {
@@ -229,6 +235,7 @@ export function dialog({ title, description, content = [], fields = [], submit =
           ? h('textarea.input', { rows: f.rows || 6, placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, readonly: f.readonly })
           : h('input.input', { type: 'text', placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, autocomplete: 'off' });
         if (f.multiline) inputs[f.name].addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.submit') form.requestSubmit(); });
+        if (f.required) inputs[f.name].addEventListener('input', () => inputs[f.name].removeAttribute('aria-invalid'));
         return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
       })) : null,
       h('div.dialog-foot', null,

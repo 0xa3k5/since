@@ -1918,12 +1918,12 @@ async function checkoutSelected(c, at) {
   }
 }
 async function createBranch(sha) {
-  const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch' }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
+  const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch', required: true }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
   if (!v || !v.name.trim()) return;
   act(`Create branch ${v.name.trim()}`, 'createBranch', [v.name.trim(), sha, v.co]);
 }
 async function createTag(sha) {
-  const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v1.0.0' }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
+  const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v1.0.0', required: true }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
   if (!v || !v.name.trim()) return;
   act(`Create tag ${v.name.trim()}`, 'createTag', [v.name.trim(), sha, v.msg.trim() || null]);
 }
@@ -2104,7 +2104,9 @@ function createCommitView(container) {
   function updateCommitBtn() {
     const can = textarea.value.trim() && (state.status.staged.length || state.amend) && !state.status.conflicts.length;
     commitBtn.disabled = !can;
-    commitBtn.firstChild.textContent = state.amend ? 'Amend' : `Commit${state.status.staged.length ? ` ${state.status.staged.length} file${state.status.staged.length > 1 ? 's' : ''}` : ''}`;
+    // Greyed for a reason the message can't fix: the label says it.
+    const n = state.status.staged.length;
+    commitBtn.firstChild.textContent = state.status.conflicts.length ? 'Resolve conflicts' : state.amend ? 'Amend' : n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing staged';
   }
 
   async function doCommit() {
@@ -2423,8 +2425,11 @@ function createCommitView(container) {
       if (state.cv.lines.size && stageSelectedLines) return stageSelectedLines();
       const [l, f] = all[i];
       if (l === 'unstaged') quiet('stageFiles', paths(targets(l, f))); else if (l === 'staged') quiet('unstageFiles', paths(targets(l, f)));
-    } else if (id === 'cv.discard' && i !== -1 && all[i][0] === 'unstaged') {
-      e.preventDefault(); discard(targets('unstaged', all[i][1]));
+      else toast(`Can’t stage ${baseName(f.path)}`, { detail: 'Conflicted' });
+    } else if (id === 'cv.discard' && i !== -1) {
+      e.preventDefault();
+      if (all[i][0] === 'unstaged') discard(targets('unstaged', all[i][1]));
+      else toast(`Can’t discard ${baseName(all[i][1].path)}`, { detail: all[i][0] === 'staged' ? 'Staged' : 'Conflicted' });
     } else if (id === 'cv.message') {
       e.preventDefault(); textarea.focus();
     } else if (id === 'cv.layout') {
@@ -3144,7 +3149,8 @@ function paneAction(id, row, ctx) {
   if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
   if (id === 'updateBranch' && pr) return updatePrBranch(pr, done);
   if (id === 'sendBack') return sendBackRow(row, ctx);
-  toast(`That doesn’t apply to ${row.title}`);
+  const why = id !== 'rebase' ? 'No pull request' : !local ? (lane?.isBase ? 'Base branch' : 'Not checked out here') : 'No base branch';
+  toast(`That doesn’t apply to ${row.title}`, { detail: why });
 }
 
 // Send back (send-back-view.js): the sheet for a stuck row. sendBackPr(number) opens it for that
@@ -3352,10 +3358,10 @@ function worktreeMenu(x, y, w) {
     { label: 'Open in Terminal', icon: 'terminal', disabled: w.missing, run: () => api.app('terminal', w.path) },
     { label: 'Copy Path', icon: 'copy', run: () => copy(w.path, 'Copied path') },
     '-',
-    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: keymap.keys('worktrees.lock'), disabled: w.main, run: () => toggleLock(w) },
+    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: keymap.keys('worktrees.lock'), disabled: w.main, why: w.main ? 'Main worktree' : null, run: () => toggleLock(w) },
     w.missing
       ? { label: 'Prune Missing Worktrees', icon: 'trash', danger: true, run: pruneWorktrees }
-      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main, run: () => removeWorktree(w) },
+      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main, why: w.main ? 'Main worktree' : null, run: () => removeWorktree(w) },
   ]);
 }
 
@@ -3443,7 +3449,7 @@ async function takeHandoff() {
 }
 
 async function toggleLock(w) {
-  if (w.main) return;
+  if (w.main) return toast('The main worktree can’t be locked');
   if (w.locked) return act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false });
   const v = await dialog({ title: `Lock worktree “${w.name}”?`, description: 'A locked worktree can’t be removed or pruned, by GitLanes or by git, until it is unlocked.', submit: 'Lock', fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'On an external drive' }] });
   if (v) act(`Lock ${w.name}`, 'lockWorktree', [w.path, v.reason.trim() || null], { undoable: false });
