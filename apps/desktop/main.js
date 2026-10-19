@@ -194,6 +194,7 @@ const reads = {
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
   opState: (s) => git.getOperationState(s.repo.gitDir),
   opInfo: (s) => git.getOperationInfo(s.repo.root, s.repo.gitDir),
+  divergence: (s, fetch) => git.divergence(s.repo.root, { fetch }),
   conflict: (s, p) => git.getConflict(s.repo.root, p),
   fileHistory: (s, p, page) => git.fileHistory(s.repo.root, page?.path || p, page),
   trackedFiles: (s) => git.trackedFiles(s.repo.root),

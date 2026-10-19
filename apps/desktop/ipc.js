@@ -203,6 +203,7 @@ const gitSchemas = {
   status: [],
   opState: [],
   opInfo: [],
+  divergence: [optional(bool)],
   lfs: [],
   submodules: [],
   submoduleChanges: [repoPath],

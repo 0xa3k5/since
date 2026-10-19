@@ -58,6 +58,32 @@ function remoteFailure(err) {
 // Pull the current branch; `mode` 'rebase' or 'merge' settles diverged branches.
 const pull = (cwd, mode) => run(cwd, ['pull', '--no-edit', ...(mode === 'rebase' ? ['--rebase'] : mode === 'merge' ? ['--no-rebase'] : [])]);
 
+// The facts behind a diverged pull or a rejected push (AK-585): the commits only on the upstream
+// (`theirs`) and only here (`ours`), up to `max` of each with their counts; `conflicts`: files a merge
+// would conflict on ([] clean, null when merge-tree can't tell); `shared`: some of ours are on a
+// remote already, so rebasing them would rewrite pushed commits. null without an upstream. `fetch`:
+// fetch the upstream's remote first.
+async function divergence(cwd, { fetch = false, max = 5 } = {}) {
+  const up = (await run(cwd, ['rev-parse', '-q', '--verify', '--symbolic-full-name', '@{u}'], { allowCodes: [0, 1, 128] }).catch(() => '')).trim();
+  if (!up) return null;
+  // A rejected push: the remote has commits this clone hasn't fetched yet.
+  if (fetch) await run(cwd, ['fetch', '-q', up.split('/')[2]]).catch(() => {});
+  const branch = (await run(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowCodes: [0, 1] })).trim();
+  const [theirsN, oursN] = (await run(cwd, ['rev-list', '--left-right', '--count', `${up}...HEAD`])).trim().split(/\s+/).map(Number);
+  const list = async (range) => (await run(cwd, ['log', '-z', `-n${max}`, '--format=%H%x1f%s%x1f%an%x1f%ct', range, '--'])).split('\0').filter(Boolean)
+    .map((l) => { const [sha, subject, author, t] = l.replace(/^\n/, '').split('\x1f'); return { sha, subject, author, date: Number(t) * 1000 }; });
+  const [theirs, ours, unpushed] = await Promise.all([
+    list(`HEAD..${up}`), list(`${up}..HEAD`),
+    run(cwd, ['rev-list', '--count', `${up}..HEAD`, '--not', '--remotes']).then((o) => Number(o.trim()), () => oursN),
+  ]);
+  let conflicts = null;
+  if (theirsN && oursN && await canForecast(cwd)) {
+    const [a, b] = (await run(cwd, ['rev-parse', 'HEAD', up])).trim().split('\n');
+    conflicts = await mergeConflicts(cwd, a, b);
+  }
+  return { branch, upstream: up.replace(/^refs\/remotes\//, ''), theirs, theirsCount: theirsN, ours, oursCount: oursN, conflicts, shared: unpushed < oursN };
+}
+
 // Cherry-pick one commit. One whose changes are already here stops git half-way; leave nothing
 // in progress and say so ('empty-pick'). `keepEmpty` commits it anyway.
 async function cherryPick(cwd, sha, keepEmpty) {
@@ -3073,7 +3099,7 @@ module.exports = {
   saveResolved, restoreResolved, resolvedPaths,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
-  GitError, run, remoteFailure, pull, cherryPick, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
+  GitError, run, remoteFailure, pull, divergence, cherryPick, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, getOperationInfo, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,

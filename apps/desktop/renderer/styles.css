@@ -1288,6 +1288,25 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .sheet-detail-line.muted { color: var(--text-3); }
 .ref { font-family: var(--mono); font-size: 12px; color: var(--text); }
 .dialog-title .ref { font-size: 13.5px; }
+.sheet-rows { max-height: 146px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.sheet-row { display: flex; align-items: center; gap: 12px; height: 29px; padding: 0 10px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
+.sheet-row:first-child { border-top: 0; }
+.sheet-row-name { flex: 1; min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.sheet-row-value { flex: none; color: var(--text-3); }
+.sheet-row-link { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; color: inherit; text-align: left; cursor: default; }
+.sheet-row-link:first-child { border-top: 0; }
+.sheet-row-link:hover, .sheet-row-link:focus-visible { background: var(--bg-active); outline: none; }
+.sheet-list { display: flex; flex-direction: column; gap: 6px; }
+.sheet-list-title { color: var(--text-2); font-size: 12px; }
+.sheet-sha { flex: none; color: var(--text-3); }
+.sheet-commit .sheet-row-name { font-family: var(--font); font-size: 12.5px; }
+.sheet-more { color: var(--text-3); }
+.sheet-forecast { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.sheet-forecast.ok { color: var(--green); }
+.sheet-forecast.warn { color: var(--warn); }
+.resolve-sheet .btn.has-sub { height: auto; min-height: 28px; padding-top: 4px; padding-bottom: 4px; }
+.btn-stack { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; text-align: left; }
+.btn-sub { font-size: 11px; opacity: 0.75; }
 .sheet-pick-row { display: flex; align-items: center; gap: 8px; color: var(--text-3); }
 .sheet-pick { font-family: var(--mono); font-size: 12px; background: var(--bg-input); box-shadow: none; }
 .sheet-pick:hover { border-color: var(--text-4); background: var(--bg-input); }

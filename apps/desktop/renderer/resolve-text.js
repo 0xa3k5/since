@@ -16,3 +16,32 @@ export function opSentence(info, conflicts = 0) {
   if (!info.step || !info.total) return `${what} ${tail}`;
   return `${what} is stopped at ${info.step} of ${info.total}${info.subject ? `: ${noDot(info.subject)}` : ''}.`;
 }
+
+const LIST_ROWS = 5;
+const SHOWN_FILES = 3;
+
+// The resolve sheet for a diverged pull (`push` false) or a rejected push: what moved where, whether a
+// merge would conflict, and buttons that say what you end up with. `d`: git divergence; `age`: a time
+// formatter. Rebase is primary unless some local commits are on a remote already.
+export function divergeSheet(d, { push = false, age = String } = {}) {
+  const remote = d.upstream.split('/')[0];
+  const list = (title, commits, count) => ({
+    title: `${title} · ${count}`,
+    rows: commits.slice(0, LIST_ROWS).map((c) => [c.sha.slice(0, 7), c.subject, c.author, age(c.date)]),
+    more: Math.max(0, count - Math.min(commits.length, LIST_ROWS)),
+  });
+  const files = d.conflicts || [];
+  const forecast = d.conflicts == null ? null
+    : !files.length ? { ok: true, text: 'No conflicts expected' }
+    : { ok: false, text: `Conflicts likely in ${files.slice(0, SHOWN_FILES).join(', ')}${files.length > SHOWN_FILES ? ` and ${files.length - SHOWN_FILES} more` : ''}` };
+  const n = d.oursCount;
+  const rebase = { id: 'rebase', label: push ? 'Rebase and push' : 'Rebase', sub: `Your ${plural(n, 'commit')} ${n === 1 ? 'goes' : 'go'} on top` };
+  const merge = { id: 'merge', label: push ? 'Merge and push' : 'Merge', sub: 'Adds a merge commit' };
+  const force = push ? { id: 'force', label: 'Force push', sub: `Drops ${plural(d.theirsCount, 'commit')} on ${remote}`, danger: true, primary: false } : null;
+  return {
+    reason: `${d.branch} and ${d.upstream} have both moved.`,
+    lists: [list(`On ${remote}`, d.theirs, d.theirsCount), list('Only here', d.ours, n)].filter((l) => !l.title.endsWith(' · 0')),
+    forecast,
+    actions: [...(d.shared ? [merge, rebase] : [rebase, merge]), force].filter(Boolean),
+  };
+}

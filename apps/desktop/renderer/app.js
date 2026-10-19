@@ -6,7 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
-import { opSentence } from './resolve-text.js';
+import { opSentence, divergeSheet } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -164,7 +164,8 @@ async function act(label, method, args = [], opts = {}) {
 async function offerFix(label, method, args, opts, err) {
   const branch = state.head?.branch || '';
   if (err.code === 'rejected' && method === 'push' && !args[0]?.force && !args[0]?.all) {
-    const v = await resolveSheet({
+    const d = await git('divergence', true).catch(() => null);
+    const v = await resolveSheet(d ? { title: `Push ${branch}`, ...divergeSheet(d, { push: true, age: ago }) } : {
       title: `Push ${branch}`,
       reason: `The remote has commits ${branch} doesn’t have. Force pushing drops them.`,
       actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }, { id: 'force', label: 'Force push' }],
@@ -174,7 +175,8 @@ async function offerFix(label, method, args, opts, err) {
     return act(`Pull and push ${branch}`, 'pullAndPush', [v.id], { busy: `Pulling and pushing ${branch}…`, success: `Pulled and pushed ${branch}` });
   }
   if (err.code === 'diverged' && (method === 'pull' || method === 'pullAndPush') && !args[0]) {
-    const v = await resolveSheet({ title: label, reason: `${branch} and its upstream have both moved.`, actions: [{ id: 'rebase', label: 'Rebase' }, { id: 'merge', label: 'Merge' }] });
+    const d = await git('divergence').catch(() => null);
+    const v = await resolveSheet(d ? { title: label, ...divergeSheet(d, { age: ago }) } : { title: label, reason: `${branch} and its upstream have both moved.`, actions: [{ id: 'rebase', label: 'Rebase' }, { id: 'merge', label: 'Merge' }] });
     return v ? act(label, method, [v.id], opts) : false;
   }
   if (err.code === 'empty-pick' && method === 'cherryPick' && !args[1]) {

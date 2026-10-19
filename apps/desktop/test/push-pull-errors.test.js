@@ -96,3 +96,35 @@ test('ipc: pull modes and keep-empty cherry-picks are checked', () => {
   assert.throws(() => checkGit('cherryPick', ['abc1234', 'yes']));
   assert.deepEqual(checkGit('stashAnd', ['pullAndPush', ['rebase']]).args, ['pullAndPush', ['rebase']]);
 });
+
+test('divergence (AK-585): commits on each side, counts and the merge forecast', async () => {
+  const { dir } = await diverged();
+  const d = await git.divergence(dir, { fetch: true });
+  assert.equal(d.upstream, 'origin/main');
+  assert.equal(d.branch, 'main');
+  assert.deepEqual([d.theirsCount, d.oursCount], [1, 1]);
+  assert.equal(d.ours[0].subject, 'ours');
+  assert.equal(d.shared, false);
+  if (await git.canForecast(dir)) assert.deepEqual(d.conflicts, []);
+  await git.run(dir, ['checkout', '-q', '-b', 'loose']);
+  assert.equal(await git.divergence(dir), null);
+  assert.deepEqual(checkGit('divergence', [true]).args, [true]);
+});
+
+test('divergeSheet: lists, forecast and what each button ends with', async () => {
+  const { divergeSheet } = await import('../renderer/resolve-text.js');
+  const c = (n) => ({ sha: `${n}`.repeat(40), subject: `s${n}`, author: 'A', date: 0 });
+  const d = { branch: 'feature/api', upstream: 'origin/feature/api', theirs: [c(1), c(2)], theirsCount: 2, ours: [c(3)], oursCount: 1, conflicts: [], shared: false };
+  const pull = divergeSheet(d);
+  assert.equal(pull.reason, 'feature/api and origin/feature/api have both moved.');
+  assert.deepEqual(pull.lists.map((l) => l.title), ['On origin · 2', 'Only here · 1']);
+  assert.deepEqual(pull.forecast, { ok: true, text: 'No conflicts expected' });
+  assert.deepEqual(pull.actions.map((a) => [a.label, a.sub]), [['Rebase', 'Your 1 commit goes on top'], ['Merge', 'Adds a merge commit']]);
+  const push = divergeSheet({ ...d, shared: true, conflicts: ['api.txt'] }, { push: true });
+  assert.equal(push.forecast.text, 'Conflicts likely in api.txt');
+  assert.deepEqual(push.actions.map((a) => a.id), ['merge', 'rebase', 'force']);
+  assert.equal(push.actions[2].sub, 'Drops 2 commits on origin');
+  const many = divergeSheet({ ...d, theirs: [1, 2, 3, 4, 5, 6].map(c), theirsCount: 9 });
+  assert.equal(many.lists[0].rows.length, 5);
+  assert.equal(many.lists[0].more, 4);
+});

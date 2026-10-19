@@ -286,6 +286,11 @@ export function sheetActions(actions = []) {
 }
 
 export function resolveSheet({ title, reason, detail, actions = [], pick, checkbox }) {
+// `rows`: [[name, value, id?]] shown under the reason (what moved, say); a row with an id is a
+// button that closes the sheet with that id. `lists`: [{ title, rows: [[sha, subject, author, age]], more }]
+// commit lists (AK-585); `forecast`: { text, ok } the deciding fact under them. An action's `sub` is
+// what you end up with, shown inside its button.
+export function resolveSheet({ title, reason, rows, lists, forecast, actions = [], pick, checkbox }) {
   return new Promise((resolve) => {
     const prev = document.activeElement;
     let value = pick?.value ?? pick?.options?.[0]?.value;
@@ -310,13 +315,25 @@ export function resolveSheet({ title, reason, detail, actions = [], pick, checkb
         reason ? h('div.sheet-reason', null, icon('warning', 14), h('span', null, reason)) : null),
       pick || checkbox || detail ? h('div.dialog-body', null,
         detail ? h('div.sheet-detail', null, detail.filter(Boolean).map((d) => h('div.sheet-detail-line.' + d.kind, null, d.text))) : null,
+      pick || checkbox || rows?.length || lists?.length || forecast ? h('div.dialog-body', null,
+        lists?.length ? lists.map((l) => h('div.sheet-list', null,
+          h('div.sheet-list-title', null, l.title),
+          h('div.sheet-rows', null, l.rows.map(([sha, subject, author, age]) => h('div.sheet-row.sheet-commit', null,
+            h('span.sheet-sha', null, sha), h('span.sheet-row-name', null, subject), h('span.sheet-row-value', null, author), h('span.sheet-row-value', null, age))),
+          l.more ? h('div.sheet-row.sheet-more', null, `+${l.more} more`) : null))) : null,
+        forecast ? h('div.sheet-forecast' + (forecast.ok ? '.ok' : '.warn'), null, icon(forecast.ok ? 'check' : 'warning', 14), h('span', null, forecast.text)) : null,
+        rows?.length ? h('div.sheet-rows', null, rows.map(([name, value, id]) => id
+          ? h('button.sheet-row.sheet-row-link', { type: 'button', onclick: () => finish({ id }) }, h('span.sheet-row-name', null, name), h('span.sheet-row-value', null, value))
+          : h('div.sheet-row', null, h('span.sheet-row-name', null, name), h('span.sheet-row-value', null, value)))) : null,
         pick ? h('div.sheet-pick-row', null, pick.label ? h('span', null, pick.label) : null, pickBtn) : null,
         checkbox ? h('label.check', null, box, h('span', null, checkbox.label)) : null) : null,
       h('div.dialog-foot', null,
         h('button.btn.ghost.sheet-cancel', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
-        ordered.map((a) => a.primary
-          ? h('button.btn.' + (a.danger ? 'danger' : 'primary'), { type: 'submit' }, a.label, kbd('↵'))
-          : h('button.btn.' + (a.danger ? 'danger' : 'subtle'), { type: 'button', onclick: () => choose(a) }, a.label))),
+        ordered.map((a) => {
+          const text = a.sub ? h('span.btn-stack', null, h('span', null, a.label), h('span.btn-sub', null, a.sub)) : a.label;
+          const cls = 'button.btn.' + (a.danger ? 'danger' : a.primary ? 'primary' : 'subtle') + (a.sub ? '.has-sub' : '');
+          return a.primary ? h(cls, { type: 'submit' }, text, kbd('↵')) : h(cls, { type: 'button', onclick: () => choose(a) }, text);
+        })),
     );
     const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
     overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } });
