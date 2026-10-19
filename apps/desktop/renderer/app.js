@@ -189,8 +189,19 @@ async function updateGit(feature, then) {
   const res = await api.app('git-choose');
   if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
   if (!res.ok) return false;
+  if (need && !gitMeets(res.ok.version, need)) return updateGit(feature, then);
+  return useGit('chosen', then);
+}
+// ⌘K Choose git… / Use system git: no feature to gate on, any git that runs will do.
+const chooseGit = async () => {
+  const res = await api.app('git-choose');
+  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
+  if (res.ok) return useGit('chosen');
+};
+async function useGit(which, then) {
+  const res = await api.app('git-use', which);
+  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
   state.gitInfo = res.ok;
-  if (!gitMeets(res.ok.version, need)) return updateGit(feature, then);
   toast(`Using git ${res.ok.version}`, { detail: res.ok.path });
   return then?.();
 }
@@ -4417,6 +4428,8 @@ function openPalette() {
     add('View', 'Reorder sidebar sections…', () => openPrefs('sidebar'), { icon: 'sidebar', kbd: keymap.keys('app.settings'), keywords: 'sidebar section order move show hide preferences' });
     add('Navigation', 'Open History & recovery', () => setView('snapshots'), { icon: 'history', kbd: keymap.keys('view.snapshots'), keywords: 'snapshots undo timeline restore recover lost' });
     add('Navigation', 'Open Reflog (History & recovery)', () => setView('reflog'), { icon: 'reflog', kbd: keymap.keys('view.reflog'), keywords: 'reflog recover lost commits' });
+    add('App', 'Choose git…', chooseGit, { icon: 'terminal', detail: state.gitInfo ? `git ${state.gitInfo.version}` : null, keywords: 'git version path binary homebrew xcode' });
+    add('App', 'Use system git', () => useGit('system'), { icon: 'terminal', keywords: 'git version path binary default xcode' });
     add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: keymap.keys('repo.fetch') });
     add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: keymap.keys('repo.pull') });
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });

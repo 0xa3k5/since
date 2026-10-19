@@ -499,10 +499,20 @@ handle('app:git-info', okCall(() => git.gitInfo()));
 handle('app:git-choose', okCall(async (e) => {
   const res = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile', 'treatPackageAsDirectory'], defaultPath: '/opt/homebrew/bin', message: 'Choose a git program' });
   if (res.canceled || !res.filePaths[0]) return null;
-  const info = await git.gitInfo(res.filePaths[0]);
-  git.setGitPath(info.path);
-  writeSettings({ gitPath: info.path });
-  return info;
+  chosenGit = await git.gitInfo(res.filePaths[0]);
+  return chosenGit;
+}));
+// Keep using the git just chosen (once the renderer has checked its version), or go back to the
+// system git ('system').
+let chosenGit = null;
+handle('app:git-use', okCall(async (_e, which) => {
+  check.oneOf('chosen', 'system')(which, 'git');
+  if (which === 'chosen' && !chosenGit) throw new Error('No git chosen.');
+  const p = which === 'chosen' ? chosenGit.path : null;
+  git.setGitPath(p);
+  writeSettings({ gitPath: p });
+  chosenGit = null;
+  return git.gitInfo();
 }));
 handle('app:set-theme', (_e, mode) => setTheme(check.oneOf(...THEMES)(mode, 'theme')));
 handle('app:cycle-theme', () => cycleTheme());
