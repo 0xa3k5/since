@@ -110,7 +110,7 @@ state.panes = loadSizes(loadPref('panes', {}));
 async function git(method, ...args) {
   const r = await api.git(method, ...args);
   if (r.error?.code === 'READ_ONLY') { openLicence({ blocked: true }); const e = new Error(r.error.message); e.readOnly = true; throw e; }
-  if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; e.code = r.error.code; throw e; }
+  if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; e.code = r.error.code; e.moved = r.error.moved; throw e; }
   return r.ok;
 }
 
@@ -330,9 +330,9 @@ async function quiet(method, ...args) {
   await refreshStatus();
 }
 
-// `opts.stash`: stash what's in the way first (offerStashStep); `opts.discard`: discard it instead,
-// kept on the step so the opposite step brings it back. Click handlers pass an event here.
-const stepOpts = (o) => (o?.stash ? { stash: true } : o?.discard ? { discard: true } : null);
+// `opts.stash`: stash what's in the way first (offerStashStep). `opts.force`: take the step though
+// branches moved since (offerMovedStep). Click handlers pass an event here.
+const stepOpts = (o) => (o?.stash || o?.force || o?.discard ? Object.fromEntries(['stash', 'force', 'discard'].filter((k) => o[k]).map((k) => [k, true])) : null);
 async function undo(opts) {
   opts = stepOpts(opts);
   closeStickyToast();
@@ -341,14 +341,15 @@ async function undo(opts) {
     const label = await git('undo', ...(opts ? [opts] : []));
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
   } catch (e) {
-    if (!opts && await offerStashStep('undo', e)) return;
+    if (!opts?.force && await offerMovedStep('undo', e, opts)) return;
+    if (!opts?.stash && !opts?.discard && await offerStashStep('undo', e, opts)) return;
     if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message });
   }
   await refreshAll();
 }
 
 // Undo or redo refused over uncommitted changes: offer to stash them and try again.
-async function offerStashStep(dir, err) {
+async function offerStashStep(dir, err, opts) {
   const { code } = err;
   if (code !== 'dirty' && code !== 'dirty-submodule') return false;
   const title = dir === 'undo' ? undoTitle() : redoTitle();
@@ -357,7 +358,22 @@ async function offerStashStep(dir, err) {
     code === 'dirty' ? { id: 'discard', label: `Discard and ${dir}`, danger: true } : null,
   ] });
   if (!v) return false;
-  await (dir === 'undo' ? undo : redo)({ [v.id]: true });
+  await (dir === 'undo' ? undo : redo)({ ...opts, [v.id]: true });
+  return true;
+}
+
+// Undo or redo refused because branches or HEAD moved since: list what moved and offer to take
+// the step anyway (the opposite step puts the moved refs back).
+const MOVED_ROWS = 4;
+async function offerMovedStep(dir, err, opts) {
+  if (err.code !== 'moved' || !err.moved?.length) return false;
+  const title = dir === 'undo' ? undoTitle() : redoTitle();
+  const side = (v) => v ?? 'none';
+  const rows = err.moved.slice(0, MOVED_ROWS).map((m) => [m.ref, `${side(m.from)} → ${side(m.to)}`]);
+  if (err.moved.length > MOVED_ROWS) rows.push([`${err.moved.length - MOVED_ROWS} more`, '']);
+  const v = await resolveSheet({ title, reason: 'Branches or HEAD have moved since.', rows, actions: [{ id: 'force', label: dir === 'undo' ? 'Undo anyway' : 'Redo anyway' }] });
+  if (!v) return false;
+  await (dir === 'undo' ? undo : redo)({ ...opts, force: true });
   return true;
 }
 // "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
@@ -373,7 +389,8 @@ async function redo(opts) {
     const label = await git('redo', ...(opts ? [opts] : []));
     toast(label ? `Redid “${label}”` : 'Nothing to redo');
   } catch (e) {
-    if (!opts && await offerStashStep('redo', e)) return;
+    if (!opts?.force && await offerMovedStep('redo', e, opts)) return;
+    if (!opts?.stash && !opts?.discard && await offerStashStep('redo', e, opts)) return;
     if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message });
   }
   await refreshAll();

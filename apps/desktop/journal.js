@@ -112,6 +112,16 @@ const laneOps = new Set(['mergeLane', 'tidyLane']);
 const DIRTY = /not uptodate|would be overwritten|commit your changes or stash them|you have unstaged changes|your index contains uncommitted changes/i;
 
 const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
+const shortRef = (r) => r.replace(/^refs\/(heads|tags)\//, '');
+
+// "Can't undo X: branches or HEAD have moved since", with what moved (code 'moved', `moved`:
+// [{ ref, from, to }], short names and SHAs, null when created or deleted). The renderer
+// offers "Undo anyway" (step with `force`).
+function movedError(fail, expected, now) {
+  const short = (v) => (v ? (/^[0-9a-f]{40,64}$/.test(v) ? v.slice(0, 7) : shortRef(v)) : null);
+  const moved = refChanges(expected, now).map((c) => ({ ref: shortRef(c.ref), from: short(c.from), to: short(c.to) }));
+  return Object.assign(fail(`${listPaths(moved.map((m) => m.ref))} moved since.`), { code: 'moved', moved });
+}
 
 // One side of the journal. `hot` holds the newest entries (top of the stack
 // last); `pages` describes archived pages, oldest first.
@@ -318,7 +328,8 @@ class Journal {
       if (stash) stashesBefore = await git.getStashes(cwd);
     } catch (err) {
       await this.pin(id).catch(() => {});
-      throw new git.GitError(`Nothing was changed: the undo snapshot could not be saved. ${err.message}`);
+      const why = `${err.stderr || ''}\n${err.message || ''}`.split('\n').map((l) => l.replace(/^(fatal|error): /, '').trim()).filter(Boolean).pop();
+      throw new git.GitError(`Nothing was changed: the undo snapshot could not be saved${why ? ` (${why.replace(/\.$/, '')})` : ''}.`);
     }
     try {
       return await fn();
@@ -792,19 +803,17 @@ class Journal {
     return null;
   }
 
-  // `stash`: stash what blocks the step first (see stashThenStep).
-  // `discard`: the same, but the changes leave the stash list; the opposite step brings them back.
-  step(dir, { stash = false, discard = false } = {}) {
-    return this.lock(() => (stash || discard ? this.stashThenStep(dir, discard) : this.stepNow(dir)));
+  // `stash`: stash what blocks the step first (see stashThenStep). `force`: take the step even
+  // though branches or HEAD moved since (see adoptMoved).
+  step(dir, { stash = false, force = false, discard = false } = {}) {
+    return this.lock(() => (stash || discard ? this.stashThenStep(dir, { force }, discard) : this.stepNow(dir, { force })));
   }
 
   // "Stash and undo" (or redo): stash what blocks the step, then take it. For a work step, the
   // paths that changed since; for a submodule step, the changes in those submodules; otherwise
   // every uncommitted change. The stashes stay in their lists; if the step still fails, they are
   // popped right away.
-  // "Discard and undo" (AK-583): the stash is dropped from the list but kept on the entry
-  // (`discarded`, pinned), and re-applied when the opposite step is taken.
-  async stashThenStep(dir, discard = false) {
+  async stashThenStep(dir, opts, discard = false) {
     const cwd = this.root;
     const entry = (dir === 'undo' ? this.undo : this.redo).top;
     if (!entry) return null;
@@ -831,7 +840,7 @@ class Journal {
       await git.dropStashCommit(cwd, dropped);
     }
     try {
-      return await this.stepNow(dir);
+      return await this.stepNow(dir, opts);
     } catch (err) {
       if (dropped) {
         delete entry.discarded;
@@ -841,15 +850,17 @@ class Journal {
     }
   }
 
-  async stepNow(dir) {
+  async stepNow(dir, { force = false } = {}) {
     const from = dir === 'undo' ? this.undo : this.redo;
     const to = dir === 'undo' ? this.redo : this.undo;
     const entry = from.top;
     if (!entry) return null;
-    let note = null;
+    let note = null, adopted = null;
     try {
       if (entry.moved) await this.restoreMoved(entry, dir);
       else if (entry.freed) await this.restoreFreed(entry, dir);
+      if (force) adopted = await this.adoptMoved(entry, dir);
+      if (entry.freed) await this.restoreFreed(entry, dir);
       else if (entry.worktree) await this.restoreWorktree(entry, dir);
       else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
       else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`, { code: err.code }); });
@@ -858,6 +869,7 @@ class Journal {
       else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
       else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
     } catch (err) {
+      if (adopted) entry[adopted.side] = adopted.state; // refused anyway: the entry stays as it was
       // Uncommitted changes in the way (git's own codes are exit numbers): the renderer offers
       // "Stash and undo" (step with `stash`).
       if (typeof err.code !== 'string' && !entry.worktree && !entry.cleanup && DIRTY.test(`${err.stderr || ''}\n${err.message}`)) err.code = 'dirty';
@@ -880,6 +892,22 @@ class Journal {
     return note ? `${entry.label} (${note})` : entry.label;
   }
 
+  // "Undo anyway": branches or HEAD moved since the step. Take where they are now as the step's
+  // other side, so the step restores its snapshot and the opposite step brings today's refs back.
+  // Only for steps that refuse over moved refs. Returns what it replaced, or null.
+  async adoptMoved(entry, dir) {
+    if (entry.cleanup || entry.remote || entry.submodules) return null;
+    if (!entry.autostash && entry.method !== 'switchDelete' && same(entry.before, entry.after)) return null;
+    const side = dir === 'undo' ? 'after' : 'before';
+    const now = await git.captureRefState(this.root);
+    if (same(now, entry[side])) return null;
+    const state = entry[side];
+    entry[side] = now;
+    await this.pin(entry.id, pins(entry));
+    delete entry.pin; // an archived entry now has its own pins again
+    return { side, state };
+  }
+
   // Undo or redo an entry with a work snapshot or a dropped stash. The current
   // state must still match the entry's other side, so nothing newer is overwritten.
   async restoreWork(entry, dir) {
@@ -887,7 +915,8 @@ class Journal {
     const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
     const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const movesRefs = !same(entry.before, entry.after);
-    if (movesRefs && !same(await git.captureRefState(cwd), entry[cur])) throw fail('branches or HEAD have moved since.');
+    const now = movesRefs && await git.captureRefState(cwd);
+    if (movesRefs && !same(now, entry[cur])) throw movedError(fail, entry[cur], now);
     if (entry.work) {
       const paths = entry.work[next].files.map((f) => f.path);
       const indexOnly = !!entry.work[next].indexOnly;
@@ -903,7 +932,7 @@ class Journal {
     }
     // A dropped stash comes back on undo; an added one goes away on undo.
     const removing = entry.stash && (dir === 'undo') === !!entry.stash.added;
-    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw fail('that stash no longer exists.');
+    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw fail(`the stash “${entry.stash.message}” no longer exists.`);
     if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
     if (entry.work) await git.restoreWork(cwd, entry.work[next]);
     if (entry.stash) {
@@ -917,12 +946,13 @@ class Journal {
   async restoreAutostash(entry, dir) {
     const cwd = this.root;
     const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
-    if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
+    const expected = dir === 'undo' ? entry.after : entry.before, now = await git.captureRefState(cwd);
+    if (!same(now, expected)) throw movedError(fail, expected, now);
     const a = entry.autostash;
     if (!a) return git.restoreRefState(cwd, dir === 'undo' ? entry.before : entry.after);
     if (dir === 'undo') {
       const i = (await git.getStashes(cwd)).findIndex((x) => x.sha === a.sha);
-      if (i === -1) throw fail('its stash was applied or dropped since.');
+      if (i === -1) throw fail(`its stash “${a.message}” was applied or dropped since.`);
       await git.restoreRefState(cwd, entry.before);
       await git.stashApply(cwd, `stash@{${i}}`, true);
     } else {
@@ -980,7 +1010,8 @@ class Journal {
     const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
     const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const movesRefs = !same(entry.before, entry.after);
-    if (movesRefs && !same(await git.captureRefState(cwd), entry[cur])) throw fail('branches or HEAD have moved since.');
+    const now = movesRefs && await git.captureRefState(cwd);
+    if (movesRefs && !same(now, entry[cur])) throw movedError(fail, entry[cur], now);
     const wt = entry.worktree;
     const adding = (wt.op === 'add') === (dir === 'redo');
     try {
@@ -1028,7 +1059,7 @@ class Journal {
     const names = [...new Set([...Object.keys(entry.before.refs), ...Object.keys(entry.after.refs)])].filter((n) => entry.before.refs[n] !== entry.after.refs[n]);
     const now = await git.captureRefState(cwd);
     const moved = names.filter((n) => now.refs[n] !== entry[cur].refs[n]);
-    if (moved.length) throw fail(`${listPaths(moved.map((n) => n.replace(/^refs\/(heads|tags)\//, '')))} changed since.`);
+    if (moved.length) throw fail(`${listPaths(moved.map(shortRef))} changed since.`);
     const refs = { ...now.refs };
     for (const n of names) {
       if (entry[next].refs[n]) refs[n] = entry[next].refs[n];

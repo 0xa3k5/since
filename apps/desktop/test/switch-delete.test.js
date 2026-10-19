@@ -95,9 +95,37 @@ test('switch and delete: undo refuses once branches moved since', async () => {
   assert.equal(await head(), 'main');
 });
 
+test('switch and delete: the refusal lists what moved; undo anyway restores, redo brings the move back', async () => {
+  const { dir, journal, head, tip } = await repo();
+  const mainTip = await tip('main'), featureTip = await tip('feature');
+  await journal.switchDelete('Delete branch feature', 'main');
+  await git.run(dir, ['commit', '-q', '--allow-empty', '-m', 'later']);
+  const later = await tip('main');
+  const err = await journal.step('undo').catch((e) => e);
+  assert.equal(err.code, 'moved');
+  assert.match(err.message, /main moved since/);
+  assert.deepEqual(err.moved, [{ ref: 'main', from: mainTip.slice(0, 7), to: later.slice(0, 7) }]);
+  assert.equal(await journal.step('undo', { force: true }), 'Delete branch feature');
+  assert.equal(await head(), 'feature');
+  assert.equal(await tip('feature'), featureTip);
+  assert.equal(await tip('main'), mainTip);
+  await journal.step('redo');
+  assert.equal(await head(), 'main');
+  assert.equal(await tip('main'), later);
+  assert.equal(await tip('feature'), '');
+  await journal.step('undo');
+  assert.equal(await tip('main'), mainTip);
+});
+
 test('switch and delete: target must differ from the branch being deleted', async () => {
   const { journal } = await repo();
   await assert.rejects(journal.switchDelete('x', 'feature'), /Pick another branch/);
+});
+
+test('ipc: undo and redo take force', () => {
+  assert.deepEqual(checkGit('undo', [{ force: true }]).args, [{ force: true }]);
+  assert.deepEqual(checkGit('redo', [{ stash: true, force: true }]).args, [{ stash: true, force: true }]);
+  assert.throws(() => checkGit('undo', [{ force: 'yes' }]));
 });
 
 test('ipc: switchDelete arguments are checked', () => {

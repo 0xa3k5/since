@@ -384,7 +384,7 @@ function session(e) {
 const REMOTE_CALLS = new Set(['push', 'pull', 'pullAndPush', 'fetch', 'pushTags', 'stashAnd', 'abortAnd']);
 
 function serializeError(err) {
-  return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null };
+  return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null, ...(err.moved ? { moved: err.moved } : {}) };
 }
 // Wraps a handler so it returns { ok } or { error } instead of throwing across IPC.
 const okCall = (fn) => async (e, ...args) => {
