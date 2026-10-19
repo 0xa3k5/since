@@ -164,7 +164,7 @@ async function resolveOp(label, method, args, opts) {
   const verb = label.split(' ')[0];
   const v = await resolveSheet({
     title: label,
-    reason: `${opSentence(state.opInfo, n)} Aborting can’t be undone.`,
+    reason: opSentence(state.opInfo, n),
     actions: [n ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${op}` }, { id: 'abort', label: abortAnd(op, verb.toLowerCase()) }],
   });
   if (!v) return false;
@@ -3292,7 +3292,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const abort = Boolean(plan.blockerOp && plan.worktree);
   if (abort) {
     const info = await git('worktreeOpInfo', plan.worktree.path).catch(() => null);
-    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: `${info ? opSentence(info) : `“${plan.worktree.name}” has a ${plan.blockerOp} in progress.`} Aborting can’t be undone.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
+    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: info ? opSentence(info) : `“${plan.worktree.name}” has a ${plan.blockerOp} in progress.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
     if (!go) return;
     try { plan = await git('mergeLanePlan', lane.branch, base, { abort: true }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   }
@@ -3449,7 +3449,7 @@ async function deleteLane(lane) {
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
   const lost = n ? ` with ${n} uncommitted file${n > 1 ? 's' : ''}` : '';
   const op = lane.worktree && await git('worktreeOpInfo', lane.worktree.path).catch(() => null);
-  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: `${opSentence(op)} Aborting can’t be undone.`, actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
+  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: opSentence(op), actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
   if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: verb }))) return;
   act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[{ ...cleanupItem(lane), ...(op ? { abort: true } : {}) }]], {
     busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,
