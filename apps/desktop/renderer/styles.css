@@ -1278,8 +1278,9 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 /* Resolve sheet: a blocked action with its reason and the fixes that unblock it. */
 .sheet-reason { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; color: var(--text-2); font-size: 12.5px; }
 .sheet-reason > .icon { flex: none; margin-top: 1px; color: var(--warn); }
+.resolve-sheet { width: max-content; min-width: 460px; max-width: min(680px, calc(100vw - 32px)); }
 .resolve-sheet .dialog-body { gap: 10px; padding-top: 12px; }
-.resolve-sheet .dialog-foot { padding-top: 18px; }
+.resolve-sheet .dialog-foot { flex-wrap: wrap; row-gap: 8px; padding-top: 18px; }
 .resolve-sheet .sheet-cancel { margin-right: auto; }
 .ref { font-family: var(--mono); font-size: 12px; color: var(--text); }
 .dialog-title .ref { font-size: 13.5px; }
