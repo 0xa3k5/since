@@ -361,6 +361,32 @@ class Journal {
     return autostash;
   }
 
+  // Check out `branch` here while worktree `dir` has it checked out: detach HEAD there, then run
+  // `args` here (default `checkout <branch>`), as one undoable step. Undo switches back here and
+  // re-attaches the branch there; redo detaches it again and switches. Refused (git.freeBlocker)
+  // when that worktree has changes or an operation in progress.
+  freeCheckout(label, branch, dir, args = ['checkout', branch]) {
+    return this.lock(async () => {
+      const cwd = this.root;
+      const id = ++nextId;
+      const wt = (await git.getWorktrees(cwd)).find((w) => !w.current && git.samePath(w.path, dir));
+      if (!wt || wt.branch !== branch) throw new git.GitError(`${branch} isn’t checked out in that worktree any more.`);
+      const why = await git.freeBlocker(wt);
+      if (why) throw new git.GitError(`Can’t free ${branch} in “${wt.name}”. ${why}`);
+      const before = await git.captureRefState(cwd);
+      const env = { GIT_OPTIONAL_LOCKS: '1' };
+      await git.run(wt.path, ['checkout', '-q', '--detach'], { env });
+      try {
+        await git.run(cwd, args, { env });
+      } catch (err) {
+        await git.run(wt.path, ['checkout', '-q', branch], { env }).catch(() => {});
+        throw err;
+      }
+      await this.finish({ id, label, method: 'freeCheckout', before, freed: { path: wt.path, branch } });
+      return true;
+    });
+  }
+
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
   runWorktree(method, label, args) {
     return this.lock(() => this.runWorktreeNow(method, label, args));
@@ -440,7 +466,7 @@ class Journal {
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, remote, midSequence }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, remote, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
@@ -449,6 +475,7 @@ class Journal {
     if (cleanup) { entry.cleanup = cleanup; changed ||= cleanup.length > 0; }
     if (submodules?.length) { entry.submodules = submodules; changed = true; }
     if (autostash) { entry.autostash = autostash; changed = true; }
+    if (freed) { entry.freed = freed; changed = true; }
     if (remote) { entry.remote = remote; changed = true; }
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path), { indexOnly: !!workBefore.indexOnly }).catch(() => null);
@@ -494,7 +521,7 @@ class Journal {
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
-      if (e.worktree || e.cleanup || e.submodules || e.autostash || e.remote) return null;
+      if (e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.remote) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
         const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
@@ -516,7 +543,8 @@ class Journal {
     const entry = from.top;
     if (!entry) return null;
     let note = null;
-    if (entry.worktree) await this.restoreWorktree(entry, dir);
+    if (entry.freed) await this.restoreFreed(entry, dir);
+    else if (entry.worktree) await this.restoreWorktree(entry, dir);
     else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
     else if (entry.autostash || entry.method === 'switchDelete') await this.restoreAutostash(entry, dir);
@@ -590,6 +618,30 @@ class Journal {
       await this.pin(entry.id, pins(entry));
       delete entry.pin;
       try { await git.restoreRefState(cwd, entry.after); } catch (err) { await git.stashApply(cwd, 'stash@{0}', true).catch(() => {}); throw err; }
+    }
+  }
+
+  // Undo or redo a checkout that freed its branch from another worktree (freeCheckout). That
+  // worktree must still be detached (undo) or back on the branch (redo).
+  async restoreFreed(entry, dir) {
+    const cwd = this.root;
+    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
+    const { path: wtPath, branch } = entry.freed;
+    const env = { GIT_OPTIONAL_LOCKS: '1' };
+    const there = await git.run(wtPath, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] }).then((o) => o.trim(), () => null);
+    if (there === null) throw fail(`${path.basename(wtPath)} no longer exists.`);
+    if (there !== (dir === 'undo' ? '' : `refs/heads/${branch}`)) throw fail(`${path.basename(wtPath)} has switched branch since.`);
+    try {
+      if (dir === 'undo') {
+        await git.restoreRefState(cwd, entry.before);
+        await git.run(wtPath, ['checkout', '-q', branch], { env });
+      } else {
+        await git.run(wtPath, ['checkout', '-q', '--detach'], { env });
+        await git.restoreRefState(cwd, entry.after);
+      }
+    } catch (err) {
+      throw fail(err.message);
     }
   }
 

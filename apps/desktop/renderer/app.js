@@ -1769,9 +1769,12 @@ async function copy(text, msg) { await api.app('copy', text); toast(msg); }
 
 async function checkout(branch) {
   const wt = worktreeOf(branch);
-  if (wt) return toast(`${branch} is checked out in worktree “${wt.name}”`, { kind: 'error', detail: 'A branch can only be checked out in one worktree at a time.', action: { label: 'Switch', run: () => switchWorktree(wt) } });
   const label = `Checkout ${branch}`;
   closeMenu();
+  if (wt) {
+    if (!(await inUseSheet(branch, wt))) return false;
+    return act(label, 'freeCheckout', [branch, wt.path], { success: `Switched to ${branch}, detached in “${wt.name}”` });
+  }
   try {
     await git('checkout', branch, { __label: label });
   } catch (e) {
@@ -1786,6 +1789,19 @@ async function checkout(branch) {
   await refreshAll();
   offerAutostash(branch);
   return true;
+}
+
+// `branch` is checked out in worktree `wt`: offer to free it there (HEAD detached) and check it
+// out here, or to open that worktree. True when the user picked freeing it.
+async function inUseSheet(branch, wt) {
+  const why = wt.missing ? 'Its folder no longer exists.' : await git('freeBlocker', wt.path).catch((e) => e.message);
+  const v = await resolveSheet({
+    title: ['Check out ', ref(branch)],
+    reason: why ? ['Checked out in ', h('span', { title: wt.path }, wt.name), `. ${why}`] : ['Checked out in ', h('span', { title: wt.path }, wt.name), '.'],
+    actions: [!why && { id: 'free', label: 'Free it and check out here' }, !wt.missing && { id: 'open', label: 'Open that worktree' }],
+  });
+  if (v?.id === 'open') wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path);
+  return v?.id === 'free';
 }
 
 // Stash, then switch (one undoable step). Asks first unless "Don't ask again" was ticked.
@@ -3307,7 +3323,7 @@ function branchSwitcher() {
   palette(() => [
     ...locals.map((r) => {
       const cur = r.short === state.head.branch, wt = worktreeOf(r.short);
-      return { group: 'Branches', label: r.short, icon: 'branch', detail: cur ? 'current' : wt ? `in worktree ${wt.name}` : r.upstream || '', keywords: r.upstream || '', run: () => cur ? null : wt ? switchWorktree(wt) : checkout(r.short) };
+      return { group: 'Branches', label: r.short, icon: 'branch', detail: cur ? 'current' : wt ? `in worktree ${wt.name}` : r.upstream || '', keywords: r.upstream || '', run: () => cur ? null : checkout(r.short) };
     }),
     ...remotes.map((r) => ({ group: 'Remote branches', label: r.short, icon: 'cloud', detail: 'check out as local branch', run: () => act(`Checkout ${r.short}`, 'checkoutTracking', [r.short]) })),
     { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('commit.branch'), run: () => createBranch(state.head.oid) },
@@ -3520,18 +3536,23 @@ async function checkoutPr(pr, { worktree = false } = {}) {
     if (!v) return;
     opts = { worktree, dir: v.dir.trim() || null, open: v.open };
   }
-  const run = async (update) => {
+  const run = async (update, free = null) => {
     const t = toast(`Checking out #${pr.number}…`, { kind: 'busy', timeout: 0 });
-    const res = await api.app('pr-checkout', pr.number, { worktree, dir: opts.dir || null, update }).catch((e) => ({ error: { message: e.message } }));
+    const res = await api.app('pr-checkout', pr.number, { worktree, dir: opts.dir || null, update, free }).catch((e) => ({ error: { message: e.message } }));
     t.close();
     return res;
   };
-  let res = await run(false);
+  let res = await run(false), update = false;
   if (res.ok?.confirm) {
     const c = res.ok.confirm;
     const ok = await confirm(`Update ${c.branch}?`, `${c.branch} is at ${c.from.slice(0, 7)}. Pull request #${pr.number} is at ${c.to.slice(0, 7)}. Moving the branch there is undoable with ${MOD}Z.`, { submit: 'Update branch' });
     if (!ok) return;
-    res = await run(true);
+    res = await run(update = true);
+  }
+  if (res.ok?.inUse) {
+    const { branch, worktree: w } = res.ok.inUse;
+    if (!(await inUseSheet(branch, w))) return;
+    res = await run(update, w.path);
   }
   if (res.error) return toast(`Couldn’t check out #${pr.number}`, { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : res.error.stderr || res.error.message });
   const { branch, worktree: wt } = res.ok;

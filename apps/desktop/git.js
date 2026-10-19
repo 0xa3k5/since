@@ -1851,6 +1851,17 @@ async function checkRemovable(wt) {
   if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
 }
 
+// Why worktree `wt` (from getWorktrees) can't give up its branch (HEAD detached there, so the
+// branch can be checked out elsewhere), or null: it must be on disk, clean, nothing in progress.
+async function freeBlocker(wt) {
+  if (wt.missing) return 'Its folder no longer exists.';
+  const n = await worktreeChanges(wt.path);
+  if (n) return `It has ${n} uncommitted change${n > 1 ? 's' : ''}.`;
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  if (op) return `It has a ${op} in progress.`;
+  return null;
+}
+
 // Squash `branch` onto `base` with `message` (skipped when `merge` is false, or when the branch
 // has nothing left to merge), then remove its worktree and delete it, unless it is checked out
 // here or in the main worktree (plan.keep): then it is kept. Everything is checked
@@ -2757,7 +2768,7 @@ module.exports = {
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
-  samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
+  samePath, getWorktrees, findWorktree, worktreeChanges, freeBlocker, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
   AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, rebaseStack, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },

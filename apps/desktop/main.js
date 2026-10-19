@@ -209,6 +209,11 @@ const reads = {
     const wt = await git.findWorktree(s.repo.root, dir);
     return wt.missing ? null : git.worktreeChanges(wt.path);
   },
+  // Why that worktree can't give up its branch to this one (see freeCheckout), or null.
+  freeBlocker: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    return ![undefined, s.win].includes(windowFor(wt.path)) ? 'It’s open in another window.' : git.freeBlocker(wt);
+  },
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };
 
@@ -367,6 +372,10 @@ handle('git', async (e, method, ...args) => {
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
+      if (method === 'freeCheckout') {
+        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        return { ok: await s.journal.freeCheckout(label || method, ...realArgs) };
+      }
       if (worktreeOps[method]) {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
@@ -1036,12 +1045,12 @@ handle('app:pr-review-head', okCall(async (e, remoteName, number, base) => {
 // A local branch that already points elsewhere only moves once the user has confirmed (`update`).
 const prCheckoutOpts = (v) => {
   const o = v ?? {};
-  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
-  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update') };
+  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update', 'free'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
+  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update'), free: o.free ? check.absDir(o.free, 'worktree folder') : null };
 };
 handle('app:pr-checkout', okCall(async (e, number, opts) => {
   check.prNumber(number);
-  const { worktree, dir, update } = prCheckoutOpts(opts);
+  const { worktree, dir, update, free } = prCheckoutOpts(opts);
   const s = session(e);
   const root = s.repo.root;
   if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
@@ -1060,7 +1069,13 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
     };
     if (!worktree) {
       const args = !tip ? ['checkout', '-b', local, sha] : tip !== sha ? ['checkout', '-B', local, sha] : ['checkout', local];
-      await s.journal.record(`Check out #${number}`, 'checkout', () => r(s, args));
+      // The branch is checked out in another worktree: the renderer offers to free it there (`free`).
+      const held = tip && (await git.getWorktrees(root)).find((w) => !w.current && w.branch === local);
+      if (held && !(free && git.samePath(held.path, free))) return { inUse: { branch: local, worktree: { name: held.name, path: held.path, missing: held.missing, elsewhere: ![undefined, s.win].includes(windowFor(held.path)) } } };
+      if (held) {
+        if (![undefined, s.win].includes(windowFor(held.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        await s.journal.freeCheckout(`Check out #${number}`, local, held.path, args);
+      } else await s.journal.record(`Check out #${number}`, 'checkout', () => r(s, args));
       await track();
       return { branch: local, sha };
     }
