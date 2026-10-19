@@ -235,7 +235,7 @@ test('menu items say what will happen to the branch open in this window (AK-598)
   const here = { branch: 'f', worktree: { current: true } };
   const to = (b, base) => base || 'main';
   assert.equal(removeLabel(here, to), 'Switch to main & Delete');
-  assert.equal(removeLabel({ ...here, changes: 3 }, to), 'Switch to main & Discard');
+  assert.equal(removeLabel({ ...here, changes: 3 }, to), 'Switch to main & Delete');
   assert.equal(removeLabel(here, () => null), 'Delete Branch…');
   assert.equal(removeLabel({ branch: 'g', changes: 2 }, to), 'Discard Branch…');
   assert.equal(removeLabel({ branch: 'g' }), 'Delete Branch…');

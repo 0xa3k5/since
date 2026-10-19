@@ -391,6 +391,8 @@ async function offerStashStep(dir, err, opts) {
       actions: code === 'dirty' ? [dropIt, showStashAction(message), other] : [other],
     });
   } catch (e) {
+    // Branches moved since too: the moved-since sheet still asks (keeping the stash step).
+    if (await offerSkipStep(dir, e) || await offerMovedStep(dir, e, { ...opts, stash: true })) return true;
     if (!e.readOnly) toast(`${dir === 'undo' ? 'Undo' : 'Redo'} failed`, { kind: 'error', detail: e.message });
   }
   await refreshAll();
@@ -3615,7 +3617,8 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     // Local commits GitHub never saw would go with the branch: keep it and say so.
     if (info.ok.headOid && plan.head && info.ok.headOid !== plan.head) return toast(`Kept ${lane.branch}`, { detail: `It has commits that aren’t in #${pr.number}. Push or move them, then delete the branch.` });
     if (move) return act(`Delete branch ${lane.branch}`, 'switchDelete', [move.to, ...(move.stash ? [move.stash] : [])], { success: `Switched to ${move.to} and deleted ${lane.branch}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null });
-    if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
+    // Keep branch: it stays (AK-598).
+    if (plan.keep === 'current' && !v.alt) return switchAndDelete({ short: lane.branch }, plan.base);
     if (kept) return;
     return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...lopt], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
