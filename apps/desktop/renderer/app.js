@@ -330,7 +330,8 @@ async function quiet(method, ...args) {
   await refreshStatus();
 }
 
-// `opts.stash`: stash what's in the way first (offerStashStep). `opts.force`: take the step though
+// `opts.stash`: stash what's in the way first (offerStashStep); `opts.discard`: discard it instead,
+// kept on the step so the opposite step brings it back. `opts.force`: take the step though
 // branches moved since (offerMovedStep). Click handlers pass an event here.
 const stepOpts = (o) => (o?.stash || o?.force || o?.skip || o?.discard ? Object.fromEntries(['stash', 'force', 'skip', 'discard'].filter((k) => o[k]).map((k) => [k, true])) : null);
 async function undo(opts) {

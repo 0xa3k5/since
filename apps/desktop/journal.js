@@ -805,6 +805,7 @@ class Journal {
 
   // `stash`: stash what blocks the step first (see stashThenStep). `force`: take the step even
   // though branches or HEAD moved since (see adoptMoved).
+  // `discard`: the same, but the changes leave the stash list; the opposite step brings them back.
   step(dir, { stash = false, force = false, skip = false, discard = false } = {}) {
     return this.lock(() => (skip ? this.skipStep(dir) : stash || discard ? this.stashThenStep(dir, { force }, discard) : this.stepNow(dir, { force })));
   }
@@ -825,6 +826,8 @@ class Journal {
   // paths that changed since; for a submodule step, the changes in those submodules; otherwise
   // every uncommitted change. The stashes stay in their lists; if the step still fails, they are
   // popped right away.
+  // "Discard and undo" (AK-583): the stash is dropped from the list but kept on the entry
+  // (`discarded`, pinned), and re-applied when the opposite step is taken.
   async stashThenStep(dir, opts, discard = false) {
     const cwd = this.root;
     const entry = (dir === 'undo' ? this.undo : this.redo).top;
