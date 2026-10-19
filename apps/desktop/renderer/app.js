@@ -137,7 +137,7 @@ async function act(label, method, args = [], opts = {}) {
       if (quiet) return;
       const undoBtn = undoable ? { label: 'Undo', run: undo } : null;
       // A toast with a choice stays until it's dismissed or used.
-      toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [...actions, undoBtn].filter(Boolean) } : { kind: 'success', detail, action: undoBtn });
+      toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [undoBtn, ...actions].filter(Boolean) } : { kind: 'success', detail, action: undoBtn });
     };
     if (!offer) done();
     await refreshAll();
@@ -183,17 +183,19 @@ async function updateGit(feature, then) {
   const cur = await api.app('git-info').catch(() => null);
   if (cur?.ok) state.gitInfo = cur.ok;
   const info = state.gitInfo;
-  const v = await resolveSheet({
-    title: `${GIT_FEATURES[feature]} needs git ${need} or later`,
-    reason: info ? `In use: git ${info.version} at ${info.path}` : 'No git found.',
-    actions: [{ id: 'choose', label: 'Use another git…' }],
+  // Nothing to confirm (AK-598): say what's missing, offer the fix on the toast.
+  toast(`${GIT_FEATURES[feature]} needs git ${need} or later`, {
+    kind: 'warn',
+    detail: info ? `In use: git ${info.version}` : 'No git found.',
+    actions: [{ label: 'Choose git…', run: async () => {
+      const res = await api.app('git-choose');
+      if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
+      if (!res.ok) return;
+      if (need && !gitMeets(res.ok.version, need)) return updateGit(feature, then);
+      return useGit('chosen', then);
+    } }],
   });
-  if (!v) return false;
-  const res = await api.app('git-choose');
-  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
-  if (!res.ok) return false;
-  if (need && !gitMeets(res.ok.version, need)) return updateGit(feature, then);
-  return useGit('chosen', then);
+  return false;
 }
 // ⌘K Choose git… / Use system git: no feature to gate on, any git that runs will do.
 const chooseGit = async () => {
@@ -211,27 +213,33 @@ async function useGit(which, then) {
 
 // A push, pull or cherry-pick git refused for a cause we know: offer the fix together with the
 // action, as one undo step. undefined: not one of those, act() reports it as before.
+// Pull and Push decide in a panel above their sidebar buttons (AK-598); force push asks once more
+// inside it, since it can't be undone.
+const syncButton = (name) => document.querySelector(`.sb-action[aria-label="${name}"]`);
+const forcePush = (d) => ({ id: 'force', label: 'Force push…', danger: true, primary: false, confirm: { note: d?.theirsCount ? `Drops ${d.theirsCount} commit${d.theirsCount === 1 ? '' : 's'} on ${d.upstream.split('/')[0]}.` : 'Drops the commits only on the remote.', label: 'Force push' } });
 async function offerFix(label, method, args, opts, err) {
   const branch = state.head?.branch || '';
   if (err.code === 'rejected' && method === 'push' && !args[0]?.force && !args[0]?.all) {
     const d = await git('divergence', true).catch(() => null);
-    const v = await resolveSheet(d ? { title: `Push ${branch}`, ...divergeSheet(d, { push: true, age: ago }) } : {
-      title: `Push ${branch}`,
-      reason: `The remote has commits ${branch} doesn’t have. Force pushing drops them.`,
-      actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }, { id: 'force', label: 'Force push' }],
-    });
+    const sheet = d ? divergeSheet(d, { push: true, age: ago }) : {
+      reason: `The remote has commits ${branch} doesn’t have.`,
+      actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }],
+    };
+    const v = await resolveSheet({ title: `Push ${branch}`, ...sheet, actions: [...sheet.actions.filter((a) => a.id !== 'force'), forcePush(d)], anchor: syncButton('Push') });
     if (!v) return false;
     if (v.id === 'force') return push(true);
     return act(`Pull and push ${branch}`, 'pullAndPush', [v.id], { busy: `Pulling and pushing ${branch}…`, success: `Pulled and pushed ${branch}` });
   }
   if (err.code === 'diverged' && (method === 'pull' || method === 'pullAndPush') && !args[0]) {
     const d = await git('divergence').catch(() => null);
-    const v = await resolveSheet(d ? { title: label, ...divergeSheet(d, { age: ago }) } : { title: label, reason: `${branch} and its upstream have both moved.`, actions: [{ id: 'rebase', label: 'Rebase' }, { id: 'merge', label: 'Merge' }] });
+    const v = await resolveSheet({ ...(d ? { title: label, ...divergeSheet(d, { age: ago }) } : { title: label, reason: `${branch} and its upstream have both moved.`, actions: [{ id: 'rebase', label: 'Rebase' }, { id: 'merge', label: 'Merge' }] }), anchor: syncButton('Pull') });
     return v ? act(label, method, [v.id], opts) : false;
   }
   if (err.code === 'empty-pick' && method === 'cherryPick' && !args[1]) {
-    const v = await resolveSheet({ title: label, reason: `Its changes are already on ${branch || 'this branch'}.`, actions: [{ id: 'skip', label: 'Skip' }, { id: 'keep', label: 'Commit anyway' }] });
-    return v?.id === 'keep' ? act(label, method, [args[0], true], opts) : false;
+    // Nothing to do is the obvious outcome (AK-598): say so, offer the rare alternative.
+    const c = await loadCommit(args[0]).catch(() => null);
+    toast(`Already on ${branch || 'this branch'}`, { detail: `${args[0].slice(0, 7)}${c?.subject ? ` ${c.subject}` : ''}. Nothing to cherry-pick.`, actions: [{ label: 'Commit anyway', run: () => act(label, method, [args[0], true], opts) }] });
+    return false;
   }
 }
 
@@ -260,18 +268,27 @@ async function resolveOp(label, method, args, opts) {
   const op = state.opState;
   const n = state.status.conflicts.length;
   const verb = label.split(' ')[0];
-  const v = await resolveSheet({
-    title: label,
-    reason: opSentence(state.opInfo, n),
-    actions: [n ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${op}` }, { id: 'abort', label: abortAnd(op, verb.toLowerCase()) }],
-  });
-  if (!v) return false;
-  if (v.id === 'open') { openConflicts(); return false; }
-  if (v.id === 'abort') {
+  // The banner already says what's stopped (AK-598): point at it and offer the next step. Aborting
+  // can't be undone, so it confirms.
+  const banner = document.querySelector('.banner-slot .banner');
+  if (banner) { banner.classList.remove('flash'); void banner.offsetWidth; banner.classList.add('flash'); setTimeout(() => banner.classList.remove('flash'), 2000); }
+  const why = opSentence(state.opInfo, n);
+  const abortLabel = abortAnd(op, verb.toLowerCase());
+  const abort = async () => {
+    if (!(await confirm(`${abortLabel}?`, why, { submit: abortLabel }))) return false;
     return method === 'mergeLane'
       ? act(label, method, [...args.slice(0, 3), { abort: true }], opts)
       : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
-  }
+  };
+  toast(`${label} is waiting`, { kind: 'warn', detail: why, actions: [
+    n ? { label: 'Open conflicts', run: openConflicts } : { label: `Continue ${op}`, run: () => continueThen(label, method, args, opts) },
+    { label: `${abortLabel}…`, run: abort },
+  ] });
+  return false;
+}
+async function continueThen(label, method, args, opts) {
+  const op = state.opState;
+  const verb = label.split(' ')[0];
   const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
   if (ok && !state.opState && !stickyToast) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
   return false;
@@ -356,13 +373,27 @@ async function undo(opts) {
 async function offerStashStep(dir, err, opts) {
   const { code } = err;
   if (code !== 'dirty' && code !== 'dirty-submodule') return false;
-  const title = dir === 'undo' ? undoTitle() : redoTitle();
-  const v = await resolveSheet({ title, reason: err.message, actions: [
-    { id: 'stash', label: code === 'dirty-submodule' ? `Stash in submodule and ${dir}` : `Stash and ${dir}` },
-    code === 'dirty' ? { id: 'discard', label: `Discard and ${dir}`, danger: true } : null,
-  ] });
-  if (!v) return false;
-  await (dir === 'undo' ? undo : redo)({ ...opts, [v.id]: true });
+  // A safe default (AK-598): keep the newer edit in a stash and take the step; the toast offers
+  // discarding it instead.
+  const what = /: (.+) changed since\.$/.exec(err.message)?.[1];
+  try {
+    const label = await git(dir, { ...opts, stash: true });
+    const message = `Set aside to ${dir} “${label}”`;
+    const many = what && /,| and /.test(what);
+    const dropIt = { label: 'Discard it instead', run: async () => {
+      const s = (await git('stashes').catch(() => [])).find((x) => x.message.endsWith(message));
+      if (s) act(`Drop ${s.ref} (${s.message})`, 'stashDrop', [s.ref], { success: what ? `Discarded your newer edit${many ? 's' : ''} to ${what}` : 'Discarded your newer edit' });
+    } };
+    const other = { label: dir === 'undo' ? 'Redo' : 'Undo', run: dir === 'undo' ? redo : undo };
+    toast(`${dir === 'undo' ? 'Undid' : 'Redid'} “${label}”`, {
+      kind: 'success',
+      detail: code === 'dirty-submodule' ? 'The newer changes in the submodule are stashed there.' : what ? `Your newer edit${many ? 's' : ''} to ${what} ${many ? 'are' : 'is'} stashed.` : 'Your newer edit is stashed.',
+      actions: code === 'dirty' ? [dropIt, showStashAction(message), other] : [other],
+    });
+  } catch (e) {
+    if (!e.readOnly) toast(`${dir === 'undo' ? 'Undo' : 'Redo'} failed`, { kind: 'error', detail: e.message });
+  }
+  await refreshAll();
   return true;
 }
 
@@ -2000,7 +2031,7 @@ async function commitMenu(x, y, c) {
 function deleteBranchItem(r) {
   const cur = r.short === state.head.branch;
   const why = cur ? (canSwitchFrom(r.short) ? null : 'Only branch') : worktreeOf(r.short) ? 'In another worktree' : null;
-  return { label: `Delete Branch “${r.short}”${cur ? '…' : ''}`, icon: 'trash', danger: true, disabled: Boolean(why), why, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) };
+  return { label: cur && !why ? `Switch to ${switchTarget(r.short)} & Delete “${r.short}”` : `Delete Branch “${r.short}”`, icon: 'trash', danger: true, disabled: Boolean(why), why, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) };
 }
 
 function refMenu(x, y, r) {
@@ -2020,7 +2051,7 @@ function refMenu(x, y, r) {
       { label: 'Rename…', icon: 'edit', run: () => renameBranch(r) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied branch name') },
       '-',
-      { label: 'Delete Branch', icon: 'trash', danger: true, disabled: only, why: only ? 'Only branch' : null, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) },
+      { label: cur && !only ? `Switch to ${switchTarget(r.short)} & Delete` : 'Delete Branch', icon: 'trash', danger: true, disabled: only, why: only ? 'Only branch' : null, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) },
     );
   } else if (r.kind === 'remote') {
     items.push(
@@ -2050,7 +2081,7 @@ async function checkout(branch) {
   closeMenu();
   if (wt) {
     const v = await inUseSheet(branch, wt);
-    if (v?.id === 'free') return act(label, 'freeCheckout', [branch, wt.path], { success: `Switched to ${branch}, detached in “${wt.name}”` });
+    if (v?.id === 'free') return act(label, 'freeCheckout', [branch, wt.path], { success: `Checked out ${branch}`, detail: `Took it from ${wt.name}, which is now detached.`, actions: [{ label: `Open ${wt.name}`, run: () => (wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path)) }] });
     if (v?.id === 'move') return moveCheckout(label, branch, wt, v.stash);
     return false;
   }
@@ -2078,10 +2109,13 @@ async function inUseSheet(branch, wt) {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   const mine = switchChanges();
   const p = inUsePlan(wt, hold, mine);
-  const status = p.kind === 'dirty' ? p.changes : p.kind === 'clean' ? 'clean' : wt.missing ? 'missing' : p.why;
+  // Clean: nothing is lost and it's undoable, so it just happens (AK-598).
+  if (p.kind === 'clean') return { id: 'free' };
+  const status = p.kind === 'dirty' ? p.changes : wt.missing ? 'missing' : p.why;
   const v = await resolveSheet({
+    anchor: document.querySelector('.branch-chip'),
     title: ['Check out ', ref(branch)],
-    reason: [ref(branch), ' is in use by the worktree ', h('span.sheet-strong', null, wt.name), '.'],
+    reason: ['In use by ', h('span.sheet-strong', null, wt.name), '.'],
     rows: [
       [[wt.name, h('span.sheet-row-path', null, p.where)], h(status === 'clean' ? 'span' : 'span.warn', null, status)],
       p.changed && [h('span.muted', null, p.changed), ''],
@@ -2100,7 +2134,7 @@ async function moveCheckout(label, branch, wt, stash) {
   try {
     const res = await git('moveCheckout', branch, wt.path, ...(stash ? [stash] : []), { __label: label });
     if (res?.conflicts) toast(`Switched to ${branch}. The changes from “${wt.name}” conflict here.`, { kind: 'error', detail: 'Their stash is kept.', action: { label: 'Undo', run: undo } });
-    else toast(`Switched to ${branch} with the changes from “${wt.name}”${stash ? '. Your changes are stashed.' : ''}`, { kind: 'success', actions: [stash && showStashAction(stash.message), { label: 'Undo', run: undo }].filter(Boolean) });
+    else toast(`Checked out ${branch}`, { kind: 'success', detail: `Moved the changes from ${wt.name}.${stash ? ' Yours are stashed.' : ''}`, actions: [{ label: 'Undo', run: undo }, stash && showStashAction(stash.message)].filter(Boolean) });
   } catch (e) {
     if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
   }
@@ -2202,30 +2236,26 @@ async function deleteBranch(r) {
 // Local branches this window can switch to instead of `name` (not checked out in another worktree).
 const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
 const canSwitchFrom = (name) => switchTargets(name).length > 0;
+// The branch the window switches to when `name` goes: `base`, else main or master, else the first.
+const switchTarget = (name, base = null) => { const o = switchTargets(name); return [base, 'main', 'master'].find((b) => b && o.includes(b)) || o[0] || null; };
 // This window's changes a switch would stash (submodule insides stay).
 const switchChanges = () => {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   return state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
 };
+const changesText = (n) => `${n} change${n === 1 ? '' : 's'}`;
 
-// Delete the checked-out branch: pick a branch to switch to (`base` first, when given), optionally
-// stash, then switch and delete as one undo step.
+// Delete the checked-out branch: the menu item already said "Switch to main & Delete", so it
+// switches (stashing what's here), deletes, and says so (AK-598). One undo step.
 async function switchAndDelete(r, base = null) {
-  const options = switchTargets(r.short);
-  if (!options.length) return;
+  const to = switchTarget(r.short, base);
+  if (!to) return;
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
-  const n = state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
-  const v = await resolveSheet({
-    title: ['Delete branch ', ref(r.short)],
-    reason: [ref(r.short), ' is checked out in this window.'],
-    pick: { label: 'Switch to', options: options.map((b) => ({ value: b })), value: [base, 'main', 'master'].find((b) => b && options.includes(b)) || options[0] },
-    checkbox: n ? { label: `Stash ${n} uncommitted change${n === 1 ? '' : 's'}`, checked: true } : null,
-    actions: [{ id: 'go', label: 'Switch and delete', danger: true }],
-  });
-  if (!v) return false;
-  const stash = v.checked ? { message: stashMessage(r.short, v.value), untracked } : undefined;
-  return act(`Delete branch ${r.short}`, 'switchDelete', [v.value, ...(stash ? [stash] : [])], {
-    success: `Switched to ${v.value} and deleted ${r.short}${stash ? '. Changes stashed.' : ''}`,
+  const n = switchChanges();
+  const stash = n ? { message: stashMessage(r.short, to), untracked } : undefined;
+  return act(`Delete branch ${r.short}`, 'switchDelete', [to, ...(stash ? [stash] : [])], {
+    success: `Deleted ${r.short}`,
+    detail: `Switched to ${to}.${stash ? ` ${changesText(n)} stashed.` : ''}`,
     actions: stash ? [showStashAction(stash.message)] : null,
   });
 }
@@ -2474,7 +2504,7 @@ function createCommitView(container) {
           { label: 'Copy Path', icon: 'copy', run: () => copy(f.path, 'Copied path') },
           list !== 'conflicts' ? { label: 'Stash File…', icon: 'stash', run: () => stashSave({ paths: f.oldPath ? [f.path, f.oldPath] : [f.path], untracked: f.status === '?' }) } : null,
           list === 'unstaged' ? '-' : null,
-          list === 'unstaged' ? { label: 'Discard Changes…', icon: 'trash', danger: true, kbd: keymap.keys('cv.discard'), run: () => discard([f]) } : null,
+          list === 'unstaged' ? { label: f.inside ? 'Discard Changes' : 'Discard Changes…', icon: 'trash', danger: true, kbd: keymap.keys('cv.discard'), run: () => discard([f]) } : null,
         ]);
       });
       return row;
@@ -2564,18 +2594,13 @@ function createCommitView(container) {
     const ch = await git('submoduleChanges', p).catch(() => null);
     const n = ch?.count || 0;
     const name = baseName(p);
-    const rows = ch ? ch.files.map((f) => [h('span.sheet-sha', null, f.status), f.path]) : [];
-    if (n > rows.length) rows.push([`+${n - rows.length} more`, '']);
-    if (ch?.head) rows.push([h('span.muted', null, `${ch.head.branch ? `on ${ch.head.branch}` : 'detached'} · ${ch.head.sha.slice(0, 7)}`), '']);
-    const v = await resolveSheet({
-      title: name === p ? `Discard changes in ${name}` : [`Discard changes in ${name} `, h('span.muted', null, p)],
-      reason: n ? `${n} uncommitted change${n === 1 ? '' : 's'} inside this submodule.` : null,
-      rows,
-      actions: [{ id: 'stash', label: 'Stash in submodule' }, { id: 'discard', label: 'Discard in submodule', danger: true }],
+    // You asked to discard and it's undoable (AK-598): do it, name what went.
+    const files = (ch?.files || []).map((f) => baseName(f.path));
+    const which = files.length > 2 ? `${files.slice(0, 2).join(', ')} and ${files.length - 2} more` : files.join(' and ');
+    await act(`Discard changes in ${p}`, 'submoduleWork', [p, 'discard'], {
+      success: n ? `Discarded ${changesText(n)} in ${name}` : `Discarded changes in ${name}`,
+      detail: which ? `${which} in ${p}.` : undefined,
     });
-    if (!v) return;
-    if (v.id === 'stash') await act(`Stash changes in ${p}`, 'submoduleWork', [p, 'stash']);
-    else await act(`Discard changes in ${p}`, 'submoduleWork', [p, 'discard']);
   }
 
   function chooseSide(p, side) {
@@ -3240,6 +3265,7 @@ function openLanes() {
     onMerge: mergeLane,
     onAction: laneAction,
     canSwitch: canSwitchFrom,
+    switchTo: switchTarget,
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
     onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
@@ -3299,6 +3325,7 @@ function openBranches() {
     onAction: laneAction,
     canSwitch: canSwitchFrom,
     gitWhy,
+    switchTo: switchTarget,
     onNewWorktree: () => addWorktree(),
     onCount: setFinishedCount,
     paneWidth: () => loadPref('reviewPane', {}).width || null,
@@ -3521,22 +3548,16 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   if (block) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: block.detail });
   // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
   // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).
-  let move = null;
-  const targets = plan.keep === 'current' && n ? switchTargets(lane.branch) : [];
-  if (targets.length) {
+  // The switch and stash are facts in the merge dialog, not a sheet before it (AK-598); Keep
+  // branch merges and stays.
+  let move = null, dirty = 0;
+  const to = plan.keep === 'current' && n ? switchTarget(lane.branch, plan.base) : null;
+  if (to) {
     const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
-    const dirty = state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
-    const sw = await resolveSheet({
-      title: ['Merge and tidy ', ref(lane.branch)],
-      reason: [ref(lane.branch), ' is checked out in this window.'],
-      pick: { label: 'Switch to', options: targets.map((b) => ({ value: b })), value: [plan.base, 'main', 'master'].find((b) => b && targets.includes(b)) || targets[0] },
-      checkbox: dirty ? { label: `Stash ${dirty} uncommitted change${dirty === 1 ? '' : 's'}`, checked: true } : null,
-      actions: [{ id: 'switch', label: 'Switch and merge' }, { id: 'keep', label: 'Merge, keep branch' }],
-    });
-    if (!sw) return;
-    if (sw.id === 'switch') move = { to: sw.value, stash: sw.checked ? { message: stashMessage(lane.branch, sw.value), untracked } : undefined };
+    dirty = switchChanges();
+    move = { to, stash: dirty ? { message: stashMessage(lane.branch, to), untracked } : undefined };
   }
-  const kept = move ? null : plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
+  let kept = move ? null : plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
   if (kept && !n) {
     if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
     return toast(`Nothing left to merge from ${lane.branch}`, { detail: `${kept}.` });
@@ -3547,13 +3568,16 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const tidy = plan.worktree ? `remove the worktree ${plan.worktree.name} and delete ${lane.branch}` : `delete ${lane.branch}`;
   const here = kept ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}. ${kept}.`
     : n ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}, then ${tidy}.` : `Nothing left to merge into ${plan.base || 'the base'}: this will ${tidy}.`;
+  const moving = move ? `Switches to ${move.to}${move.stash ? ` · stashes ${changesText(dirty)}` : ''}` : null;
   const v = await dialog({
     title: kept ? `Merge ${lane.name}?` : `Merge and tidy ${lane.name}?`,
     description: h('div.pr-merge', null,
       h('div', null, here),
+      moving ? h('div', null, moving) : null,
       checkFailEl(laneChecks),
       plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null),
     submit: kept ? 'Merge' : 'Merge and tidy',
+    alt: move ? 'Keep branch' : undefined,
     wide: n > 0,
     fields: [
       pr ? { name: 'via', type: 'select', label: 'Merge', value: 'github', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }], note: (via) => mergeViaNote(via, pr.number) } : null,
@@ -3562,6 +3586,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     ].filter(Boolean),
   });
   if (!v) return;
+  if (v.alt) { move = null; kept = `${lane.branch} stays checked out here`; v.remote = false; }
   const label = `Merge and tidy ${lane.branch}`;
   if (v.via === 'github') {
     let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
@@ -4392,7 +4417,9 @@ const MERGE_LABELS = { squash: 'Squash & Merge', merge: 'Create a Merge Commit',
 const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
   if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
-  if (info.ok.gate.hard) {
+  // A draft is a row in the one merge dialog, whose button marks it ready (AK-598).
+  const draft = Boolean(info.ok.gate.hard && info.ok.draft && mergeGateFix(info.ok)?.actions[0]?.id === 'ready');
+  if (info.ok.gate.hard && !draft) {
     const fixed = await fixMergeGate(pr, info.ok);
     if (!fixed) return;
     info = { ok: fixed };
@@ -4406,13 +4433,13 @@ const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
     title: `Merge #${pr.number}?`,
     description: h('div.pr-merge', null,
       h('div', null, pr.title),
-      h('div', null, `${pr.branch} → ${pr.base}`),
+      h('div', null, draft ? [h('span.warn', null, 'Draft'), ' · '] : null, `${pr.branch} → ${pr.base}`),
       checkFailEl(sheet.checks),
       gate.soft.length ? h('div.pr-blocked', null, `Merge is blocked: ${gate.soft.join(' ')}`) : null,
       checking ? h('div.pr-remote-note', null, 'GitHub is still checking this pull request. If the merge fails, try again in a moment.') : null,
       h('div.pr-remote-note', null, `${REMOTE_NOTE} Fetching and deleting the local branch afterwards can be undone.`),
     ),
-    submit: sheet.submit,
+    submit: draft ? 'Mark ready and merge' : sheet.submit,
     destructive: sheet.destructive,
     gate: sheet.anyway ? 'anyway' : undefined,
     fields: [
@@ -4422,6 +4449,13 @@ const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
     ].filter(Boolean),
   });
   if (!v) return;
+  if (draft) {
+    const ready = await prCall('pr-ready', pr, undefined, `Marking #${pr.number} ready for review…`);
+    if (ready.error) return prError(`Couldn’t mark #${pr.number} ready`, ready.error);
+    const again = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    if (again.error) return prError(`Couldn’t check #${pr.number}`, again.error);
+    if (again.ok.gate.hard && !(await fixMergeGate(pr, again.ok))) return;
+  }
   const method = v.method || methods[0];
   const res = await prCall('pr-merge', pr, { method, deleteBranch: v.del, admin: Boolean(v.anyway && gate.needsAdmin) }, `Merging #${pr.number}…`);
   if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
@@ -5028,21 +5062,42 @@ async function bound(promise) {
   return true;
 }
 
-// A folder that isn't a repository: open one of the repositories inside it, or make it one.
+// A folder that isn't a repository: open one of the repositories inside it, or make it one. No
+// sheet (AK-598): in a window with nothing open the list is the window; with a repository open it
+// opens in the palette and the repository stays until you pick one. Creating a repository here
+// (irreversible) is never the default.
 async function offerNotRepo({ dir, name, repos }) {
-  if (!state.repo && !root.childElementCount) renderShell();
-  const count = new Set(repos.map((r) => r.commonDir)).size;
-  const only = count === 1 ? repos.find((r) => r.main) || repos[0] : null;
-  const v = await resolveSheet({
-    title: `Open ${name}`,
-    reason: 'Not a git repository.',
-    rows: repos.map((r, i) => [r.name, tildePath(r.root), `repo:${i}`]),
-    // With several repositories inside, creating one here (irreversible) is never the default.
-    actions: [only && { id: `repo:${repos.indexOf(only)}`, label: `Open ${only.name}` }, { id: 'init', label: 'Create repository here', primary: !!only }],
+  const init = () => bound(api.app('init-here', dir));
+  if (state.repo) {
+    palette(() => [
+      ...repos.map((r) => ({ group: `Repositories in ${name}`, label: r.name, detail: tildePath(r.root), icon: 'folder', run: () => openRepo(r.root) })),
+      { group: name, label: 'Create repository here', icon: 'plus', run: init },
+    ], { placeholder: `Open a repository in ${name}…` });
+    return false;
+  }
+  const rows = repos.map((r, i) => h('button.recent' + (i === 0 ? '.active' : ''), { onclick: () => openRepo(r.root) },
+    h('span.repo-icon', null, r.name.slice(0, 1).toUpperCase()),
+    h('span.recent-main', null, h('span.recent-name', null, r.name), h('span.recent-path', null, tildePath(r.root)))));
+  const el = h('div.welcome', { tabIndex: -1 },
+    h('div.welcome-drag'),
+    h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card.not-repo', null,
+      h('h2', null, `${name} isn’t a git repository`),
+      repos.length ? h('div.recent-head', null, 'Repositories inside') : null,
+      h('div.recent-list', null, rows),
+      h('div.welcome-actions', null,
+        h('button.btn.ghost', { onclick: () => renderWelcome() }, 'Back'),
+        h('button.btn.subtle', { onclick: init }, 'Create repository here')),
+    ))),
+  );
+  el.addEventListener('keydown', (e) => {
+    const id = keymap.match('recent', e);
+    const at = rows.indexOf(document.activeElement);
+    if (id === 'recent.next' || id === 'recent.prev') { e.preventDefault(); rows[Math.max(0, Math.min(rows.length - 1, at + (id === 'recent.next' ? 1 : -1)))]?.focus(); }
+    if (keymap.match('dialog', e) === 'dialog.cancel') renderWelcome();
   });
-  if (!v) return false;
-  if (v.id === 'init') return bound(api.app('init-here', dir));
-  return openRepo(repos[Number(v.id.slice(5))].root);
+  root.replaceChildren(el);
+  (rows[0] || el).focus();
+  return false;
 }
 
 async function loadRepo(repo) {

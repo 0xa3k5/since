@@ -179,13 +179,14 @@ export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd
 // --- Toasts --------------------------------------------------------------------
 // `action` is one inline text link (Undo). `actions` is a choice: a row of buttons under the text
 // (the first, or any with `primary`, is the primary one) plus a dismiss button; the title stays on one line.
+// A toast with `actions` stays until the user does something else (a click or key outside it).
 export function toast(message, { kind = 'info', action, actions = [], timeout = 4200, detail } = {}) {
   let root = $('#toasts');
   const run = (a) => () => { a.run(); close(); };
   const choice = actions.length > 0;
   const primary = actions.find((a) => a.primary) || actions[0];
   const el = h('div.toast.' + kind + (choice ? '.choice' : ''), null,
-    kind === 'error' ? icon('warning') : kind === 'success' ? icon('check') : kind === 'busy' ? h('span.spinner') : null,
+    kind === 'error' || kind === 'warn' ? icon('warning') : kind === 'success' ? icon('check') : kind === 'busy' ? h('span.spinner') : null,
     h('div.toast-body', null, h('div.toast-title', null, message), detail ? h('div.toast-detail', null, detail) : null,
       choice ? h('div.toast-actions', null, actions.map((a) => h('button.btn.small.' + (a === primary ? 'primary' : 'subtle'), { onclick: run(a) }, a.label))) : null),
     action ? h('button.toast-action', { onclick: run(action) }, action.label) : null,
@@ -194,28 +195,36 @@ export function toast(message, { kind = 'info', action, actions = [], timeout = 
   root.append(el);
   requestAnimationFrame(() => el.classList.add('in'));
   let timer;
-  function close() { clearTimeout(timer); el.classList.remove('in'); setTimeout(() => el.remove(), 180); }
-  if (timeout) timer = setTimeout(close, kind === 'error' ? timeout * 2 : timeout);
+  const elsewhere = (e) => { if (!el.contains(e.target) && !MODIFIERS.has(e.key)) close(); };
+  function close() {
+    clearTimeout(timer);
+    removeEventListener('pointerdown', elsewhere, true); removeEventListener('keydown', elsewhere, true);
+    el.classList.remove('in'); setTimeout(() => el.remove(), 180);
+  }
+  if (choice) setTimeout(() => { if (el.isConnected) { addEventListener('pointerdown', elsewhere, true); addEventListener('keydown', elsewhere, true); } });
+  else if (timeout) timer = setTimeout(close, kind === 'error' ? timeout * 2 : timeout);
   el.addEventListener('click', (e) => { if (e.target === el) close(); });
   return { close, update: (m) => { el.querySelector('.toast-title').textContent = m; } };
 }
+
+const MODIFIERS = new Set(['Meta', 'Shift', 'Alt', 'Control', 'CapsLock']);
 
 // --- Modal dialogs -------------------------------------------------------------
 // `gate` names a checkbox field that must be ticked before submit is enabled ("merge anyway").
 // `content`: elements shown above the fields (e.g. a list of what the action touches).
 // A `required` text field left blank keeps the dialog open and marks the field.
-export function dialog({ title, description, content = [], fields = [], submit = 'Continue', destructive = false, wide = false, gate }) {
+// `alt`: a second way to submit (e.g. "Keep branch"); its result carries `alt: true`.
+export function dialog({ title, description, content = [], fields = [], submit = 'Continue', destructive = false, wide = false, gate, alt }) {
   return new Promise((resolve) => {
     const inputs = {};
     const prev = document.activeElement;
-    const form = h('form.dialog' + (wide ? '.wide' : ''), {
-      onsubmit: (e) => {
-        e.preventDefault();
-        const blank = fields.find((f) => f.required && !inputs[f.name].value.trim());
-        if (blank) { inputs[blank.name].setAttribute('aria-invalid', 'true'); inputs[blank.name].focus(); return; }
-        finish(Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.type === 'checkbox' ? el.checked : el.value])));
-      },
-    },
+    fields = fields.filter(Boolean);
+    const send = (extra) => {
+      const blank = fields.find((f) => f.required && !inputs[f.name].value.trim());
+      if (blank) { inputs[blank.name].setAttribute('aria-invalid', 'true'); inputs[blank.name].focus(); return; }
+      finish({ ...Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.type === 'checkbox' ? el.checked : el.value])), ...extra });
+    };
+    const form = h('form.dialog' + (wide ? '.wide' : ''), { onsubmit: (e) => { e.preventDefault(); send(); } },
       h('div.dialog-head', null, h('div.dialog-title', null, title), description ? h('div.dialog-desc', null, description) : null),
       fields.length || content.length ? h('div.dialog-body', null, ...content, ...fields.map((f) => {
         if (f.type === 'checkbox') {
@@ -243,7 +252,8 @@ export function dialog({ title, description, content = [], fields = [], submit =
         return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
       })) : null,
       h('div.dialog-foot', null,
-        h('button.btn.ghost', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
+        h('button.btn.ghost' + (alt ? '.sheet-cancel' : ''), { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
+        alt ? h('button.btn.subtle', { type: 'button', onclick: () => send({ alt: true }) }, alt) : null,
         h('button.btn.' + (destructive ? 'danger' : 'primary'), { type: 'submit' }, submit, kbd('↵')),
       ),
     );
@@ -292,8 +302,10 @@ export function sheetActions(actions = []) {
 // `rows`: [[name, value, id?]] shown under the reason (what moved, say); a row with an id is a
 // button that closes the sheet with that id. `lists`: [{ title, rows: [[sha, subject, author, age]], more }]
 // commit lists (AK-585); `forecast`: { text, ok } the deciding fact under them. An action's `sub` is
-// what you end up with, shown inside its button.
-export function resolveSheet({ title, reason, rows, lists, forecast, actions = [], pick, checkbox }) {
+// what you end up with, shown inside its button. An action with `confirm` ({ note, label }) asks once
+// more in the footer before it resolves (force push). `anchor`: an element to open next to, as a
+// non-modal panel (AK-598): nothing behind it dims, a click outside or Esc cancels, focus goes back.
+export function resolveSheet({ title, reason, rows, lists, forecast, actions = [], pick, checkbox, anchor }) {
   return new Promise((resolve) => {
     const prev = document.activeElement;
     let value = pick?.value ?? pick?.options?.[0]?.value;
@@ -309,10 +321,12 @@ export function resolveSheet({ title, reason, rows, lists, forecast, actions = [
       },
     }, h('span', null, labelOf(value)), icon('chevronDown', 12)) : null;
     const box = checkbox ? h('input', { type: 'checkbox', checked: !!checkbox.checked }) : null;
-    const choose = (a) => finish({ id: a.id, value, checked: box ? box.checked : undefined });
+    let confirming = null;
+    const choose = (a) => (a.confirm && confirming !== a ? ask(a) : finish({ id: a.id, value, checked: box ? box.checked : undefined }));
     const ordered = sheetActions(actions);
     const primary = ordered.find((a) => a.primary);
-    const form = h('form.dialog.resolve-sheet', { role: 'dialog', 'aria-modal': 'true', onsubmit: (e) => { e.preventDefault(); if (primary) choose(primary); } },
+    const pop = anchor?.isConnected && anchor.offsetParent ? anchor : null;
+    const form = h('form.dialog.resolve-sheet' + (pop ? '.sheet-pop' : ''), { role: 'dialog', 'aria-modal': pop ? 'false' : 'true', onsubmit: (e) => { e.preventDefault(); if (confirming) choose(confirming); else if (primary) choose(primary); } },
       h('div.dialog-head', null,
         h('div.dialog-title', null, title),
         reason ? h('div.sheet-reason', null, icon('warning', 14), h('span', null, reason)) : null),
@@ -328,26 +342,68 @@ export function resolveSheet({ title, reason, rows, lists, forecast, actions = [
           : h('div.sheet-row', null, h('span.sheet-row-name', null, name), h('span.sheet-row-value', null, value)))) : null,
         pick ? h('div.sheet-pick-row', null, pick.label ? h('span', null, pick.label) : null, pickBtn) : null,
         checkbox ? h('label.check', null, box, h('span', null, checkbox.label)) : null) : null,
-      h('div.dialog-foot', null,
-        h('button.btn.ghost.sheet-cancel', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
+      h('div.dialog-foot', null, footButtons()),
+    );
+    function footButtons() {
+      return [h('button.btn.ghost.sheet-cancel', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
         ordered.map((a) => {
           const cls = 'button.btn.' + (a.danger ? 'danger' : a.primary ? 'primary' : 'subtle');
           return a.primary ? h(cls, { type: 'submit' }, a.label, kbd('↵')) : h(cls, { type: 'button', onclick: () => choose(a) }, a.label);
-        })),
-    );
-    const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
-    overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } });
-    document.body.append(overlay);
-    requestAnimationFrame(() => overlay.classList.add('in'));
+        })];
+    }
+    // The irreversible action's second step: its note, Back, and the action itself (Enter).
+    function ask(a) {
+      confirming = a;
+      const foot = form.querySelector('.dialog-foot');
+      foot.replaceChildren(h('span.sheet-confirm-note', null, a.confirm.note),
+        h('button.btn.ghost', { type: 'button', onclick: () => { confirming = null; foot.replaceChildren(...footButtons().flat()); foot.querySelector('button[type=submit], .btn.subtle')?.focus(); } }, 'Back'),
+        h('button.btn.danger', { type: 'submit' }, a.confirm.label, kbd('↵')));
+      foot.querySelector('.btn.danger').focus();
+    }
+    const cancelKey = (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } };
+    const outside = (e) => { if (!form.contains(e.target) && !e.target.closest?.('.menu')) finish(null); };
+    let overlay = null;
+    if (pop) {
+      form.addEventListener('keydown', cancelKey);
+      document.body.append(form);
+      placeSheet(form, pop);
+      pop.classList.add('is-open');
+      addEventListener('pointerdown', outside, true);
+      requestAnimationFrame(() => form.classList.add('in'));
+    } else {
+      overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
+      overlay.addEventListener('keydown', cancelKey);
+      document.body.append(overlay);
+      requestAnimationFrame(() => overlay.classList.add('in'));
+    }
     (form.querySelector('button[type=submit]') || form.querySelector('.sheet-row-link') || form.querySelector('.sheet-cancel')).focus();
     function finish(v) {
       closeMenu();
-      overlay.classList.remove('in');
-      setTimeout(() => overlay.remove(), 120);
-      prev?.focus?.();
+      if (pop) {
+        removeEventListener('pointerdown', outside, true);
+        pop.classList.remove('is-open');
+        form.remove();
+        if (pop.isConnected) pop.focus();
+      } else {
+        overlay.classList.remove('in');
+        setTimeout(() => overlay.remove(), 120);
+        prev?.focus?.();
+      }
       resolve(v);
     }
   });
+}
+
+// Next to `anchor`: below it, or above it when it sits in the lower half (the sidebar's Pull and
+// Push), kept inside the window.
+function placeSheet(el, anchor) {
+  const r = anchor.getBoundingClientRect();
+  const t = el.getBoundingClientRect();
+  const up = r.top > innerHeight / 2;
+  el.classList.toggle('up', up);
+  el.style.left = Math.max(8, Math.min(r.left, innerWidth - t.width - 8)) + 'px';
+  if (up) el.style.bottom = Math.max(8, innerHeight - r.top + 8) + 'px';
+  else el.style.top = Math.min(r.bottom + 8, Math.max(8, innerHeight - t.height - 8)) + 'px';
 }
 
 // --- Context menu ---------------------------------------------------------------
