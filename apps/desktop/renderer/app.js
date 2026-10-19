@@ -167,7 +167,7 @@ async function offerFix(label, method, args, opts, err) {
     const v = await resolveSheet({
       title: `Push ${branch}`,
       reason: `The remote has commits ${branch} doesn’t have. Force pushing drops them.`,
-      actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }, { id: 'force', label: 'Force push with lease' }],
+      actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }, { id: 'force', label: 'Force push' }],
     });
     if (!v) return false;
     if (v.id === 'force') return push(true);
