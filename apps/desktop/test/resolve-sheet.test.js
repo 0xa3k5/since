@@ -10,3 +10,8 @@ test('sheetActions: the first action is the primary and sits rightmost', async (
   assert.deepEqual(sheetActions([{ id: 'one' }]).map((a) => [a.id, a.primary]), [['one', true]]);
   assert.deepEqual(sheetActions(), []);
 });
+
+test('sheetActions: an action marked primary: false leaves the sheet without a primary', async () => {
+  const { sheetActions } = await import('../renderer/ui.js');
+  assert.deepEqual(sheetActions([{ id: 'init', primary: false }]).map((a) => [a.id, a.primary]), [['init', false]]);
+});

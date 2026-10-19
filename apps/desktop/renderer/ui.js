@@ -274,7 +274,7 @@ export const ref = (name) => h('span.ref', null, name);
 
 // Footer order, left to right: secondary actions, then the primary (rightmost, Enter).
 export function sheetActions(actions = []) {
-  const list = actions.filter(Boolean).map((a, i) => ({ ...a, primary: i === 0 }));
+  const list = actions.filter(Boolean).map((a, i) => ({ ...a, primary: i === 0 && a.primary !== false }));
   return [...list.slice(1), ...list.slice(0, 1)];
 }
 
@@ -314,7 +314,7 @@ export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
     overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } });
     document.body.append(overlay);
     requestAnimationFrame(() => overlay.classList.add('in'));
-    (form.querySelector('button[type=submit]') || form.querySelector('.sheet-cancel')).focus();
+    (form.querySelector('button[type=submit]') || form.querySelector('.sheet-row-link') || form.querySelector('.sheet-cancel')).focus();
     function finish(v) {
       closeMenu();
       overlay.classList.remove('in');
