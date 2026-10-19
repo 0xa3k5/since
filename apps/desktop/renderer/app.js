@@ -158,6 +158,21 @@ async function act(label, method, args = [], opts = {}) {
 // conflicts, or abort it and run `label`, as one undo step.
 // "Abort rebase and merge", but "Abort and merge" when the stopped op is a merge too.
 const abortAnd = (op, verb) => (op === verb ? `Abort and ${verb}` : `Abort ${op} and ${verb}`);
+// After abortAnd: when resolved files were saved, say so and offer them back until the next action.
+async function aborted(label, res, opts) {
+  const { op, saved } = res || {};
+  if (saved && op) {
+    const n = saved.paths.length;
+    toast(`Aborted the ${op}`, {
+      kind: 'success', detail: `${n} resolved file${n > 1 ? 's' : ''} saved.`, timeout: 0,
+      actions: [{ label: 'Restore', primary: true, run: () => act('Restore resolved files', 'restoreResolved', [saved.sha], { success: `Restored ${n} resolved file${n > 1 ? 's' : ''}` }) }, { label: 'Undo', run: undo }],
+    });
+  } else if (!opts.quiet) {
+    toast(opts.success || label, { kind: 'success', action: opts.undoable === false ? null : { label: 'Undo', run: undo } });
+  }
+  await opts.then?.(res?.result);
+}
+
 async function resolveOp(label, method, args, opts) {
   const op = state.opState;
   const n = state.status.conflicts.length;
@@ -172,7 +187,7 @@ async function resolveOp(label, method, args, opts) {
   if (v.id === 'abort') {
     return method === 'mergeLane'
       ? act(label, method, [...args.slice(0, 3), { abort: true }], opts)
-      : act(label, 'abortAnd', [method, args], opts);
+      : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
   }
   const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
   if (ok && !state.opState) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });

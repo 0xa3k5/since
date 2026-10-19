@@ -70,6 +70,7 @@ function pins(entry) {
   if (entry.stash) objects.push(entry.stash.sha);
   if (entry.autostash) objects.push(entry.autostash.sha);
   if (entry.discarded) objects.push(entry.discarded.sha);
+  if (entry.resolved) objects.push(entry.resolved.sha);
   if (entry.worktree) objects.push(entry.worktree.head, entry.worktree.stash, entry.worktree.saved?.sha);
   for (const w of entry.cleanup || []) objects.push(w.head, w.saved?.sha);
   for (const [, oid, sym] of entry.remote?.saved?.refs || []) if (!sym) objects.push(oid);
@@ -302,7 +303,7 @@ class Journal {
     return this.lock(() => this.recordNow(label, method, fn, opts));
   }
 
-  async recordNow(label, method, fn, { paths, stash = false, indexOnly = false } = {}) {
+  async recordNow(label, method, fn, { paths, stash = false, indexOnly = false, resolved = null } = {}) {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
@@ -323,7 +324,7 @@ class Journal {
       return await fn();
     } finally {
       // Record whatever changed, even if fn failed part-way.
-      await this.finish({ id, label, method, before, workBefore, stashesBefore, midSequence }).catch((err) => console.warn('journal failed', err.message));
+      await this.finish({ id, label, method, before, workBefore, stashesBefore, midSequence, resolved }).catch((err) => console.warn('journal failed', err.message));
     }
   }
 
@@ -577,13 +578,22 @@ class Journal {
 
   // Abort the rebase, merge, cherry-pick or revert stopped here, then run `fn` (a ref mutation git
   // refused mid-operation) as one undoable step. The abort itself can't be undone: git has no way
-  // back into a stopped operation, so undo returns to the state right after the abort.
+  // back into a stopped operation, so undo returns to the state right after the abort. Files
+  // already resolved are saved first (git.saveResolved) and pinned with the step, for
+  // restoreResolved. Returns { result, op, saved: { sha, paths } | null }.
   abortAnd(label, method, fn) {
     return this.lock(async () => {
       const op = await git.getOperationState(this.gitDir);
+      const saved = op ? await git.saveResolved(this.root, this.gitDir) : null;
       if (op) await git.run(this.root, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
-      return this.recordNow(label, method, fn);
+      const result = await this.recordNow(label, method, fn, { resolved: saved ? { sha: saved.sha } : null });
+      return { result, op, saved };
     });
+  }
+
+  // Put back the files abortAnd saved (git.restoreResolved), as an undoable work step.
+  restoreResolved(label, sha) {
+    return this.lock(async () => this.recordNow(label, 'restoreResolved', () => git.restoreResolved(this.root, this.gitDir, sha), { paths: () => git.resolvedPaths(this.root, sha) }));
   }
 
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
@@ -682,7 +692,7 @@ class Journal {
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, moved, remote, midSequence }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, moved, remote, midSequence, resolved }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
@@ -694,6 +704,7 @@ class Journal {
     if (freed) { entry.freed = freed; changed = true; }
     if (moved) { entry.moved = moved; changed = true; }
     if (remote) { entry.remote = remote; changed = true; }
+    if (resolved) { entry.resolved = resolved; changed = true; } // kept (pinned) for Restore
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path), { indexOnly: !!workBefore.indexOnly }).catch(() => null);
       if (!workAfter || git.workChanges(workBefore, workAfter).length) {

@@ -407,6 +407,7 @@ handle('git', async (e, method, ...args) => {
         const [inner, innerArgs] = realArgs;
         return { ok: await s.journal.abortAnd(label || inner, inner, () => refMutations[inner](s, ...innerArgs)) };
       }
+      if (method === 'restoreResolved') return { ok: await s.journal.restoreResolved(label || method, ...realArgs) };
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
       if (method === 'switchRewrite') {

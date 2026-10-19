@@ -157,3 +157,39 @@ test('opInfo and opSentence (AK-584): name what is stopped', async () => {
   await git.run(r.dir, ['rebase', '--abort']);
   assert.equal(await git.getOperationInfo(r.dir, gitDir), null);
 });
+
+test('abortAnd saves only the resolved files, pinned; restoreResolved puts them back', async () => {
+  const r = await repo();
+  await r.commit('b.js', 'base\n', 'b');
+  await git.run(r.dir, ['checkout', '-q', '-b', 'feature']);
+  r.write('app.js', 'feature\n'); await git.run(r.dir, ['add', 'app.js']); await r.commit('b.js', 'feature\n', 'feature');
+  await git.run(r.dir, ['checkout', '-q', 'main']);
+  r.write('app.js', 'main\n'); await git.run(r.dir, ['add', 'app.js']); await r.commit('b.js', 'main\n', 'main');
+  const conflict = () => assert.rejects(git.run(r.dir, ['merge', '--no-edit', 'feature']));
+  await conflict();
+  r.write('app.js', 'resolved\n');
+  await git.run(r.dir, ['add', 'app.js']);
+
+  const { op, saved } = await r.journal.abortAnd('Branch x', 'createBranch', () => git.run(r.dir, ['branch', 'x']));
+  assert.equal(op, 'merge');
+  assert.deepEqual(saved.paths, ['app.js'], 'the still-conflicted file is not saved');
+  assert.deepEqual(await git.resolvedPaths(r.dir, saved.sha), ['app.js']);
+  assert.equal(r.journal.undo.top.resolved.sha, saved.sha, 'pinned with the step');
+  assert.equal(await git.getOperationState(r.journal.gitDir), null);
+  assert.equal(fs.readFileSync(path.join(r.dir, 'app.js'), 'utf8'), 'main\n');
+
+  // Merge restarted on the same conflicts: the resolution is written and staged.
+  await conflict();
+  await r.journal.restoreResolved('Restore resolved files', saved.sha);
+  assert.equal(fs.readFileSync(path.join(r.dir, 'app.js'), 'utf8'), 'resolved\n');
+  const unmerged = await git.run(r.dir, ['ls-files', '-u']);
+  assert.ok(!unmerged.includes('app.js') && unmerged.includes('b.js'));
+  await git.run(r.dir, ['merge', '--abort']);
+
+  // No operation stopped: applied to the work tree as a stash.
+  await r.journal.restoreResolved('Restore resolved files', saved.sha);
+  assert.equal(fs.readFileSync(path.join(r.dir, 'app.js'), 'utf8'), 'resolved\n');
+  assert.equal((await git.run(r.dir, ['diff', '--cached', '--name-only'])).trim(), 'app.js');
+  await r.journal.step('undo');
+  assert.equal(fs.readFileSync(path.join(r.dir, 'app.js'), 'utf8'), 'main\n', 'restoring is undoable');
+});

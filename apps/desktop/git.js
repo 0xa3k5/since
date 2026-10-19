@@ -1664,6 +1664,68 @@ async function resolveConflict(cwd, p, content) {
 const stashApply = (cwd, ref, pop) => run(cwd, ['stash', pop ? 'pop' : 'apply', '--index', ref], { env: W_ENV });
 const stashDrop = (cwd, ref) => run(cwd, ['stash', 'drop', ref], { env: W_ENV });
 
+// Resolved files of a stopped merge, rebase, cherry-pick or revert (AK-584): staged, no longer
+// unmerged and changed from HEAD; limited to the conflicts git listed in MERGE_MSG when it did.
+// Saved as a stash-shaped commit (parents HEAD and an index commit, both with those files over
+// HEAD) so it can be applied with `git stash apply <sha>` later. Returns { sha, paths } or null.
+async function saveResolved(cwd, gitDir) {
+  const head = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD^{commit}'], { allowCodes: [0, 1] })).trim();
+  if (!head) return null;
+  const z = (out) => out.split('\0').filter(Boolean);
+  const unmerged = new Set(z(await run(cwd, ['ls-files', '-u', '-z'], { env: W_ENV })).map((r) => r.slice(r.indexOf('\t') + 1)));
+  let paths = z(await run(cwd, ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'], { env: W_ENV })).filter((p) => !unmerged.has(p));
+  let msg = '';
+  try { msg = fs.readFileSync(path.join(gitDir, 'MERGE_MSG'), 'utf8'); } catch {}
+  const at = msg.split('\n').findIndex((l) => /^\S\s*Conflicts:\s*$/.test(l));
+  if (at !== -1) {
+    const listed = new Set();
+    for (const l of msg.split('\n').slice(at + 1)) { const m = /^\S\t(.+)$/.exec(l); if (!m) break; listed.add(m[1]); }
+    paths = paths.filter((p) => listed.has(p));
+  }
+  if (!paths.length) return null;
+  const staged = new Map();
+  for (const rec of z(await run(cwd, ['ls-files', '-s', '-z', '--', ...paths], { env: W_ENV }))) {
+    const tab = rec.indexOf('\t');
+    const [mode, oid] = rec.slice(0, tab).split(' ');
+    staged.set(rec.slice(tab + 1), `${mode} ${oid}`);
+  }
+  const indexFile = path.join(gitDir, `gitlanes-resolved-${process.pid}.index`);
+  const env = { ...W_ENV, GIT_INDEX_FILE: indexFile };
+  try {
+    await run(cwd, ['read-tree', head], { env });
+    const info = paths.map((p) => `${staged.get(p) || `0 ${'0'.repeat(head.length)}`}\t${p}\0`).join('');
+    await run(cwd, ['update-index', '-z', '--index-info'], { env, input: info });
+    const tree = (await run(cwd, ['write-tree'], { env })).trim();
+    const index = (await run(cwd, ['commit-tree', tree, '-p', head], { input: 'index of resolved files\n' })).trim();
+    const sha = (await run(cwd, ['commit-tree', tree, '-p', head, '-p', index], { input: 'Resolved files\n' })).trim();
+    return { sha, paths };
+  } finally {
+    fs.rmSync(indexFile, { force: true });
+  }
+}
+
+// Put saved resolved files back (saveResolved's commit). With an operation stopped here again on
+// those same files, write them and stage them (that resolves their conflicts); otherwise apply
+// them to the work tree as a stash (by SHA).
+async function restoreResolved(cwd, gitDir, sha) {
+  const paths = await resolvedPaths(cwd, sha);
+  const unmerged = new Set((await run(cwd, ['ls-files', '-u', '-z'], { env: W_ENV })).split('\0').filter(Boolean).map((r) => r.slice(r.indexOf('\t') + 1)));
+  const again = (await getOperationState(gitDir)) && paths.every((p) => unmerged.has(p));
+  if (!again) return run(cwd, ['stash', 'apply', '--index', sha], { env: W_ENV });
+  const present = new Set((await run(cwd, ['ls-tree', '-r', '-z', '--name-only', sha, '--', ...paths], { env: W_ENV })).split('\0').filter(Boolean));
+  const gone = paths.filter((p) => !present.has(p));
+  if (present.size) await run(cwd, ['checkout', sha, '--', ...present], { env: W_ENV });
+  if (gone.length) await run(cwd, ['rm', '-q', '-f', '--ignore-unmatch', '--', ...gone], { env: W_ENV });
+}
+
+// The files saveResolved kept in `sha` (it must look like one: two parents with the same tree).
+async function resolvedPaths(cwd, sha) {
+  const [tree, ...parents] = (await run(cwd, ['show', '-s', '--format=%T %P', sha])).trim().split(' ');
+  const indexTree = parents.length === 2 && (await run(cwd, ['rev-parse', `${parents[1]}^{tree}`])).trim();
+  if (indexTree !== tree) throw new GitError('Those saved files are not available.');
+  return (await run(cwd, ['diff', '--name-only', '--no-renames', '-z', parents[0], sha], { env: W_ENV })).split('\0').filter(Boolean);
+}
+
 // ---------------------------------------------------------------------------
 // Worktrees. Each one is a plain record, so later features (per-agent lanes)
 // can hang more fields off it without changing the callers.
@@ -2972,6 +3034,7 @@ function parseBlame(out) {
 }
 
 module.exports = {
+  saveResolved, restoreResolved, resolvedPaths,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,

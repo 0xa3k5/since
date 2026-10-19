@@ -310,6 +310,8 @@ const gitSchemas = {
   restoreHistory: [int],
   // A ref mutation git refused mid-operation, run again after aborting it (journal.abortAnd).
   abortAnd: [oneOf(...ABORT_AND), (v, w) => { if (!Array.isArray(v)) fail(w, 'expected an array'); return v; }],
+  // Put back the files abortAnd saved before aborting (journal.restoreResolved): the saved commit.
+  restoreResolved: [oid],
 };
 
 // Validate a `git` IPC call. Returns { args, label } with the optional trailing
