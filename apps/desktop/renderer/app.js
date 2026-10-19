@@ -1903,11 +1903,11 @@ async function switchAndDelete(r, base = null) {
     success: `Switched to ${v.value} and deleted ${r.short}${stash ? '. Changes stashed.' : ''}`,
     actions: stash ? [showStashAction(stash.message)] : null,
   });
+}
 // A worktree open in another window can't be changed from this one: offer to bring that window forward.
 async function openElsewhere(title, w) {
   const v = await resolveSheet({ title, reason: `“${w.name}” is open in another window.`, actions: [{ id: 'open', label: 'Bring that window forward' }] });
   if (v) api.app('open-window', w.path);
-}
 }
 // "Show stash" on a toast: opens Stashes with the stash saved as `message` selected.
 const showStashAction = (message) => ({ label: 'Show stash', run: async () => {
