@@ -6,7 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
-import { opSentence, divergeSheet, pushIntent, pushAfterContinue } from './resolve-text.js';
+import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -236,7 +236,7 @@ async function resolveOp(label, method, args, opts) {
 }
 
 // "Rebase and push" stopped on conflicts: once the operation is continued to the end, offer the push
-// it was on the way to. The toast stays until the next action.
+// it was on the way to. The toast stays until the next action (so does the one for ⌘Z while stopped).
 let pendingPush = null, stickyToast = null;
 function rememberPush(method, args) {
   const branch = state.head?.branch;
@@ -254,6 +254,36 @@ function offerPushAfterContinue() {
   return true;
 }
 
+// ⌘Z / ⇧⌘Z while a rebase, merge, cherry-pick or revert is stopped: flash its banner and say so, with
+// its conflicts or aborting it (confirmed: can't be undone) and then taking the step. true: handled here.
+function flashBanner() {
+  const b = bannerEl?.querySelector('.banner');
+  if (!b) return;
+  b.classList.remove('flash');
+  void b.offsetWidth;
+  b.classList.add('flash');
+}
+function stepWhileStopped(dir) {
+  const op = state.opState;
+  if (!op) return false;
+  flashBanner();
+  const t = stoppedStepToast(dir, op, state.opInfo, state.status.conflicts.length);
+  const run = { open: openConflicts, abort: () => abortThenStep(dir, op) };
+  stickyToast = toast(t.message, { kind: 'info', detail: t.detail, timeout: 0, actions: t.actions.map((a, i) => ({ label: a.label, primary: i === 0, run: run[a.id] })) });
+  return true;
+}
+async function abortThenStep(dir, op) {
+  if (!(await confirm(`Abort ${op}?`, "Aborting can't be undone.", { submit: 'Abort' }))) return;
+  try { await git('abortOp'); } catch (e) {
+    if (!e.readOnly) toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
+    await refreshAll();
+    return;
+  }
+  pendingPush = null;
+  await refreshAll();
+  await (dir === 'undo' ? undo : redo)();
+}
+
 async function quiet(method, ...args) {
   try { await git(method, ...args); } catch (e) { if (!e.readOnly) toast('Git error', { kind: 'error', detail: e.message }); }
   await refreshStatus();
@@ -265,6 +295,7 @@ const stepOpts = (o) => (o?.stash ? { stash: true } : o?.discard ? { discard: tr
 async function undo(opts) {
   opts = stepOpts(opts);
   closeStickyToast();
+  if (!opts && stepWhileStopped('undo')) return;
   try {
     const label = await git('undo', ...(opts ? [opts] : []));
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
@@ -296,6 +327,7 @@ const baseName = (p) => p.split('/').pop();
 async function redo(opts) {
   opts = stepOpts(opts);
   closeStickyToast();
+  if (!opts && stepWhileStopped('redo')) return;
   try {
     const label = await git('redo', ...(opts ? [opts] : []));
     toast(label ? `Redid “${label}”` : 'Nothing to redo');

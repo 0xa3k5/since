@@ -355,6 +355,10 @@ kbd.inline { flex: none; }
 .banner { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--warn) 10%, var(--bg-content)); color: var(--text-2); }
 .banner > .icon { color: var(--warn); }
 .banner b { color: var(--text); font-weight: var(--fw-strong); }
+/* ⌘Z while an operation is stopped: the banner that says why, flashed once. */
+.banner.flash { animation: banner-flash 900ms ease-out; }
+@keyframes banner-flash { from { background: color-mix(in srgb, var(--warn) 32%, var(--bg-content)); box-shadow: inset 2px 0 0 var(--warn); } }
+@media (prefers-reduced-motion: reduce) { .banner.flash { animation: none; } }
 
 /* ---------------------------------------------------------------- Map */
 .map-wrap { flex: 1; display: grid; grid-template-columns: 1fr; min-height: 0; }

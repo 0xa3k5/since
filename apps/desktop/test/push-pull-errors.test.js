@@ -145,3 +145,17 @@ test('a continued "Rebase and push" offers the push it was on the way to', async
   assert.equal(pushAfterContinue(null, { branch: 'feature/api' }), null);
 });
 
+test('undo or redo while an operation is stopped names it and offers abort', async () => {
+  const { stoppedStepToast } = await import('../renderer/resolve-text.js');
+  const info = { op: 'rebase', branch: 'feature/rebasing', onto: 'main', step: 1, total: 2, subject: 'Add footer.' };
+  const u = stoppedStepToast('undo', 'rebase', info, 1);
+  assert.equal(u.message, "Can't undo while this rebase is stopped");
+  assert.equal(u.detail, 'Rebasing feature/rebasing onto main is stopped at 1 of 2: Add footer.');
+  assert.deepEqual(u.actions, [{ id: 'open', label: 'Open conflicts' }, { id: 'abort', label: 'Abort and undo…' }]);
+  const r = stoppedStepToast('redo', 'merge', { op: 'merge', from: 'x', branch: 'main' }, 2);
+  assert.equal(r.message, "Can't redo while this merge is stopped");
+  assert.equal(r.detail, 'Merging x into main is stopped on 2 conflicts.');
+  assert.equal(r.actions[1].label, 'Abort and redo…');
+  assert.equal(stoppedStepToast('undo', 'cherry-pick', null).message, "Can't undo while this cherry-pick is stopped");
+  assert.equal(stoppedStepToast('undo', 'cherry-pick', null).detail, null);
+});
