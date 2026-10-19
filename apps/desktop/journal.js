@@ -575,6 +575,17 @@ class Journal {
     });
   }
 
+  // Abort the rebase, merge, cherry-pick or revert stopped here, then run `fn` (a ref mutation git
+  // refused mid-operation) as one undoable step. The abort itself can't be undone: git has no way
+  // back into a stopped operation, so undo returns to the state right after the abort.
+  abortAnd(label, method, fn) {
+    return this.lock(async () => {
+      const op = await git.getOperationState(this.gitDir);
+      if (op) await git.run(this.root, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+      return this.recordNow(label, method, fn);
+    });
+  }
+
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
   runWorktree(method, label, args) {
     return this.lock(() => this.runWorktreeNow(method, label, args));

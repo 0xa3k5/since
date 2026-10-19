@@ -147,7 +147,7 @@ const worktreeSpec = (v, what) => obj(v, what, { dir: optional((d, w) => str(d, 
 
 // One lane to clean up: its branch (with the tip the user saw) and/or its worktree folder.
 const cleanupItem = (v, what) => {
-  obj(v, what, { branch: optional(rev), head: optional(oid), worktree: optional(absDir), force: optional(bool), stash: optional(bool) });
+  obj(v, what, { branch: optional(rev), head: optional(oid), worktree: optional(absDir), force: optional(bool), stash: optional(bool), abort: optional(bool) });
   if (!v.branch && !v.worktree) fail(what, 'expected a branch or a worktree');
   return v;
 };
@@ -174,6 +174,12 @@ function knownWorktree(worktrees, dir, same = (a, b) => a === b, what = 'worktre
 // Methods stashAnd may run again after stashing (refMutations in main.js).
 const STASH_AND = ['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip'];
 
+// Methods abortAnd may run after aborting a stopped rebase, merge, cherry-pick or revert.
+const ABORT_AND = ['merge', 'pull', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch'];
+// `{ abort }`: abort an operation stopped in the way first (git.mergeLane).
+const abortOpt = (v, w) => obj(v, w, { abort: optional(bool) });
+const laneOpt = (v, w) => obj(v, w, { close: optional(bool), abort: optional(bool) });
+
 const gitSchemas = {
   // reads
   refs: [],
@@ -191,7 +197,7 @@ const gitSchemas = {
   branchReview: [rev, optional(rev)],
   changeFacts: [rev, rev],
   mergeConflicts: [rev, rev],
-  mergeLanePlan: [rev, optional(rev)],
+  mergeLanePlan: [rev, optional(rev), optional(abortOpt)],
   status: [],
   opState: [],
   lfs: [],
@@ -213,6 +219,7 @@ const gitSchemas = {
   freeBlocker: [worktreeDir],
   worktreeHold: [worktreeDir],
   removalFacts: [worktreeDir],
+  worktreeOp: [worktreeDir],
   baseTouches: [rev, rev, repoPaths],
   conflict: [repoPath],
   fileHistory: [repoPath, optional((v, w) => obj(v, w, { from: rev, skip: int, limit: int, path: repoPath }))],
@@ -286,8 +293,9 @@ const gitSchemas = {
   stashDrop: [rev],
   // undoable merge and tidy of a lane (journal.runLane): branch, base, commit message; branch
   // `close`: close the window showing the lane's worktree first (a merge handed over from it).
-  mergeLane: [rev, rev, text, optional((v, w) => obj(v, w, { close: optional(bool) }))],
-  tidyLane: [rev, optional((v, w) => obj(v, w, { close: optional(bool) }))],
+  // `abort`: abort an operation stopped in the lane's worktree first.
+  mergeLane: [rev, rev, text, optional(laneOpt)],
+  tidyLane: [rev, optional(laneOpt)],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
   updateSubmodules: [optional(repoPaths), optional((v, w) => obj(v, w, { stash: optional(bool) }))],
   // undoable stash or discard of the changes inside one submodule (journal.runSubmoduleWork)
@@ -298,6 +306,8 @@ const gitSchemas = {
   // A ref mutation git refused over uncommitted changes, run again after stashing them (journal.stashAnd).
   stashAnd: [oneOf(...STASH_AND), (v, w) => { if (!Array.isArray(v)) fail(w, 'expected an array'); return v; }],
   restoreHistory: [int],
+  // A ref mutation git refused mid-operation, run again after aborting it (journal.abortAnd).
+  abortAnd: [oneOf(...ABORT_AND), (v, w) => { if (!Array.isArray(v)) fail(w, 'expected an array'); return v; }],
 };
 
 // Validate a `git` IPC call. Returns { args, label } with the optional trailing
@@ -317,7 +327,7 @@ function checkGit(method, args) {
     if (i < args.length || !check.optional) check(args[i], `${method} argument ${i + 1}`);
   });
   // stashAnd carries another method's arguments: check them with that method's schema.
-  if (method === 'stashAnd') return { args: [args[0], checkGit(args[0], args[1]).args], label: lbl, worktreeArgs: [] };
+  if (method === 'stashAnd' || method === 'abortAnd') return { args: [args[0], checkGit(args[0], args[1]).args], label: lbl, worktreeArgs: [] };
   // Arguments main.js must still resolve against the repository's worktree list.
   const worktreeArgs = schema.flatMap((check, i) => (check.worktree && i < args.length ? [i] : []));
   return { args, label: lbl, worktreeArgs };
