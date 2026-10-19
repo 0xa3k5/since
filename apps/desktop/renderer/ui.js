@@ -278,7 +278,7 @@ export function sheetActions(actions = []) {
   return [...list.slice(1), ...list.slice(0, 1)];
 }
 
-export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
+export function resolveSheet({ title, reason, detail, actions = [], pick, checkbox }) {
   return new Promise((resolve) => {
     const prev = document.activeElement;
     let value = pick?.value ?? pick?.options?.[0]?.value;
@@ -301,7 +301,8 @@ export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
       h('div.dialog-head', null,
         h('div.dialog-title', null, title),
         reason ? h('div.sheet-reason', null, icon('warning', 14), h('span', null, reason)) : null),
-      pick || checkbox ? h('div.dialog-body', null,
+      pick || checkbox || detail ? h('div.dialog-body', null,
+        detail ? h('div.sheet-detail', null, detail.filter(Boolean).map((d) => h('div.sheet-detail-line.' + d.kind, null, d.text))) : null,
         pick ? h('div.sheet-pick-row', null, pick.label ? h('span', null, pick.label) : null, pickBtn) : null,
         checkbox ? h('label.check', null, box, h('span', null, checkbox.label)) : null) : null,
       h('div.dialog-foot', null,

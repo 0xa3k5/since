@@ -4,7 +4,7 @@ import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
 import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { isRowControl, rowDoubleClick } from './keys.js';
-import { checkoutPlan } from './checkout-plan.js';
+import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -1780,8 +1780,10 @@ async function checkout(branch) {
   const label = `Checkout ${branch}`;
   closeMenu();
   if (wt) {
-    if (!(await inUseSheet(branch, wt))) return false;
-    return act(label, 'freeCheckout', [branch, wt.path], { success: `Switched to ${branch}, detached in “${wt.name}”` });
+    const v = await inUseSheet(branch, wt);
+    if (v?.id === 'free') return act(label, 'freeCheckout', [branch, wt.path], { success: `Switched to ${branch}, detached in “${wt.name}”` });
+    if (v?.id === 'move') return moveCheckout(label, branch, wt, v.stash);
+    return false;
   }
   try {
     await git('checkout', branch, { __label: label });
@@ -1800,16 +1802,38 @@ async function checkout(branch) {
 }
 
 // `branch` is checked out in worktree `wt`: offer to free it there (HEAD detached) and check it
-// out here, or to open that worktree. True when the user picked freeing it.
+// out here, bringing its uncommitted changes along, or to open that worktree. Resolves to
+// { id: 'free' }, { id: 'move', stash } (this window's changes to stash first, or null) or null.
 async function inUseSheet(branch, wt) {
-  const why = wt.missing ? 'Its folder no longer exists.' : await git('freeBlocker', wt.path).catch((e) => e.message);
+  const hold = wt.missing ? { blocker: 'Its folder no longer exists.' } : await git('worktreeHold', wt.path).catch((e) => ({ blocker: e.message }));
+  const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
+  const mine = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+  const p = inUsePlan(wt, hold, mine);
+  const name = h('span', { title: wt.path }, wt.name);
   const v = await resolveSheet({
     title: ['Check out ', ref(branch)],
-    reason: why ? ['Checked out in ', h('span', { title: wt.path }, wt.name), `. ${why}`] : ['Checked out in ', h('span', { title: wt.path }, wt.name), '.'],
-    actions: [!why && { id: 'free', label: 'Free it and check out here' }, !wt.missing && { id: 'open', label: 'Open that worktree' }],
+    reason: p.kind === 'blocked' ? ['Checked out in ', name, `. ${p.why}`] : p.kind === 'clean' ? ['Checked out in ', name, '.'] : [ref(branch), ' is in use by the worktree ', name, '.'],
+    detail: p.kind === 'dirty' ? [{ text: `${wt.name} · ${p.where} · ${p.changes}`, kind: 'warn' }, p.changed && { text: p.changed, kind: 'muted' }] : null,
+    checkbox: p.stash ? { label: p.stash, checked: true } : null,
+    actions: p.actions.map((id) => ({ free: { id, label: 'Free it & check out' }, move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
   });
   if (v?.id === 'open') wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path);
-  return v?.id === 'free';
+  if (v?.id === 'move') return { id: 'move', stash: v.checked ? { message: stashMessage(state.head.branch, branch), untracked } : null };
+  return v?.id === 'free' ? v : null;
+}
+
+// Check out `branch` from worktree `wt` and bring its changes here (one undo step). A conflict
+// while bringing them stops there, with the changes still in their stash.
+async function moveCheckout(label, branch, wt, stash) {
+  try {
+    const res = await git('moveCheckout', branch, wt.path, ...(stash ? [stash] : []), { __label: label });
+    if (res?.conflicts) toast(`Switched to ${branch}. The changes from “${wt.name}” conflict here.`, { kind: 'error', detail: 'Their stash is kept.', action: { label: 'Undo', run: undo } });
+    else toast(`Switched to ${branch} with the changes from “${wt.name}”${stash ? '. Your changes are stashed.' : ''}`, { kind: 'success', actions: [stash && showStashAction(stash.message), { label: 'Undo', run: undo }].filter(Boolean) });
+  } catch (e) {
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+  }
+  await refreshAll();
+  return true;
 }
 
 // Stash, then switch (one undoable step). Asks first unless "Don't ask again" was ticked.
@@ -3564,9 +3588,9 @@ async function checkoutPr(pr, { worktree = false } = {}) {
     if (!v) return;
     opts = { worktree, dir: v.dir.trim() || null, open: v.open };
   }
-  const run = async (update, free = null) => {
+  const run = async (update, free = null, move = null) => {
     const t = toast(`Checking out #${pr.number}…`, { kind: 'busy', timeout: 0 });
-    const res = await api.app('pr-checkout', pr.number, { worktree, dir: opts.dir || null, update, free }).catch((e) => ({ error: { message: e.message } }));
+    const res = await api.app('pr-checkout', pr.number, { worktree, dir: opts.dir || null, update, free, ...(move && { move: true, stash: move.stash }) }).catch((e) => ({ error: { message: e.message } }));
     t.close();
     return res;
   };
@@ -3579,8 +3603,9 @@ async function checkoutPr(pr, { worktree = false } = {}) {
   }
   if (res.ok?.inUse) {
     const { branch, worktree: w } = res.ok.inUse;
-    if (!(await inUseSheet(branch, w))) return;
-    res = await run(update, w.path);
+    const v = await inUseSheet(branch, w);
+    if (!v) return;
+    res = await run(update, w.path, v.id === 'move' ? { stash: v.stash } : null);
   }
   if (res.error) return toast(`Couldn’t check out #${pr.number}`, { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : res.error.stderr || res.error.message });
   const { branch, worktree: wt } = res.ok;

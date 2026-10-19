@@ -214,6 +214,11 @@ const reads = {
     const wt = await git.findWorktree(s.repo.root, dir);
     return ![undefined, s.win].includes(windowFor(wt.path)) ? 'It’s open in another window.' : git.freeBlocker(wt);
   },
+  // Whether that worktree can hand its branch and changes to this one (see moveCheckout).
+  worktreeHold: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    return ![undefined, s.win].includes(windowFor(wt.path)) ? { blocker: 'It’s open in another window.' } : git.worktreeHold(wt);
+  },
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };
 
@@ -379,6 +384,10 @@ handle('git', async (e, method, ...args) => {
       if (method === 'freeCheckout') {
         if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.freeCheckout(label || method, ...realArgs) };
+      }
+      if (method === 'moveCheckout') {
+        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        return { ok: await s.journal.moveCheckout(label || method, ...realArgs) };
       }
       if (worktreeOps[method]) {
         if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
@@ -1049,12 +1058,13 @@ handle('app:pr-review-head', okCall(async (e, remoteName, number, base) => {
 // A local branch that already points elsewhere only moves once the user has confirmed (`update`).
 const prCheckoutOpts = (v) => {
   const o = v ?? {};
-  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update', 'free'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
-  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update'), free: o.free ? check.absDir(o.free, 'worktree folder') : null };
+  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update', 'free', 'move', 'stash'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
+  const stash = o.stash == null ? null : check.obj(o.stash, 'stash', { message: (v, w) => check.str(v, w, { max: 4096 }), untracked: (v, w) => v == null || check.bool(v, w) });
+  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update'), free: o.free ? check.absDir(o.free, 'worktree folder') : null, move: o.move == null ? false : check.bool(o.move, 'move'), stash };
 };
 handle('app:pr-checkout', okCall(async (e, number, opts) => {
   check.prNumber(number);
-  const { worktree, dir, update, free } = prCheckoutOpts(opts);
+  const { worktree, dir, update, free, move, stash } = prCheckoutOpts(opts);
   const s = session(e);
   const root = s.repo.root;
   if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
@@ -1078,7 +1088,10 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
       if (held && !(free && git.samePath(held.path, free))) return { inUse: { branch: local, worktree: { name: held.name, path: held.path, missing: held.missing, elsewhere: ![undefined, s.win].includes(windowFor(held.path)) } } };
       if (held) {
         if (![undefined, s.win].includes(windowFor(held.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
-        await s.journal.freeCheckout(`Check out #${number}`, local, held.path, args);
+        // Bringing that worktree's changes along needs the branch where they were made.
+        if (move && args.length > 2) throw new git.GitError(`${local} has to move to the pull request first. Commit or stash the changes in “${held.name}”.`);
+        if (move) await s.journal.moveCheckout(`Check out #${number}`, local, held.path, stash);
+        else await s.journal.freeCheckout(`Check out #${number}`, local, held.path, args);
       } else await s.journal.record(`Check out #${number}`, 'checkout', () => r(s, args));
       await track();
       return { branch: local, sha };

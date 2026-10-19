@@ -25,6 +25,21 @@ let nextId = Date.now();
 const bare = (s) => { if (!s) return s; const { config, ...rest } = s; return rest; };
 const same = (a, b) => JSON.stringify(bare(a)) === JSON.stringify(bare(b));
 
+// Stash in `cwd` (git.stashPush options) and return the new stash's sha, or null when there was
+// nothing to stash. The stash list is shared by every worktree; `stashRef` finds a stash in it.
+const stashTop = (cwd) => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+async function newStash(cwd, opts) {
+  const prev = await stashTop(cwd);
+  await git.stashPush(cwd, opts);
+  const sha = await stashTop(cwd);
+  return sha && sha !== prev ? sha : null;
+}
+async function stashRef(cwd, sha) {
+  const i = (await git.getStashes(cwd)).findIndex((x) => x.sha === sha);
+  if (i === -1) throw new git.GitError('That stash no longer exists.');
+  return `stash@{${i}}`;
+}
+
 // What restoring ref state `target` over `current` would change: where HEAD
 // points (a branch name, or a commit when detached), then each branch and tag.
 // [{ ref, kind: 'head' | 'move' | 'create' | 'delete', from, to }]
@@ -402,6 +417,104 @@ class Journal {
     });
   }
 
+  // Check out `branch` here while worktree `dir` has it checked out with uncommitted changes, and
+  // bring those changes along: stash them there, detach HEAD there, check out `branch` here and pop
+  // that stash here, as one undoable step. `stash` ({ message, untracked }) first stashes this
+  // worktree's own changes, kept as a stash (as autostash does). If popping conflicts, the step is
+  // still recorded and their stash kept; the result says `conflicts`. If git refuses to pop (the
+  // changes overlap ones here) or anything else fails, both worktrees go back as they were. Undo
+  // moves the changes here back there, re-attaches the branch there, switches back here and pops
+  // this worktree's own stash; redo moves them again.
+  moveCheckout(label, branch, dir, stash) {
+    return this.lock(async () => {
+      const cwd = this.root;
+      const id = ++nextId;
+      const wt = (await git.getWorktrees(cwd)).find((w) => !w.current && git.samePath(w.path, dir));
+      if (!wt || wt.branch !== branch) throw new git.GitError(`${branch} isn’t checked out in that worktree any more.`);
+      const { blocker } = await git.worktreeHold(wt);
+      if (blocker) throw new git.GitError(`Can’t free ${branch} in “${wt.name}”. ${blocker}`);
+      const before = await git.captureRefState(cwd);
+      const moved = { path: wt.path, name: wt.name, branch, stash: stash || null, mine: null, theirs: null };
+      await this.moveNow(moved, before.head?.replace(/^refs\/heads\//, '') || before.headOid);
+      await this.finish({ id, label, method: 'moveCheckout', before, moved });
+      return { conflicts: !!moved.theirs };
+    });
+  }
+
+  // Do (or redo) a moveCheckout. `from` is what is checked out here, for the stash messages. Sets
+  // `m.mine` (this worktree's stash) and `m.theirs` (their stash, kept only when popping conflicted).
+  async moveNow(m, from) {
+    const cwd = this.root;
+    const env = { GIT_OPTIONAL_LOCKS: '1' };
+    m.mine = m.stash ? await newStash(cwd, m.stash) : null;
+    const theirs = await newStash(m.path, { message: `Moved from ${m.name} to ${path.basename(cwd)} (${m.branch})`, untracked: true }).catch(async (err) => {
+      if (m.mine) await git.stashApply(cwd, await stashRef(cwd, m.mine), true).catch(() => {});
+      throw err;
+    });
+    const back = async () => {
+      await git.run(m.path, ['checkout', '-q', m.branch], { env }).catch(() => {});
+      if (theirs) await git.stashApply(m.path, await stashRef(m.path, theirs), true).catch(() => {});
+      if (m.mine) await git.stashApply(cwd, await stashRef(cwd, m.mine), true).catch(() => {});
+    };
+    try {
+      await git.run(m.path, ['checkout', '-q', '--detach'], { env });
+      await git.run(cwd, ['checkout', '-q', m.branch], { env });
+    } catch (err) {
+      await back();
+      throw err;
+    }
+    m.theirs = null;
+    if (!theirs) return;
+    try {
+      await git.stashApply(cwd, await stashRef(cwd, theirs), true);
+    } catch (err) {
+      // Conflicts stay for the user to resolve; anything else (nothing applied) puts both sides back.
+      if ((await git.run(cwd, ['ls-files', '-u'])).trim()) { m.theirs = theirs; return; }
+      await git.run(cwd, ['checkout', '-q', from], { env }).catch(() => {});
+      await back();
+      if (/would be overwritten|already exists/.test(err.stderr || '')) throw new git.GitError(`The changes from “${m.name}” overlap the changes here. Nothing changed.`);
+      throw err;
+    }
+  }
+
+  // Undo or redo a moveCheckout. Branches and HEAD here must be where the step left them, and the
+  // other worktree still detached (undo) or back on the branch (redo).
+  async restoreMoved(entry, dir) {
+    const cwd = this.root;
+    const m = entry.moved;
+    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
+    const there = await git.run(m.path, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] }).then((o) => o.trim(), () => null);
+    if (there === null) throw fail(`${m.name} no longer exists.`);
+    if (there !== (dir === 'undo' ? '' : `refs/heads/${m.branch}`)) throw fail(`${m.name} has switched branch since.`);
+    if (dir === 'redo') {
+      try { await this.moveNow(m, entry.before.head?.replace(/^refs\/heads\//, '') || entry.before.headOid); } catch (err) { throw fail(err.message); }
+      return;
+    }
+    const env = { GIT_OPTIONAL_LOCKS: '1' };
+    const stashes = await git.getStashes(cwd);
+    if (m.mine && !stashes.some((x) => x.sha === m.mine)) throw fail('its stash was applied or dropped since.');
+    if (m.theirs && !stashes.some((x) => x.sha === m.theirs)) throw fail(`the stash from ${m.name} was applied or dropped since.`);
+    try {
+      let back = m.theirs;
+      if (back) {
+        // Popping conflicted: drop the half-applied changes; their stash still has all of them.
+        await git.run(cwd, ['reset', '-q', '--hard'], { env });
+        const added = await git.run(cwd, ['ls-tree', '-r', '-z', '--name-only', `${back}^3`], { allowCodes: [0, 128] }).catch(() => '');
+        for (const f of added.split('\0').filter(Boolean)) fs.rmSync(path.join(cwd, f), { force: true });
+      } else {
+        back = await newStash(cwd, { message: `Moved back to ${m.name} (${m.branch})`, untracked: true });
+      }
+      await git.restoreRefState(cwd, entry.before);
+      if (m.mine) await git.stashApply(cwd, await stashRef(cwd, m.mine), true);
+      await git.run(m.path, ['checkout', '-q', m.branch], { env });
+      if (back) await git.stashApply(m.path, await stashRef(m.path, back), true);
+      m.mine = m.theirs = null;
+    } catch (err) {
+      throw fail(err.message);
+    }
+  }
+
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
   runWorktree(method, label, args) {
     return this.lock(() => this.runWorktreeNow(method, label, args));
@@ -481,7 +594,7 @@ class Journal {
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, remote, midSequence }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, moved, remote, midSequence }) {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
     const entry = { id, label, method, time: Date.now(), before, after: after || before };
@@ -491,6 +604,7 @@ class Journal {
     if (submodules?.length) { entry.submodules = submodules; changed = true; }
     if (autostash) { entry.autostash = autostash; changed = true; }
     if (freed) { entry.freed = freed; changed = true; }
+    if (moved) { entry.moved = moved; changed = true; }
     if (remote) { entry.remote = remote; changed = true; }
     if (workBefore) {
       const workAfter = await git.snapshotWork(cwd, workBefore.files.map((f) => f.path), { indexOnly: !!workBefore.indexOnly }).catch(() => null);
@@ -536,7 +650,7 @@ class Journal {
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
-      if (e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.remote) return null;
+      if (e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.moved || e.remote) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
         const merged = { ...e, id: entry.id, time: entry.time, after: entry.after };
@@ -558,7 +672,8 @@ class Journal {
     const entry = from.top;
     if (!entry) return null;
     let note = null;
-    if (entry.freed) await this.restoreFreed(entry, dir);
+    if (entry.moved) await this.restoreMoved(entry, dir);
+    else if (entry.freed) await this.restoreFreed(entry, dir);
     else if (entry.worktree) await this.restoreWorktree(entry, dir);
     else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });

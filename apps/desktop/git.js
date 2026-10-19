@@ -1862,6 +1862,21 @@ async function freeBlocker(wt) {
   return null;
 }
 
+// What decides whether worktree `wt` can hand its branch and its uncommitted changes to another
+// worktree (Journal.moveCheckout): `blocker` (folder gone, operation in progress), else how many
+// changes it has and when the newest of them was written (ms, null when none is on disk).
+async function worktreeHold(wt) {
+  if (wt.missing) return { blocker: 'Its folder no longer exists.' };
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  if (op) return { blocker: `It has a ${op} in progress.` };
+  const paths = [...new Set(await dirtyPaths(wt.path))];
+  let changedAt = null;
+  for (const p of paths) {
+    try { changedAt = Math.max(changedAt || 0, fs.lstatSync(path.join(wt.path, p)).mtimeMs); } catch {}
+  }
+  return { blocker: null, changes: paths.length, changedAt };
+}
+
 // Squash `branch` onto `base` with `message` (skipped when `merge` is false, or when the branch
 // has nothing left to merge), then remove its worktree and delete it, unless it is checked out
 // here or in the main worktree (plan.keep): then it is kept. Everything is checked
@@ -2768,7 +2783,7 @@ module.exports = {
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
-  samePath, getWorktrees, findWorktree, worktreeChanges, freeBlocker, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
+  samePath, getWorktrees, findWorktree, worktreeChanges, freeBlocker, worktreeHold, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
   AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, rebaseStack, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
