@@ -172,10 +172,12 @@ function knownWorktree(worktrees, dir, same = (a, b) => a === b, what = 'worktre
 // Schemas: one checker per argument, in order. Trailing arguments may be omitted.
 
 // Methods stashAnd may run again after stashing (refMutations in main.js).
-const STASH_AND = ['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip'];
+const STASH_AND = ['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'setBranchTip'];
 
 // Methods abortAnd may run after aborting a stopped rebase, merge, cherry-pick or revert.
-const ABORT_AND = ['merge', 'pull', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch'];
+const ABORT_AND = ['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch'];
+// How pull settles a branch that diverged from its upstream.
+const pullMode = oneOf('rebase', 'merge');
 // `{ abort }`: abort an operation stopped in the way first (git.mergeLane).
 const abortOpt = (v, w) => obj(v, w, { abort: optional(bool) });
 const laneOpt = (v, w) => obj(v, w, { close: optional(bool), abort: optional(bool) });
@@ -241,7 +243,7 @@ const gitSchemas = {
   setBranchTip: [rev, rev],
   createTag: [rev, rev, optional(text)],
   deleteTag: [rev],
-  cherryPick: [rev],
+  cherryPick: [rev, optional(bool)],
   revert: [rev],
   merge: [rev, optional(bool)],
   rebaseOnto: [rev],
@@ -250,7 +252,8 @@ const gitSchemas = {
   // Switch to a branch containing the commit (stashing first), then rewrite it there: one undo step.
   switchRewrite: [rev, oneOf('drop', 'reword', 'squash', 'fixup', 'swapParent', 'split'), oid, optional(rewriteExtra), optional((v, w) => obj(v, w, { message: text, untracked: optional(bool) }))],
   createCommit: [text, optional(bool)],
-  pull: [],
+  pull: [optional(pullMode)],
+  pullAndPush: [optional(pullMode)],
   continueOp: [],
   abortOp: [],
   // index, config and remote mutations

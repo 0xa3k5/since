@@ -255,7 +255,7 @@ const refMutations = {
   },
   createTag: (s, name, at, message) => r(s, message ? ['tag', '-a', name, '-m', message, at] : ['tag', name, at]),
   deleteTag: (s, name) => r(s, ['tag', '-d', name]),
-  cherryPick: (s, sha) => r(s, ['cherry-pick', sha]),
+  cherryPick: (s, sha, keepEmpty) => git.cherryPick(s.repo.root, sha, keepEmpty),
   revert: (s, sha) => r(s, ['revert', '--no-edit', sha]),
   merge: (s, ref, ffOnly) => r(s, ['merge', '--no-edit', ...(ffOnly ? ['--ff-only'] : []), ref]),
   rebaseOnto: (s, sha) => r(s, ['rebase', '--autostash', sha]),
@@ -263,7 +263,9 @@ const refMutations = {
   rebaseBranch: (s, base, branch) => r(s, ['rebase', base, branch]),
   rewrite: (s, op, sha, extra) => git.rewrite(s.repo.root, op, sha, extra),
   createCommit: (s, message, amend) => r(s, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message }),
-  pull: (s) => r(s, ['pull', '--no-edit']),
+  pull: (s, mode) => git.pull(s.repo.root, mode),
+  // Push rejected because the remote moved on: pull (one undo step), then push again.
+  pullAndPush: async (s, mode) => { await git.pull(s.repo.root, mode); return plainMutations.push(s); },
   continueOp: async (s) => {
     const op = await git.getOperationState(s.repo.gitDir);
     if (!op) return;
@@ -377,6 +379,9 @@ function session(e) {
   return s;
 }
 
+// Calls whose push, pull or fetch failures get a fix offered (git.remoteFailure).
+const REMOTE_CALLS = new Set(['push', 'pull', 'pullAndPush', 'fetch', 'pushTags', 'stashAnd', 'abortAnd']);
+
 function serializeError(err) {
   return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null };
 }
@@ -466,6 +471,7 @@ handle('git', async (e, method, ...args) => {
     }
     throw new Error(`Unknown method ${method}`);
   } catch (err) {
+    if (REMOTE_CALLS.has(method) && err instanceof git.GitError) git.remoteFailure(err);
     return { error: serializeError(err) };
   }
 });

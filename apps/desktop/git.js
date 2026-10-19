@@ -40,6 +40,37 @@ function signingError(stderr) {
   return `Couldn't sign the commit. Unlock your GPG key, or add your SSH signing key to ssh-agent (ssh-add), then try again.${detail ? `\n${detail}` : ''}`;
 }
 
+// Push, pull and fetch failures we can offer a fix for, from git's output: 'rejected' (the remote
+// has commits this branch doesn't), 'diverged' (pull needs a rebase or merge) or 'auth' (message cut
+// to git's one line about it). Anything else keeps git's output.
+const AUTH_FAIL = /Authentication failed|could not read (?:Username|Password)|terminal prompts disabled|Permission denied \(publickey|Invalid username or (?:password|token)|The requested URL returned error: 40[13]/i;
+function remoteFailure(err) {
+  const text = `${err.stderr || ''}\n${err.message}`;
+  if (/\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/.test(text)) err.code = 'rejected';
+  else if (/divergent branches|Need to specify how to reconcile/i.test(text)) err.code = 'diverged';
+  else if (AUTH_FAIL.test(text)) {
+    err.code = 'auth';
+    err.message = text.split('\n').map((l) => l.replace(/^(?:remote: |fatal: |error: )+/, '').trim()).find((l) => AUTH_FAIL.test(l)) || err.message;
+  }
+  return err;
+}
+
+// Pull the current branch; `mode` 'rebase' or 'merge' settles diverged branches.
+const pull = (cwd, mode) => run(cwd, ['pull', '--no-edit', ...(mode === 'rebase' ? ['--rebase'] : mode === 'merge' ? ['--no-rebase'] : [])]);
+
+// Cherry-pick one commit. One whose changes are already here stops git half-way; leave nothing
+// in progress and say so ('empty-pick'). `keepEmpty` commits it anyway.
+async function cherryPick(cwd, sha, keepEmpty) {
+  if (keepEmpty) return run(cwd, ['cherry-pick', '--allow-empty', '--keep-redundant-commits', sha]);
+  try {
+    return await run(cwd, ['cherry-pick', sha]);
+  } catch (err) {
+    if (!/is now empty|nothing to commit/.test(`${err.stderr || ''}\n${err.message}`) || (await getStatus(cwd)).conflicts?.length) throw err;
+    await run(cwd, ['cherry-pick', '--abort']).catch(() => {});
+    throw new GitError('Its changes are already on this branch.', { code: 'empty-pick' });
+  }
+}
+
 function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 * 1024, encoding = 'utf8' } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -3042,7 +3073,7 @@ module.exports = {
   saveResolved, restoreResolved, resolvedPaths,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
+  GitError, run, remoteFailure, pull, cherryPick, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, getOperationInfo, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,

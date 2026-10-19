@@ -114,11 +114,11 @@ async function git(method, ...args) {
 }
 
 // Ref mutations git can refuse over uncommitted changes; act() then offers to stash and retry (stashAnd).
-const STASH_AND = new Set(['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip']);
+const STASH_AND = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'setBranchTip']);
 
 // Git refuses these while a rebase, merge, cherry-pick or revert is stopped here; act() then offers
 // to continue it (or open its conflicts), or abort it and go on (abortAnd).
-const OP_BLOCKED = new Set(['merge', 'pull', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch']);
+const OP_BLOCKED = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch']);
 
 async function act(label, method, args = [], opts = {}) {
   const { busy, success, detail, undoable = true, quiet = false, then, actions } = opts;
@@ -138,6 +138,8 @@ async function act(label, method, args = [], opts = {}) {
     return true;
   } catch (e) {
     t?.close();
+    const fixed = e.readOnly ? undefined : await offerFix(label, method, args, opts, e);
+    if (fixed !== undefined) return fixed;
     if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
       const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${label.split(' ')[0].toLowerCase()}` }] });
       if (v) return act(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
@@ -145,12 +147,39 @@ async function act(label, method, args = [], opts = {}) {
       await refreshAll();
       // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
       const n = state.opState ? state.status.conflicts.length : 0;
-      if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, { action: { label: 'Open conflicts', run: openConflicts } });
+      const skip = method === 'cherryPick' && state.opState === 'cherry-pick' ? { label: 'Skip', run: () => act('Skip cherry-pick', 'abortOp', [], { success: 'Skipped cherry-pick' }) } : null;
+      if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, skip
+        ? { timeout: 0, actions: [{ label: 'Open conflicts', primary: true, run: openConflicts }, skip] }
+        : { action: { label: 'Open conflicts', run: openConflicts } });
       else toast(`${label} failed`, { kind: 'error', detail: e.message });
       return false;
     }
     await refreshAll();
     return false;
+  }
+}
+
+// A push, pull or cherry-pick git refused for a cause we know: offer the fix together with the
+// action, as one undo step. undefined: not one of those, act() reports it as before.
+async function offerFix(label, method, args, opts, err) {
+  const branch = state.head?.branch || '';
+  if (err.code === 'rejected' && method === 'push' && !args[0]?.force && !args[0]?.all) {
+    const v = await resolveSheet({
+      title: `Push ${branch}`,
+      reason: `The remote has commits ${branch} doesn’t have. Force pushing drops them.`,
+      actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }, { id: 'force', label: 'Force push with lease' }],
+    });
+    if (!v) return false;
+    if (v.id === 'force') return push(true);
+    return act(`Pull and push ${branch}`, 'pullAndPush', [v.id], { busy: `Pulling and pushing ${branch}…`, success: `Pulled and pushed ${branch}` });
+  }
+  if (err.code === 'diverged' && (method === 'pull' || method === 'pullAndPush') && !args[0]) {
+    const v = await resolveSheet({ title: label, reason: `${branch} and its upstream have both moved.`, actions: [{ id: 'rebase', label: 'Rebase' }, { id: 'merge', label: 'Merge' }] });
+    return v ? act(label, method, [v.id], opts) : false;
+  }
+  if (err.code === 'empty-pick' && method === 'cherryPick' && !args[1]) {
+    const v = await resolveSheet({ title: label, reason: `Its changes are already on ${branch || 'this branch'}.`, actions: [{ id: 'skip', label: 'Skip' }, { id: 'keep', label: 'Commit anyway' }] });
+    return v?.id === 'keep' ? act(label, method, [args[0], true], opts) : false;
   }
 }
 
