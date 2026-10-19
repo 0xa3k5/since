@@ -20,9 +20,9 @@ const lower = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
 // run(items, label) and runRemote(names) call git; days: the "untouched for N days" card, set in
 // the action bar (onDays(n) saves it);
 // onProgress(fn) subscribes to progress and returns an unsubscribe; onDone() refreshes the app (and
-// with it the lanes); onUndo() undoes the last step; onBack() leaves the tab. mod: ⌘ or Ctrl.
+// with it the lanes); onUndo() undoes the last step; onBack() leaves the tab.
 // The panel doesn't load: Branches hands it the lanes (update(lanes, base)).
-export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack, mod = '⌘' }) {
+export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack }) {
   let lanes = [];
   let groups = [];
   let items = []; // the keyboard's stops: { kind: 'group', id } or { kind: 'lane', key }
