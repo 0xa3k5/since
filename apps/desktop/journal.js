@@ -329,13 +329,27 @@ class Journal {
     return this.lock(() => this.switchNow(label, 'switchDelete', branch, { stash, del: true }));
   }
 
-  async switchNow(label, method, branch, { stash, del = false }) {
+  // Switch to `branch`, then merge and tidy the branch that was checked out (git.mergeLane onto
+  // `merge.base` with `merge.message`), as one undoable step. `stash` as for switchDelete.
+  switchMerge(label, branch, merge, stash) {
+    return this.lock(() => this.switchNow(label, 'switchMerge', branch, { stash, del: true, merge }));
+  }
+
+  async switchNow(label, method, branch, { stash, del = false, merge = null }) {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
     const from = before.head?.replace(/^refs\/heads\//, '') || null;
     if (del && !from) throw new git.GitError('HEAD is detached: there is no branch to delete.');
     if (del && from === branch) throw new git.GitError(`${branch} is the branch being deleted. Pick another branch.`);
+    if (merge) {
+      if (merge.branch !== from) throw new git.GitError(`${merge.branch} is no longer checked out here.`);
+      // Check everything the merge needs before anything changes.
+      const plan = await git.mergeLanePlan(cwd, from, merge.base);
+      if (plan.blocker) throw new git.GitError(plan.blocker);
+      if (plan.commits.length && plan.mergeBlocker) throw new git.GitError(plan.mergeBlocker);
+      if (plan.commits.length && !String(merge.message || '').trim()) throw new git.GitError('The commit message is empty.');
+    }
     const env = { GIT_OPTIONAL_LOCKS: '1' };
     const top = () => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
     let sha = null, made = false;
@@ -353,7 +367,8 @@ class Journal {
     }
     const autostash = made ? { sha, message: stash.message, untracked: !!stash.untracked, branch: del ? null : from } : null;
     try {
-      if (del) await git.run(cwd, ['branch', '-D', from], { env });
+      if (merge) await git.mergeLane(cwd, { branch: from, base: merge.base, message: merge.message });
+      else if (del) await git.run(cwd, ['branch', '-D', from], { env });
     } finally {
       // Record the switch even if the delete failed, so it can be undone.
       await this.finish({ id, label, method, before, autostash }).catch((err) => console.warn('journal failed', err.message));
@@ -547,7 +562,7 @@ class Journal {
     else if (entry.worktree) await this.restoreWorktree(entry, dir);
     else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
-    else if (entry.autostash || entry.method === 'switchDelete') await this.restoreAutostash(entry, dir);
+    else if (entry.autostash || entry.method === 'switchDelete' || entry.method === 'switchMerge') await this.restoreAutostash(entry, dir);
     else if (entry.remote) await this.restoreRemote(entry, dir);
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });

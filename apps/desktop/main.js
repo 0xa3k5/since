@@ -372,6 +372,10 @@ handle('git', async (e, method, ...args) => {
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
+      if (method === 'switchMerge') {
+        const [to, branch, base, message, stash] = realArgs;
+        return { ok: await s.journal.switchMerge(label || method, to, { branch, base, message }, stash) };
+      }
       if (method === 'freeCheckout') {
         if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
         return { ok: await s.journal.freeCheckout(label || method, ...realArgs) };

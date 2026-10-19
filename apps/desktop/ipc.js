@@ -217,6 +217,7 @@ const gitSchemas = {
   autostashCheckout: [rev, text, optional(bool)],
   freeCheckout: [rev, worktreeDir],
   switchDelete: [rev, optional((v, w) => obj(v, w, { message: text, untracked: optional(bool) }))],
+  switchMerge: [rev, rev, rev, text, optional((v, w) => obj(v, w, { message: text, untracked: optional(bool) }))],
   createBranch: [rev, rev, optional(bool)],
   deleteBranch: [rev],
   renameBranch: [rev, rev],

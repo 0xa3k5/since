@@ -3108,16 +3108,29 @@ async function mergeLane(lane, base = null, onDone = null) {
     return;
   }
   if (plan.mergeBlocker && !pr && n) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
-  // Checked out here or in the main worktree: merge and keep the branch (nothing to tidy).
-  const kept = plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
+  // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
+  // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).
+  let move = null;
+  const targets = plan.keep === 'current' && n ? switchTargets(lane.branch) : [];
+  if (targets.length) {
+    const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
+    const dirty = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+    const sw = await resolveSheet({
+      title: ['Merge and tidy ', ref(lane.branch)],
+      reason: [ref(lane.branch), ' is checked out in this window.'],
+      pick: { label: 'Switch to', options: targets.map((b) => ({ value: b })), value: [plan.base, 'main', 'master'].find((b) => b && targets.includes(b)) || targets[0] },
+      checkbox: dirty ? { label: `Stash ${dirty} uncommitted change${dirty === 1 ? '' : 's'}`, checked: true } : null,
+      actions: [{ id: 'switch', label: 'Switch and merge' }, { id: 'keep', label: 'Merge, keep branch' }],
+    });
+    if (!sw) return;
+    if (sw.id === 'switch') move = { to: sw.value, stash: sw.checked ? { message: stashMessage(lane.branch, sw.value), untracked } : undefined };
+  }
+  const kept = move ? null : plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
   if (kept && !n) {
     if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
     return toast(`Nothing left to merge from ${lane.branch}`, { detail: `${kept}.` });
   }
-  const keptToast = () => toast(`Merged ${lane.branch} into ${plan.base}`, {
-    kind: 'success', detail: `${kept}.`,
-    actions: [{ label: 'Undo', run: undo }, plan.keep === 'current' ? { label: 'Switch and delete', run: () => switchAndDelete({ short: lane.branch }, plan.base) } : null].filter(Boolean),
-  });
+  const keptToast = () => toast(`Merged ${lane.branch} into ${plan.base}`, { kind: 'success', detail: `${kept}.`, action: { label: 'Undo', run: undo } });
   const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
   const laneChecks = pr && lane.pr.checks === 'failure' ? prCheckLines(lane.pr) : null;
   const tidy = plan.worktree ? `remove the worktree ${plan.worktree.name} and delete ${lane.branch}` : `delete ${lane.branch}`;
@@ -3159,12 +3172,15 @@ async function mergeLane(lane, base = null, onDone = null) {
     await fetchAll();
     // Local commits GitHub never saw would go with the branch: keep it and say so.
     if (info.ok.headOid && plan.head && info.ok.headOid !== plan.head) return toast(`Kept ${lane.branch}`, { detail: `It has commits that aren’t in #${pr.number}. Push or move them, then delete the branch.` });
+    if (move) return act(`Delete branch ${lane.branch}`, 'switchDelete', [move.to, ...(move.stash ? [move.stash] : [])], { success: `Switched to ${move.to} and deleted ${lane.branch}` });
     if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
     if (kept) return;
     return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
-  const ok = n
+  const ok = move
+    ? await act(label, 'switchMerge', [move.to, lane.branch, plan.base, v.message, ...(move.stash ? [move.stash] : [])], { busy: 'Merging…', success: `Switched to ${move.to}, merged ${lane.branch} into ${plan.base}${move.stash ? ', changes stashed' : ''}` })
+    : n
     ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
     : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
