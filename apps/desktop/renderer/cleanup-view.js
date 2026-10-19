@@ -8,7 +8,8 @@ import * as keymap from './keymap.js';
 // GROUPS) with a tick for the whole group, a plain explanation and a count. A card opens to its
 // branches, each with its own tick. Safe groups are ticked up front; untouched and dirty ones aren't.
 // The sticky bar at the bottom cleans up the ticked ones as one undo step; deleting them on GitHub
-// too is an opt-in tick (with its own confirmation) and can't be undone.
+// too is an opt-in tick and can't be undone. One confirmation lists the branches; cancelling it
+// changes nothing.
 // Keys (cleanup scope): ↑/↓ move between cards and rows, Space ticks, ↵ opens or closes a card, A ticks
 // everything safe, R toggles "Also delete them on GitHub", ⌘⌫ cleans up, Esc goes back to Active.
 
@@ -41,9 +42,8 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
   const goBtn = h('button.btn.primary.cleanup-go', { onclick: () => go() });
   const counts = h('span.cleanup-counts');
   const remoteBox = h('input', { type: 'checkbox', tabIndex: -1, onchange: () => { alsoRemote = remoteBox.checked; render(); } });
-  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': `Also delete them on GitHub (${keymap.keys('cleanup.remote').join('')}). You confirm it once more.` }, remoteBox, h('span', null, 'Also delete them on GitHub (can’t be undone)'));
+  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': `Also delete them on GitHub (${keymap.keys('cleanup.remote').join('')})` }, remoteBox, h('span', null, 'Also delete them on GitHub (can’t be undone)'));
   const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), h('span'));
-  const undoNote = h('span.cleanup-undo', null, `${mod}Z brings local branches and worktrees back`);
   const daysBox = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
     onkeydown: (e) => { if (e.key !== 'Escape') e.stopPropagation(); },
     onchange: () => {
@@ -52,7 +52,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
       if (n !== days) { days = n; onDays(n); render(); }
     } });
   const daysLabel = h('label.cleanup-days', { 'data-tip': 'Branches with no commits for this many days show under Untouched' }, h('span', null, 'Untouched after'), daysBox, h('span', null, 'days'));
-  const bar = h('div.cleanup-actionbar', null, goBtn, counts, remoteLabel, progress, daysLabel, undoNote);
+  const bar = h('div.cleanup-actionbar', null, goBtn, counts, remoteLabel, progress, daysLabel);
   const el = h('div.cleanup-panel', null, verdict, cards, bar);
 
   const isOn = (l) => ticked.has(laneKey(l));
@@ -81,7 +81,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
       },
     },
       box,
-      h('span.cleanup-card-text', null, h('b', null, g.warn ? icon('warning', 12) : null, label(g)), h('span.cleanup-card-why', null, g.detail)),
+      h('span.cleanup-card-text', null, h('b', null, g.warn ? icon('warning', 12) : null, label(g))),
       h('span.cleanup-card-n', null, String(ls.length)),
       h('span.cleanup-card-chev', { 'aria-hidden': 'true' }, isOpen ? '▴' : '▾'));
     const rows = isOpen ? (more.has(g.id) ? ls : ls.slice(0, SHOWN)).map(row) : [];
@@ -122,9 +122,8 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
 
     const finished = shown.filter((l) => l.group !== 'old').length;
     verdict.replaceChildren(...(!loaded ? [h('div.cleanup-big', null, 'Loading…')]
-      : finished || shown.length ? [h('div.cleanup-big', null, finished ? `${plural(finished, 'finished branch', 'finished branches')} can go` : 'Nothing finished yet'),
-        h('p.muted', null, `All of their work is on ${base || 'main'} or on GitHub. Ticked groups are safe and can be undone with ${mod}Z.`)]
-        : [h('div.cleanup-big', null, 'Nothing to clean up'), h('p.muted', null, `No branch is merged into ${base || 'the base branch'}, shipped, deleted on GitHub, missing its folder, or untouched for ${days} days.`)]));
+      : finished || shown.length ? [h('div.cleanup-big', null, finished ? `${plural(finished, 'finished branch', 'finished branches')} can go` : 'Nothing finished yet')]
+        : [h('div.cleanup-big', null, 'Nothing to clean up')]));
     cards.replaceChildren(...groups.map(card));
 
     const chosen = selected();
@@ -186,25 +185,27 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     if (busy || !lanesToGo.length) return;
     const remoteSet = new Set(alsoRemote ? lanesToGo.filter((l) => remoteOf(l, base)).map(laneKey) : []);
     const s = summarize(lanesToGo, remoteSet, { all: lanes, base });
-    const parts = [s.worktrees ? `removes ${plural(s.worktrees, 'worktree')}` : null, s.branches ? `deletes ${plural(s.branches, 'local branch', 'local branches')}` : null].filter(Boolean).join(' and ');
+    const remoteNames = s.remotes;
+    const gone = new Set(remoteNames);
+    // One row per branch with only what changes for it; the warning and its tick only when
+    // something can't come back (GitHub branches, uncommitted files).
+    const rows = lanesToGo.map((l) => {
+      const n = dirty(l);
+      return h('div.cleanup-confirm-row', null,
+        h('span.cleanup-confirm-name', { title: l.name }, l.name),
+        n ? h('span.cleanup-confirm-tag.warn', null, `${n} uncommitted`) : null,
+        l.worktree ? h('span.cleanup-confirm-tag', null, 'worktree') : null,
+        remoteSet.has(laneKey(l)) && gone.has(remoteOf(l, base)) ? h('span.cleanup-confirm-tag', null, 'GitHub') : null);
+    });
+    const content = [h('div.cleanup-confirm-list', null, ...rows)];
     const fields = [];
-    let description = `This ${parts}. ${mod}Z puts the branches and worktrees back in one step. Ignored files in removed worktrees (build output, dependencies) are deleted for good.`;
-    if (s.dirty.length) {
-      description += ` ${plural(s.dirty.length, 'worktree has', 'worktrees have')} uncommitted changes (${s.dirty.map((l) => l.name).slice(0, 5).join(', ')}${s.dirty.length > 5 ? '…' : ''}). Those files can’t come back: undo restores the worktree without them.`;
-      fields.push({ name: 'lose', type: 'checkbox', label: `Delete the uncommitted changes in ${plural(s.dirty.length, 'worktree')}` });
+    const lose = [remoteNames.length ? `${remoteNames.length} on GitHub` : null, s.dirty.length ? `the uncommitted changes in ${plural(s.dirty.length, 'worktree')}` : null].filter(Boolean);
+    if (lose.length) {
+      content.push(h('p.cleanup-confirm-warn', null, 'This can’t be undone.'));
+      fields.push({ name: 'sure', type: 'checkbox', label: `Delete ${lose.join(' and ')}, for good` });
     }
-    const v = await dialog({ title: `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}?`, description, fields, submit: 'Clean up', destructive: true, wide: true, gate: s.dirty.length ? 'lose' : undefined });
+    const v = await dialog({ title: `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}?`, content, fields, submit: 'Clean up', destructive: true, gate: lose.length ? 'sure' : undefined });
     if (!v) return;
-    let remoteNames = s.remotes;
-    if (remoteNames.length) {
-      const ok = await dialog({
-        title: `Also delete ${plural(remoteNames.length, 'branch', 'branches')} on GitHub?`,
-        description: `${remoteNames.slice(0, 8).join(', ')}${remoteNames.length > 8 ? ` and ${remoteNames.length - 8} more` : ''}. This can’t be undone: ${mod}Z only brings back the local part. Anyone else using these branches loses them too.`,
-        fields: [{ name: 'sure', type: 'checkbox', label: 'Delete them on GitHub, for good' }],
-        submit: 'Delete on GitHub', destructive: true, gate: 'sure',
-      });
-      if (!ok) remoteNames = [];
-    }
     busy = true;
     progress.hidden = false;
     progress.lastChild.textContent = 'Cleaning up…';

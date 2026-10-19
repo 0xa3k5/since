@@ -14,12 +14,12 @@ export function daysValue(v) {
 
 // In the order the Finished tab of Branches shows them (AK-396). Each card ticks its whole group.
 export const GROUPS = [
-  { id: 'merged', label: 'Merged or shipped', detail: 'Merged, squash-merged, rebased, or shipped through a pull request.' },
-  { id: 'mergedWorktree', label: 'Worktrees of merged branches', detail: 'Removes the worktree folder and its branch.' },
-  { id: 'missing', label: 'Worktree folder missing', detail: 'The folder is already gone; only git’s record is left.' },
-  { id: 'gone', label: 'Deleted on GitHub', detail: 'The remote branch it tracked was deleted, usually after its PR merged.' },
-  { id: 'old', label: 'Untouched', detail: 'Not merged anywhere. Your call; not ticked by default.' },
-  { id: 'dirty', label: 'With uncommitted changes', detail: 'Removing these worktrees deletes their uncommitted files for good.', warn: true },
+  { id: 'merged', label: 'Merged or shipped' },
+  { id: 'mergedWorktree', label: 'Worktrees of merged branches' },
+  { id: 'missing', label: 'Worktree folder missing' },
+  { id: 'gone', label: 'Deleted on GitHub' },
+  { id: 'old', label: 'Untouched' },
+  { id: 'dirty', label: 'With uncommitted changes', warn: true },
 ];
 
 // Uncommitted files that removing the lane's worktree would delete for good.

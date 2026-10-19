@@ -1646,7 +1646,6 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .cleanup-card-text { min-width: 0; }
 .cleanup-card-text b { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-medium); color: var(--text); }
 .cleanup-card.warn .cleanup-card-text b { color: var(--warn); }
-.cleanup-card-why { display: block; font-size: 12px; color: var(--text-3); }
 .cleanup-card-n { font-weight: var(--fw-strong); font-variant-numeric: tabular-nums; color: var(--text); }
 .cleanup-card-chev { color: var(--text-4); }
 .cleanup-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 12.5px; cursor: default; }
@@ -1665,7 +1664,14 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .cleanup-remote-all.disabled { opacity: 0.55; }
 .cleanup-days { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; }
 .cleanup-days input { width: 4.5em; }
-.cleanup-undo { margin-left: auto; font-size: 12px; color: var(--text-4); }
+.cleanup-days { margin-left: auto; }
+.cleanup-confirm-list { max-height: 174px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.cleanup-confirm-row { display: flex; align-items: center; gap: 8px; height: 29px; padding: 0 10px; border-top: 1px solid var(--border); }
+.cleanup-confirm-row:first-child { border-top: 0; }
+.cleanup-confirm-name { flex: 1; min-width: 0; overflow: hidden; font-family: var(--mono); font-size: 12px; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.cleanup-confirm-tag { flex: none; font-size: 11px; color: var(--text-4); }
+.cleanup-confirm-tag.warn { color: var(--red); }
+.cleanup-confirm-warn { margin: 0; color: var(--text-3); }
 
 /* Review: one calm line under a short Needs you list (AK-396). */
 .review-calm { padding: 20px 16px 8px; font-size: 12.5px; color: var(--text-3); }

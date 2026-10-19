@@ -202,7 +202,8 @@ export function toast(message, { kind = 'info', action, actions = [], timeout = 
 
 // --- Modal dialogs -------------------------------------------------------------
 // `gate` names a checkbox field that must be ticked before submit is enabled ("merge anyway").
-export function dialog({ title, description, fields = [], submit = 'Continue', destructive = false, wide = false, gate }) {
+// `content`: elements shown above the fields (e.g. a list of what the action touches).
+export function dialog({ title, description, content = [], fields = [], submit = 'Continue', destructive = false, wide = false, gate }) {
   return new Promise((resolve) => {
     const inputs = {};
     const prev = document.activeElement;
@@ -210,7 +211,7 @@ export function dialog({ title, description, fields = [], submit = 'Continue', d
       onsubmit: (e) => { e.preventDefault(); finish(Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.type === 'checkbox' ? el.checked : el.value]))); },
     },
       h('div.dialog-head', null, h('div.dialog-title', null, title), description ? h('div.dialog-desc', null, description) : null),
-      fields.length ? h('div.dialog-body', null, fields.map((f) => {
+      fields.length || content.length ? h('div.dialog-body', null, ...content, ...fields.map((f) => {
         if (f.type === 'checkbox') {
           inputs[f.name] = h('input', { type: 'checkbox', checked: !!f.value });
           return h('label.check', null, inputs[f.name], h('span', null, f.label));
