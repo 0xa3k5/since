@@ -1293,6 +1293,9 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .sheet-row:first-child { border-top: 0; }
 .sheet-row-name { flex: 1; min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .sheet-row-value { flex: none; color: var(--text-3); }
+.sheet-row-value .warn { color: var(--warn); }
+.sheet-row-path { margin-left: 12px; color: var(--text-3); }
+.sheet-strong { font-weight: 500; }
 .sheet-row-link { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; color: inherit; text-align: left; cursor: default; }
 .sheet-row-link:first-child { border-top: 0; }
 .sheet-row-link:hover, .sheet-row-link:focus-visible { background: var(--bg-active); outline: none; }

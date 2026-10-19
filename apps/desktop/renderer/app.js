@@ -1945,6 +1945,14 @@ async function inUseSheet(branch, wt) {
     detail: p.kind === 'dirty' ? [{ text: `${wt.name} · ${p.where} · ${p.changes}`, kind: 'warn' }, p.changed && { text: p.changed, kind: 'muted' }] : null,
     checkbox: p.stash ? { label: p.stash, checked: true } : null,
     actions: p.actions.map((id) => ({ free: { id, label: 'Free it & check out' }, move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
+  const why = wt.missing ? 'Its folder no longer exists.' : await git('freeBlocker', wt.path).catch((e) => e.message);
+  const n = wt.missing ? 0 : await git('worktreeChanges', wt.path).catch(() => 0);
+  const status = wt.missing ? 'missing' : n ? `${n} uncommitted change${n === 1 ? '' : 's'}` : why || 'clean';
+  const v = await resolveSheet({
+    title: ['Check out ', ref(branch)],
+    reason: [ref(branch), ' is in use by the worktree ', h('span.sheet-strong', null, wt.name), '.'],
+    rows: [[[wt.name, h('span.sheet-row-path', null, tildify(wt.path))], h(status === 'clean' ? 'span' : 'span.warn', null, status)]],
+    actions: [!why && { id: 'free', label: 'Free it and check out here' }, !wt.missing && { id: 'open', label: 'Open that worktree' }],
   });
   if (v?.id === 'open') wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path);
   if (v?.id === 'move') return { id: 'move', stash: v.checked ? { message: stashMessage(state.head.branch, branch), untracked } : null };
