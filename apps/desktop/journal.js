@@ -759,10 +759,10 @@ class Journal {
       const index = now ? stashesBefore.findIndex((x) => !now.some((y) => y.sha === x.sha)) : -1;
       const added = now ? now.findIndex((x) => !stashesBefore.some((y) => y.sha === x.sha)) : -1;
       if (index !== -1) {
-        entry.stash = { sha: stashesBefore[index].sha, message: stashesBefore[index].message, index };
+        entry.stash = { sha: stashesBefore[index].sha, message: stashesBefore[index].message, time: stashesBefore[index].time, index };
         changed = true;
       } else if (added !== -1) {
-        entry.stash = { sha: now[added].sha, message: now[added].message, index: added, added: true };
+        entry.stash = { sha: now[added].sha, message: now[added].message, time: now[added].time, index: added, added: true };
         changed = true;
       }
     }
@@ -957,7 +957,9 @@ class Journal {
     }
     // A dropped stash comes back on undo; an added one goes away on undo.
     const removing = entry.stash && (dir === 'undo') === !!entry.stash.added;
-    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw Object.assign(fail(`the stash “${entry.stash.message}” no longer exists.`), { code: 'stash-gone' });
+    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw Object.assign(fail(`the stash “${entry.stash.message}” no longer exists.`), {
+      code: 'stash-gone', step: { label: entry.label, time: entry.time, stash: { message: entry.stash.message, time: entry.stash.time ? entry.stash.time * 1000 : null } },
+    });
     if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
     if (entry.work) await git.restoreWork(cwd, entry.work[next]);
     if (entry.stash) {

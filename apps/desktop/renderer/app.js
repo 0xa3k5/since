@@ -366,10 +366,19 @@ async function offerStashStep(dir, err, opts) {
 }
 
 // The step's stash was applied or dropped since: it can never be taken, so offer to drop it.
+const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 async function offerSkipStep(dir, err) {
   if (err.code !== 'stash-gone') return false;
   const title = dir === 'undo' ? undoTitle() : redoTitle();
-  const v = await resolveSheet({ title, reason: 'Its stash no longer exists.', actions: [{ id: 'skip', label: 'Skip this step' }] });
+  const step = err.step;
+  const rows = step ? [
+    ['stash', [step.stash.message, h('span.muted', null, ` · saved ${clock(step.stash.time || step.time)}`)]],
+    ['step', `${step.label} · ${clock(step.time)}`],
+  ] : null;
+  const v = await resolveSheet({ title, reason: 'The stash this step made was applied or dropped outside GitLanes.', rows, actions: [{
+    id: 'skip', label: 'Skip this step',
+    sub: dir === 'undo' ? `${keyText('edit.undo')} then undoes the step before it` : `${keyText('edit.redo')} then redoes the step after it`,
+  }] });
   if (!v) return false;
   await (dir === 'undo' ? undo : redo)({ skip: true });
   return true;
