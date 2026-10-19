@@ -1725,7 +1725,7 @@ function refMenu(x, y, r) {
       { label: 'Rename…', icon: 'edit', run: () => renameBranch(r) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied branch name') },
       '-',
-      { label: 'Delete Branch', icon: 'trash', danger: true, disabled: cur, run: () => deleteBranch(r) },
+      { label: 'Delete Branch', icon: 'trash', danger: true, disabled: cur, why: cur ? 'Checked out' : null, run: () => deleteBranch(r) },
     );
   } else if (r.kind === 'remote') {
     items.push(
