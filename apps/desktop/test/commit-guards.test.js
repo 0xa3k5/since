@@ -16,10 +16,10 @@ const head = { sha: HEAD, parents: ['p'.repeat(40)] };
 test('rewrite actions are blocked on merge commits with a reason', async () => {
   const { commitBlock } = await load();
   for (const id of ['commit.squash', 'commit.fixup', 'swapParent', 'commit.split', 'commit.drop']) {
-    assert.match(commitBlock(id, merge, HEAD), /^Merge commits can't be /, id);
+    assert.match(commitBlock(id, merge, HEAD), /^Merge commits can’t be /, id);
     assert.equal(commitBlock(id, plain, HEAD), null, id);
   }
-  assert.equal(commitBlock('commit.squash', merge, HEAD), "Merge commits can't be squashed");
+  assert.equal(commitBlock('commit.squash', merge, HEAD), 'Merge commits can’t be squashed');
 });
 
 test('squash, fixup and swap need a parent; split and delete work on the first commit', async () => {
@@ -31,7 +31,7 @@ test('squash, fixup and swap need a parent; split and delete work on the first c
 test('actions onto HEAD are blocked on HEAD itself', async () => {
   const { commitBlock } = await load();
   for (const id of ['commit.cherryPick', 'commit.merge', 'commit.rebase', 'commit.diffHead']) {
-    assert.match(commitBlock(id, head, HEAD), /^HEAD can't be /, id);
+    assert.match(commitBlock(id, head, HEAD), /^HEAD can’t be /, id);
     assert.equal(commitBlock(id, plain, HEAD), null, id);
   }
   assert.equal(commitBlock('commit.squash', head, HEAD), null);
@@ -48,4 +48,10 @@ test('each guarded action key and its menu item use the same check', () => {
   }
   assert.ok(menu.includes("disabled: off('swapParent')"));
   assert.doesNotMatch(menu, /disabled: c\.parents/);
+});
+
+test('a merge commit can only be reworded when it is HEAD', async () => {
+  const { commitBlock } = await load();
+  assert.equal(commitBlock('commit.edit', merge, HEAD), 'Merge commits can’t be reworded');
+  assert.equal(commitBlock('commit.edit', { ...merge, sha: HEAD }, HEAD), null);
 });

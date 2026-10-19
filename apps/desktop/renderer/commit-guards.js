@@ -9,8 +9,9 @@ const NEEDS_PARENT = new Set(['commit.squash', 'commit.fixup', 'swapParent']);
 
 export function commitBlock(id, c, headOid) {
   const parents = c?.parents?.length ?? 0;
-  if (ON_HEAD[id] && c?.sha === headOid) return `HEAD can't be ${ON_HEAD[id]}`;
-  if (MERGE[id] && parents > 1) return `Merge commits can't be ${MERGE[id]}`;
-  if (NEEDS_PARENT.has(id) && parents === 0) return `The first commit can't be ${MERGE[id]}`;
+  if (ON_HEAD[id] && c?.sha === headOid) return `HEAD can’t be ${ON_HEAD[id]}`;
+  if (MERGE[id] && parents > 1) return `Merge commits can’t be ${MERGE[id]}`;
+  if (id === 'commit.edit' && parents > 1 && c?.sha !== headOid) return 'Merge commits can’t be reworded';
+  if (NEEDS_PARENT.has(id) && parents === 0) return `The first commit can’t be ${MERGE[id]}`;
   return null;
 }
