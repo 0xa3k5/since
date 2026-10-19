@@ -47,7 +47,7 @@ test('rebinding a shortcut moves it everywhere, and Reset All restores the defau
 
   await page.locator('.sb-top button[title^="Command menu"]').click();
   await page.locator('.palette-input').fill('Fetch all remotes');
-  await expect(page.locator('.palette-item.active .kbd-group')).toHaveText('⌘⌥⇧F');
+  await expect(page.locator('.palette-item.active .kbd-group')).toHaveText('⌥⇧⌘F');
   await page.keyboard.press('Escape');
 
   // The old key does nothing on a commit; the new one opens the diff.

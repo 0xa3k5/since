@@ -312,6 +312,8 @@ function loadHistory() {
     setHistory(hist);
     fixSelection();
     if (state.view === 'map') mapView?.refresh();
+    // The reflog marks entries unreachable from this history; a reload lands after refreshHistory's render.
+    else if (state.view === 'reflog') renderView(true);
     shown();
   };
 
