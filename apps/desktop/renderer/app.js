@@ -110,13 +110,16 @@ async function git(method, ...args) {
   return r.ok;
 }
 
-async function act(label, method, args = [], { busy, success, undoable = true, quiet = false, then } = {}) {
+async function act(label, method, args = [], { busy, success, undoable = true, quiet = false, then, actions } = {}) {
   closeMenu();
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
     const res = await git(method, ...args, { __label: label });
     t?.close();
-    if (!quiet) toast(success || label, { kind: 'success', action: undoable ? { label: 'Undo', run: undo } : null });
+    if (!quiet) {
+      const undoBtn = undoable ? { label: 'Undo', run: undo } : null;
+      toast(success || label, actions?.length ? { kind: 'success', actions: [...actions, undoBtn].filter(Boolean) } : { kind: 'success', action: undoBtn });
+    }
     await refreshAll();
     await then?.(res);
     return true;
@@ -1897,9 +1900,15 @@ async function switchAndDelete(r) {
   if (!v) return false;
   const stash = v.checked ? { message: stashMessage(r.short, v.value), untracked } : undefined;
   return act(`Delete branch ${r.short}`, 'switchDelete', [v.value, ...(stash ? [stash] : [])], {
-    success: `Switched to ${v.value} and deleted ${r.short}${stash ? ', changes stashed' : ''}`,
+    success: `Switched to ${v.value} and deleted ${r.short}${stash ? '. Changes stashed.' : ''}`,
+    actions: stash ? [showStashAction(stash.message)] : null,
   });
 }
+// "Show stash" on a toast: opens Stashes with the stash saved as `message` selected.
+const showStashAction = (message) => ({ label: 'Show stash', run: async () => {
+  stashFocus = (await git('stashes').catch(() => [])).find((x) => x.message.endsWith(message))?.ref ?? null;
+  showView('stashes');
+} });
 async function setTip(branch, c) {
   act(`Move ${branch} to ${c.sha.slice(0, 7)}`, 'setBranchTip', [branch, c.sha]);
 }
