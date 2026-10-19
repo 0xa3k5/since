@@ -74,6 +74,9 @@ export const ACTIONS = {
 
 // Can the lane's worktree and branch go? Not the base, nor a worktree this window or the main one shows.
 export const canRemove = (l) => !l.isBase && !l.worktree?.current && !l.worktree?.main && !l.worktree?.locked && Boolean(l.branch || l.worktree);
+// Why a lane can't go (canRemove false), in a few words; null when it can.
+export const removeWhy = (l) => canRemove(l) || !(l.branch || l.worktree) ? null
+  : l.isBase ? 'Base branch' : l.worktree?.current ? 'Open in this window' : l.worktree?.main ? 'In the main worktree' : l.worktree?.locked ? 'Worktree is locked' : null;
 
 // The actions a lane offers, next step first (ids of ACTIONS); [] when nothing needs doing.
 // `bucket` is the lane's sortLanes bucket.

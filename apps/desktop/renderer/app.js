@@ -1883,9 +1883,9 @@ async function deleteBranch(r) {
 // Local branches this window can switch to instead of `name` (not checked out in another worktree).
 const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
 
-// Delete the checked-out branch: pick a branch to switch to, optionally stash, then switch and
-// delete as one undo step.
-async function switchAndDelete(r) {
+// Delete the checked-out branch: pick a branch to switch to (`base` first, when given), optionally
+// stash, then switch and delete as one undo step.
+async function switchAndDelete(r, base = null) {
   const options = switchTargets(r.short);
   if (!options.length) return;
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
@@ -1893,7 +1893,7 @@ async function switchAndDelete(r) {
   const v = await resolveSheet({
     title: ['Delete branch ', ref(r.short)],
     reason: [ref(r.short), ' is checked out in this window.'],
-    pick: { label: 'Switch to', options: options.map((b) => ({ value: b })), value: ['main', 'master'].find((b) => options.includes(b)) || options[0] },
+    pick: { label: 'Switch to', options: options.map((b) => ({ value: b })), value: [base, 'main', 'master'].find((b) => b && options.includes(b)) || options[0] },
     checkbox: n ? { label: `Stash ${n} uncommitted change${n === 1 ? '' : 's'}`, checked: true } : null,
     actions: [{ id: 'go', label: 'Switch and delete', danger: true }],
   });
@@ -1903,6 +1903,11 @@ async function switchAndDelete(r) {
     success: `Switched to ${v.value} and deleted ${r.short}${stash ? '. Changes stashed.' : ''}`,
     actions: stash ? [showStashAction(stash.message)] : null,
   });
+// A worktree open in another window can't be changed from this one: offer to bring that window forward.
+async function openElsewhere(title, w) {
+  const v = await resolveSheet({ title, reason: `“${w.name}” is open in another window.`, actions: [{ id: 'open', label: 'Bring that window forward' }] });
+  if (v) api.app('open-window', w.path);
+}
 }
 // "Show stash" on a toast: opens Stashes with the stash saved as `message` selected.
 const showStashAction = (message) => ({ label: 'Show stash', run: async () => {
@@ -3076,22 +3081,41 @@ async function mergeLane(lane, base = null, onDone = null) {
   let plan;
   try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
+  const away = plan.worktree && state.worktrees.find((w) => w.path === plan.worktree.path);
+  if (away?.elsewhere) return openElsewhere(`Merge and tidy ${lane.name}`, away);
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
-  if (plan.mergeBlocker && !pr && plan.commits.length) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
   const n = plan.commits.length;
+  // The base is checked out in another worktree: merging happens in that worktree's window.
+  if (plan.mergeBlocker && !pr && n && plan.baseWorktree) {
+    const go = await resolveSheet({ title: `Merge ${lane.name} into ${plan.base}`, reason: plan.mergeBlocker, actions: [{ id: 'open', label: 'Open that window' }] });
+    if (go) api.app('open-window', plan.baseWorktree.path);
+    return;
+  }
+  if (plan.mergeBlocker && !pr && n) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
+  // Checked out here or in the main worktree: merge and keep the branch (nothing to tidy).
+  const kept = plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
+  if (kept && !n) {
+    if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
+    return toast(`Nothing left to merge from ${lane.branch}`, { detail: `${kept}.` });
+  }
+  const keptToast = () => toast(`Merged ${lane.branch} into ${plan.base}`, {
+    kind: 'success', detail: `${kept}.`,
+    actions: [{ label: 'Undo', run: undo }, plan.keep === 'current' ? { label: 'Switch and delete', run: () => switchAndDelete({ short: lane.branch }, plan.base) } : null].filter(Boolean),
+  });
   const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
   const laneChecks = pr && lane.pr.checks === 'failure' ? prCheckLines(lane.pr) : null;
   const tidy = plan.worktree ? `remove the worktree ${plan.worktree.name} and delete ${lane.branch}` : `delete ${lane.branch}`;
-  const here = n ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}, then ${tidy}.` : `Nothing left to merge into ${plan.base || 'the base'}: this will ${tidy}.`;
+  const here = kept ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}. ${kept}.`
+    : n ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}, then ${tidy}.` : `Nothing left to merge into ${plan.base || 'the base'}: this will ${tidy}.`;
   const v = await dialog({
-    title: `Merge and tidy ${lane.name}?`,
+    title: kept ? `Merge ${lane.name}?` : `Merge and tidy ${lane.name}?`,
     description: h('div.pr-merge', null,
       h('div', null, here),
       checkFailEl(laneChecks),
       pr ? h('div.pr-remote-note', null, `On GitHub: #${pr.number} is squash-merged there, which ⌘Z can’t undo. The local tidy after it can be undone.`) : null,
       plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null,
-      h('div.muted', null, '⌘Z undoes the local merge and tidy in one step.')),
-    submit: 'Merge and tidy',
+      kept ? null : h('div.muted', null, '⌘Z undoes the local merge and tidy in one step.')),
+    submit: kept ? 'Merge' : 'Merge and tidy',
     wide: n > 0,
     fields: [
       pr ? { name: 'via', type: 'select', label: 'Merge', value: plan.mergeBlocker && n ? 'github' : 'here', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }] } : null,
@@ -3119,15 +3143,17 @@ async function mergeLane(lane, base = null, onDone = null) {
     await fetchAll();
     // Local commits GitHub never saw would go with the branch: keep it and say so.
     if (info.ok.headOid && plan.head && info.ok.headOid !== plan.head) return toast(`Kept ${lane.branch}`, { detail: `It has commits that aren’t in #${pr.number}. Push or move them, then delete the branch.` });
+    if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
+    if (kept) return;
     return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
   const ok = n
-    ? await act(label, 'mergeLane', [lane.branch, plan.base, v.message], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}` })
+    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
     : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
   if (ok) onDone?.();
-  if (ok && state.review) closeReview();
+  if (ok && state.review && !kept) closeReview();
 }
 function closeReview(...args) { return go(() => closeReviewNow(...args)); }
 function closeReviewNow() {
@@ -3154,6 +3180,7 @@ async function rebaseLane(lane, base) {
   if (w && !w.current) {
     const wt = state.worktrees.find((x) => x.path === w.path);
     if (!wt) return;
+    if (wt.elsewhere) return openElsewhere(label, wt);
     await switchWorktree(wt);
     if (state.repo?.root !== w.path) return; // open in another window, or it failed to open
     return act(label, 'rebaseOnto', [base], { busy: 'Rebasing…' });
@@ -3227,11 +3254,21 @@ async function addWorktree({ base = null, branch = '' } = {}) {
 
 async function removeWorktree(w) {
   if (w.missing) return pruneWorktrees();
-  if (w.main || w.current) return toast(w.main ? 'The main worktree can’t be removed' : 'This window is showing that worktree', { kind: 'error', detail: w.main ? null : 'Switch to another worktree first.' });
+  if (w.main) return toast('The main worktree can’t be removed', { kind: 'error' });
   if (w.locked) return toast(`“${w.name}” is locked`, { kind: 'error', detail: 'Unlock it first.' });
+  if (w.elsewhere) return openElsewhere(`Remove worktree “${w.name}”?`, w);
   // Blocked while dirty: the check is repeated in the main process, this one just saves a dialog.
   const n = await git('worktreeChanges', w.path).catch(() => 0);
   if (n) return toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: `It has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.` });
+  // This window shows it: switch to the main worktree, then remove it from there.
+  if (w.current) {
+    const main = state.worktrees.find((x) => x.main);
+    if (!main) return;
+    const go = await resolveSheet({ title: `Remove worktree “${w.name}”?`, reason: 'This window is showing it.', actions: [{ id: 'switch', label: 'Switch to main worktree and remove' }] });
+    if (!go) return;
+    await switchWorktree(main);
+    if (state.repo?.root !== main.path) return; // open in another window, or it failed to open
+  }
   const what = w.branch ? `Branch ${w.branch} is kept.` : `Its detached HEAD (${w.head?.slice(0, 7)}) is kept for undo.`;
   if (!(await confirm(`Remove worktree “${w.name}”?`, `Deletes the folder ${tildify(w.path)}. ${what} Ignored files in it, such as build output, are deleted for good; ${MOD}Z brings everything else back.`, { submit: 'Remove' }))) return;
   act(`Remove worktree ${w.name}`, 'removeWorktree', [w.path], { busy: 'Removing worktree…' });
@@ -3793,11 +3830,11 @@ const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
   onDone?.();
   await fetchAll();
   if (!v.del || local?.kind !== 'branch') return;
-  if (local.short === state.head.branch) return toast(`${local.short} is still checked out`, { detail: 'Switch to another branch to delete it.' });
   const now = state.refs.find((r) => r.kind === 'branch' && r.short === local.short);
   if (!now) return;
   // Only delete what was merged: local commits that never reached the PR stay.
   if (!headOid || now.target !== headOid) return toast(`Kept ${local.short}`, { detail: 'It doesn’t match the merged pull request, so it may hold other work.' });
+  if (local.short === state.head.branch) return switchAndDelete(now, typeof pr.base === 'string' ? pr.base : null);
   deleteBranch(now);
 });
 

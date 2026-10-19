@@ -1801,15 +1801,19 @@ async function mergeLanePlan(cwd, branch, base) {
   const worktrees = await getWorktrees(cwd);
   const wt = worktrees.find((w) => w.branch === branch) || null;
   const baseWt = into ? worktrees.find((w) => w.branch === into) : null;
-  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && { path: wt.path, name: wt.name }, blocker: null, mergeBlocker: null };
-  if (wt?.current) plan.blocker = `${branch} is checked out in this window. Switch to another branch first.`;
-  else if (wt?.main) plan.blocker = `${branch} is checked out in the main worktree (${wt.name}). Switch it to another branch first.`;
-  else if (wt) {
+  // `keep`: the branch is checked out in this window ('current') or the main worktree ('main'), so
+  // it is merged but kept, with its worktree. `baseWorktree`: the other worktree that has the base.
+  const keep = wt?.current ? 'current' : wt?.main ? 'main' : null;
+  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && !keep ? { path: wt.path, name: wt.name } : null, keep, baseWorktree: null, blocker: null, mergeBlocker: null };
+  if (wt && !keep) {
     try { await checkRemovable(wt); } catch (err) { plan.blocker = err.message; }
   }
   if (!into || !baseSha) plan.mergeBlocker = into ? `There is no local ${into} branch to merge into.` : 'There is no base branch (main or master) to merge into.';
   else if (into === branch) plan.blocker = `${branch} is the base branch.`;
-  else if (baseWt && !baseWt.current) plan.mergeBlocker = `${into} is checked out in ${baseWt.name}. Merge from that worktree’s window.`;
+  else if (baseWt && !baseWt.current) {
+    plan.mergeBlocker = `${into} is checked out in ${baseWt.name}.`;
+    plan.baseWorktree = { path: baseWt.path, name: baseWt.name };
+  }
   if (plan.blocker || !baseSha) return plan;
   plan.commits = (await run(cwd, ['log', '--format=%s%x00%b%x1e', `${baseSha}..${head}`, '--'])).split('\x1e').map((r) => r.replace(/^\n+/, '')).filter(Boolean)
     .map((r) => { const i = r.indexOf('\0'); return { subject: r.slice(0, i).trim(), body: r.slice(i + 1).trim() }; });
@@ -1848,7 +1852,8 @@ async function checkRemovable(wt) {
 }
 
 // Squash `branch` onto `base` with `message` (skipped when `merge` is false, or when the branch
-// has nothing left to merge), then remove its worktree and delete it. Everything is checked
+// has nothing left to merge), then remove its worktree and delete it, unless it is checked out
+// here or in the main worktree (plan.keep): then it is kept. Everything is checked
 // before anything changes. `done` reports what happened, for the journal, even on a failure
 // part-way: { commit, worktree } (the removed worktree, as removeWorktree returns it).
 async function mergeLane(cwd, { branch, base, message = '', merge = true } = {}, done = {}) {
@@ -1873,9 +1878,10 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true } = {},
     }
     done.commit = commit;
   }
+  if (plan.keep) return { commit: done.commit || null, base: plan.base, worktree: null, kept: plan.keep };
   if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path);
   await run(cwd, ['branch', '-D', '--', branch]);
-  return { commit: done.commit || null, base: plan.base, worktree: plan.worktree };
+  return { commit: done.commit || null, base: plan.base, worktree: plan.worktree, kept: null };
 }
 
 // ---------------------------------------------------------------------------

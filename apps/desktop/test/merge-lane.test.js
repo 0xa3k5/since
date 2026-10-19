@@ -52,12 +52,15 @@ test('mergeLanePlan lists the commits and the worktree, and finds no blocker', a
   assert.deepEqual(plan.conflicts, []);
 });
 
-test('mergeLanePlan blocks a dirty worktree, a branch checked out here and the base itself', async () => {
+test('mergeLanePlan blocks a dirty worktree and the base itself; a branch checked out here is kept', async () => {
   const { dir } = await repo();
   const wt = await lane(dir);
   fs.writeFileSync(path.join(wt, 'b.txt'), 'dirty\n');
   assert.match((await git.mergeLanePlan(dir, 'feature')).blocker, /has 1 uncommitted change/);
-  assert.match((await git.mergeLanePlan(wt, 'feature')).blocker, /checked out in this window/);
+  const here = await git.mergeLanePlan(wt, 'feature');
+  assert.equal(here.blocker, null);
+  assert.equal(here.keep, 'current');
+  assert.equal(here.worktree, null);
   await git.run(dir, ['branch', 'other']);
   await git.run(dir, ['checkout', '-q', 'other']);
   assert.match((await git.mergeLanePlan(dir, 'main')).blocker, /main worktree|base branch/);
@@ -153,4 +156,37 @@ test('mergeLane refuses an empty commit message before changing anything', async
   await assert.rejects(merge(journal, dir, { branch: 'feature', message: '  ' }), /commit message is empty/);
   assert.ok(fs.existsSync(wt));
   assert.equal(journal.undo.length, 0);
+});
+
+test('merge and tidy on the checked-out branch merges it and keeps the branch (AK-581) → undo', async () => {
+  const { dir, journal } = await repo();
+  await git.run(dir, ['checkout', '-q', '-b', 'feature']);
+  await commit(dir, 'd.txt', 'd\n', 'add d');
+  const base = await sha(dir, 'main');
+  const plan = await git.mergeLanePlan(dir, 'feature');
+  assert.equal(plan.keep, 'current');
+  assert.equal(plan.commits.length, 1);
+  const res = await merge(journal, dir, { branch: 'feature', message: 'Land d' });
+  assert.equal(res.kept, 'current');
+  assert.equal(await sha(dir, 'main'), res.commit);
+  assert.ok(await branchExists(dir, 'feature'));
+  assert.equal((await git.run(dir, ['symbolic-ref', '--short', 'HEAD'])).trim(), 'feature');
+  await journal.step('undo');
+  assert.equal(await sha(dir, 'main'), base);
+});
+
+test('mergeLanePlan names the other worktree that has the base checked out', async () => {
+  const { dir } = await repo();
+  await git.run(dir, ['checkout', '-q', '-b', 'side']);
+  await git.run(dir, ['branch', 'feature']);
+  const wt = await git.addWorktree(dir, { branch: 'feature' });
+  await commit(wt, 'b.txt', 'b\n', 'add b');
+  await git.run(dir, ['checkout', '-q', 'main']);
+  const plan = await git.mergeLanePlan(wt, 'feature');
+  assert.equal(plan.keep, 'current');
+  await git.run(dir, ['checkout', '-q', 'side']);
+  const other = await git.addWorktree(dir, { branch: 'main' });
+  const p2 = await git.mergeLanePlan(wt, 'feature');
+  assert.equal(p2.baseWorktree?.path, other);
+  assert.match(p2.mergeBlocker, /main is checked out in/);
 });

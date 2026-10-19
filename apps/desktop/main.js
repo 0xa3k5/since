@@ -203,7 +203,8 @@ const reads = {
   identity: (s) => git.getIdentity(s.repo.root),
   history: (s, limit) => s.journal.list(limit),
   previewRestore: (s, id) => s.journal.previewRestore(id),
-  worktrees: (s) => git.getWorktrees(s.repo.root),
+  // `elsewhere`: open in another window, which has to be brought forward to work on it.
+  worktrees: async (s) => (await git.getWorktrees(s.repo.root)).map((w) => ({ ...w, elsewhere: ![undefined, s.win].includes(windowFor(w.path)) })),
   worktreeChanges: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
     return wt.missing ? null : git.worktreeChanges(wt.path);
