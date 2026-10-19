@@ -196,6 +196,7 @@ const gitSchemas = {
   opState: [],
   lfs: [],
   submodules: [],
+  submoduleChanges: [repoPath],
   externalTools: [],
   difftool: [fileEntry, optional(bool), optional(rev), optional(rev)],
   workingDiff: [fileEntry, optional(bool)],
@@ -289,6 +290,8 @@ const gitSchemas = {
   tidyLane: [rev, optional((v, w) => obj(v, w, { close: optional(bool) }))],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
   updateSubmodules: [optional(repoPaths), optional((v, w) => obj(v, w, { stash: optional(bool) }))],
+  // undoable stash or discard of the changes inside one submodule (journal.runSubmoduleWork)
+  submoduleWork: [repoPath, oneOf('stash', 'discard')],
   // history
   undo: [optional((v, w) => obj(v, w, { stash: optional(bool) }))],
   redo: [optional((v, w) => obj(v, w, { stash: optional(bool) }))],

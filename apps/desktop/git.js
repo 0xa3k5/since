@@ -387,7 +387,8 @@ async function getStatus(cwd, paths) {
       const xy = f[1];
       const p = f.slice(8).join(' ');
       if (xy[0] !== '.') staged.push({ path: p, status: xy[0] });
-      if (xy[1] !== '.') unstaged.push({ path: p, status: xy[1] });
+      // `inside`: a submodule whose checked-out commit is unchanged, only its own files.
+      if (xy[1] !== '.') unstaged.push({ path: p, status: xy[1], ...(f[2][0] === 'S' && f[2][1] === '.' && { inside: true }) });
     } else if (t === '2') {
       const f = line.split(' ');
       const xy = f[1];
@@ -584,6 +585,29 @@ async function popSubmoduleStash(cwd, p, sha) {
   await run(abs, ['stash', 'pop', '-q', '--index', `stash@{${i}}`], { env: W_ENV });
 }
 
+// Discard every uncommitted change in submodule `p`, untracked files too. They are kept as a
+// stash commit pinned under refs/gitlanes/discarded in the submodule (not in its stash list), so
+// undo can bring them back. Returns that commit's sha, or null when there was nothing to discard.
+async function discardSubmodule(cwd, p) {
+  const sha = await stashSubmodule(cwd, p, `Discarded changes in ${p}`);
+  if (!sha) return null;
+  const abs = path.join(cwd, p);
+  await run(abs, ['update-ref', `refs/gitlanes/discarded/${sha}`, sha], { env: W_ENV });
+  await run(abs, ['stash', 'drop', '-q', 'stash@{0}'], { env: W_ENV });
+  return sha;
+}
+
+// Put changes `discardSubmodule` removed back into submodule `p`.
+async function restoreDiscardedSubmodule(cwd, p, sha) {
+  await run(path.join(cwd, p), ['stash', 'apply', '-q', '--index', sha], { env: W_ENV });
+}
+
+// How many files have uncommitted changes in submodule `p`.
+async function submoduleChanges(cwd, p) {
+  const out = await run(path.join(cwd, p), ['status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']);
+  return out.split('\0').filter(Boolean).length;
+}
+
 const sameHead = (a, b) => (a?.sha || null) === (b?.sha || null) && (a?.branch || null) === (b?.branch || null);
 
 // Undo or redo `updateSubmodules` changes. Each submodule must still be where the change left
@@ -595,17 +619,17 @@ async function restoreSubmodules(cwd, changes, dir) {
   for (const c of changes) {
     if (!sameHead(await submoduleHead(cwd, c.path), c[cur])) throw new GitError(`submodule ${c.path} has moved since.`);
     if (c[cur] && !(dir === 'redo' && c.stash) && (await submoduleDirty(cwd, c.path))) throw new GitError(`submodule ${c.path} has local changes.`, { code: 'dirty-submodule' });
-    if (dir === 'undo' && c.stash && !(await getStashes(path.join(cwd, c.path))).some((x) => x.sha === c.stash)) throw new GitError(`the stash in submodule ${c.path} was applied or dropped since.`);
+    if (dir === 'undo' && c.stash && !c.discarded && !(await getStashes(path.join(cwd, c.path))).some((x) => x.sha === c.stash)) throw new GitError(`the stash in submodule ${c.path} was applied or dropped since.`);
   }
   for (const c of changes) {
-    if (dir === 'redo' && c.stash) c.stash = await stashSubmodule(cwd, c.path, 'Set aside to update submodules') || undefined;
+    if (dir === 'redo' && c.stash) c.stash = await (c.discarded ? discardSubmodule(cwd, c.path) : stashSubmodule(cwd, c.path, c.message || 'Set aside to update submodules')) || undefined;
     const want = c[next];
     if (!want) { await run(cwd, ['submodule', 'deinit', '-q', '--', c.path]); continue; }
     if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '--checkout', '-q', '--', c.path]);
     const abs = path.join(cwd, c.path);
     const onBranch = want.branch && (await run(abs, ['rev-parse', '-q', '--verify', `refs/heads/${want.branch}`], { allowCodes: [0, 1] })).trim() === want.sha;
     await run(abs, onBranch ? ['checkout', '-q', want.branch] : ['checkout', '-q', '--detach', want.sha]);
-    if (dir === 'undo' && c.stash) await popSubmoduleStash(cwd, c.path, c.stash);
+    if (dir === 'undo' && c.stash) await (c.discarded ? restoreDiscardedSubmodule(cwd, c.path, c.stash) : popSubmoduleStash(cwd, c.path, c.stash));
   }
 }
 
@@ -2884,7 +2908,7 @@ module.exports = {
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
-  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
+  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,

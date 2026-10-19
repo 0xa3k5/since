@@ -86,8 +86,8 @@ const worktreeOps = {
 // stash, with the paths each may change; the journal snapshots those paths (and
 // a dropped or added stash) around them.
 const workOps = {
-  discardFiles: { run: git.discardFiles, paths: (cwd, files) => files.map((f) => f.path) },
-  discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path] },
+  discardFiles: { run: git.discardFiles, paths: (cwd, files) => files.map((f) => f.path), mustChange: true },
+  discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path], mustChange: true },
   resetHard: { run: git.resetHard, paths: (cwd, sha) => git.resetHardPaths(cwd, sha || 'HEAD') },
   chooseSide: { run: git.chooseSide, paths: (cwd, p) => [p] },
   resolveConflict: { run: git.resolveConflict, paths: (cwd, p) => [p] },
@@ -327,10 +327,16 @@ class Journal {
   }
 
   // Run one of `workOps` as an undoable step.
+  // A discard that changed nothing fails, so the app never reports it as done.
   runWork(method, label, args) {
     const op = workOps[method];
     const cwd = this.root;
-    return this.record(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
+    return this.lock(async () => {
+      const top = this.undo.top;
+      const res = await this.recordNow(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
+      if (op.mustChange && this.undo.top === top) throw new git.GitError('Nothing changed.');
+      return res;
+    });
   }
 
   // Stash the changes that block switching to `branch`, then switch, as one undoable step.
@@ -633,6 +639,23 @@ class Journal {
       await this.finish({ id, label, method: 'updateSubmodules', before, submodules: changes });
       if (error) throw error;
       return changes.length;
+    });
+  }
+
+  // Stash or discard the uncommitted changes inside submodule `p` as an undoable step. Undo
+  // pops the stash or puts the discarded changes back (see git.restoreSubmodules).
+  runSubmoduleWork(label, p, mode) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      const head = await git.submoduleHead(this.root, p);
+      if (!head) throw new git.GitError(`${p} isn’t checked out.`);
+      const message = `Stashed from ${p}`;
+      const sha = await (mode === 'discard' ? git.discardSubmodule(this.root, p) : git.stashSubmodule(this.root, p, message));
+      if (!sha) throw new git.GitError(`${p} has no uncommitted changes.`);
+      const change = { path: p, before: head, after: head, stash: sha, ...(mode === 'discard' ? { discarded: true } : { message }) };
+      await this.finish({ id, label, method: 'submoduleWork', before, submodules: [change] });
+      return true;
     });
   }
 

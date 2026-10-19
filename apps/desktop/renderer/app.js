@@ -2314,9 +2314,25 @@ function createCommitView(container) {
   }
 
   async function discard(files) {
+    // Restoring a submodule's recorded commit leaves the files inside it as they are.
+    for (const f of files.filter((x) => x.inside)) await discardInSubmodule(f.path);
+    files = files.filter((x) => !x.inside);
+    if (!files.length) return;
     const what = files.length === 1 ? baseName(files[0].path) : `${files.length} files`;
     if (!(await confirm(`Discard changes to ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
     act(`Discard changes to ${what}`, 'discardFiles', [files.map(fileRef)]);
+  }
+
+  async function discardInSubmodule(p) {
+    const n = await git('submoduleChanges', p).catch(() => null);
+    const v = await resolveSheet({
+      title: `Discard changes in ${p}`,
+      reason: n ? `${n} uncommitted change${n === 1 ? '' : 's'} inside the submodule.` : null,
+      actions: [{ id: 'stash', label: 'Stash in submodule' }, { id: 'discard', label: 'Discard in submodule', danger: true }],
+    });
+    if (!v) return;
+    if (v.id === 'stash') await act(`Stash changes in ${p}`, 'submoduleWork', [p, 'stash']);
+    else await act(`Discard changes in ${p}`, 'submoduleWork', [p, 'discard']);
   }
 
   function chooseSide(p, side) {

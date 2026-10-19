@@ -188,6 +188,7 @@ const reads = {
   status: async (s) => git.markLfs(s.repo.root, await git.getStatus(s.repo.root)),
   lfs: (s) => git.getLfs(s.repo.root),
   submodules: (s) => git.getSubmodules(s.repo.root),
+  submoduleChanges: (s, p) => git.submoduleChanges(s.repo.root, p),
   externalTools: (s) => git.getExternalTools(s.repo.root),
   // Read-only: the tool gets temporary copies; for the working tree it may edit the real file.
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
@@ -434,6 +435,7 @@ handle('git', async (e, method, ...args) => {
         return { ok: await s.journal.runLane(label || method, method, (done) => git.mergeLane(s.repo.root, opts, done)) };
       }
       if (method === 'cleanupLanes') return { ok: await cleanupLanes(s, realArgs[0], label) };
+      if (method === 'submoduleWork') return { ok: await s.journal.runSubmoduleWork(label || 'Discard changes in submodule', ...realArgs) };
       if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
       if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method, realArgs[0] || {}) };

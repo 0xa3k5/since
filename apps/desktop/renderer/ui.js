@@ -316,7 +316,7 @@ export function resolveSheet({ title, reason, detail, actions = [], pick, checkb
         h('button.btn.ghost.sheet-cancel', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
         ordered.map((a) => a.primary
           ? h('button.btn.' + (a.danger ? 'danger' : 'primary'), { type: 'submit' }, a.label, kbd('↵'))
-          : h('button.btn.subtle', { type: 'button', onclick: () => choose(a) }, a.label))),
+          : h('button.btn.' + (a.danger ? 'danger' : 'subtle'), { type: 'button', onclick: () => choose(a) }, a.label))),
     );
     const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
     overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } });
