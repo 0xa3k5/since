@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -1728,6 +1728,7 @@ function refMenu(x, y, r) {
   if (r.kind === 'branch') {
     const cur = r.short === state.head.branch;
     const wt = worktreeOf(r.short);
+    const only = cur && !switchTargets(r.short).length;
     items.push(
       wt ? { label: `Switch to Worktree “${wt.name}”`, icon: 'worktree', run: () => switchWorktree(wt) } : { label: 'Checkout', icon: 'checkout', disabled: cur, run: () => checkout(r.short) },
       !wt && !cur ? { label: 'Open in New Worktree…', icon: 'worktree', run: () => addWorktree({ branch: r.short }) } : null,
@@ -1739,7 +1740,7 @@ function refMenu(x, y, r) {
       { label: 'Rename…', icon: 'edit', run: () => renameBranch(r) },
       { label: 'Copy Name', icon: 'copy', run: () => copy(r.short, 'Copied branch name') },
       '-',
-      { label: 'Delete Branch', icon: 'trash', danger: true, disabled: cur, why: cur ? 'Checked out' : null, run: () => deleteBranch(r) },
+      { label: 'Delete Branch', icon: 'trash', danger: true, disabled: only, why: only ? 'Only branch' : null, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) },
     );
   } else if (r.kind === 'remote') {
     items.push(
@@ -1874,6 +1875,29 @@ async function renameBranch(r) {
 }
 async function deleteBranch(r) {
   act(`Delete branch ${r.short}`, 'deleteBranch', [r.short]);
+}
+
+// Local branches this window can switch to instead of `name` (not checked out in another worktree).
+const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
+
+// Delete the checked-out branch: pick a branch to switch to, optionally stash, then switch and
+// delete as one undo step.
+async function switchAndDelete(r) {
+  const options = switchTargets(r.short);
+  if (!options.length) return;
+  const n = state.status.staged.length + state.status.unstaged.length;
+  const v = await resolveSheet({
+    title: ['Delete branch ', ref(r.short)],
+    reason: [ref(r.short), ' is checked out in this window.'],
+    pick: { label: 'Switch to', options: options.map((b) => ({ value: b })), value: ['main', 'master'].find((b) => options.includes(b)) || options[0] },
+    checkbox: n ? { label: `Stash ${n} uncommitted change${n === 1 ? '' : 's'}`, checked: true } : null,
+    actions: [{ id: 'go', label: 'Switch and delete', danger: true }],
+  });
+  if (!v) return false;
+  const stash = v.checked ? { message: stashMessage(r.short, v.value), untracked: loadPref('autostash', AUTOSTASH_DEFAULT).untracked } : undefined;
+  return act(`Delete branch ${r.short}`, 'switchDelete', [v.value, ...(stash ? [stash] : [])], {
+    success: `Switched to ${v.value} and deleted ${r.short}${stash ? ', changes stashed' : ''}`,
+  });
 }
 async function setTip(branch, c) {
   act(`Move ${branch} to ${c.sha.slice(0, 7)}`, 'setBranchTip', [branch, c.sha]);

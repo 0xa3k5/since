@@ -319,25 +319,46 @@ class Journal {
   // Undo switches back and pops that stash; redo stashes again and switches. If the switch
   // still fails, the stash is popped right away and nothing is recorded.
   autostash(label, branch, message, untracked) {
-    return this.lock(async () => {
-      const cwd = this.root;
-      const id = ++nextId;
-      const before = await git.captureRefState(cwd);
-      const top = () => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+    return this.lock(() => this.switchNow(label, 'autostashCheckout', branch, { stash: { message, untracked } }));
+  }
+
+  // Switch to `branch`, then delete the branch that was checked out, as one undoable step.
+  // `stash` ({ message, untracked }) stashes uncommitted changes first. Undo brings the branch
+  // (and its upstream config) back, checks it out and pops the stash; redo does it all again.
+  switchDelete(label, branch, stash) {
+    return this.lock(() => this.switchNow(label, 'switchDelete', branch, { stash, del: true }));
+  }
+
+  async switchNow(label, method, branch, { stash, del = false }) {
+    const cwd = this.root;
+    const id = ++nextId;
+    const before = await git.captureRefState(cwd);
+    const from = before.head?.replace(/^refs\/heads\//, '') || null;
+    if (del && !from) throw new git.GitError('HEAD is detached: there is no branch to delete.');
+    if (del && from === branch) throw new git.GitError(`${branch} is the branch being deleted. Pick another branch.`);
+    const env = { GIT_OPTIONAL_LOCKS: '1' };
+    const top = () => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+    let sha = null, made = false;
+    if (stash) {
       const prev = await top();
-      await git.stashPush(cwd, { message, untracked });
-      const sha = await top();
-      const made = sha && sha !== prev;
-      try {
-        await git.run(cwd, ['checkout', branch], { env: { GIT_OPTIONAL_LOCKS: '1' } });
-      } catch (err) {
-        if (made) await git.stashApply(cwd, 'stash@{0}', true).catch(() => {});
-        throw err;
-      }
-      const autostash = made ? { sha, message, untracked: !!untracked, branch: before.head?.replace(/^refs\/heads\//, '') || null } : null;
-      await this.finish({ id, label, method: 'autostashCheckout', before, autostash }).catch((err) => console.warn('journal failed', err.message));
-      return autostash;
-    });
+      await git.stashPush(cwd, { message: stash.message, untracked: stash.untracked });
+      sha = await top();
+      made = !!sha && sha !== prev;
+    }
+    try {
+      await git.run(cwd, ['checkout', branch], { env });
+    } catch (err) {
+      if (made) await git.stashApply(cwd, 'stash@{0}', true).catch(() => {});
+      throw err;
+    }
+    const autostash = made ? { sha, message: stash.message, untracked: !!stash.untracked, branch: del ? null : from } : null;
+    try {
+      if (del) await git.run(cwd, ['branch', '-D', from], { env });
+    } finally {
+      // Record the switch even if the delete failed, so it can be undone.
+      await this.finish({ id, label, method, before, autostash }).catch((err) => console.warn('journal failed', err.message));
+    }
+    return autostash;
   }
 
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
@@ -498,7 +519,7 @@ class Journal {
     if (entry.worktree) await this.restoreWorktree(entry, dir);
     else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
     else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
-    else if (entry.autostash) await this.restoreAutostash(entry, dir);
+    else if (entry.autostash || entry.method === 'switchDelete') await this.restoreAutostash(entry, dir);
     else if (entry.remote) await this.restoreRemote(entry, dir);
     else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
     else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
@@ -545,12 +566,14 @@ class Journal {
     }
   }
 
-  // Undo or redo a stash-and-switch (autostash). HEAD must still be where the step left it.
+  // Undo or redo a stash-and-switch (autostash) or a switch-and-delete, with or without a
+  // stash. Branches and HEAD must still be where the step left them.
   async restoreAutostash(entry, dir) {
     const cwd = this.root;
     const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
     const a = entry.autostash;
+    if (!a) return git.restoreRefState(cwd, dir === 'undo' ? entry.before : entry.after);
     if (dir === 'undo') {
       const i = (await git.getStashes(cwd)).findIndex((x) => x.sha === a.sha);
       if (i === -1) throw fail('its stash was applied or dropped since.');
