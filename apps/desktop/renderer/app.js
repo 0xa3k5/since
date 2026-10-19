@@ -1885,7 +1885,8 @@ const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && 
 async function switchAndDelete(r) {
   const options = switchTargets(r.short);
   if (!options.length) return;
-  const n = state.status.staged.length + state.status.unstaged.length;
+  const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
+  const n = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
   const v = await resolveSheet({
     title: ['Delete branch ', ref(r.short)],
     reason: [ref(r.short), ' is checked out in this window.'],
@@ -1894,7 +1895,7 @@ async function switchAndDelete(r) {
     actions: [{ id: 'go', label: 'Switch and delete', danger: true }],
   });
   if (!v) return false;
-  const stash = v.checked ? { message: stashMessage(r.short, v.value), untracked: loadPref('autostash', AUTOSTASH_DEFAULT).untracked } : undefined;
+  const stash = v.checked ? { message: stashMessage(r.short, v.value), untracked } : undefined;
   return act(`Delete branch ${r.short}`, 'switchDelete', [v.value, ...(stash ? [stash] : [])], {
     success: `Switched to ${v.value} and deleted ${r.short}${stash ? ', changes stashed' : ''}`,
   });
