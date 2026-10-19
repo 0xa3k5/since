@@ -330,9 +330,8 @@ export function resolveSheet({ title, reason, rows, lists, forecast, actions = [
       h('div.dialog-foot', null,
         h('button.btn.ghost.sheet-cancel', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
         ordered.map((a) => {
-          const text = a.sub ? h('span.btn-stack', null, h('span', null, a.label), h('span.btn-sub', null, a.sub)) : a.label;
-          const cls = 'button.btn.' + (a.danger ? 'danger' : a.primary ? 'primary' : 'subtle') + (a.sub ? '.has-sub' : '');
-          return a.primary ? h(cls, { type: 'submit' }, text, kbd('↵')) : h(cls, { type: 'button', onclick: () => choose(a) }, text);
+          const cls = 'button.btn.' + (a.danger ? 'danger' : a.primary ? 'primary' : 'subtle');
+          return a.primary ? h(cls, { type: 'submit' }, a.label, kbd('↵')) : h(cls, { type: 'button', onclick: () => choose(a) }, a.label);
         })),
     );
     const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);

@@ -35,9 +35,9 @@ export function divergeSheet(d, { push = false, age = String } = {}) {
     : !files.length ? { ok: true, text: 'No conflicts expected' }
     : { ok: false, text: `Conflicts likely in ${files.slice(0, SHOWN_FILES).join(', ')}${files.length > SHOWN_FILES ? ` and ${files.length - SHOWN_FILES} more` : ''}` };
   const n = d.oursCount;
-  const rebase = { id: 'rebase', label: push ? 'Rebase and push' : 'Rebase', sub: `Your ${plural(n, 'commit')} ${n === 1 ? 'goes' : 'go'} on top` };
-  const merge = { id: 'merge', label: push ? 'Merge and push' : 'Merge', sub: 'Adds a merge commit' };
-  const force = push ? { id: 'force', label: 'Force push', sub: `Drops ${plural(d.theirsCount, 'commit')} on ${remote}`, danger: true, primary: false } : null;
+  const rebase = { id: 'rebase', label: push ? 'Rebase and push' : 'Rebase' };
+  const merge = { id: 'merge', label: push ? 'Merge and push' : 'Merge' };
+  const force = push ? { id: 'force', label: 'Force push', danger: true, primary: false } : null;
   return {
     reason: `${d.branch} and ${d.upstream} have both moved.`,
     lists: [list(`On ${remote}`, d.theirs, d.theirsCount), list('Only here', d.ours, n)].filter((l) => !l.title.endsWith(' · 0')),

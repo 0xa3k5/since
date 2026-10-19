@@ -119,11 +119,12 @@ test('divergeSheet: lists, forecast and what each button ends with', async () =>
   assert.equal(pull.reason, 'feature/api and origin/feature/api have both moved.');
   assert.deepEqual(pull.lists.map((l) => l.title), ['On origin · 2', 'Only here · 1']);
   assert.deepEqual(pull.forecast, { ok: true, text: 'No conflicts expected' });
-  assert.deepEqual(pull.actions.map((a) => [a.label, a.sub]), [['Rebase', 'Your 1 commit goes on top'], ['Merge', 'Adds a merge commit']]);
+  assert.deepEqual(pull.actions.map((a) => a.label), ['Rebase', 'Merge']);
   const push = divergeSheet({ ...d, shared: true, conflicts: ['api.txt'] }, { push: true });
   assert.equal(push.forecast.text, 'Conflicts likely in api.txt');
   assert.deepEqual(push.actions.map((a) => a.id), ['merge', 'rebase', 'force']);
-  assert.equal(push.actions[2].sub, 'Drops 2 commits on origin');
+  assert.equal(push.actions[2].label, 'Force push');
+  assert.ok(push.actions.every((a) => !('sub' in a)));
   const many = divergeSheet({ ...d, theirs: [1, 2, 3, 4, 5, 6].map(c), theirsCount: 9 });
   assert.equal(many.lists[0].rows.length, 5);
   assert.equal(many.lists[0].more, 4);
