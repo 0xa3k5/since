@@ -872,10 +872,9 @@ class Journal {
     if (!entry) return null;
     let note = null, adopted = null;
     try {
+      if (force) adopted = await this.adoptMoved(entry, dir);
       if (entry.moved) await this.restoreMoved(entry, dir);
       else if (entry.freed) await this.restoreFreed(entry, dir);
-      if (force) adopted = await this.adoptMoved(entry, dir);
-      if (entry.freed) await this.restoreFreed(entry, dir);
       else if (entry.worktree) await this.restoreWorktree(entry, dir);
       else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
       else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`, { code: err.code }); });
