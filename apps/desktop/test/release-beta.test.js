@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { nextBetaVersion, parseArgs } = require('../scripts/release-beta');
+const { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion } = require('../scripts/release-beta');
 const { planUploads, pruneList, r2Client, publish, PUBLIC_URL } = require('../scripts/beta-publish');
 
 test('nextBetaVersion starts at beta.1 and counts up from the highest tag of this version', () => {
@@ -25,8 +25,33 @@ test('parseArgs reads the version override and --skip-e2e, and rejects unknown f
   assert.throws(() => parseArgs(['--force']), /Unknown option/);
 });
 
+test('pnpmMismatch passes only the pinned pnpm, with or without a leading v, and says when pnpm is missing', () => {
+  assert.equal(pinnedPnpm('pnpm@10.34.7'), '10.34.7');
+  assert.equal(pinnedPnpm('pnpm@10.34.7+sha512.abc123'), '10.34.7');
+  assert.equal(pinnedPnpm(undefined), '');
+  assert.equal(pinnedPnpm('yarn@4.0.0'), '');
+  assert.equal(pnpmMismatch('10.34.7', '10.34.7\n'), '');
+  assert.equal(pnpmMismatch('10.34.7', 'v10.34.7'), '');
+  assert.match(pnpmMismatch('10.34.7', '10.20.0'), /^pnpm 10\.20\.0 is on PATH, but this repo pins pnpm@10\.34\.7\./);
+  assert.match(pnpmMismatch('10.34.7', '10.34.70'), /pins pnpm@10\.34\.7\./);
+  assert.match(pnpmMismatch('10.34.7', ''), /pnpm was not found on PATH; this repo pins pnpm@10\.34\.7\./);
+  assert.equal(pnpmMismatch('', '10.20.0'), '', 'no pin, nothing to compare');
+});
+
 const V = '0.1.0-beta.2';
 const built = [`GitLanes-${V}-arm64.dmg`, `GitLanes-${V}-x64.dmg`, `GitLanes-${V}-arm64-mac.zip`, `GitLanes-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json'];
+
+test('wrongBuildVersion names what electron-builder built when the version override did not apply', () => {
+  assert.equal(wrongBuildVersion(V, [...built, 'mac-arm64', 'mac', 'builder-debug.yml']), '');
+  assert.equal(wrongBuildVersion(V, [`GitLanes-${V}-arm64-mac.zip`]), '', 'any artifact of the version is enough; planUploads reports missing files');
+  assert.equal(
+    wrongBuildVersion(V, ['mac-arm64', 'GitLanes-0.1.0-arm64.dmg', 'GitLanes-0.1.0-arm64-mac.zip', 'GitLanes-0.1.0-x64.dmg', 'builder-debug.yml']),
+    'electron-builder built GitLanes-0.1.0-arm64-mac.zip, GitLanes-0.1.0-arm64.dmg, GitLanes-0.1.0-x64.dmg instead of 0.1.0-beta.2; the version override did not apply.',
+  );
+  assert.match(wrongBuildVersion(V, []), /built no GitLanes-\* artifacts instead of 0\.1\.0-beta\.2/);
+  // A build of beta.20 is not a build of beta.2.
+  assert.match(wrongBuildVersion(V, ['GitLanes-0.1.0-beta.20-arm64.dmg']), /instead of 0\.1\.0-beta\.2;/);
+});
 
 test('planUploads puts versioned files first, then the latest DMGs, then the no-cache feeds', () => {
   const plan = planUploads(V, built);

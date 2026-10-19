@@ -6,6 +6,10 @@
 // notarytool when APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID or
 // APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER are set. With none of that, the app is
 // ad-hoc signed so it still launches on Apple silicon, and the DMG is marked unsigned.
+//
+// The version is package.json's unless GITLANES_VERSION names a pre-release of it (0.1.0-beta.2).
+// release-beta.js and release.yml set it through the environment: a `pnpm dist -- -c.…` argument
+// crosses two `pnpm run` layers and some pnpm versions hand electron-builder a literal `--` (AK-571).
 const { execFileSync } = require('node:child_process');
 const { releaseProfile } = require('./licence/config');
 
@@ -24,6 +28,15 @@ function hasDeveloperId() {
 
 const STORE = process.env.GITLANES_STORE || 'production';
 
+/** The version to bake from GITLANES_VERSION, or '' to keep package.json's. Only `base` itself or a pre-release of it. */
+function versionOverride(value, base) {
+  if (!value) return '';
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(value)) throw new Error(`GITLANES_VERSION=${value} is not a version (expected e.g. ${base}-beta.2).`);
+  if (value !== base && !value.startsWith(`${base}-`)) throw new Error(`GITLANES_VERSION=${value} is not ${base} or a pre-release of it; bump apps/desktop/package.json first.`);
+  return value;
+}
+const VERSION = versionOverride(process.env.GITLANES_VERSION, require('./package.json').version);
+
 const signed = hasDeveloperId();
 if (!signed) console.log('  • no Developer ID certificate found: building an unsigned (ad-hoc) DMG');
 
@@ -36,7 +49,8 @@ module.exports = {
   files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'change-facts.js', 'pr-media.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
   // The store profile is baked into the packaged package.json; the packaged app ignores GITLANES_STORE
   // at run time. Production unless the build asks for the test store (GITLANES_STORE=sandbox).
-  extraMetadata: { gitlanes: { store: STORE } },
+  // The version, when overridden, names the artifacts and is what the updater compares against the feed.
+  extraMetadata: { gitlanes: { store: STORE }, ...(VERSION ? { version: VERSION } : {}) },
   // Fail closed: refuse to package mock, unknown or unfilled profiles.
   beforePack: () => { releaseProfile(STORE); },
   asar: true,

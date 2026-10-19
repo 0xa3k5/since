@@ -50,6 +50,32 @@ test('packaging bakes production by default and refuses an unfilled or mock stor
   }
 });
 
+test('packaging bakes GITLANES_VERSION and refuses anything that is not package.json\'s version or a pre-release of it', () => {
+  const base = require('../package.json').version;
+  const saved = process.env.GITLANES_VERSION;
+  const load = (v) => {
+    if (v === undefined) delete process.env.GITLANES_VERSION; else process.env.GITLANES_VERSION = v;
+    delete require.cache[require.resolve('../electron-builder.config.js')];
+    return require('../electron-builder.config.js');
+  };
+  try {
+    assert.strictEqual(load(undefined).extraMetadata.version, undefined, 'unset: package.json decides');
+    assert.strictEqual(load('').extraMetadata.version, undefined, 'CI passes unset values as empty strings');
+    assert.strictEqual(load(`${base}-beta.2`).extraMetadata.version, `${base}-beta.2`);
+    assert.strictEqual(load(`${base}-rc.1`).extraMetadata.version, `${base}-rc.1`);
+    assert.strictEqual(load(base).extraMetadata.version, base);
+    assert.strictEqual(load(base).extraMetadata.gitlanes.store, 'production', 'the store is still baked next to it');
+    assert.throws(() => load(`-- -c.extraMetadata.version=${base}-beta.2`), /GITLANES_VERSION=.* is not a version/);
+    assert.throws(() => load('beta.2'), /is not a version/);
+    assert.throws(() => load(`v${base}-beta.2`), /is not a version/);
+    assert.throws(() => load('9.9.9-beta.1'), /is not 0\.\d+\.\d+ or a pre-release of it/);
+    assert.throws(() => load(`${base}0-beta.1`), /is not .* or a pre-release of it/);
+  } finally {
+    if (saved === undefined) delete process.env.GITLANES_VERSION; else process.env.GITLANES_VERSION = saved;
+    delete require.cache[require.resolve('../electron-builder.config.js')];
+  }
+});
+
 test('every module the main process requires is packaged', () => {
   // Follow local require()s from main.js; a missing file only shows up as a crash in the DMG.
   // bench/ is dev-only (behind GITLANES_BENCH) and never packaged.

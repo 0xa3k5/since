@@ -32,6 +32,26 @@ function nextBetaVersion(base, tags, override) {
   return `${prefix}${ns.length ? Math.max(...ns) + 1 : 1}`;
 }
 
+/** The pnpm version pinned by the root package.json `packageManager` (`pnpm@10.34.7`, with or without a `+sha…` hash), or ''. */
+const pinnedPnpm = (packageManager) => (String(packageManager || '').match(/^pnpm@(\d+\.\d+\.\d+[^+\s]*)/) || [])[1] || '';
+
+/** Why the pnpm on PATH (`actual`, from `pnpm -v`) can't run this release, or '' when it is the pinned one. */
+function pnpmMismatch(pinned, actual) {
+  if (!pinned) return '';
+  const have = String(actual || '').trim().replace(/^v/, '');
+  if (!have) return `pnpm was not found on PATH; this repo pins pnpm@${pinned}.`;
+  if (have !== pinned) return `pnpm ${have} is on PATH, but this repo pins pnpm@${pinned}. Another pnpm forwards arguments differently and has built a release under the wrong version before.`;
+  return '';
+}
+
+/** Why `files` (apps/desktop/dist after a build) are not a build of `version`, or '' when its artifacts are there. */
+function wrongBuildVersion(version, files) {
+  const expected = new RegExp(`^GitLanes-${version.replace(/[.+]/g, '\\$&')}-(${publisher.ARCHES.join('|')})[-.]`);
+  if (files.some((f) => expected.test(f))) return '';
+  const built = files.filter((f) => /^GitLanes-.*\.(dmg|zip)$/.test(f)).sort();
+  return `electron-builder built ${built.length ? built.join(', ') : 'no GitLanes-* artifacts'} instead of ${version}; the version override did not apply.`;
+}
+
 function parseArgs(argv) {
   const opts = { skipE2e: false, version: '' };
   for (const a of argv) {
@@ -71,6 +91,10 @@ function readKeychain(service) {
 function preflight() {
   step('Preflight');
   if (process.platform !== 'darwin') fail('Releases are built on macOS.');
+  // packageManager is only enforced through corepack; a stray global pnpm is the usual way a release goes wrong on a dev Mac.
+  const pinned = pinnedPnpm(require(path.join(ROOT, 'package.json')).packageManager);
+  const pnpm = pnpmMismatch(pinned, capture('pnpm', ['-v']).out);
+  if (pnpm) fail(pnpm, `corepack enable && corepack prepare  (or: npm i -g pnpm@${pinned})`);
   const branch = capture('git', ['rev-parse', '--abbrev-ref', 'HEAD']).out;
   if (branch !== 'main') fail(`On branch "${branch}", not main.`, 'git switch main');
   if (capture('git', ['status', '--porcelain']).out) fail('The working tree has uncommitted changes.', 'commit or stash them, then run again');
@@ -117,7 +141,11 @@ function build(version) {
   const env = { ...process.env, GITLANES_STORE: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
   // Only the keychain profile notarizes; stray Apple ID or API key variables would take precedence.
   for (const k of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER']) delete env[k];
-  run('pnpm', ['dist', '--', `-c.extraMetadata.version=${version}`], { env });
+  // The version goes through the environment (electron-builder.config.js reads GITLANES_VERSION): a `--`
+  // argument has to cross two `pnpm run` layers and not every pnpm strips it, which built 0.1.0 as beta.2 (AK-571).
+  run('pnpm', ['dist'], { env: { ...env, GITLANES_VERSION: version } });
+  const wrong = wrongBuildVersion(version, fs.existsSync(DIST) ? fs.readdirSync(DIST) : []);
+  if (wrong) fail(wrong, 'GITLANES_VERSION must reach apps/desktop/electron-builder.config.js through `pnpm dist`');
 }
 
 function verifyApp(app) {
@@ -184,4 +212,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { nextBetaVersion, parseArgs };
+module.exports = { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion };
