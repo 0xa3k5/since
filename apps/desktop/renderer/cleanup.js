@@ -78,6 +78,12 @@ export const preselect = (lane) => !blocked(lane) && !dirty(lane) && lane.group 
 // Its own remote branch (`<remote>/<same name>`), when it still has one; deleting it there is a
 // separate, opt-in tick. A branch tracking something else (usually the base it was made from,
 // `origin/main`) has none: its upstream is never deleted.
+// Where "Also delete them on …" deletes: the one remote's name, else "the remote".
+export function remoteWhere(refs) {
+  const names = new Set(refs.map((r) => r.split('/')[0]));
+  return names.size === 1 ? [...names][0] : 'the remote';
+}
+
 export function remoteOf(lane, base = null) {
   const up = lane.upstream;
   if (!up || lane.upstreamGone || !lane.branch || lane.branch === base) return null;

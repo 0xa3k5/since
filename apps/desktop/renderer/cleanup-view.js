@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, dialog, toast } from './ui.js';
 import { laneKey } from './lanes.js';
-import { groupLanes, blocked, dirty, preselect, remoteOf, reason, cleanupItem, summarize, plural, daysValue } from './cleanup.js';
+import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue } from './cleanup.js';
 import * as keymap from './keymap.js';
 
 // Clean up, the Finished tab of Branches (AK-396): finished branches and worktrees (merged, shipped,
@@ -42,7 +42,8 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
   const goBtn = h('button.btn.primary.cleanup-go', { onclick: () => go() });
   const counts = h('span.cleanup-counts');
   const remoteBox = h('input', { type: 'checkbox', tabIndex: -1, onchange: () => { alsoRemote = remoteBox.checked; render(); } });
-  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': `Also delete them on GitHub (${keymap.keys('cleanup.remote').join('')})` }, remoteBox, h('span', null, 'Also delete them on GitHub (can’t be undone)'));
+  const remoteText = h('span', null, 'Also delete them on the remote (can’t be undone)');
+  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': `Also delete them on the remote (${keymap.keys('cleanup.remote').join('')})` }, remoteBox, remoteText);
   const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), h('span'));
   const daysBox = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
     onkeydown: (e) => { if (e.key !== 'Escape') e.stopPropagation(); },
@@ -128,7 +129,10 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
 
     const chosen = selected();
     const s = summarize(chosen);
-    const remotes = chosen.filter((l) => remoteOf(l, base)).length;
+    const remoteRefs = chosen.map((l) => remoteOf(l, base)).filter(Boolean), remotes = remoteRefs.length;
+    const where = remoteWhere(remoteRefs.length ? remoteRefs : lanes.map((l) => remoteOf(l, base)).filter(Boolean));
+    remoteText.textContent = `Also delete them on ${where} (can’t be undone)`;
+    remoteLabel.dataset.tip = `Also delete them on ${where} (${keymap.keys('cleanup.remote').join('')})`;
     goBtn.disabled = busy || !chosen.length;
     goBtn.replaceChildren(chosen.length ? `Clean up ${chosen.length}` : 'Clean up', kbd(...keymap.keys('cleanup.run')));
     counts.textContent = chosen.length ? [chosen.length === 1 ? 'branch' : 'branches', s.worktrees ? plural(s.worktrees, 'worktree') : null].filter(Boolean).join(' · ') : 'Tick what can go';
@@ -186,7 +190,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     const remoteSet = new Set(alsoRemote ? lanesToGo.filter((l) => remoteOf(l, base)).map(laneKey) : []);
     const s = summarize(lanesToGo, remoteSet, { all: lanes, base });
     const remoteNames = s.remotes;
-    const gone = new Set(remoteNames);
+    const gone = new Set(remoteNames), where = remoteWhere(remoteNames);
     // One row per branch with only what changes for it; the warning and its tick only when
     // something can't come back (GitHub branches, uncommitted files).
     const rows = lanesToGo.map((l) => {
@@ -195,11 +199,11 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
         h('span.cleanup-confirm-name', { title: l.name }, l.name),
         n ? h('span.cleanup-confirm-tag.warn', null, `${n} uncommitted`) : null,
         l.worktree ? h('span.cleanup-confirm-tag', null, 'worktree') : null,
-        remoteSet.has(laneKey(l)) && gone.has(remoteOf(l, base)) ? h('span.cleanup-confirm-tag', null, 'GitHub') : null);
+        remoteSet.has(laneKey(l)) && gone.has(remoteOf(l, base)) ? h('span.cleanup-confirm-tag', null, remoteOf(l, base).split('/')[0]) : null);
     });
     const content = [h('div.cleanup-confirm-list', null, ...rows)];
     const fields = [];
-    const lose = [remoteNames.length ? `${remoteNames.length} on GitHub` : null, s.dirty.length ? `the uncommitted changes in ${plural(s.dirty.length, 'worktree')}` : null].filter(Boolean);
+    const lose = [remoteNames.length ? `${remoteNames.length} on ${where}` : null, s.dirty.length ? `the uncommitted changes in ${plural(s.dirty.length, 'worktree')}` : null].filter(Boolean);
     if (lose.length) {
       content.push(h('p.cleanup-confirm-warn', null, 'This can’t be undone.'));
       fields.push({ name: 'sure', type: 'checkbox', label: `Delete ${lose.join(' and ')}, for good` });
@@ -216,7 +220,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     try {
       res = await run(lanesToGo.map(cleanupItem), `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}`);
       if (remoteNames.length) {
-        progress.lastChild.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on GitHub…`;
+        progress.lastChild.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on ${where}…`;
         const r = await runRemote(remoteNames).catch((err) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));
         res.remoteDeleted = r.deleted;
         res.remoteFailed = r.failed;
@@ -237,7 +241,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
   }
 
   function report(res) {
-    const done = [res.removed.length ? plural(res.removed.length, 'worktree') + ' removed' : null, res.deleted.length ? plural(res.deleted.length, 'branch', 'branches') + ' deleted' : null, res.remoteDeleted?.length ? `${res.remoteDeleted.length} on GitHub` : null].filter(Boolean).join(', ');
+    const done = [res.removed.length ? plural(res.removed.length, 'worktree') + ' removed' : null, res.deleted.length ? plural(res.deleted.length, 'branch', 'branches') + ' deleted' : null, res.remoteDeleted?.length ? `${res.remoteDeleted.length} on ${remoteWhere(res.remoteDeleted)}` : null].filter(Boolean).join(', ');
     if (done) toast(`Cleaned up: ${done}`, { kind: 'success', action: res.removed.length || res.deleted.length ? { label: 'Undo', run: onUndo } : null });
     const detail = (list) => list.slice(0, 6).map((f) => `${f.name}: ${f.message}`).join('\n') + (list.length > 6 ? `\n…and ${list.length - 6} more` : '');
     if (res.failed.length) toast(`${plural(res.failed.length, 'branch was', 'branches were')} kept`, { kind: 'error', timeout: 0, detail: detail(res.failed) });

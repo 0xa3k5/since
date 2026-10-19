@@ -280,3 +280,9 @@ test('the untouched days field takes whole days from 1 to 365 (AK-402)', async (
   assert.equal(daysValue(' 365 '), 365);
   for (const bad of ['', '0', '-3', '2.5', '366', 'abc', null]) assert.equal(daysValue(bad), null, String(bad));
 });
+
+test('remoteWhere: names the one remote, else "the remote"', async () => {
+  const { remoteWhere } = await load();
+  assert.equal(remoteWhere(['origin/a', 'origin/b']), 'origin');
+  assert.equal(remoteWhere(['origin/a', 'fork/b']), 'the remote');
+});
