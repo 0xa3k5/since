@@ -69,6 +69,7 @@ function pins(entry) {
   }
   if (entry.stash) objects.push(entry.stash.sha);
   if (entry.autostash) objects.push(entry.autostash.sha);
+  if (entry.discarded) objects.push(entry.discarded.sha);
   if (entry.worktree) objects.push(entry.worktree.head, entry.worktree.stash, entry.worktree.saved?.sha);
   for (const w of entry.cleanup || []) objects.push(w.head, w.saved?.sha);
   for (const [, oid, sym] of entry.remote?.saved?.refs || []) if (!sym) objects.push(oid);
@@ -739,15 +740,18 @@ class Journal {
   }
 
   // `stash`: stash what blocks the step first (see stashThenStep).
-  step(dir, { stash = false } = {}) {
-    return this.lock(() => (stash ? this.stashThenStep(dir) : this.stepNow(dir)));
+  // `discard`: the same, but the changes leave the stash list; the opposite step brings them back.
+  step(dir, { stash = false, discard = false } = {}) {
+    return this.lock(() => (stash || discard ? this.stashThenStep(dir, discard) : this.stepNow(dir)));
   }
 
   // "Stash and undo" (or redo): stash what blocks the step, then take it. For a work step, the
   // paths that changed since; for a submodule step, the changes in those submodules; otherwise
   // every uncommitted change. The stashes stay in their lists; if the step still fails, they are
   // popped right away.
-  async stashThenStep(dir) {
+  // "Discard and undo" (AK-583): the stash is dropped from the list but kept on the entry
+  // (`discarded`, pinned), and re-applied when the opposite step is taken.
+  async stashThenStep(dir, discard = false) {
     const cwd = this.root;
     const entry = (dir === 'undo' ? this.undo : this.redo).top;
     if (!entry) return null;
@@ -767,10 +771,19 @@ class Journal {
       const sha = await stashTop(cwd);
       if (sha && sha !== prev) made.push([null, sha]);
     }
+    const dropped = discard && !entry.submodules && made[0]?.[1];
+    if (dropped) {
+      entry.discarded = { sha: dropped, dir };
+      await this.pin(entry.id, pins(entry));
+      await git.dropStashCommit(cwd, dropped);
+    }
     try {
       return await this.stepNow(dir);
     } catch (err) {
-      for (const [p, sha] of made) await (p ? git.popSubmoduleStash(cwd, p, sha) : git.stashApply(cwd, 'stash@{0}', true)).catch(() => {});
+      if (dropped) {
+        delete entry.discarded;
+        await git.stashApply(cwd, dropped).catch(() => {});
+      } else for (const [p, sha] of made) await (p ? git.popSubmoduleStash(cwd, p, sha) : git.stashApply(cwd, 'stash@{0}', true)).catch(() => {});
       throw err;
     }
   }
@@ -796,6 +809,12 @@ class Journal {
       // "Stash and undo" (step with `stash`).
       if (typeof err.code !== 'string' && !entry.worktree && !entry.cleanup && DIRTY.test(`${err.stderr || ''}\n${err.message}`)) err.code = 'dirty';
       throw err;
+    }
+    // Changes discarded to take this step the other way come back with it.
+    if (entry.discarded && entry.discarded.dir !== dir) {
+      const { sha } = entry.discarded;
+      delete entry.discarded;
+      await git.stashApply(this.root, sha).catch(() => { note = 'the discarded changes couldn’t be put back'; });
     }
     from.hot.pop();
     to.hot.push(entry);

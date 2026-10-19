@@ -86,6 +86,31 @@ test('undo blocked by a file changed since: code dirty, then stash and undo', as
   assert.match(s.message, /Set aside to undo/);
 });
 
+test('discard and undo (AK-583): the newer edit leaves no stash, and redo brings it back', async () => {
+  const r = await repo();
+  r.write('app.js', 'mine\n');
+  await r.journal.runWork('discardFiles', 'Discard app.js', [[{ path: 'app.js', status: 'M' }]]);
+  r.write('app.js', 'later edit\n');
+  assert.equal(await r.journal.step('undo', { discard: true }), 'Discard app.js');
+  assert.equal(r.read('app.js'), 'mine\n');
+  assert.equal((await r.stashes()).length, 0);
+  assert.equal(await r.journal.step('redo'), 'Discard app.js');
+  assert.equal(r.read('app.js'), 'later edit\n');
+});
+
+test('discard and undo a ref step: redo puts the commit and the discarded edit back', async () => {
+  const r = await repo();
+  await r.journal.record('Commit two', 'cherryPick', () => r.commit('app.js', 'two\n', 'two'));
+  r.write('app.js', 'dirty\n');
+  await r.journal.step('undo', { discard: true });
+  assert.equal(r.read('app.js'), 'base\n');
+  assert.equal((await r.stashes()).length, 0);
+  await r.journal.step('redo');
+  assert.equal(r.read('app.js'), 'dirty\n');
+  assert.equal((await git.run(r.dir, ['log', '-1', '--format=%s'])).trim(), 'two');
+  assert.deepEqual(checkGit('undo', [{ discard: true }]).args, [{ discard: true }]);
+});
+
 test('undo refused by reset --keep over a dirty file: code dirty, then stash and undo', async () => {
   const r = await repo();
   await r.journal.record('Commit two', 'cherryPick', () => r.commit('app.js', 'two\n', 'two'));

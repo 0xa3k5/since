@@ -144,9 +144,11 @@ async function quiet(method, ...args) {
   await refreshStatus();
 }
 
-// `opts.stash`: stash what's in the way first (offerStashStep). Click handlers pass an event here.
+// `opts.stash`: stash what's in the way first (offerStashStep); `opts.discard`: discard it instead,
+// kept on the step so the opposite step brings it back. Click handlers pass an event here.
+const stepOpts = (o) => (o?.stash ? { stash: true } : o?.discard ? { discard: true } : null);
 async function undo(opts) {
-  opts = opts?.stash ? { stash: true } : null;
+  opts = stepOpts(opts);
   try {
     const label = await git('undo', ...(opts ? [opts] : []));
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
@@ -162,9 +164,12 @@ async function offerStashStep(dir, err) {
   const { code } = err;
   if (code !== 'dirty' && code !== 'dirty-submodule') return false;
   const title = dir === 'undo' ? undoTitle() : redoTitle();
-  const v = await resolveSheet({ title, reason: err.message, actions: [{ id: 'stash', label: code === 'dirty-submodule' ? `Stash in submodule and ${dir}` : `Stash and ${dir}` }] });
+  const v = await resolveSheet({ title, reason: err.message, actions: [
+    { id: 'stash', label: code === 'dirty-submodule' ? `Stash in submodule and ${dir}` : `Stash and ${dir}` },
+    code === 'dirty' ? { id: 'discard', label: `Discard and ${dir}`, danger: true } : null,
+  ] });
   if (!v) return false;
-  await (dir === 'undo' ? undo : redo)({ stash: true });
+  await (dir === 'undo' ? undo : redo)({ [v.id]: true });
   return true;
 }
 // "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
@@ -173,7 +178,7 @@ const redoTitle = () => { const e = state.history.redo.at(-1); return e ? `Redo 
 const baseName = (p) => p.split('/').pop();
 
 async function redo(opts) {
-  opts = opts?.stash ? { stash: true } : null;
+  opts = stepOpts(opts);
   try {
     const label = await git('redo', ...(opts ? [opts] : []));
     toast(label ? `Redid “${label}”` : 'Nothing to redo');
