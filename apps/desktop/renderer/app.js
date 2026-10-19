@@ -1977,7 +1977,7 @@ async function switchAndDelete(r, base = null) {
   const options = switchTargets(r.short);
   if (!options.length) return;
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
-  const n = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+  const n = state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
   const v = await resolveSheet({
     title: ['Delete branch ', ref(r.short)],
     reason: [ref(r.short), ' is checked out in this window.'],
@@ -3260,7 +3260,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const targets = plan.keep === 'current' && n ? switchTargets(lane.branch) : [];
   if (targets.length) {
     const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
-    const dirty = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+    const dirty = state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
     const sw = await resolveSheet({
       title: ['Merge and tidy ', ref(lane.branch)],
       reason: [ref(lane.branch), ' is checked out in this window.'],
@@ -3437,6 +3437,11 @@ async function addWorktree({ base = null, branch = '' } = {}) {
 // there) removes it. `handed`: another window asked already and handed it over.
 async function removeWorktree(w, { handed = false } = {}) {
   const at = menuAnchor();
+  if (w.locked && !w.main && !w.missing) {
+    if (!(await resolveSheet({ title: `Remove worktree “${w.name}”?`, reason: 'It’s locked.', actions: [{ id: 'unlock', label: 'Unlock and remove' }] }))) return;
+    if (!(await act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false, quiet: true }))) return;
+    return removeWorktree({ ...w, locked: false }, { handed });
+  }
   const main = state.worktrees.find((x) => x.main);
   const facts = w.missing || w.main || w.locked ? {} : await git('removalFacts', w.path).catch(() => ({}));
   let draft = false;
