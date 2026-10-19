@@ -154,14 +154,16 @@ async function act(label, method, args = [], opts = {}) {
 
 // `label` is blocked by the operation stopped here: continue it (then offer `label` again), open its
 // conflicts, or abort it and run `label`, as one undo step.
+// "Abort rebase and merge", but "Abort and merge" when the stopped op is a merge too.
+const abortAnd = (op, verb) => (op === verb ? `Abort and ${verb}` : `Abort ${op} and ${verb}`);
 async function resolveOp(label, method, args, opts) {
   const op = state.opState;
   const n = state.status.conflicts.length;
   const verb = label.split(' ')[0];
   const v = await resolveSheet({
     title: label,
-    reason: n ? `A ${op} is stopped on ${n} conflict${n > 1 ? 's' : ''}.` : `A ${op} is in progress.`,
-    actions: [n ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${op}` }, { id: 'abort', label: `Abort ${op} and ${verb.toLowerCase()}` }],
+    reason: (n ? `A ${op} is stopped on ${n} conflict${n > 1 ? 's' : ''}.` : `A ${op} is in progress.`) + ' Aborting can’t be undone.',
+    actions: [n ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${op}` }, { id: 'abort', label: abortAnd(op, verb.toLowerCase()) }],
   });
   if (!v) return false;
   if (v.id === 'open') { openConflicts(); return false; }
@@ -3285,7 +3287,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   // Its worktree has an operation stopped in it: abort that as part of the tidy (one undo step).
   const abort = Boolean(plan.blockerOp && plan.worktree);
   if (abort) {
-    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: `“${plan.worktree.name}” has a ${plan.blockerOp} in progress.`, actions: [{ id: 'abort', label: `Abort ${plan.blockerOp} and merge` }] });
+    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: `“${plan.worktree.name}” has a ${plan.blockerOp} in progress. Aborting can’t be undone.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
     if (!go) return;
     try { plan = await git('mergeLanePlan', lane.branch, base, { abort: true }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
   }
@@ -3442,7 +3444,7 @@ async function deleteLane(lane) {
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
   const lost = n ? ` with ${n} uncommitted file${n > 1 ? 's' : ''}` : '';
   const op = lane.worktree && await git('worktreeOp', lane.worktree.path).catch(() => null);
-  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: `It has a ${op} in progress.`, actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
+  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: `It has a ${op} in progress. Aborting can’t be undone.`, actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
   if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: verb }))) return;
   act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[{ ...cleanupItem(lane), ...(op ? { abort: true } : {}) }]], {
     busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,
