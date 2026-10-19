@@ -386,6 +386,10 @@ const REMOTE_CALLS = new Set(['push', 'pull', 'pullAndPush', 'fetch', 'pushTags'
 function serializeError(err) {
   return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null };
 }
+// Wraps a handler so it returns { ok } or { error } instead of throwing across IPC.
+const okCall = (fn) => async (e, ...args) => {
+  try { return { ok: await fn(e, ...args) }; } catch (err) { return { error: serializeError(err) }; }
+};
 
 handle('git', async (e, method, ...args) => {
   try {
@@ -527,9 +531,6 @@ async function aiPrompt(e) {
   const branch = (await git.run(root, ['branch', '--show-current']).catch(() => '')).trim();
   return ai.stagedChanges(git.run, root, branch);
 }
-const okCall = (fn) => async (e, ...args) => {
-  try { return { ok: await fn(e, ...args) }; } catch (err) { return { error: serializeError(err) }; }
-};
 handle('app:ai-settings', () => aiState());
 handle('app:ai-configure', (_e, provider, model) => {
   check.oneOf('off', ...ai.PROVIDER_IDS)(provider, 'AI provider');
