@@ -660,9 +660,13 @@ async function restoreDiscardedSubmodule(cwd, p, sha) {
 }
 
 // How many files have uncommitted changes in submodule `p`.
-async function submoduleChanges(cwd, p) {
+// The uncommitted changes inside submodule `p`: { count, files: [{ status, path }] (first `max`),
+// head: { sha, branch } }, for the Discard sheet.
+async function submoduleChanges(cwd, p, max = 5) {
   const out = await run(path.join(cwd, p), ['status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']);
-  return out.split('\0').filter(Boolean).length;
+  const lines = out.split('\0').filter(Boolean);
+  const files = lines.slice(0, max).map((l) => ({ status: l.startsWith('??') ? '?' : (l[0] !== ' ' ? l[0] : l[1]), path: l.slice(3) }));
+  return { count: lines.length, files, head: await submoduleHead(cwd, p) };
 }
 
 const sameHead = (a, b) => (a?.sha || null) === (b?.sha || null) && (a?.branch || null) === (b?.branch || null);

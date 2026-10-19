@@ -2426,10 +2426,16 @@ function createCommitView(container) {
   }
 
   async function discardInSubmodule(p) {
-    const n = await git('submoduleChanges', p).catch(() => null);
+    const ch = await git('submoduleChanges', p).catch(() => null);
+    const n = ch?.count || 0;
+    const name = baseName(p);
+    const rows = ch ? ch.files.map((f) => [h('span.sheet-sha', null, f.status), f.path]) : [];
+    if (n > rows.length) rows.push([`+${n - rows.length} more`, '']);
+    if (ch?.head) rows.push([h('span.muted', null, `${ch.head.branch ? `on ${ch.head.branch}` : 'detached'} · ${ch.head.sha.slice(0, 7)}`), '']);
     const v = await resolveSheet({
-      title: `Discard changes in ${p}`,
-      reason: n ? `${n} uncommitted change${n === 1 ? '' : 's'} inside the submodule.` : null,
+      title: name === p ? `Discard changes in ${name}` : [`Discard changes in ${name} `, h('span.muted', null, p)],
+      reason: n ? `${n} uncommitted change${n === 1 ? '' : 's'} inside this submodule.` : null,
+      rows,
       actions: [{ id: 'stash', label: 'Stash in submodule' }, { id: 'discard', label: 'Discard in submodule', danger: true }],
     });
     if (!v) return;
