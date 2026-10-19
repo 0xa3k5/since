@@ -387,6 +387,10 @@ handle('git', async (e, method, ...args) => {
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
+      if (method === 'stashAnd') {
+        const [inner, innerArgs] = realArgs;
+        return { ok: await s.journal.stashAnd(label || inner, inner, () => refMutations[inner](s, ...innerArgs)) };
+      }
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
       if (method === 'switchRewrite') {
@@ -432,7 +436,7 @@ handle('git', async (e, method, ...args) => {
       if (method === 'cleanupLanes') return { ok: await cleanupLanes(s, realArgs[0], label) };
       if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
       if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
-      if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method) };
+      if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method, realArgs[0] || {}) };
       if (method === 'restoreHistory') return { ok: await s.journal.restore(...realArgs) };
     } finally {
       s.busy--;

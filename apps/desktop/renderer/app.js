@@ -34,7 +34,7 @@ import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size
 import { authorProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
-import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from './autostash.js';
+import { AUTOSTASH_DEFAULT, blockedCheckout, blockedByChanges, stashMessage, autostashPlan, returnOffer, stashRefBySha } from './autostash.js';
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
@@ -107,9 +107,12 @@ state.panes = loadSizes(loadPref('panes', {}));
 async function git(method, ...args) {
   const r = await api.git(method, ...args);
   if (r.error?.code === 'READ_ONLY') { openLicence({ blocked: true }); const e = new Error(r.error.message); e.readOnly = true; throw e; }
-  if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; throw e; }
+  if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; e.code = r.error.code; throw e; }
   return r.ok;
 }
+
+// Ref mutations git can refuse over uncommitted changes; act() then offers to stash and retry (stashAnd).
+const STASH_AND = new Set(['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip']);
 
 async function act(label, method, args = [], { busy, success, detail, undoable = true, quiet = false, then, actions } = {}) {
   closeMenu();
@@ -127,7 +130,10 @@ async function act(label, method, args = [], { busy, success, detail, undoable =
     return true;
   } catch (e) {
     t?.close();
-    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
+      const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${label.split(' ')[0].toLowerCase()}` }] });
+      if (v) return act(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
+    } else if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return false;
   }
@@ -138,23 +144,43 @@ async function quiet(method, ...args) {
   await refreshStatus();
 }
 
-async function undo() {
+// `opts.stash`: stash what's in the way first (offerStashStep). Click handlers pass an event here.
+async function undo(opts) {
+  opts = opts?.stash ? { stash: true } : null;
   try {
-    const label = await git('undo');
+    const label = await git('undo', ...(opts ? [opts] : []));
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
-  } catch (e) { if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message }); }
+  } catch (e) {
+    if (!opts && await offerStashStep('undo', e)) return;
+    if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message });
+  }
   await refreshAll();
+}
+
+// Undo or redo refused over uncommitted changes: offer to stash them and try again.
+async function offerStashStep(dir, err) {
+  const { code } = err;
+  if (code !== 'dirty' && code !== 'dirty-submodule') return false;
+  const title = dir === 'undo' ? undoTitle() : redoTitle();
+  const v = await resolveSheet({ title, reason: err.message, actions: [{ id: 'stash', label: code === 'dirty-submodule' ? `Stash in submodule and ${dir}` : `Stash and ${dir}` }] });
+  if (!v) return false;
+  await (dir === 'undo' ? undo : redo)({ stash: true });
+  return true;
 }
 // "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
 const undoTitle = () => { const e = state.history.undo.at(-1); return e ? `Undo ${e.label}` : 'Undo'; };
 const redoTitle = () => { const e = state.history.redo.at(-1); return e ? `Redo ${e.label}` : 'Redo'; };
 const baseName = (p) => p.split('/').pop();
 
-async function redo() {
+async function redo(opts) {
+  opts = opts?.stash ? { stash: true } : null;
   try {
-    const label = await git('redo');
+    const label = await git('redo', ...(opts ? [opts] : []));
     toast(label ? `Redid “${label}”` : 'Nothing to redo');
-  } catch (e) { if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message }); }
+  } catch (e) {
+    if (!opts && await offerStashStep('redo', e)) return;
+    if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message });
+  }
   await refreshAll();
 }
 
@@ -3514,13 +3540,26 @@ function openSubmodule(m) {
 }
 
 // No list: every submodule that is out of date or not checked out. Undoable (git.updateSubmodules).
-function updateSubmodules(list) {
+async function updateSubmodules(list) {
   if (!state.repo) return;
-  const todo = (list || state.submodules).filter((m) => ['outdated', 'uninitialized'].includes(m.state));
+  let todo = (list || state.submodules).filter((m) => ['outdated', 'uninitialized'].includes(m.state));
   if (!state.submodules.length) return toast('This repository has no submodules');
+  // Out of date but with local changes: stash them in the submodule and update it too.
+  const dirty = (list || state.submodules).filter((m) => m.state === 'modified' && m.head !== m.recorded);
+  let stash = false;
+  if (dirty.length) {
+    const v = await resolveSheet({
+      title: todo.length + dirty.length === 1 ? `Update submodule ${dirty[0].path}` : 'Update submodules',
+      reason: `${dirty.map((m) => m.path).join(', ')} ${dirty.length > 1 ? 'have' : 'has'} local changes.`,
+      actions: [{ id: 'stash', label: 'Stash in submodule and continue' }, todo.length ? { id: 'skip', label: `Update the other ${todo.length}` } : null],
+    });
+    if (!v) return;
+    stash = v.id === 'stash';
+    if (stash) todo = [...todo, ...dirty];
+  }
   if (!todo.length) return toast(list ? 'Already up to date' : 'All submodules are up to date', { detail: state.submodules.some((m) => m.state === 'modified') ? 'Submodules with local changes are left alone.' : null });
   const label = todo.length === 1 ? `Update submodule ${todo[0].path}` : `Update ${todo.length} submodules`;
-  return act(label, 'updateSubmodules', [todo.map((m) => m.path)], { busy: 'Updating submodules…' });
+  return act(label, 'updateSubmodules', [todo.map((m) => m.path), ...(stash ? [{ stash: true }] : [])], { busy: 'Updating submodules…' });
 }
 
 // ---------------------------------------------------------------------------

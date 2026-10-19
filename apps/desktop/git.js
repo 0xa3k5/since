@@ -541,40 +541,71 @@ async function getSubmodules(cwd) {
 }
 
 // `git submodule update --init` for `paths` (all when empty). Refuses submodules with local
-// changes, so nothing uncommitted is lost. Returns [{ path, before, after }] (each { sha, branch }
-// or null when not checked out) for undo, plus the error if git failed part-way.
-async function updateSubmodules(cwd, paths = []) {
+// changes (code 'dirty-submodule' when that is all that's in the way), so nothing uncommitted is
+// lost, unless `stash`: then those changes are stashed in each submodule first. Returns
+// [{ path, before, after, stash }] (before/after { sha, branch } or null when not checked out,
+// `stash` the sha stashed in it) for undo, plus the error if git failed part-way.
+async function updateSubmodules(cwd, paths = [], { stash = false } = {}) {
   const subs = await getSubmodules(cwd);
   const chosen = paths.length ? subs.filter((s) => paths.includes(s.path)) : subs;
   if (!chosen.length) throw new GitError(paths.length ? 'That submodule no longer exists.' : 'This repository has no submodules.');
-  const busy = chosen.filter((s) => s.state === 'modified' || s.state === 'conflict');
-  if (busy.length) throw new GitError(`${busy.map((s) => s.path).join(', ')} ${busy.length > 1 ? 'have' : 'has'} local changes or a conflict. Commit or stash them in the submodule first.`);
+  const busy = chosen.filter((s) => s.state === 'conflict' || (s.state === 'modified' && !stash));
+  if (busy.length) {
+    const conflict = busy.some((s) => s.state === 'conflict');
+    throw new GitError(`${busy.map((s) => s.path).join(', ')} ${busy.length > 1 ? 'have' : 'has'} ${conflict ? 'local changes or a conflict. Commit or stash them in the submodule first.' : 'local changes.'}`, { code: conflict ? undefined : 'dirty-submodule' });
+  }
+  const stashed = new Map();
+  for (const s of chosen.filter((x) => x.state === 'modified')) stashed.set(s.path, await stashSubmodule(cwd, s.path, 'Set aside to update submodules'));
   const before = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
   let error = null;
   await run(cwd, ['submodule', 'update', '--init', '--checkout', '--', ...chosen.map((s) => s.path)]).catch((err) => { error = err; });
   const after = await Promise.all(chosen.map((s) => submoduleHead(cwd, s.path)));
-  const changes = chosen.map((s, i) => ({ path: s.path, before: before[i], after: after[i] })).filter((c) => !sameHead(c.before, c.after));
+  const changes = chosen.map((s, i) => ({ path: s.path, before: before[i], after: after[i], ...(stashed.get(s.path) ? { stash: stashed.get(s.path) } : {}) }))
+    .filter((c) => c.stash || !sameHead(c.before, c.after));
   return { changes, error };
+}
+
+// Stash every uncommitted change in submodule `p`, untracked files too. Returns the stash sha, or
+// null when there was nothing to stash. The stash lives in the submodule's own stash list.
+async function stashSubmodule(cwd, p, message) {
+  const abs = path.join(cwd, p);
+  const top = () => run(abs, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+  const prev = await top();
+  await stashPush(abs, { message, untracked: true });
+  const sha = await top();
+  return sha && sha !== prev ? sha : null;
+}
+
+// Pop the stash `sha` in submodule `p` (by sha, wherever it now is in its list).
+async function popSubmoduleStash(cwd, p, sha) {
+  const abs = path.join(cwd, p);
+  const i = (await getStashes(abs)).findIndex((x) => x.sha === sha);
+  if (i === -1) throw new GitError(`the stash in submodule ${p} was applied or dropped since.`);
+  await run(abs, ['stash', 'pop', '-q', '--index', `stash@{${i}}`], { env: W_ENV });
 }
 
 const sameHead = (a, b) => (a?.sha || null) === (b?.sha || null) && (a?.branch || null) === (b?.branch || null);
 
 // Undo or redo `updateSubmodules` changes. Each submodule must still be where the change left
-// it (`after` for undo) and clean; going back to "not checked out" deinitialises it, which
-// keeps its clone under .git/modules so redo needs no network.
+// it (`after` for undo) and clean (code 'dirty-submodule' if not); going back to "not checked
+// out" deinitialises it, which keeps its clone under .git/modules so redo needs no network.
+// Changes the update stashed (`stash`) are popped on undo and stashed again on redo.
 async function restoreSubmodules(cwd, changes, dir) {
   const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
   for (const c of changes) {
     if (!sameHead(await submoduleHead(cwd, c.path), c[cur])) throw new GitError(`submodule ${c.path} has moved since.`);
-    if (c[cur] && (await submoduleDirty(cwd, c.path))) throw new GitError(`submodule ${c.path} has local changes. Commit or stash them first.`);
+    if (c[cur] && !(dir === 'redo' && c.stash) && (await submoduleDirty(cwd, c.path))) throw new GitError(`submodule ${c.path} has local changes.`, { code: 'dirty-submodule' });
+    if (dir === 'undo' && c.stash && !(await getStashes(path.join(cwd, c.path))).some((x) => x.sha === c.stash)) throw new GitError(`the stash in submodule ${c.path} was applied or dropped since.`);
   }
   for (const c of changes) {
+    if (dir === 'redo' && c.stash) c.stash = await stashSubmodule(cwd, c.path, 'Set aside to update submodules') || undefined;
     const want = c[next];
     if (!want) { await run(cwd, ['submodule', 'deinit', '-q', '--', c.path]); continue; }
     if (!c[cur]) await run(cwd, ['submodule', 'update', '--init', '--checkout', '-q', '--', c.path]);
     const abs = path.join(cwd, c.path);
     const onBranch = want.branch && (await run(abs, ['rev-parse', '-q', '--verify', `refs/heads/${want.branch}`], { allowCodes: [0, 1] })).trim() === want.sha;
     await run(abs, onBranch ? ['checkout', '-q', want.branch] : ['checkout', '-q', '--detach', want.sha]);
+    if (dir === 'undo' && c.stash) await popSubmoduleStash(cwd, c.path, c.stash);
   }
 }
 
@@ -1650,12 +1681,14 @@ async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
   return realpath(dir);
 }
 
-// Remove a worktree's folder. Refused unless the worktree is clean: there is
-// nothing to snapshot then, and undo can recreate it from its branch or commit.
+// Remove a worktree's folder. Refused unless the worktree is clean (code 'dirty-worktree'
+// otherwise): undo recreates it from its branch or commit.
 // Ignored files (build output, dependencies) are deleted with the folder.
 // `stash` first stashes its uncommitted changes (the stash's SHA is returned as `stash`);
 // `abort` first aborts a stopped rebase, merge, cherry-pick or revert there (not undoable).
-async function removeWorktree(cwd, dir, { stash = false, abort = false } = {}) {
+// `changes` (cleanup redo only, not over IPC): 'stash' or 'discard' its changes via saveWorktree,
+// returned as `saved`.
+async function removeWorktree(cwd, dir, { stash = false, abort = false, changes } = {}) {
   const wt = await findWorktree(cwd, dir);
   if (wt.main) throw new GitError('The main worktree can’t be removed.');
   if (wt.current) throw new GitError('This window is showing that worktree. Switch to another one first.');
@@ -1664,16 +1697,18 @@ async function removeWorktree(cwd, dir, { stash = false, abort = false } = {}) {
     const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
     if (op) await run(wt.path, [op, '--abort'], { env: W_ENV });
   }
-  let sha = null;
+  let sha = null, saved = null;
   if (stash && await worktreeChanges(wt.path)) sha = await stashWorktree(wt.path, `GitLanes: ${wt.name} before removing it`);
+  else if (changes) saved = await saveWorktree(wt, changes === 'stash');
   try {
     await checkRemovable(wt);
     await run(cwd, ['worktree', 'remove', wt.path], { env: W_ENV });
   } catch (err) {
     if (sha) await popStash(wt.path, sha).catch(() => {});
+    if (saved) await unstashWorktree(wt.path, saved).catch(() => {});
     throw err;
   }
-  return sha ? { ...wt, stash: sha } : wt;
+  return sha ? { ...wt, stash: sha } : saved ? { ...wt, saved } : wt;
 }
 
 // Stash everything in worktree `dir` (untracked files too); returns the new stash's SHA.
@@ -1693,10 +1728,33 @@ async function popStash(dir, sha) {
   await stashApply(dir, `stash@{${i}}`, true);
 }
 
-// Put a removed worktree back at the same path, on the same branch or commit.
-async function restoreWorktree(cwd, { path: dir, branch, head }) {
+// Cleanup (cleanupLanes): stash every uncommitted change in a worktree, untracked files too.
+// `keep` leaves the stash in the list; otherwise it is dropped and only the returned commit
+// ({ sha, message, kept }) has it. Null when there was nothing to stash.
+async function saveWorktree(wt, keep) {
+  const top = () => run(wt.path, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+  const message = `Worktree ${wt.name} before it was removed`;
+  const prev = await top();
+  await stashPush(wt.path, { message, untracked: true });
+  const sha = await top();
+  if (!sha || sha === prev) return null;
+  if (!keep) await run(wt.path, ['stash', 'drop', '-q', 'stash@{0}'], { env: W_ENV });
+  return { sha, message, kept: keep };
+}
+
+// Put a saveWorktree commit back into the worktree at `dir`; a kept stash leaves the list.
+async function unstashWorktree(dir, saved) {
+  await run(dir, ['stash', 'apply', '-q', '--index', saved.sha], { env: W_ENV });
+  if (saved.kept) await dropStashCommit(dir, saved.sha).catch(() => {});
+}
+
+// Put a removed worktree back at the same path, on the same branch or commit, with the changes
+// `saved` stashed when it was removed.
+async function restoreWorktree(cwd, { path: dir, branch, head, saved }) {
   if (fs.existsSync(dir) && (!fs.statSync(dir).isDirectory() || fs.readdirSync(dir).length)) throw new GitError(`${dir} is in the way.`);
+  if (saved?.kept && !(await getStashes(cwd)).some((x) => x.sha === saved.sha)) throw new GitError(`the stash of ${path.basename(dir)}’s changes was applied or dropped since.`);
   await run(cwd, ['worktree', 'add', '-q', ...(branch ? [dir, branch] : ['--detach', dir, head])], { env: W_ENV });
+  if (saved) await unstashWorktree(dir, saved);
 }
 
 const lockWorktree = async (cwd, dir, reason) => run(cwd, ['worktree', 'lock', ...(reason ? ['--reason', reason] : []), (await findWorktree(cwd, dir)).path], { env: W_ENV });
@@ -1705,7 +1763,8 @@ const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 
 // Lanes → Clean up: remove worktrees and delete branches in bulk. Each item is
 // { branch, head, worktree, force }: `head` is the branch tip the user saw (a branch that has
-// moved since is kept), `force` allows removing a dirty worktree (its uncommitted files are lost).
+// moved since is kept), `force` allows removing a dirty worktree (its uncommitted files are lost to
+// git, though undo brings them back), `stash` does too but keeps them in the stash list.
 // Worktrees go first, since a branch checked out in one can't be deleted: one `worktree remove`
 // each, or a single `worktree prune` when every missing folder is selected. Branches then go in
 // one `git branch -D` per 200. Never throws part-way: returns { removed, deleted, failed } so the
@@ -1742,12 +1801,14 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
       let lost = 0;
       if (!wt.missing) {
         lost = await worktreeChanges(wt.path);
-        if (lost && !item.force) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
+        if (lost && !item.force && !item.stash) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
         const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
         if (op) throw new GitError(`It has a ${op} in progress.`);
       }
+      // Uncommitted changes are stashed first (the stash dropped again unless `stash`), so undo has them.
+      const saved = lost ? await saveWorktree(wt, !!item.stash) : null;
       await run(cwd, ['worktree', 'remove', ...(lost || wt.missing ? ['--force'] : []), wt.path], { env: W_ENV });
-      removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost });
+      removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost, ...(saved ? { saved } : {}) });
     } catch (err) {
       failed.push({ name: wt?.name || path.basename(item.worktree), message: err.message });
       if (item.branch) keep.add(item.branch);
@@ -1879,12 +1940,13 @@ async function squashTree(cwd, baseSha, head) {
   return { tree: tree.trim(), conflicts: [...new Set(rest.filter(Boolean))] };
 }
 
-// Whether `wt` (from getWorktrees) can be removed: unlocked, on disk, clean, nothing in progress.
-async function checkRemovable(wt) {
+// Whether `wt` (from getWorktrees) can be removed: unlocked, on disk, clean (unless `dirty` is
+// allowed), nothing in progress. A dirty refusal has code 'dirty-worktree' and `changes` set.
+async function checkRemovable(wt, { dirty = false } = {}) {
   if (wt.locked) throw new GitError(`“${wt.name}” is locked${wt.lockReason ? ` (${wt.lockReason})` : ''}. Unlock it first.`);
   if (wt.missing) throw new GitError(`“${wt.name}” no longer exists on disk. Use Prune Missing Worktrees instead.`);
-  const n = await worktreeChanges(wt.path);
-  if (n) throw new GitError(`“${wt.name}” has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.`);
+  const n = dirty ? 0 : await worktreeChanges(wt.path);
+  if (n) throw Object.assign(new GitError(`“${wt.name}” has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.`), { code: 'dirty-worktree', changes: n });
   const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
   if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
 }
@@ -2666,8 +2728,7 @@ async function mergeConflictHunks(cwd, base, head) {
   return { supported: true, files };
 }
 
-// Conflict hunks in a file with merge markers (<<<<<<< base, ======= , >>>>>>> head; a diff3
-// ||||||| ancestor section is skipped). `line` is the 1-based line of <<<<<<< in the merged file.
+// Conflict hunks in a file with merge markers (// ||||||| ancestor section is skipped). `line` is the 1-based line of <<<<<<< in the merged file.
 function conflictHunks(text) {
   if (!text || text.includes('\0')) return [];
   const lines = text.split('\n');
@@ -2823,7 +2884,7 @@ module.exports = {
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
-  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
+  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,

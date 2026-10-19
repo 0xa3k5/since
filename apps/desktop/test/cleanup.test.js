@@ -134,7 +134,7 @@ test('cleanupLanes removes worktrees and branches; one undo puts them all back, 
   assert.deepEqual(await names(dir), ['app', 'app-dirty']);
 });
 
-test('cleanupLanes: dirty worktrees need force, and undo brings them back clean', async () => {
+test('cleanupLanes: dirty worktrees need force, and undo brings them back with their changes', async () => {
   const { parent, dir } = await staleRepo();
   const journal = new Journal(await git.openRepo(dir));
   const head = await tip(dir, 'refs/heads/dirty');
@@ -148,8 +148,8 @@ test('cleanupLanes: dirty worktrees need force, and undo brings them back clean'
   assert.equal(res.removed[0].lost, 1);
   assert.equal(fs.existsSync(wt), false);
   await journal.step('undo');
-  assert.equal(fs.readFileSync(path.join(wt, 'a.txt'), 'utf8'), 'a\n');
-  assert.equal(await git.worktreeChanges(wt), 0);
+  assert.equal(await git.worktreeChanges(wt), 1); // from the stash taken (and dropped) when it was removed
+  assert.equal((await git.getStashes(dir)).length, 0);
 });
 
 test('cleanupLanes keeps a branch that moved since, and a folder in the way is reported on undo', async () => {

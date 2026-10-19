@@ -147,7 +147,7 @@ const worktreeSpec = (v, what) => obj(v, what, { dir: optional((d, w) => str(d, 
 
 // One lane to clean up: its branch (with the tip the user saw) and/or its worktree folder.
 const cleanupItem = (v, what) => {
-  obj(v, what, { branch: optional(rev), head: optional(oid), worktree: optional(absDir), force: optional(bool) });
+  obj(v, what, { branch: optional(rev), head: optional(oid), worktree: optional(absDir), force: optional(bool), stash: optional(bool) });
   if (!v.branch && !v.worktree) fail(what, 'expected a branch or a worktree');
   return v;
 };
@@ -170,6 +170,9 @@ function knownWorktree(worktrees, dir, same = (a, b) => a === b, what = 'worktre
 
 // ---------------------------------------------------------------------------
 // Schemas: one checker per argument, in order. Trailing arguments may be omitted.
+
+// Methods stashAnd may run again after stashing (refMutations in main.js).
+const STASH_AND = ['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip'];
 
 const gitSchemas = {
   // reads
@@ -285,10 +288,12 @@ const gitSchemas = {
   mergeLane: [rev, rev, text, optional((v, w) => obj(v, w, { close: optional(bool) }))],
   tidyLane: [rev, optional((v, w) => obj(v, w, { close: optional(bool) }))],
   // undoable submodule init/update (journal.runSubmodules); no paths = all submodules
-  updateSubmodules: [optional(repoPaths)],
+  updateSubmodules: [optional(repoPaths), optional((v, w) => obj(v, w, { stash: optional(bool) }))],
   // history
-  undo: [],
-  redo: [],
+  undo: [optional((v, w) => obj(v, w, { stash: optional(bool) }))],
+  redo: [optional((v, w) => obj(v, w, { stash: optional(bool) }))],
+  // A ref mutation git refused over uncommitted changes, run again after stashing them (journal.stashAnd).
+  stashAnd: [oneOf(...STASH_AND), (v, w) => { if (!Array.isArray(v)) fail(w, 'expected an array'); return v; }],
   restoreHistory: [int],
 };
 
@@ -308,6 +313,8 @@ function checkGit(method, args) {
     // Absent trailing arguments are only fine for optional checks; required ones throw on undefined.
     if (i < args.length || !check.optional) check(args[i], `${method} argument ${i + 1}`);
   });
+  // stashAnd carries another method's arguments: check them with that method's schema.
+  if (method === 'stashAnd') return { args: [args[0], checkGit(args[0], args[1]).args], label: lbl, worktreeArgs: [] };
   // Arguments main.js must still resolve against the repository's worktree list.
   const worktreeArgs = schema.flatMap((check, i) => (check.worktree && i < args.length ? [i] : []));
   return { args, label: lbl, worktreeArgs };

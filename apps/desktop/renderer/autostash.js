@@ -13,6 +13,11 @@ export function blockedCheckout(output) {
   return tracked || untracked ? { untracked } : null;
 }
 
+// Git refusing a merge, pull, cherry-pick, revert or reset over uncommitted changes.
+export function blockedByChanges(output) {
+  return /would be overwritten by|commit your changes or stash them|you have unstaged changes|your index contains uncommitted changes|not uptodate\. cannot merge/i.test(String(output || ''));
+}
+
 export const stashMessage = (from, to) => `Auto-stash on ${from || 'detached HEAD'} before switching to ${to}`;
 
 // Whether to ask, and the untracked option to start from (or use, when not asking).

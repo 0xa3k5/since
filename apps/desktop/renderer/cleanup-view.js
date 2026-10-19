@@ -149,7 +149,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     if (ticked.has(key)) ticked.delete(key);
     else {
       ticked.add(key);
-      if (dirty(l)) toast(`${l.name} has ${plural(dirty(l), 'uncommitted change')}`, { kind: 'error', detail: 'Cleaning it up deletes those files for good. Undo brings the worktree back without them.' });
+      if (dirty(l)) toast(`${l.name} has ${plural(dirty(l), 'uncommitted change')}`, { kind: 'error' });
     }
     render();
   }
@@ -159,7 +159,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     const can = g.lanes.filter((l) => !blocked(l));
     const all = can.length > 0 && can.every(isOn);
     for (const l of can) (all ? ticked.delete(laneKey(l)) : ticked.add(laneKey(l)));
-    if (!all && g.group.warn) toast(`${plural(can.length, 'worktree has', 'worktrees have')} uncommitted changes`, { kind: 'error', detail: 'Cleaning them up deletes those files for good.' });
+    if (!all && g.group.warn) toast(`${plural(can.length, 'worktree has', 'worktrees have')} uncommitted changes`, { kind: 'error' });
     render();
   }
   function toggleOpen(id) {
@@ -192,7 +192,8 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     const remoteNames = s.remotes;
     const gone = new Set(remoteNames), where = remoteWhere(remoteNames);
     // One row per branch with only what changes for it; the warning and its tick only when
-    // something can't come back (GitHub branches, uncommitted files).
+    // something can't come back (GitHub branches). Uncommitted changes are stashed, or discarded
+    // (undo still has them).
     const rows = lanesToGo.map((l) => {
       const n = dirty(l);
       return h('div.cleanup-confirm-row', null,
@@ -203,11 +204,12 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     });
     const content = [h('div.cleanup-confirm-list', null, ...rows)];
     const fields = [];
-    const lose = [remoteNames.length ? `${remoteNames.length} on ${where}` : null, s.dirty.length ? `the uncommitted changes in ${plural(s.dirty.length, 'worktree')}` : null].filter(Boolean);
+    const lose = remoteNames.length ? [`${remoteNames.length} on ${where}`] : [];
     if (lose.length) {
       content.push(h('p.cleanup-confirm-warn', null, 'This can’t be undone.'));
       fields.push({ name: 'sure', type: 'checkbox', label: `Delete ${lose.join(' and ')}, for good` });
     }
+    if (s.dirty.length) fields.push({ name: 'stash', type: 'checkbox', label: `Stash the uncommitted changes in ${plural(s.dirty.length, 'worktree')}`, value: true });
     const v = await dialog({ title: `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}?`, content, fields, submit: 'Clean up', destructive: true, gate: lose.length ? 'sure' : undefined });
     if (!v) return;
     busy = true;
@@ -218,7 +220,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     let res = null;
     let error = null;
     try {
-      res = await run(lanesToGo.map(cleanupItem), `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}`);
+      res = await run(lanesToGo.map(cleanupItem).map((i) => (v.stash ? { ...i, stash: true } : i)), `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}`);
       if (remoteNames.length) {
         progress.lastChild.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on ${where}…`;
         const r = await runRemote(remoteNames).catch((err) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));
