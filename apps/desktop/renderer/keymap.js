@@ -394,6 +394,8 @@ export const COMMANDS = [
   c('dialog', null, 'menu.next', 'Next item', ['ArrowDown', 'Ctrl+n']),
   c('dialog', null, 'menu.prev', 'Previous item', ['ArrowUp', 'Ctrl+p']),
   c('dialog', null, 'menu.choose', 'Choose the item', 'Enter'),
+  c('dialog', null, 'menu.open', 'Open the submenu', 'ArrowRight'),
+  c('dialog', null, 'menu.back', 'Close the submenu', 'ArrowLeft'),
 
   // Tour: the practice graph and the lesson tabs.
   c('tour', null, 'tour.next', 'Next commit', 'ArrowDown'),

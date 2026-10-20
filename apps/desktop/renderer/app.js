@@ -2351,7 +2351,7 @@ function rewriteItem(targets, op, label, props, run) {
   if (!targets.length) return { label, ...props, kbd: null, disabled: true, why: 'Not on a branch here' };
   const verb = REWRITE_VERBS[op];
   if (targets.length === 1) return { label: `Switch to ${targets[0]} & ${verb}`, ...props, kbd: null, run: () => run(targets[0]) };
-  return { label: `Switch & ${verb.replace('…', '')} ▸`, ...props, kbd: null, submenu: [{ section: 'Switch to' }, ...targets.map((b) => ({ label: b, icon: 'branch', run: () => run(b) }))] };
+  return { label: `Switch & ${verb.replace('…', '')}`, ...props, kbd: null, submenu: [{ section: 'Switch to' }, ...targets.map((b) => ({ label: b, icon: 'branch', run: () => run(b) }))] };
 }
 
 // A rewrite shortcut: here, on the one branch containing the commit, or with a "Switch to" choice.
