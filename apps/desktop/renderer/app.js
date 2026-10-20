@@ -3282,6 +3282,7 @@ function openLanes() {
     git,
     load: (opts) => api.app('lanes-list', opts),
     forecast: () => api.app('lanes-forecast'),
+    mergeStates: (remote, numbers) => api.app('pr-merge-states', remote, numbers),
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
