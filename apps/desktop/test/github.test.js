@@ -679,3 +679,20 @@ test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your ow
   assert.equal(approveWhy(lane.pr, { login: '0xA3K5', write: true }), 'Your own pull request');
   assert.equal(approveWhy(lane.pr, { login: 'someone', write: true }), null);
 });
+
+test('mergedStacks: one GraphQL call for the merged PRs in range, numbers checked (AK-616)', async () => {
+  await assert.rejects(github.mergedStacks({ enabled: false, remotes: [ORIGIN], numbers: [1], dirs: [fakeGh()] }), { code: 'gh-off' });
+  const { calls, exec } = recorder(JSON.stringify({ data: { repository: { p3: { number: 3, additions: 1, deletions: 0, changedFiles: 1, stack: { number: 2, size: 2, entries: { nodes: [{ position: 2, pullRequest: { number: 4 } }, { position: 1, pullRequest: { number: 3 } }] } } } } } }));
+  const dirs = [fakeGh()];
+  const facts = await github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: [3, 3], dirs, exec });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].args.slice(0, 4), ['api', '--hostname', 'github.com', 'graphql']);
+  assert.match(calls[0].args[5], /\{p3:pullRequest\(number:3\)\{number additions deletions changedFiles stack\{number size entries/);
+  assert.doesNotMatch(calls[0].args[5], /p3.*p3/);
+  assert.deepEqual(facts.get(3).stack, { number: 2, size: 2, parts: [3, 4] });
+  assert.deepEqual(await github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: [], dirs, exec }), new Map());
+  assert.equal(calls.length, 1);
+  await assert.rejects(github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: ['1){x}'], dirs, exec }));
+  // gh failing rejects; app:catchup then lists the merged PRs ungrouped (joinStacks with null).
+  await assert.rejects(github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: [3], dirs, exec: async () => { throw new Error('HTTP 502'); } }));
+});
