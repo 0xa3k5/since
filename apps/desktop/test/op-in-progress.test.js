@@ -257,3 +257,10 @@ test('the banner’s Abort offers the saved files back, without an Undo (the abo
   assert.match(fn, /opts\.undoable !== false && \{ label: 'Undo'/);
   assert.match(fn, /Nothing to save\./);
 });
+
+test('every branch switch is a git method that gets the stopped-op toast (AK-577)', async () => {
+  const { SWITCHES } = await import('../renderer/resolve-text.js');
+  const { gitSchemas } = require('../ipc');
+  assert.ok(SWITCHES.has('checkout') && SWITCHES.has('moveCheckout'));
+  for (const m of SWITCHES) assert.ok(gitSchemas[m], `${m} is a git method`);
+});

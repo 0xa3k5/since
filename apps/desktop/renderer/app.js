@@ -7,7 +7,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
-import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch } from './resolve-text.js';
+import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch, SWITCHES } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -127,6 +127,7 @@ async function act(label, method, args = [], opts = {}) {
   closeMenu();
   closeStickyToast();
   if (state.opState && (OP_BLOCKED.has(method) || (method === 'mergeLane' && args[1] === state.head?.branch && !args[3]?.abort))) return resolveOp(label, method, args, opts);
+  if (state.opState && SWITCHES.has(method)) return resolveOp(label, method, args, { ...opts, after: () => act(label, method, args, opts) });
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
     const res = await git(method, ...args, { __label: label });
@@ -276,6 +277,8 @@ async function resolveOp(label, method, args, opts) {
   const abortLabel = abortAnd(op, verb.toLowerCase());
   const abort = async () => {
     if (!(await confirm(`${abortLabel}?`, why, { submit: abortLabel }))) return false;
+    // A switch runs its own way after the abort (in use elsewhere, changes in the way).
+    if (opts.after) return abortThen(op, opts.after);
     return method === 'mergeLane'
       ? act(label, method, [...args.slice(0, 3), { abort: true }], { ...opts, then: async (res) => {
         if (res?.saved) await aborted(label, res, { quiet: true });
@@ -293,7 +296,8 @@ async function continueThen(label, method, args, opts) {
   const op = state.opState;
   const verb = label.split(' ')[0];
   const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
-  if (ok && !state.opState && !stickyToast) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
+  const next = opts.after || (() => act(label, method, args, opts));
+  if (ok && !state.opState && !stickyToast) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: next }, { label: 'Undo', run: undo }] });
   return false;
 }
 
@@ -336,17 +340,21 @@ function stepWhileStopped(dir) {
 }
 async function abortThenStep(dir, op) {
   if (!(await confirm(`Abort ${op}?`, "Aborting can't be undone.", { submit: 'Abort' }))) return;
+  await abortThen(op, dir === 'undo' ? undo : redo);
+}
+// Abort the operation stopped here, then run `step`. Resolved files it saved are offered back, as after abortAnd.
+async function abortThen(op, step) {
   let res;
   try { res = await git('abortOp'); } catch (e) {
     if (!e.readOnly) toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
-    return;
+    return false;
   }
   pendingPush = null;
   await refreshAll();
-  await (dir === 'undo' ? undo : redo)();
-  // Resolved files it saved: offered back, as after abortAnd.
+  const ok = await step();
   if (res?.saved) await aborted(`Abort ${op}`, res, { quiet: true, undoable: false });
+  return ok;
 }
 
 async function quiet(method, ...args) {
@@ -2087,6 +2095,7 @@ async function checkout(branch) {
   const wt = worktreeOf(branch);
   const label = `Checkout ${branch}`;
   closeMenu();
+  if (state.opState) return resolveOp(label, 'checkout', [branch], { after: () => checkout(branch) });
   if (wt) {
     const v = await inUseSheet(branch, wt);
     if (v?.id === 'free') return freeCheckout(label, branch, wt);
