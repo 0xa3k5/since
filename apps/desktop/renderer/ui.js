@@ -278,7 +278,7 @@ export function sheetActions(actions = []) {
   return [...list.slice(1), ...list.slice(0, 1)];
 }
 
-export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
+export function resolveSheet({ title, reason, detail, actions = [], pick, checkbox }) {
   return new Promise((resolve) => {
     const prev = document.activeElement;
     let value = pick?.value ?? pick?.options?.[0]?.value;
@@ -301,7 +301,8 @@ export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
       h('div.dialog-head', null,
         h('div.dialog-title', null, title),
         reason ? h('div.sheet-reason', null, icon('warning', 14), h('span', null, reason)) : null),
-      pick || checkbox ? h('div.dialog-body', null,
+      pick || checkbox || detail ? h('div.dialog-body', null,
+        detail ? h('div.sheet-detail', null, detail.filter(Boolean).map((d) => h('div.sheet-detail-line.' + d.kind, null, d.text))) : null,
         pick ? h('div.sheet-pick-row', null, pick.label ? h('span', null, pick.label) : null, pickBtn) : null,
         checkbox ? h('label.check', null, box, h('span', null, checkbox.label)) : null) : null,
       h('div.dialog-foot', null,
@@ -327,7 +328,11 @@ export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
 
 // --- Context menu ---------------------------------------------------------------
 let openMenu = null;
+// Where the last chosen menu item was, so a question about it can open on the same spot.
+let anchor = null;
+export const menuAnchor = () => anchor;
 // `focus`: index of the actionable item highlighted on open, so Enter picks it (a popover's default).
+// An item with `submenu` (items) opens them beside it instead of running.
 export function contextMenu(x, y, items, { focus = -1 } = {}) {
   closeMenu();
   const flat = items.filter(Boolean);
@@ -338,7 +343,14 @@ export function contextMenu(x, y, items, { focus = -1 } = {}) {
     if (it.section) return menu.append(h('div.menu-section', null, it.section));
     const el = h('button.menu-item' + (it.danger ? '.danger' : ''), {
       disabled: it.disabled,
-      onclick: () => { closeMenu(); it.run(); },
+      onclick: () => {
+        const r = el.getBoundingClientRect();
+        anchor = { x: r.left, y: r.top };
+        closeMenu();
+        if (it.submenu) return contextMenu(r.right - 4, r.top, it.submenu, { focus: 0 });
+        it.run();
+        setTimeout(() => { anchor = null; });
+      },
       onmouseenter: () => focusItem(actionable.indexOf(el)),
     }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')),
     // `why`: a greyed item's reason, a few words under its label.

@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, removeWhy } from './lanes.js';
 import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from './review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
@@ -33,7 +33,7 @@ let lastTab = 'active';
 // badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab` opens on that
 // tab; `only` (a laneKey) opens Finished with just that branch ticked. `cleanup` holds Clean up's
 // own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo).
-export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup }) {
+export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup }) {
   let lanes = [];
   let byTab = branchTabs([]);
   let shown = [];
@@ -200,7 +200,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     merge: Boolean(l.branch) && !l.isBase,
     rebase: Boolean(l.branch && !l.isBase && base),
     checks: Boolean(l.pr?.url),
-    delete: canRemove(l),
+    delete: canRemove(l, canSwitch),
     cleanup: isFinished(l),
     open: true,
   }[id]);
@@ -229,7 +229,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
       ...(l.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('branches.checks'), run: () => run('checks', l) }] : []),
       ...(isFinished(l) ? [{ label: 'Clean Up…', icon: 'trash', kbd: keymap.keys('branches.cleanup'), run: () => run('cleanup', l) }] : []),
       '-',
-      { label: l.changes ? 'Discard Branch…' : 'Delete Branch…', icon: 'trash', kbd: keymap.keys('branches.delete'), disabled: !canRemove(l), run: () => run('delete', l) },
+      { label: l.changes ? 'Discard Branch…' : 'Delete Branch…', icon: 'trash', kbd: keymap.keys('branches.delete'), disabled: !canRemove(l, canSwitch), why: removeWhy(l, canSwitch), run: () => run('delete', l) },
     ]);
   }
 

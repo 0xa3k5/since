@@ -169,8 +169,10 @@ const reads = {
   commit: (s, sha) => git.getCommit(s.repo.root, sha),
   commitFileDiff: (s, sha, file, parent) => git.commitFileDiff(s.repo.root, sha, file, parent),
   commitDiffs: (s, sha) => git.commitDiffs(s.repo.root, sha),
-  // Throws the reason a commit can't be split (merge, not on this branch, merges above it).
-  checkSplit: (s, sha) => git.rewriteRange(s.repo.root, 'split', sha).then(() => true),
+  // Whether a commit is on HEAD, and the local branches containing it (rewriting it there, AK-581).
+  commitBranches: (s, sha) => git.commitBranches(s.repo.root, sha),
+  // Throws the reason a commit can't be split on `tip` (merge, not on that branch, merges above it).
+  checkSplit: (s, sha, tip) => git.rewriteRange(s.repo.root, 'split', sha, tip || 'HEAD').then(() => true),
   compare: (s, from, to) => git.compareDiff(s.repo.root, from, to),
   branchReview: (s, branch, base) => git.branchReview(s.repo.root, branch, base),
   // Plain facts about a branch's diff against base (change-facts.js): git only, cached per SHA pair.
@@ -203,11 +205,24 @@ const reads = {
   identity: (s) => git.getIdentity(s.repo.root),
   history: (s, limit) => s.journal.list(limit),
   previewRestore: (s, id) => s.journal.previewRestore(id),
-  worktrees: (s) => git.getWorktrees(s.repo.root),
+  // `elsewhere`: open in another window, which has to be brought forward to work on it.
+  worktrees: async (s) => (await git.getWorktrees(s.repo.root)).map((w) => ({ ...w, elsewhere: ![undefined, s.win].includes(windowFor(w.path)) })),
   worktreeChanges: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
     return wt.missing ? null : git.worktreeChanges(wt.path);
   },
+  // Why that worktree can't give up its branch to this one (see freeCheckout), or null.
+  freeBlocker: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    return ![undefined, s.win].includes(windowFor(wt.path)) ? 'It’s open in another window.' : git.freeBlocker(wt);
+  },
+  // Whether that worktree can hand its branch and changes to this one (see moveCheckout).
+  worktreeHold: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    return ![undefined, s.win].includes(windowFor(wt.path)) ? { blocker: 'It’s open in another window.' } : git.worktreeHold(wt);
+  },
+  // What removing that worktree stashes ({ changes }) and would abort ({ op }).
+  removalFacts: async (s, dir) => git.removalFacts(await git.findWorktree(s.repo.root, dir)),
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };
 
@@ -310,6 +325,14 @@ async function cleanupLanes(s, items, label) {
 
 // The window showing a repository root, if any.
 const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
+// Which worktrees are open in another window changes when a window opens, closes or switches
+// worktree: every window refreshes, not only the one whose refs moved.
+const notifyWindows = () => { for (const [, x] of sessions) if (!x.win.isDestroyed()) { x.pending.refs = true; x.schedule(); } };
+// Close another window (it shows a worktree about to be removed), once it's not running a git step.
+function closeWindow(win, name) {
+  if (sessions.get(win.webContents.id)?.busy) throw new git.GitError(`“${name}” is busy in its window. Try again when it’s done.`);
+  return new Promise((resolve) => { win.once('closed', resolve); win.destroy(); });
+}
 
 // After the trial (or an unverified licence) the app stays usable read-only: reads and fetch
 // still work, anything that changes the repository is refused until a licence is added.
@@ -366,15 +389,43 @@ handle('git', async (e, method, ...args) => {
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
-      if (worktreeOps[method]) {
-        if (method === 'removeWorktree' && ![undefined, s.win].includes(windowFor(realArgs[0]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
-        return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
+      if (method === 'switchRewrite') {
+        const [to, op, sha, extra, stash] = realArgs;
+        return { ok: await s.journal.switchRewrite(label || method, to, { op, sha, extra }, stash) };
       }
+      if (method === 'switchMerge') {
+        const [to, branch, base, message, stash] = realArgs;
+        return { ok: await s.journal.switchMerge(label || method, to, { branch, base, message }, stash) };
+      }
+      if (method === 'freeCheckout') {
+        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        return { ok: await s.journal.freeCheckout(label || method, ...realArgs) };
+      }
+      if (method === 'moveCheckout') {
+        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        return { ok: await s.journal.moveCheckout(label || method, ...realArgs) };
+      }
+      if (method === 'removeWorktree') {
+        // Open in another window: close that window first when asked (`close`), else refuse.
+        const [dir, { close, stash, abort } = {}] = realArgs;
+        const other = windowFor(dir);
+        if (![undefined, s.win].includes(other)) {
+          if (!close) throw new git.GitError('That worktree is open in another window. Close the window first.');
+          await closeWindow(other, path.basename(dir));
+        }
+        return { ok: await s.journal.runWorktree(method, label || method, [dir, { stash: !!stash, abort: !!abort }]) };
+      }
+      if (worktreeOps[method]) return { ok: await s.journal.runWorktree(method, label || method, realArgs) };
       if (laneOps.has(method)) {
         // Merge and tidy (git.mergeLane); tidyLane only removes the worktree and branch, after a GitHub merge.
         const [branch, base, message] = realArgs;
+        const close = (method === 'mergeLane' ? realArgs[3] : realArgs[1])?.close;
         const wt = (await git.getWorktrees(s.repo.root)).find((w) => w.branch === branch);
-        if (wt && ![undefined, s.win].includes(windowFor(wt.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        const other = wt && windowFor(wt.path);
+        if (![undefined, s.win].includes(other)) {
+          if (!close) throw new git.GitError('That worktree is open in another window. Close the window first.');
+          await closeWindow(other, wt.name);
+        }
         const opts = method === 'mergeLane' ? { branch, base, message } : { branch, merge: false };
         return { ok: await s.journal.runLane(label || method, method, (done) => git.mergeLane(s.repo.root, opts, done)) };
       }
@@ -1035,12 +1086,13 @@ handle('app:pr-review-head', okCall(async (e, remoteName, number, base) => {
 // A local branch that already points elsewhere only moves once the user has confirmed (`update`).
 const prCheckoutOpts = (v) => {
   const o = v ?? {};
-  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
-  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update') };
+  if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['worktree', 'dir', 'update', 'free', 'move', 'stash'].includes(k))) throw new check.IpcArgError('Invalid checkout options');
+  const stash = o.stash == null ? null : check.obj(o.stash, 'stash', { message: (v, w) => check.str(v, w, { max: 4096 }), untracked: (v, w) => v == null || check.bool(v, w) });
+  return { worktree: o.worktree == null ? false : check.bool(o.worktree, 'worktree'), dir: o.dir ? check.str(o.dir, 'worktree folder', { max: 4096 }) : null, update: o.update == null ? false : check.bool(o.update, 'update'), free: o.free ? check.absDir(o.free, 'worktree folder') : null, move: o.move == null ? false : check.bool(o.move, 'move'), stash };
 };
 handle('app:pr-checkout', okCall(async (e, number, opts) => {
   check.prNumber(number);
-  const { worktree, dir, update } = prCheckoutOpts(opts);
+  const { worktree, dir, update, free, move, stash } = prCheckoutOpts(opts);
   const s = session(e);
   const root = s.repo.root;
   if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
@@ -1059,7 +1111,16 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
     };
     if (!worktree) {
       const args = !tip ? ['checkout', '-b', local, sha] : tip !== sha ? ['checkout', '-B', local, sha] : ['checkout', local];
-      await s.journal.record(`Check out #${number}`, 'checkout', () => r(s, args));
+      // The branch is checked out in another worktree: the renderer offers to free it there (`free`).
+      const held = tip && (await git.getWorktrees(root)).find((w) => !w.current && w.branch === local);
+      if (held && !(free && git.samePath(held.path, free))) return { inUse: { branch: local, worktree: { name: held.name, path: held.path, missing: held.missing, elsewhere: ![undefined, s.win].includes(windowFor(held.path)) } } };
+      if (held) {
+        if (![undefined, s.win].includes(windowFor(held.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        // Bringing that worktree's changes along needs the branch where they were made.
+        if (move && args.length > 2) throw new git.GitError(`${local} has to move to the pull request first. Commit or stash the changes in “${held.name}”.`);
+        if (move) await s.journal.moveCheckout(`Check out #${number}`, local, held.path, stash);
+        else await s.journal.freeCheckout(`Check out #${number}`, local, held.path, args);
+      } else await s.journal.record(`Check out #${number}`, 'checkout', () => r(s, args));
       await track();
       return { branch: local, sha };
     }
@@ -1205,6 +1266,7 @@ async function bindRepo(win, dir) {
   win.setTitle(repo.name);
   win.setRepresentedFilename?.(repo.root);
   buildMenu();
+  notifyWindows();
   return repo;
 }
 
@@ -1247,6 +1309,7 @@ handle('app:close-repo', (e) => {
   sessions.delete(e.sender.id);
   BrowserWindow.fromWebContents(e.sender).setTitle('GitLanes');
   buildMenu();
+  notifyWindows();
 });
 
 // A folder another worktree of this repository lives in, or throws.
@@ -1285,6 +1348,29 @@ handle('app:open-window', async (e, dir) => {
   const target = await worktreeFolder(session(e), dir);
   const win = windowFor(target);
   if (win) win.focus(); else createWindow(target);
+});
+
+// Hand a step to the window showing another worktree of this repository (AK-581), opening one if
+// none does: remove a worktree from there, or merge and tidy into the base checked out there. The
+// window takes it (app:take-handoff) when the command arrives, or once a new window has opened.
+const handoffs = new Map(); // webContents.id -> handoff
+handle('app:handoff', async (e, payload) => {
+  const s = session(e);
+  const h = { ...check.handoff(payload) };
+  const list = await git.getWorktrees(s.repo.root);
+  h.dir = check.knownWorktree(list, h.dir, git.samePath);
+  if (h.path) h.path = check.knownWorktree(list, h.path, git.samePath);
+  let win = windowFor(h.dir);
+  if (win === s.win) throw new Error('That worktree is open in this window.');
+  if (!win) win = createWindow(h.dir);
+  handoffs.set(win.webContents.id, h);
+  win.focus();
+  win.webContents.send('command', 'handoff');
+});
+handle('app:take-handoff', (e) => {
+  const h = handoffs.get(e.sender.id) || null;
+  handoffs.delete(e.sender.id);
+  return h;
 });
 
 // Open a checked-out submodule of this window's repository as its own repository.
@@ -1338,7 +1424,7 @@ function createWindow(repoDir) {
   win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') win.webContents.send('command', 'back'); else if (cmd === 'browser-forward') win.webContents.send('command', 'forward'); });
   win.on('swipe', (e, dir) => { if (dir === 'left' || dir === 'right') win.webContents.send('command', dir === 'left' ? 'back' : 'forward'); });
   const id = win.webContents.id;
-  win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); buildMenu(); });
+  win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); handoffs.delete(id); buildMenu(); notifyWindows(); });
   return win;
 }
 
