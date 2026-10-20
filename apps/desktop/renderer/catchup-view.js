@@ -1,6 +1,6 @@
 import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, loading } from './ui.js';
 import { renderDiff } from './diff.js';
-import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
+import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from './lanes.js';
 import * as keymap from './keymap.js';
 import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from './reader.js';
@@ -19,6 +19,8 @@ import { authorsOf, messageAgent } from './review-rows.js';
 // viewed tick (V ticks the next one; ticking folds it). Ticks and folds live in memory per entry.
 // In the reader ↑/↓ scroll (⇧ four times as far), Page Up/Down and Space by a page, ←/→ still step the timeline, , and .
 // jump between files. Below the timeline, a line to Review's stuck and ready-to-merge rows.
+// A merged GitHub stack is one row per day (AK-616), collapsed until a click or →; its reader lists
+// the parts bottom first with read ticks, and each part opens its own reader.
 // The checkpoint lives in app data (main process) and only moves on Mark caught up, which Undo on
 // its toast puts back. Merged PRs and CI load once when a repo opens (prefetchCatchup, AK-382), then
 // only on Reload (⇧R) or after your own picks (since ⇧T; branch B, a menu with the default base first,
@@ -72,6 +74,8 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   const viewed = new Map(); // entry id → Set of viewed paths (this view only)
   const folds = new Map(); // "id\0path" → folded, set by hand; otherwise viewed files are folded
   const full = new Set(); // "id\0path" of diffs shown past the truncation limit
+  const opened = new Set(); // stack items expanded in the timeline (AK-616), collapsed by default
+  const readParts = new Set(); // ids of a stack's parts ticked read in its reader (this view only)
 
   const el = h('div.page.flush.catchup', { tabIndex: 0, role: 'region', 'aria-label': 'Catch up' });
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
@@ -91,6 +95,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   const headBox = h('div.catchup-reader-head');
   const readerDesc = h('div.catchup-reader-desc');
   const readerFiles = h('div.catchup-files', { role: 'list', 'aria-label': 'Files' });
+  const readerParts = h('div.catchup-parts');
   // The reader is its own scroll and takes focus (↵), so ↑/↓ and Space scroll it.
   const reader = h('div.catchup-reader', { tabIndex: -1, role: 'region', 'aria-label': 'Reader' });
   const mini = miniHeader(reader);
@@ -104,8 +109,13 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     strip, cols, msg, hint);
 
   const btn = (label, keyId, onclick, cls = 'button.btn.subtle') => h(cls, { 'data-tip': tipFor(label, keyId), onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...keymap.keys(keyId)));
-  const days = () => byDay(entries);
-  const visible = () => (more ? days() : firstOf(days(), FIRST).days).flatMap((d) => d.entries);
+  // The timeline's days, a merged stack as one item per day (AK-616).
+  const days = () => groupStacks(byDay(entries));
+  const items = () => days().flatMap((d) => d.entries);
+  const rowsOf = (list) => timelineRows(list, opened);
+  const visible = () => rowsOf((more ? days() : firstOf(days(), FIRST).days).flatMap((d) => d.entries));
+  const navList = () => rowsOf(items());
+  const count = () => headline(items()).total;
 
   function renderHead() {
     reloadBtn.disabled = reloading;
@@ -186,7 +196,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
     cols.hidden = false;
     msg.hidden = true;
-    const top = headline(entries);
+    const top = headline(items());
     lead.textContent = `${top.count} ${top.text}`;
     subline(top.extra);
     const all = days();
@@ -197,7 +207,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       h('div.catchup-timeline', { role: 'listbox', 'aria-label': 'What landed' },
         ...shown.flatMap((d) => [
           h('div.catchup-day', { role: 'presentation' }, d.label),
-          ...d.entries.map(row),
+          ...d.entries.flatMap((x) => (x.kind === 'stack' ? [stackRow(x), ...(opened.has(x.id) ? [...x.parts].reverse().map((p) => row(p, true)) : [])] : [row(x)])),
         ]),
         hidden ? h('button.btn.ghost.small.catchup-more', { onclick: () => { more = true; render(); } }, `+ ${hidden} more ▸`) : null),
       res.truncated ? h('div.muted.small.catchup-note', null, `Showing the newest ${entries.length}.`) : null,
@@ -219,9 +229,9 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   reader.addEventListener('focusin', () => renderHints());
   reader.addEventListener('focusout', () => setTimeout(() => { if (el.isConnected) renderHints(); }));
 
-  function row(e) {
+  function row(e, part = false) {
     const active = e.id === selId;
-    return h('div.catchup-row' + (active ? '.active' : ''), {
+    return h('div.catchup-row' + (part ? '.stack-part' : '') + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'data-id': e.id,
       title: `${e.kind === 'pr' ? 'Merged' : 'Committed'} ${e.date ? fullDate(e.date / 1000) : ''}\n${short(e.sha)} · ${e.author || ''}`,
       onclick: () => { selId = e.id; render(); syncReader(true); el.focus({ preventScroll: true }); },
@@ -231,6 +241,40 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     h('span.catchup-num', null, e.kind === 'pr' ? `#${e.number}` : short(e.sha)),
     h('span.catchup-title', null, e.title),
     h('span.badge.catchup-chip' + (e.key ? '' : '.muted'), null, e.key || e.area));
+  }
+
+  // A merged stack's row (AK-616): time · #257 → #271 · Stack · 14 PRs · chevron. A click selects it,
+  // a click on the selected row or its chevron expands or collapses it; → and ← do the same.
+  function stackRow(e) {
+    const active = e.id === selId;
+    const isOpen = opened.has(e.id);
+    return h('div.catchup-row.stack-row' + (active ? '.active' : ''), {
+      role: 'option', 'aria-selected': String(active), 'aria-expanded': String(isOpen), 'data-id': e.id,
+      title: `Merged ${e.date ? fullDate(e.date / 1000) : ''}\n${e.parts.map((p) => `#${p.number}`).join(' ')}`,
+      onclick: (ev) => {
+        if (selId === e.id || ev.target.closest('.stack-chev')) setOpen(e, !isOpen);
+        selId = e.id; render(); syncReader(true); el.focus({ preventScroll: true });
+      },
+    },
+    h('span.catchup-time', null, e.date ? clock(e.date) : ''),
+    h('span.catchup-num', null, `#${e.lo} → #${e.hi}`),
+    h('span.catchup-title', null, e.title),
+    h('span.stack-chev', { 'aria-hidden': 'true' }, icon('chevron', 12)));
+  }
+  function setOpen(e, on) {
+    if (on) opened.add(e.id); else opened.delete(e.id);
+    if (!on && e.parts.some((p) => p.id === selId)) selId = e.id;
+  }
+  // The stack item a merged PR row sits under, or null.
+  const stackOf = (id) => items().find((x) => x.kind === 'stack' && x.parts.some((p) => p.id === id)) || null;
+  // ← and → on a stack (stackArrow). → whether it handled the key (else ←/→ step the timeline).
+  function stackKey(d) {
+    const e = entryById(selId);
+    const a = stackArrow(e, d, { opened, up: e?.kind === 'pr' ? stackOf(e.id) : null });
+    if (!a) return false;
+    if (a.select) selId = a.select; else setOpen(e, Boolean(a.open));
+    render();
+    return true;
   }
 
   // "2 stuck and 3 ready to merge are waiting in Review", with PRs off just the stuck; nothing waiting, no line.
@@ -263,7 +307,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
           res = withLateExtra(res, extra);
           cache = { repo, since, base, extra, loadedAt, defaultName, res };
           entries = res ? landedEntries(res.commits, res.merged) : [];
-          if (res && since.since === 'checkpoint' && !base) onCount(entries.length);
+          if (res && since.since === 'checkpoint' && !base) onCount(count());
           if (res) render();
         }
         return;
@@ -276,7 +320,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       res = r && { ...r, ...(withPrs || !extra ? {} : extra) };
       cache.res = res;
       entries = res ? landedEntries(res.commits, res.merged) : [];
-      if (since.since === 'checkpoint' && !base) onCount(entries.length);
+      if (since.since === 'checkpoint' && !base) onCount(count());
       if (r?.prError) toast('Could not load merged pull requests', { kind: 'error', detail: r.prError.message });
     } catch (e) {
       if (n !== seq) return;
@@ -315,7 +359,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
   // The reader (AK-372): the selected entry's header, description and files. It follows the
   // selection after READ_DELAY, or at once (`now`) on a click or ↵.
-  const entryById = (id) => entries.find((e) => e.id === id) || null;
+  const entryById = (id) => entries.find((e) => e.id === id) || (String(id).startsWith('stack:') ? items().find((e) => e.id === id) : null) || null;
   function syncReader(now = false) {
     clearTimeout(readTimer);
     if (selId === readId) return renderReaderHead();
@@ -337,6 +381,8 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     change = null;
     reader.scrollTop = 0;
     if (!e) return reader.replaceChildren(h('div.empty', null, 'Select a pull request or commit to read it.'));
+    // A stack (AK-616): its head and its parts, no combined diff (other PRs may have landed in between).
+    if (e.kind === 'stack') { facts = null; reader.replaceChildren(mini.el, headBox, readerParts); renderReaderHead(); renderParts(); return; }
     reader.replaceChildren(mini.el, headBox, readerDesc, readerFiles);
     renderReaderHead();
     readerDesc.replaceChildren();
@@ -364,16 +410,18 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   function renderReaderHead() {
     const e = entryById(readId);
     if (!e || !res) return;
+    if (e.kind === 'stack') return renderStackHead(e);
     const pr = e.kind === 'pr';
     const num = pr ? `#${e.number}` : short(e.sha);
     // Who made it (AK-390): the commit's author, + the agent its message's trailers name once it's read.
     const authors = authorsOf({ person: e.author ? { name: e.author } : null, agent: change?.id === e.id ? messageAgent(change.message) : null, agents: markAgents() });
     const top = readerHead({
-      num, numTip: e.sha, title: e.title, nav: { ...navPos(entries, e.id), onStep: step },
+      num, numTip: e.sha, title: e.title, nav: { ...navPos(navList(), e.id), onStep: step },
       authors,
       branch: pr && e.branch ? e.branch : null, base: res.base,
       meta: [
         h('span.badge.catchup-chip' + (e.key ? '' : '.muted'), null, e.key || e.area),
+        pr && e.stack ? h('span.muted', null, stackPlace(e, stackOf(e.id))) : null,
         facts ? null : sizeEl(change?.id === e.id ? changeSize(change.diffs || []) : null),
         e.date ? h('span', { title: fullDate(e.date / 1000) }, `${pr ? 'merged' : 'committed'} ${whenText(e.date)}`) : null,
         pr ? h('span.catchup-merged', null, icon('check-circle', 12), 'Merged') : null,
@@ -383,6 +431,56 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     headBox.replaceChildren(top);
     mini.set(miniContent({ authors, num, title: e.title }));
     mini.watch(top);
+  }
+
+  // A stack's head (AK-616): "#257 → #271 Stack · 14 PRs", who made its parts, into <base>, its size, Merged <time>.
+  function renderStackHead(e) {
+    const seen = new Set();
+    const authors = e.parts.flatMap((p) => authorsOf({ person: p.author ? { name: p.author } : null, agents: markAgents() }))
+      .filter((a) => !seen.has(a.key) && seen.add(a.key));
+    const num = `#${e.lo} → #${e.hi}`;
+    const z = stackSize(e);
+    const top = readerHead({
+      num, numTip: e.parts.map((p) => `#${p.number}`).join(' '), title: e.title, nav: { ...navPos(navList(), e.id), onStep: step },
+      authors,
+      meta: [
+        h('span.reader-branch', null, 'into ', h('span.mono', null, res.base)),
+        z ? h('span.stat.small', null, h('span.add', null, `+${z.additions}`), ' ', h('span.del', null, `−${z.deletions}`)) : null,
+        h('span.catchup-merged', { title: e.date ? fullDate(e.date / 1000) : '' }, icon('check-circle', 12), e.date ? `Merged ${whenText(e.date)}` : 'Merged'),
+      ].filter(Boolean),
+    });
+    headBox.replaceChildren(top);
+    mini.set(miniContent({ authors, num, title: e.title }));
+    mini.watch(top);
+  }
+  // Its parts, bottom first, each with a read tick; a part opens its own reader.
+  function renderParts() {
+    const e = entryById(readId);
+    if (e?.kind !== 'stack') return;
+    const n = e.parts.filter((p) => readParts.has(p.id)).length;
+    readerParts.replaceChildren(
+      h('div.stack-ov-head', null, h('span', null, 'Parts, bottom first'), h('span.spacer'), h('span', null, `${n} of ${e.parts.length} read`)),
+      h('div.stack-ov', { role: 'list', 'aria-label': 'Parts' }, ...e.parts.map((p) => {
+        const done = readParts.has(p.id);
+        const files = p.stat?.files ?? p.files.length;
+        return h('div.stack-ov-row' + (done ? '.seen' : ''), { role: 'listitem' },
+          h('input', { type: 'checkbox', checked: done, 'aria-label': `Read #${p.number}`, onchange: (ev) => setRead(p.id, ev.target.checked) }),
+          h('button.stack-ov-open', { title: p.title, onclick: () => openPart(e, p) },
+            h('span.n', null, `#${p.number}`), h('span.t', null, p.title),
+            h('span.s', null, p.stat ? `+${p.stat.additions} −${p.stat.deletions}` : ''),
+            h('span.s', null, `${files} file${files === 1 ? '' : 's'}`)));
+      })));
+  }
+  function setRead(id, on) {
+    if (on) readParts.add(id); else readParts.delete(id);
+    renderParts();
+  }
+  function openPart(e, p) {
+    opened.add(e.id);
+    selId = p.id;
+    render();
+    syncReader(true);
+    reader.focus({ preventScroll: true });
   }
 
   // The PR's description (or the commit message), clamped until … Show more.
@@ -444,6 +542,12 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
   // V: tick the first file not yet viewed.
   function markNextViewed() {
+    const st = entryById(readId);
+    if (st?.kind === 'stack') { // a stack's reader: tick the next part read
+      const p = st.parts.find((x) => !readParts.has(x.id));
+      if (p) setRead(p.id, true); else toast('Every part is read');
+      return true;
+    }
     if (!change || change.id !== readId) return false;
     const path = firstUnviewed(change.diffs.map((d) => d.path), viewedOf(change.id));
     if (path == null) { toast('Every file is viewed'); return true; }
@@ -464,7 +568,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
   // ←/→ (from the timeline or the reader) and ‹ ›: the previous or next item, the reader following.
   function step(d) {
-    const id = stepId(entries, selId, d);
+    const id = stepId(navList(), selId, d);
     if (!id || id === selId) return;
     selId = id;
     if (!visible().some((e) => e.id === id)) more = true;
@@ -491,7 +595,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     // In the reader (AK-381): ↑/↓ and Space scroll it, ←/→ step the timeline, , and . the files, Esc back.
     if (reader.contains(e.target) && readerKey(e, { scroller: reader, onStep: step, onFile: jumpFile, onBack: () => el.focus({ preventScroll: true }) })) return;
     const r = keymap.match('reader', e);
-    if (r === 'reader.next' || r === 'reader.prev') { e.preventDefault(); e.stopPropagation(); step(r === 'reader.next' ? 1 : -1); return; }
+    if (r === 'reader.next' || r === 'reader.prev') { e.preventDefault(); e.stopPropagation(); const d = r === 'reader.next' ? 1 : -1; if (!stackKey(d)) step(d); return; }
     const id = keymap.match('catchup', e);
     if (!id) return;
     if (id === 'catchup.next') move(1);
@@ -518,7 +622,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   if (prsOn() && since.since === 'checkpoint' && !base && prLoads.pending(repo)) reload(); else fetch();
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
-    el, destroy: () => { clearInterval(tick); window.removeEventListener('focus', onFocus); }, refresh: () => fetch(), reload, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && entries.length > FIRST, canReload: () => true,
+    el, destroy: () => { clearInterval(tick); window.removeEventListener('focus', onFocus); }, refresh: () => fetch(), reload, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && items().length > FIRST, canReload: () => true,
     // ⌘K: the reader's V.
     markNextViewed,
   };
@@ -536,5 +640,5 @@ export async function prefetchCatchup({ repo, load, prsOn, onCount = () => {} })
   if (cache?.repo === repo && (cache.since?.since !== 'checkpoint' || cache.base)) return;
   if (cache?.repo !== repo) reads.clear();
   cache = { repo, since: { ...DEFAULT_SINCE }, base: null, extra: { merged: r.merged, ci: r.ci }, loadedAt: Date.now(), res: r };
-  onCount(landedEntries(r.commits, r.merged).length);
+  onCount(headline(landedItems(landedEntries(r.commits, r.merged))).total);
 }

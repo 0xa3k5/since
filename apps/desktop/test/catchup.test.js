@@ -191,8 +191,8 @@ test('timeline: entries by day, newest first, Today and Yesterday, then dates (A
   assert.equal(more, 2);
   assert.equal(firstOf(days, 10).more, 0);
 
-  assert.deepEqual(headline([e('a'), e('b'), e('c', 0, 'commit')]), { count: 2, text: 'PRs merged', extra: '1 other commit' });
-  assert.deepEqual(headline([e('a', 0, 'commit')]), { count: 1, text: 'commit landed', extra: null });
+  assert.deepEqual(headline([e('a'), e('b'), e('c', 0, 'commit')]), { count: 2, text: 'PRs merged', extra: '1 other commit', total: 3 });
+  assert.deepEqual(headline([e('a', 0, 'commit')]), { count: 1, text: 'commit landed', extra: null, total: 1 });
   assert.equal(headline([e('a')]).text, 'PR merged');
   assert.equal(sincePhrase({ since: 'checkpoint' }), 'since your checkpoint');
   assert.equal(sincePhrase({ since: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
@@ -282,4 +282,87 @@ test('app:catchup options: default base, other branches and bad refs (AK-377)', 
   await assert.rejects(catchupOptions({ base: 'refs/tags/v1' }, ctx), /not a branch/);
   await assert.rejects(catchupOptions({ base: 'HEAD' }, ctx), /not a branch/);
   await assert.rejects(catchupOptions({ nope: 1 }, ctx), /Invalid catch-up options/);
+});
+
+test('merged stacks: GitHub stack facts per merged PR, joined onto the merged list (AK-616)', () => {
+  const pr = (n, stack, stat = [10, 2, 3]) => ({ number: n, additions: stat[0], deletions: stat[1], changedFiles: stat[2], stack });
+  const st = (number, size, parts) => ({ number, size, entries: { nodes: parts.map((n, i) => ({ position: i + 1, pullRequest: { number: n } })).reverse() } });
+  const out = JSON.stringify({ data: { repository: { p41: pr(41, st(40, 3, [41, 42, 44])), p42: pr(42, st(40, 3, [41, 42, 44])), p50: pr(50, null), p51: { number: 99 } } } });
+  const facts = github.parseMergedStacks(out, [41, 42, 50, 51, 60]);
+  // Parts come back bottom first whatever order GitHub lists them in; a PR in no stack has none.
+  assert.deepEqual(facts.get(41), { stack: { number: 40, size: 3, parts: [41, 42, 44] }, stat: { additions: 10, deletions: 2, files: 3 } });
+  assert.deepEqual(facts.get(50), { stack: null, stat: { additions: 10, deletions: 2, files: 3 } });
+  assert.equal(facts.has(51), false); // answered for another number
+  assert.equal(facts.has(60), false); // missing
+  assert.equal(github.parseMergedStacks(JSON.stringify({ data: { repository: { p7: pr(7, null, [1, 'x', 2]) } } }), [7]).get(7).stat, null);
+  const merged = [{ number: 41, title: 'a' }, { number: 50, title: 'b' }, { number: 70, title: 'c' }];
+  const joined = github.joinStacks(merged, facts);
+  assert.deepEqual(joined[0].stack, { number: 40, size: 3, parts: [41, 42, 44] });
+  assert.equal('stack' in joined[1], false);
+  assert.equal(joined[2], merged[2]);
+  // A failed lookup (null) leaves the list as it was: Catch up shows it ungrouped.
+  assert.equal(github.joinStacks(merged, null), merged);
+});
+
+test('timeline: a merged stack is one item per day, its parts bottom first (AK-616)', async () => {
+  const { landedEntries, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, headline } = await load('catchup.js');
+  const at = (d, h, m = 0) => new Date(2026, 9, d, h, m).getTime();
+  const now = at(20, 12);
+  const stack = { number: 260, size: 4, parts: [257, 258, 259, 261] };
+  const sha = (n) => String(n).padStart(40, 'a');
+  const commits = [[261, at(20, 11, 3)], [259, at(20, 11, 2)], [300, at(20, 10)], [258, at(19, 9, 1)], [257, at(19, 9)], [400, at(18, 9)]]
+    .map(([n, date]) => ({ sha: sha(n), subject: `s${n}`, date, files: ['a.js'] }));
+  commits.push({ sha: 'b'.repeat(40), subject: 'loose', date: at(18, 8), files: [] });
+  const merged = [257, 258, 259, 261, 300, 400].map((n) => ({ number: n, title: `t${n}`, merge: sha(n), ...(n < 300 ? { stack, stat: { additions: n - 250, deletions: 1, files: 2 } } : {}) }));
+  const entries = landedEntries(commits, merged);
+  assert.deepEqual(entries[0].stack, stack);
+  assert.deepEqual(entries[0].stat, { additions: 11, deletions: 1, files: 2 });
+  const days = groupStacks(byDay(entries, { now }));
+  // Merged in pieces across days: one item per day, "N of size merged", at its newest part.
+  assert.deepEqual(days.map((d) => d.entries.map((x) => x.id)), [
+    [`stack:260:${days[0].id}`, 'pr:300'], [`stack:260:${days[1].id}`], ['pr:400', `commit:${'b'.repeat(40)}`],
+  ]);
+  const today = days[0].entries[0];
+  assert.deepEqual([today.kind, today.lo, today.hi, today.title, today.date], ['stack', 259, 261, 'Stack · 2 of 4 merged', at(20, 11, 3)]);
+  assert.deepEqual(today.parts.map((p) => p.number), [259, 261]);
+  assert.deepEqual(stackSize(today), { additions: 20, deletions: 2, files: 4 });
+  // The whole stack on one day: "Stack · 4 PRs", parts bottom first by GitHub's order, not by number.
+  const whole = { number: 9, size: 3, parts: [12, 11, 13] };
+  const one = groupStacks(byDay([13, 12, 11].map((n, i) => ({ id: `pr:${n}`, kind: 'pr', number: n, date: at(20, 9, 3 - i), stack: whole })), { now }))[0].entries;
+  assert.deepEqual(one.map((x) => [x.title, x.lo, x.hi, x.parts.map((p) => p.number)]), [['Stack · 3 PRs', 12, 13, [12, 11, 13]]]);
+  // One part on its own day stays a PR row; a PR in no stack is untouched.
+  const lone = groupStacks(byDay([{ id: 'pr:5', kind: 'pr', number: 5, date: at(20, 9), stack }, { id: 'pr:6', kind: 'pr', number: 6, date: at(20, 8) }], { now }))[0].entries;
+  assert.deepEqual(lone.map((x) => x.kind), ['pr', 'pr']);
+  // Without stack facts (the lookup failed), nothing groups.
+  assert.equal(landedItems(landedEntries(commits, merged.map(({ stack: _, ...p }) => p)), { now }).length, entries.length);
+
+  // The head counts a stack once: "1 stack and 2 PRs merged", "2 stacks and 1 PR merged", "1 stack merged".
+  const items = landedItems(entries, { now });
+  const head = headline(items);
+  assert.equal(`${head.count} ${head.text}`, '1 stack and 2 PRs merged');
+  assert.deepEqual([head.extra, head.total], ['1 other commit', 4]);
+  const st = (n) => ({ id: `stack:${n}`, kind: 'stack', stack: { number: n } });
+  const sent = (list) => { const x = headline(list); return `${x.count} ${x.text}`; };
+  assert.equal(sent([st(1), st(2), { kind: 'pr' }]), '2 stacks and 1 PR merged');
+  assert.equal(sent([st(1)]), '1 stack merged');
+  // A lone part of a stack shown elsewhere counts with that stack.
+  assert.equal(sent([st(1), { kind: 'pr', stack: { number: 1 } }, { kind: 'pr', stack: { number: 2 } }]), '1 stack and 1 PR merged');
+
+  // The reader's place: from GitHub's list of parts, else from the parts that merged with it.
+  assert.equal(stackPlace(today.parts[0]), 'Stack #257 → #261 · 3 of 4');
+  assert.equal(stackPlace({ number: 12, stack: { number: 9, size: 3 } }, { parts: [{ number: 11 }, { number: 12 }] }), 'Stack #11 → #12 · 2 of 3');
+  assert.equal(stackPlace({ number: 300 }), null);
+
+  // Keyboard: collapsed, ↑/↓ see the stack as one row; expanded, its parts sit under it, newest first.
+  assert.deepEqual(timelineRows(days[0].entries).map((x) => x.id), [today.id, 'pr:300']);
+  const opened = new Set([today.id]);
+  assert.deepEqual(timelineRows(days[0].entries, opened).map((x) => x.id), [today.id, 'pr:261', 'pr:259', 'pr:300']);
+  // → expands, ← collapses, ← on a part goes up to its stack; otherwise ←/→ step as before (null).
+  assert.deepEqual(stackArrow(today, 1), { open: today.id });
+  assert.equal(stackArrow(today, 1, { opened }), null);
+  assert.deepEqual(stackArrow(today, -1, { opened }), { close: today.id });
+  assert.equal(stackArrow(today, -1), null);
+  assert.deepEqual(stackArrow(today.parts[0], -1, { opened, up: today }), { select: today.id });
+  assert.equal(stackArrow(today.parts[0], 1, { opened, up: today }), null);
+  assert.equal(stackArrow(entries[2], -1), null);
 });

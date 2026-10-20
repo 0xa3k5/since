@@ -655,16 +655,21 @@ test('planFacts: required checks, review rule and who may approve, from one Grap
   assert.throws(() => github.parsePlanFacts('{"data":{"repository":{"pullRequest":null}}}'), { code: 'gh-failed' });
 });
 
-test('markReady and rerunFailed: gh arguments, Actions runs only (AK-550)', async () => {
+test('markReady, markDraft and rerunFailed: gh arguments, Actions runs only (AK-550, AK-610)', async () => {
   const { calls, exec } = recorder('');
   await github.markReady({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
   assert.deepEqual(calls[0].args, ['pr', 'ready', '7', '--repo', 'github.com/acme/app']);
+  // Back to draft (AK-610): the same command with --undo.
+  assert.deepEqual(await github.markDraft({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { number: 7, draft: true });
+  assert.deepEqual(calls[1].args, ['pr', 'ready', '7', '--repo', 'github.com/acme/app', '--undo']);
+  assert.deepEqual(github.readyArgs(3, 'github.com/acme/app'), ['pr', 'ready', '3', '--repo', 'github.com/acme/app']);
+  for (const bad of [0, -1, 1.5, '7; rm', null]) assert.throws(() => github.readyArgs(bad, 'github.com/acme/app', { draft: true }), { code: 'gh-failed' }, String(bad));
   const rollup = JSON.stringify({ statusCheckRollup: [{ conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/9/job/1' }, { state: 'FAILURE', targetUrl: 'https://ci.example.com/2' }, { conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/app/actions/runs/8/job/2' }] });
   const r = recorder((args) => (args[0] === 'pr' ? rollup : ''));
   const res = await github.rerunFailed({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: r.exec });
   assert.deepEqual(res, { number: 7, runs: ['9'] });
   assert.deepEqual(r.calls[1].args, ['run', 'rerun', '9', '--repo', 'github.com/acme/app', '--failed']);
-  for (const fn of ['planFacts', 'markReady', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
+  for (const fn of ['planFacts', 'markReady', 'markDraft', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
 });
 
 test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your own (AK-577)', async () => {
@@ -673,4 +678,21 @@ test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your ow
   assert.equal(lane.pr.author, '0xa3k5');
   assert.equal(approveWhy(lane.pr, { login: '0xA3K5', write: true }), 'Your own pull request');
   assert.equal(approveWhy(lane.pr, { login: 'someone', write: true }), null);
+});
+
+test('mergedStacks: one GraphQL call for the merged PRs in range, numbers checked (AK-616)', async () => {
+  await assert.rejects(github.mergedStacks({ enabled: false, remotes: [ORIGIN], numbers: [1], dirs: [fakeGh()] }), { code: 'gh-off' });
+  const { calls, exec } = recorder(JSON.stringify({ data: { repository: { p3: { number: 3, additions: 1, deletions: 0, changedFiles: 1, stack: { number: 2, size: 2, entries: { nodes: [{ position: 2, pullRequest: { number: 4 } }, { position: 1, pullRequest: { number: 3 } }] } } } } } }));
+  const dirs = [fakeGh()];
+  const facts = await github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: [3, 3], dirs, exec });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].args.slice(0, 4), ['api', '--hostname', 'github.com', 'graphql']);
+  assert.match(calls[0].args[5], /\{p3:pullRequest\(number:3\)\{number additions deletions changedFiles stack\{number size entries/);
+  assert.doesNotMatch(calls[0].args[5], /p3.*p3/);
+  assert.deepEqual(facts.get(3).stack, { number: 2, size: 2, parts: [3, 4] });
+  assert.deepEqual(await github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: [], dirs, exec }), new Map());
+  assert.equal(calls.length, 1);
+  await assert.rejects(github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: ['1){x}'], dirs, exec }));
+  // gh failing rejects; app:catchup then lists the merged PRs ungrouped (joinStacks with null).
+  await assert.rejects(github.mergedStacks({ enabled: true, remotes: [ORIGIN], numbers: [3], dirs, exec: async () => { throw new Error('HTTP 502'); } }));
 });

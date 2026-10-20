@@ -749,6 +749,14 @@ handle('app:catchup', async (e, opts) => {
       const [m, c] = await Promise.allSettled([github.mergedPrs({ enabled: true, remotes }), github.baseCi({ enabled: true, remotes, branch })]);
       if (m.status === 'fulfilled') merged = m.value; else prError = serializeError(m.reason);
       if (c.status === 'fulfilled') ci = c.value;
+      // Merged stacks (AK-616): which merged PRs in range were parts of a GitHub stack. If that
+      // lookup fails, Catch up lists them one by one, without an error.
+      const landed = new Set(res.commits.map((x) => x.sha));
+      const numbers = (merged || []).filter((p) => p.merge && landed.has(p.merge)).map((p) => p.number);
+      if (numbers.length) {
+        const facts = await github.mergedStacks({ enabled: true, remotes, numbers }).catch((err) => { console.warn('could not read merged stacks', err.message); return null; });
+        merged = github.joinStacks(merged, facts);
+      }
     }
   }
   return { ...res, kind, tag, checkpoint: cp, defaultBase: isDefault, merged, ci, prError };
@@ -782,6 +790,8 @@ handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str
 // Merge plan fixes (AK-550): mark a draft ready, re-run failed Actions jobs. Opt-in like every
 // PR action: target() refuses while pull requests are off.
 handle('app:pr-ready', prAction((t) => github.markReady(t)));
+// Back to draft (AK-610): the PR's author or anyone with write access; GitHub decides.
+handle('app:pr-draft', prAction((t) => github.markDraft(t)));
 handle('app:pr-rerun-failed', prAction((t) => github.rerunFailed(t)));
 handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, rebase: check.bool(o?.rebase ?? false, 'rebase') })));
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on

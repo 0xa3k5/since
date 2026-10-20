@@ -17,9 +17,10 @@
 // Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
 import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from './ui.js';
 import * as keymap from './keymap.js';
-import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, stackName, cleanTitle } from './merge-plan.js';
+import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, cleanTitle } from './merge-plan.js';
 import { buildPrompt } from './send-back.js';
 import { openStackLink } from './stack-link-view.js';
+import { stackTitle } from './review-rows.js';
 
 // ready / others: inbox PRs ({ number, title, head }) in Review's order; known: every inbox PR
 // (titles and links for a stack's upper PRs); base: the base branch; remote: the PRs' remote name;
@@ -28,7 +29,7 @@ import { openStackLink } from './stack-link-view.js';
 // onSendBack(number) opens that PR's Send back sheet; onUndo() undoes the clean up; onDone()
 // refreshes Review once anything merged.
 let open = false;
-export function openMergePlan({ ready, others = [], known = [], base, remote, method: asked = null, anyway: startAnyway = true, targets = [], chosen = true, onTarget = null, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
+export function openMergePlan({ ready, others = [], held = [], known = [], base, remote, method: asked = null, anyway: startAnyway = true, targets = [], chosen = true, onTarget = null, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
   if (open) return;
   open = true;
   const prsBy = new Map([...known, ...ready, ...others].map((p) => [p.number, p]));
@@ -114,8 +115,10 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
 
   const label = (n, clean = false) => h('span.mergeplan-pr', null, h('b', null, `#${n}`), ` ${clean ? cleanTitle(titleOf(n)) : titleOf(n)}`);
   const isNative = (st) => Boolean(st.native || chains.get(st.id)?.native);
-  const stackLabel = (st) => h('span.mergeplan-pr', null, h('span.mergeplan-kind' + (isNative(st) ? '.native' : ''), null, isNative(st) ? 'GitHub stack' : 'Chain'), ' ', h('b', null, `${stackName(st.prs.map(titleOf)) || `#${st.prs[0]} → #${st.prs[st.prs.length - 1]}`}`), ' ',
-    h('span.mergeplan-tag', null, `${st.prs.length} PRs`), h('span.mergeplan-range', null, ` #${st.prs[0]} → #${st.prs[st.prs.length - 1]}`));
+  const stackLabel = (st) => h('span.mergeplan-pr', null, h('span.mergeplan-kind' + (isNative(st) ? '.native' : ''), null, isNative(st) ? 'GitHub stack' : 'Chain'), ' ', h('b', null, stackLabelName(st)), ' ',
+    h('span.mergeplan-tag', null, `${st.prs.length} PRs`), /^Stack #/.test(stackLabelName(st)) ? null : h('span.mergeplan-range', null, ` #${st.prs[0]} → #${st.prs[st.prs.length - 1]}`));
+  // The stack's name, the same as Review's stack head (AK-611): the shared title, else "Stack #4 → #6".
+  function stackLabelName(st) { return stackTitle(st.prs.map((n) => ({ number: n, title: titleOf(n) }))); }
   const sendBackLink = (n) => h('button.btn.ghost.small', { type: 'button', title: `Open #${n}’s fix prompt`, onclick: () => { close(); onSendBack(n); } }, 'Fix prompt');
   const stText = (text, kind) => h('span.mergeplan-status' + (kind ? `.${kind}` : ''), null, kind === 'busy' ? icon('fetch', 11) : kind === 'ok' ? icon('check', 11) : null, text);
   const own = (n) => ownBlockers(blockersBy.get(n) || []);
@@ -410,6 +413,12 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
         if (!plan.complete) rows.push(h('div.mergeplan-note', null, 'There were too many orders to try them all; this is the best one found.'));
         if (anyway) rows.push(h('div.mergeplan-row.mergeplan-anyway', null, h('span.mergeplan-status.warn', null, icon('warning', 11), `Merging past checks ${base} doesn’t require`),
           h('button.btn.ghost.small', { type: 'button', disabled: phase === 'planning', onclick: () => { anyway = false; replan(); } }, 'Hold them back')));
+        // A stack merged part way (AK-611): the parts that stay open, and the next one's new base.
+        if (held.length && order.length) {
+          rows.push(h('div.mergeplan-sec', null, h('span.field-label', null, `Stays open · ${held.length}`)));
+          for (const x of held) rows.push(h('div.mergeplan-row', null, h('span.mergeplan-main', null, label(x.number), h('span.mergeplan-why', null, x.why))));
+          rows.push(h('div.mergeplan-note', null, `#${held[0].number} moves onto ${base}.`));
+        }
         if (plan.warnings.length) {
           rows.push(h('div.mergeplan-sec', null, h('span.field-label', null, `Will conflict afterwards · ${plan.warnings.length}`)));
           for (const w of plan.warnings) rows.push(h('div.mergeplan-row.warn', null, h('span.mergeplan-main', null, h('span.mergeplan-pr', null, h('b', null, `#${w.number}`), ` ${titleOf(w.number)}`), h('span.mergeplan-why', null, warningText(w))), sendBackLink(w.number)));
