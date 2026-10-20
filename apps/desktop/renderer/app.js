@@ -172,6 +172,8 @@ async function act(label, method, args = [], opts = {}) {
 
 // Git version gates (AK-586). `state.gitInfo`: { path, version } of the git in use.
 api.app('git-info').then((r) => { state.gitInfo = r?.ok || null; }, () => {});
+// Another window chose a git: every window's reasons follow it.
+api.on('git', (info) => { state.gitInfo = info || null; });
 const gitTooOld = (feature) => Boolean(state.gitInfo && !gitMeets(state.gitInfo.version, GIT_NEEDS[feature]));
 const gitWhy = (feature) => (gitTooOld(feature) ? `Needs git ${GIT_NEEDS[feature]}` : null);
 // The Update git sheet: the git in use and Use another git…; `then` carries on once the git is new enough.
@@ -3465,13 +3467,14 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const lopt = ab.length || close.length ? [{ ...ab[0], ...close[0] }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   const n = plan.commits.length;
+  const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
+  // Too old a git: offer another one first, then carry on from here.
+  if (block?.kind === 'git-version') return updateGit('mergeHere', () => mergeLane(lane, base, onDone, { handed }));
   // The base is checked out in another worktree: that worktree's window opens and merges there.
   if (plan.mergeBlocker && !pr && n && plan.baseWorktree && !handed) {
     try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
-    return toast(`Merging in ${plan.baseWorktree.name}`);
+    return toast(`Continue in ${plan.baseWorktree.name}`);
   }
-  const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
-  if (block?.kind === 'git-version') return toast(block.message, { detail: block.detail, timeout: 0, actions: [{ label: 'Choose git…', run: chooseGit }] });
   if (block) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: block.detail });
   // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
   // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).

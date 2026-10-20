@@ -95,3 +95,17 @@ test('merge here decision: old git → version toast with the git in use; new gi
     { kind: 'git-version', message: 'Merging here needs git 2.38 or later', detail: 'In use: git 2.34.1' });
   assert.deepEqual(mergeHereBlock({ mergeBlocker: 'fatal: bad object' }, '2.45.0'), { kind: 'error', detail: 'fatal: bad object' });
 });
+
+test('merge here checks the git version before handing off, offers the gate with carry-on, and every window hears a new git', () => {
+  const fsm = require('node:fs'), pth = require('node:path');
+  const app = fsm.readFileSync(pth.join(__dirname, '../renderer/app.js'), 'utf8');
+  const fn = app.slice(app.indexOf('async function mergeLane('), app.indexOf('async function mergeLane(') + 6000);
+  assert.ok(fn.indexOf("kind === 'git-version'") < fn.indexOf("kind: 'mergeLane'"), 'version first');
+  assert.match(fn, /updateGit\('mergeHere', \(\) => mergeLane\(/);
+  assert.doesNotMatch(fn, /run: chooseGit/);
+  assert.match(fn, /toast\(`Continue in \$\{plan\.baseWorktree\.name\}`\)/);
+  assert.match(app, /api\.on\('git', /);
+  const main = fsm.readFileSync(pth.join(__dirname, '../main.js'), 'utf8');
+  assert.match(main.slice(main.indexOf("handle('app:git-use'")), /webContents\.send\('git', info\)/);
+  assert.match(fsm.readFileSync(pth.join(__dirname, '../preload.js'), 'utf8'), /'git'\]/);
+});

@@ -512,7 +512,9 @@ handle('app:git-use', okCall(async (_e, which) => {
   git.setGitPath(p);
   writeSettings({ gitPath: p });
   chosenGit = null;
-  return git.gitInfo();
+  const info = await git.gitInfo();
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('git', info);
+  return info;
 }));
 handle('app:set-theme', (_e, mode) => setTheme(check.oneOf(...THEMES)(mode, 'theme')));
 handle('app:cycle-theme', () => cycleTheme());
