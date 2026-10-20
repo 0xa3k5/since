@@ -253,6 +253,45 @@ function parseMerged(out) {
       bot: p.author?.is_bot === true }));
 }
 
+// Merged stacks in Catch up (AK-616): per merged PR, the GitHub stack it was part of (native stacks
+// only; GitHub keeps `stack` on merged PRs) with its parts bottom first, and the PR's size. One
+// GraphQL call per Catch up load with PRs, for the merged PRs in range; the numbers are checked
+// integers. → Map number → { stack: { number, size, parts: [numbers bottom first] } | null, stat }.
+const STACK_PARTS = 50;
+const MERGED_STACK_FIELDS = `number additions deletions changedFiles stack{number size entries(first:${STACK_PARTS}){nodes{position pullRequest{number}}}}`;
+function parseMergedStacks(out, numbers) {
+  const repo = parseJson(out).data?.repository || {};
+  const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
+  const facts = new Map();
+  for (const n of numbers) {
+    const p = repo[`p${n}`];
+    if (!p || typeof p !== 'object' || p.number !== n) continue;
+    const s = p.stack;
+    let stack = null;
+    if (s && Number.isSafeInteger(s.number)) {
+      const parts = (Array.isArray(s.entries?.nodes) ? s.entries.nodes : [])
+        .filter((x) => Number.isSafeInteger(x?.position) && Number.isSafeInteger(x?.pullRequest?.number))
+        .sort((a, b) => a.position - b.position).map((x) => x.pullRequest.number);
+      stack = { number: s.number, size: count(s.size) || parts.length, parts };
+    }
+    const stat = [p.additions, p.deletions, p.changedFiles].every((v) => count(v) != null) ? { additions: p.additions, deletions: p.deletions, files: p.changedFiles } : null;
+    facts.set(n, { stack, stat });
+  }
+  return facts;
+}
+async function mergedStacks({ enabled, remotes, numbers, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote } = target({ enabled, remotes, dirs });
+  if (!Array.isArray(numbers) || !numbers.length) return new Map();
+  const ns = [...new Set(numbers.map((n) => Number(prNumber(n))))].slice(0, LIMIT);
+  const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${ns.map((n) => `p${n}:pullRequest(number:${n}){${MERGED_STACK_FIELDS}}`).join(' ')}}}`;
+  return parseMergedStacks(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${query}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }), ns);
+}
+// The merged list with each PR's stack and size from mergedStacks (facts null: as it was).
+const joinStacks = (merged, facts) => (facts ? merged.map((p) => {
+  const f = facts.get(p.number);
+  return f ? { ...p, ...(f.stack ? { stack: f.stack } : {}), ...(f.stat ? { stat: f.stat } : {}) } : p;
+}) : merged);
+
 // The base branch's CI for Review's catch-up card (AK-281): the newest workflow runs on it, summed
 // up for its newest commit. One call per catch-up load, only while PRs are on.
 // → { state: 'passing' | 'failing' | 'pending', sha, failed: [names] } or null when it has no runs.
@@ -1047,4 +1086,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, readyArgs, markReady, markDraft, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, mergedStacks, parseMergedStacks, joinStacks, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, readyArgs, markReady, markDraft, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

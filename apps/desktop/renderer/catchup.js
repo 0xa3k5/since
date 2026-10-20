@@ -47,6 +47,8 @@ export function landedEntries(commits = [], merged = null) {
       ...(pr ? { number: pr.number, branch: pr.branch } : {}),
       // The PR's description when GitHub sent one with the merged list (the reader falls back to the commit message).
       ...(typeof pr?.body === 'string' ? { body: pr.body } : {}),
+      // Its GitHub stack and size (AK-616) when the merged-stacks lookup found them.
+      ...(pr?.stack ? { stack: pr.stack } : {}), ...(pr?.stat ? { stat: pr.stat } : {}),
       title, sha: c.sha, parent: c.parent, date: c.date, author: c.author, files: c.files || [],
       key: issueKey(pr?.title, pr?.branch, c.subject),
       area: mainArea(c.files),
@@ -140,6 +142,62 @@ export function byDay(entries = [], { now = Date.now(), dateLabel = longDate } =
   return [...days.values()];
 }
 
+// Merged stacks (AK-616): within a day, the parts of one GitHub stack become one timeline item, in
+// place of its newest part: { id: 'stack:<stack>:<day>', kind: 'stack', stack, parts (bottom first),
+// lo, hi (their numbers), title: "Stack · 14 PRs" | "Stack · 7 of 14 merged", date, author }. A
+// stack merged across days gets an item per day; a day with one part keeps it a PR row. → days
+const partAt = (e) => { const i = e.stack?.parts?.indexOf(e.number) ?? -1; return i < 0 ? Infinity : i; };
+export function groupStacks(days = []) {
+  return days.map((d) => {
+    const by = new Map();
+    for (const e of d.entries) if (e.kind === 'pr' && e.stack) { if (!by.has(e.stack.number)) by.set(e.stack.number, []); by.get(e.stack.number).push(e); }
+    const done = new Set();
+    const entries = [];
+    for (const e of d.entries) {
+      const parts = e.kind === 'pr' && e.stack ? by.get(e.stack.number) : null;
+      if (!parts || parts.length < 2) { entries.push(e); continue; }
+      if (done.has(e.stack.number)) continue;
+      done.add(e.stack.number);
+      const sorted = [...parts].sort((a, b) => partAt(a) - partAt(b) || (a.date || 0) - (b.date || 0) || a.number - b.number);
+      const size = Math.max(e.stack.size || 0, parts.length);
+      entries.push({
+        id: `stack:${e.stack.number}:${d.id}`, kind: 'stack', stack: e.stack, parts: sorted,
+        lo: sorted[0].number, hi: sorted[sorted.length - 1].number,
+        title: parts.length < size ? `Stack · ${parts.length} of ${size} merged` : `Stack · ${size} PRs`,
+        date: Math.max(...parts.map((p) => p.date || 0)) || null, author: e.author,
+      });
+    }
+    return { ...d, entries };
+  });
+}
+// The timeline's items, a stack as one. → [entry | stack item]
+export const landedItems = (entries = [], opts) => groupStacks(byDay(entries, opts)).flatMap((d) => d.entries);
+// The timeline's rows in order (AK-616): the items, an expanded stack's parts under it, newest first
+// like the rest. A collapsed stack is one row for ↑/↓. opened: the expanded stack ids.
+export const timelineRows = (items = [], opened = new Set()) => items.flatMap((x) => (x.kind === 'stack' && opened.has(x.id) ? [x, ...[...x.parts].reverse()] : [x]));
+// ← and → on a stack (AK-616): → expands a collapsed one, ← collapses an expanded one, ← on one of
+// its parts (`up`: the stack it sits under) goes up to it. → { open } | { close } | { select } (ids),
+// or null when ←/→ step the timeline as before.
+export function stackArrow(sel, d, { opened = new Set(), up = null } = {}) {
+  if (sel?.kind === 'stack' && (d > 0) !== opened.has(sel.id)) return d > 0 ? { open: sel.id } : { close: sel.id };
+  if (d < 0 && up && opened.has(up.id)) return { select: up.id };
+  return null;
+}
+// A part's place in its stack for the reader (AK-616): "Stack #257 → #271 · 5 of 14", from GitHub's
+// list of its parts, else from the parts that merged with it (`item`). null outside a stack.
+export function stackPlace(e, item = null) {
+  if (!e?.stack) return null;
+  const all = e.stack.parts?.length ? e.stack.parts : item?.parts.map((p) => p.number) || [];
+  const at = all.indexOf(e.number);
+  if (at < 0 || !all.length) return null;
+  return `Stack #${all[0]} → #${all[all.length - 1]} · ${at + 1} of ${Math.max(e.stack.size || 0, all.length)}`;
+}
+// A stack item's size: its parts' added and removed lines and files (those GitHub sent sizes for).
+export function stackSize(item) {
+  const sized = (item?.parts || []).filter((p) => p.stat);
+  return sized.length ? sized.reduce((z, p) => ({ additions: z.additions + p.stat.additions, deletions: z.deletions + p.stat.deletions, files: z.files + p.stat.files }), { additions: 0, deletions: 0, files: 0 }) : null;
+}
+
 // How many rows the timeline shows before "+ N more ▸".
 export const FIRST = 10;
 // The first n entries across the days (days left empty drop out). → { days, more: how many are hidden }
@@ -156,14 +214,19 @@ export function firstOf(days, n = FIRST) {
   return { days: out, more: Math.max(0, total - n) };
 }
 
-// The big number: merged PRs, or the commits that landed when none came with a PR.
-// → { count, text: "PRs merged" | "commits landed", extra: "· 3 other commits" | null }
-export function headline(entries = []) {
-  const prs = entries.filter((e) => e.kind === 'pr').length;
-  const loose = entries.length - prs;
+// The big number: merged PRs, or the commits that landed when none came with a PR. `items`: the
+// timeline's (landedItems), where a stack counts once however many days it merged on (AK-616).
+// → { count, text: "PRs merged" | "commits landed" | "stack and 1 PR merged", extra: "· 3 other commits" | null, total }
+export function headline(items = []) {
+  const stacks = new Set(items.filter((e) => e.kind === 'stack').map((e) => e.stack.number));
+  const prs = items.filter((e) => e.kind === 'pr' && !(e.stack && stacks.has(e.stack.number))).length;
+  const loose = items.filter((e) => e.kind !== 'pr' && e.kind !== 'stack').length;
   const s = (n, one, many) => (n === 1 ? one : many);
-  if (!prs) return { count: entries.length, text: s(entries.length, 'commit landed', 'commits landed'), extra: null };
-  return { count: prs, text: s(prs, 'PR merged', 'PRs merged'), extra: loose ? `${loose} other ${s(loose, 'commit', 'commits')}` : null };
+  const total = stacks.size + prs + loose;
+  if (!prs && !stacks.size) return { count: loose, text: s(loose, 'commit landed', 'commits landed'), extra: null, total };
+  const extra = loose ? `${loose} other ${s(loose, 'commit', 'commits')}` : null;
+  if (!stacks.size) return { count: prs, text: s(prs, 'PR merged', 'PRs merged'), extra, total };
+  return { count: stacks.size, text: `${s(stacks.size, 'stack', 'stacks')}${prs ? ` and ${prs} ${s(prs, 'PR', 'PRs')}` : ''} merged`, extra, total };
 }
 
 // The since picker's label in the view: "since your checkpoint", "since yesterday", "since tag v0.1.0".
