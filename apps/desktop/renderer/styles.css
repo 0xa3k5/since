@@ -286,6 +286,8 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .sb-gone { font-size: 11px; color: var(--warn); }
 .sb-wt { display: inline-flex; }
 .sb-item.missing .sb-label { color: var(--text-4); text-decoration: line-through; }
+.sb-item.selected { background: var(--bg-selected); color: var(--text); }
+.sb-item.selected .icon { color: var(--accent-fg); }
 .sb-foot { display: flex; gap: 4px; padding: 8px 0 10px; border-top: 1px solid var(--border); }
 .sb-action { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: var(--radius); color: var(--text-2); font-size: 12px; font-weight: var(--fw-medium); }
 .sb-action .icon { color: var(--text-3); }
