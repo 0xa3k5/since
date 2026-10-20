@@ -28,22 +28,24 @@ test('shows macOS keys, pairs and alternatives', () => {
 
 test('views have ⌘ numbers and G shortcuts', () => {
   const v = group('views');
-  assert.equal(v.length, 13);
+  assert.equal(v.length, 12); // Repository Settings has no keys (⌘K and the View menu only)
   assert.deepEqual(find(v, 'Worktrees')?.keys, ['G', 'W']);
   assert.deepEqual(find(v, 'Stashes')?.keys, ['⌘', '6']);
   assert.deepEqual(find(v, 'Branches')?.keys, ['⌘', '5']);
-  assert.deepEqual(find(v, 'Branches')?.alt, ['G', 'B']);
+  assert.equal(find(v, 'Branches')?.alt, null); // ⌘ numbers only, no G chord
   assert.deepEqual(find(v, 'Catch up')?.keys, ['⌘', '1']);
   assert.deepEqual(find(v, 'Review')?.keys, ['⌘', '2']);
   assert.deepEqual(find(v, 'History')?.keys, ['⌘', '7']);
-  assert.deepEqual(find(v, 'History')?.alt, ['G', 'H']);
+  assert.equal(find(v, 'History')?.alt, null);
+  assert.equal(find(v, 'Repository Settings'), undefined);
   assert.deepEqual(find(v, 'Submodules')?.keys, ['⌘', '8']);
 });
 
 test('menu groups have the menu bar shortcuts', () => {
   assert.ok(group('repository').length >= 20);
   assert.deepEqual(find(group('repository'), 'Fetch All')?.keys, ['⇧', '⌘', 'F']);
-  assert.ok(find(group('file'), 'Switch Repository…'));
+  assert.ok(find(group('file'), 'New Window'));
+  assert.ok(!find(group('file'), 'Switch Repository…'), 'commands with no keys stay off the page');
   assert.ok(!find(group('file'), 'Quit GitLanes'), 'system menu roles stay off the page');
 });
 

@@ -4,7 +4,7 @@ import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
 
 // The Preferences window (⌘,, GitLanes → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,
 // the sidebar jumps to a section. Type to search; ↑↓ move, ↵ toggles a switch or runs a button, ← → change a
-// choice, ⌥↑ / ⌥↓ move a sidebar section, ⌘↓ / ⌘↑ jump to the next or previous section, ⌘⌫ removes a local git config value, ⌘F returns to the
+// choice, ⌘↓ / ⌘↑ jump to the next or previous section, ⌘F returns to the
 // search, Esc clears the search and then closes.
 //
 // `rows()` returns the current rows; `act(row, value)` applies a change (value: the new switch or choice value,

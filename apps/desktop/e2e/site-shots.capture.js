@@ -709,7 +709,7 @@ process.exit(1);
   // 2. Catch up (AK-365): Reload joins the merged PRs on; the reader beside the list shows the first PR's diff.
   await app.view('catchup');
   const catchup = page.locator('.page.catchup');
-  await catchup.press('Shift+R');
+  await catchup.press('Meta+R');
   await expect(catchup.locator('.catchup-sentence')).toContainText('14 PRs merged', { timeout: 40_000 });
   await expect(catchup.locator('.reader-title-row')).toContainText('#225');
   await expect(catchup.locator('.review-file').first()).toContainText('jitter');

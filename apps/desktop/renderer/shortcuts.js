@@ -50,6 +50,8 @@ export function shortcutSections({ first = null, query = '', custom = new Set(),
       keys: cmd.pair ? [[...(main[0] ?? []), ...keys(cmd.pair, { mac })], ...main.slice(1)].filter((k) => k.length) : main,
       custom: ids.some((x) => custom.has(x)),
     };
+    // Commands with no default keys (⌘K and menu only) stay out of the list unless the user gave them some.
+    if (!row.keys.length && !row.custom) continue;
     sections.get(id).rows.push(row);
   }
   // The active view's section first, then "anywhere", then the rest in keymap order.

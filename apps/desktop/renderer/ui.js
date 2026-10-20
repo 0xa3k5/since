@@ -435,7 +435,7 @@ export function contextMenu(x, y, items, { focus = -1 } = {}) {
     }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')),
     // `why`: a greyed item's reason, a few words under its label.
     it.why ? h('span.menu-label', null, it.label, h('small.menu-why', null, it.why)) : h('span.menu-label', null, it.label),
-    it.kbd ? kbd(...[].concat(it.kbd)) : null);
+    it.kbd?.length ? kbd(...[].concat(it.kbd)) : null);
     if (!it.disabled) actionable.push(el);
     menu.append(el);
   });
@@ -625,7 +625,7 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
       const row = h('div.palette-item' + (i === idx ? '.active' : '') + (it.gated ? '.gated' : ''), {
         onmousemove: () => { if (idx !== i) { idx = i; mark(); } },
         onclick: () => choose(i),
-      }, icon(it.icon || 'command'), h('span.palette-label', null, it.label), it.detail ? h('span.palette-detail', null, it.detail) : null, it.kbd ? kbd(...[].concat(it.kbd)) : null);
+      }, icon(it.icon || 'command'), h('span.palette-label', null, it.label), it.detail ? h('span.palette-detail', null, it.detail) : null, it.kbd?.length ? kbd(...[].concat(it.kbd)) : null);
       list.append(row);
     });
     if (!results.length) list.append(h('div.palette-empty', null, 'No results'));

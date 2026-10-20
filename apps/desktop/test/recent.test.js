@@ -21,12 +21,12 @@ test('the switcher shows every other recent repository and keeps all when none i
   assert.equal(otherRecent(repos(12), undefined).length, 12);
 });
 
-test('⌘⌥O (Ctrl+Alt+O) opens the repository switcher; other O chords do not', async () => {
+test('no O chord opens the repository switcher (Switch Repository… has no keys, AK-628)', async () => {
   const { match } = await import('../renderer/keymap.js');
   const isRepoSwitchKey = (e) => match('menu', e) === 'file.repoSwitch';
   const k = (o) => ({ code: 'KeyO', key: 'ø', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
-  assert.equal(isRepoSwitchKey(k({ metaKey: true, altKey: true })), true);
-  assert.equal(isRepoSwitchKey(k({ ctrlKey: true, altKey: true })), true);
+  assert.equal(isRepoSwitchKey(k({ metaKey: true, altKey: true })), false);
+  assert.equal(isRepoSwitchKey(k({ ctrlKey: true, altKey: true })), false);
   assert.equal(isRepoSwitchKey(k({ metaKey: true })), false); // ⌘O: open
   assert.equal(isRepoSwitchKey(k({ metaKey: true, shiftKey: true })), false); // ⌘⇧O: clone
   assert.equal(isRepoSwitchKey(k({ metaKey: true, altKey: true, shiftKey: true })), false);
@@ -34,11 +34,11 @@ test('⌘⌥O (Ctrl+Alt+O) opens the repository switcher; other O chords do not'
   assert.equal(isRepoSwitchKey(k({ code: 'KeyP', metaKey: true, altKey: true })), false);
 });
 
-test('the File menu has Switch Repository… on ⌘⌥O', async () => {
+test('the File menu has Switch Repository…, with no accelerator', async () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../main.js'), 'utf8');
   assert.match(src, /item\('Switch Repository…', acc\('file.repoSwitch'\), 'repoSwitch'\)/);
   const { accelerator } = await import('../renderer/keymap.js');
-  assert.equal(accelerator('file.repoSwitch'), 'CmdOrCtrl+Alt+O');
+  assert.equal(accelerator('file.repoSwitch'), undefined);
 });
 
 test('recent.json: closing a repository removes it; others and the order stay', () => {

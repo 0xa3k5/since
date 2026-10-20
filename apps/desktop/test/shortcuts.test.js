@@ -6,18 +6,19 @@ const assert = require('node:assert/strict');
 const load = async () => ({ ...(await import('../renderer/keymap.js')), ...(await import('../renderer/shortcuts.js')) });
 const find = (sections, id) => sections.flatMap((s) => s.rows.map((r) => ({ ...r, in: s.id }))).find((r) => r.ids.includes(id));
 
-test('every keymap command appears exactly once', async () => {
+test('every keymap command with keys appears exactly once', async () => {
   const { COMMANDS, shortcutSections } = await load();
   const ids = shortcutSections({ mac: true }).flatMap((s) => s.rows.flatMap((r) => r.ids));
   assert.equal(ids.length, new Set(ids).size, 'a command is listed twice');
-  assert.deepEqual([...ids].sort(), COMMANDS.map((c) => c.id).sort());
+  assert.deepEqual([...ids].sort(), COMMANDS.filter((c) => c.keys.length).map((c) => c.id).sort());
 });
 
 test('rows show the current keys, every binding and both keys of a pair', async () => {
   const { shortcutSections } = await load();
   const s = shortcutSections({ mac: true });
   assert.deepEqual(find(s, 'help.shortcuts').keys, [['⌘', '/']]);
-  assert.deepEqual(find(s, 'view.commit').keys, [['⌘', '4'], ['G', 'C']]);
+  assert.deepEqual(find(s, 'view.commit').keys, [['⌘', '4']]);
+  assert.deepEqual(find(s, 'quick.close').keys.length, 2, 'every binding');
   assert.deepEqual(find(s, 'map.next').keys, [['↓', '↑']]);
   assert.deepEqual(find(s, 'map.prev').ids, ['map.next', 'map.prev']);
   assert.deepEqual(find(shortcutSections({ mac: false }), 'view.cycleTheme').keys, [['Ctrl', '⌥', '⇧', 'T']]);
@@ -47,7 +48,7 @@ test('search by action, by key symbol or by key name', async () => {
   assert.ok(ids('⇧⌘F').includes('repo.fetch'), 'modifier order does not matter');
   assert.ok(ids('cmd shift f').includes('repo.fetch'));
   assert.ok(ids('cmd+/').includes('help.shortcuts'));
-  assert.ok(ids('g c').includes('view.commit'));
+  assert.ok(ids('g r').includes('view.reflog'));
   assert.ok(ids('ctrl shift f', false).includes('repo.fetch'));
   assert.ok(!ids('cmd shift f').includes('repo.pull'));
   assert.deepEqual(ids('zzzz'), []);
@@ -59,4 +60,12 @@ test('custom bindings are marked', async () => {
   assert.equal(find(s, 'repo.push').custom, true);
   assert.equal(find(s, 'map.next').custom, true);
   assert.equal(find(s, 'repo.pull').custom, false);
+});
+
+test('commands with no keys stay out of the list unless the user gave them some (AK-628)', async () => {
+  const { shortcutSections } = await load();
+  const ids = (custom) => shortcutSections({ custom, mac: true }).flatMap((s) => s.rows.flatMap((r) => r.ids));
+  assert.ok(!ids(new Set()).includes('global.setup'));
+  assert.ok(!ids(new Set()).includes('view.config'));
+  assert.ok(ids(new Set()).includes('view.sidebar'));
 });

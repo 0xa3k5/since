@@ -67,7 +67,8 @@ export function tourView({ mod }) {
       c.sha === s.tip ? pill(TOUR_BRANCH, '.main') : null)));
     rows.addEventListener('keydown', (e) => {
       const id = keymap.match('tour', e);
-      const op = { 'tour.squash': squash, 'tour.rebase': rebase, 'tour.cherryPick': cherryPick }[id];
+      // The rewrite lesson answers the Map's own keys (S, R, P), so it follows the user's bindings.
+      const op = { 'commit.squash': squash, 'commit.rebase': rebase, 'commit.cherryPick': cherryPick }[keymap.match('map', e)];
       if (id === 'tour.next' || id === 'tour.prev') {
         e.preventDefault();
         (id === 'tour.next' ? e.target.nextElementSibling : e.target.previousElementSibling)?.focus();
