@@ -61,6 +61,14 @@ export function prActionRemote(pr, prs, fallback = null) {
   return pr?.remote || fallback || prs?.data?.remote?.name || prs?.remote?.name || null;
 }
 
+// Draft ⇄ ready for review (AK-612): the call that makes PR `n` a draft (`draft`) or ready for
+// review, and its toasts. Undo is the same call with `!draft`.
+export function draftFlip(n, draft) {
+  return draft
+    ? { channel: 'pr-draft', busy: `Converting #${n} to draft…`, done: `Converted #${n} to draft`, failed: `Couldn’t convert #${n} to draft` }
+    : { channel: 'pr-ready', busy: `Marking #${n} ready for review…`, done: `Marked #${n} ready for review`, failed: `Couldn’t mark #${n} ready` };
+}
+
 export const NO_GITHUB_REMOTE = { code: 'no-remote', message: 'This repository has no GitHub remote.' };
 
 // Runs a pull request action through `call` (api.app) with the resolved remote. Without one it

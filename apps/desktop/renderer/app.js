@@ -47,7 +47,7 @@ import { markdown } from './markdown.js';
 import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
 import { peekEvidence } from './evidence-store.js';
 import { commitBlock } from './commit-guards.js';
-import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, draftFlip, approveWhy, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -3291,6 +3291,7 @@ function openLanes() {
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
     onMarkReady: markPrReady,
+    onMarkDraft: markPrDraft,
     onGitTooOld: updateGit,
     gitWhy,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
@@ -3535,11 +3536,16 @@ async function makeChainStack(number = null) {
   palette(() => linkable.map((c) => ({ group: 'Chains', label: `#${c.prs[0]} → #${c.prs[c.prs.length - 1]}`, detail: `${c.prs.length} pull requests onto ${c.base}`, icon: 'merge', run: () => go(c) })), { placeholder: 'Make which chain a GitHub stack…' });
 }
 
-// Mark a draft ready for review from a stack's head (AK-609); Review reloads to re-stage it.
-async function markPrReady(pr) {
-  const res = await prCall('pr-ready', pr, undefined, `Marking #${pr.number} ready for review…`);
-  if (res.error) return prError(`Couldn’t mark #${pr.number} ready`, res.error);
-  toast(`Marked #${pr.number} ready for review`, { kind: 'success' });
+// Mark a draft ready for review (a stack's head, AK-609) or convert a PR back to draft (AK-612),
+// also from a Review row's menu and ⌘K. The toast's Undo runs the opposite call; Review reloads to
+// re-stage it.
+function markPrReady(pr) { return setPrDraft(pr, false); }
+function markPrDraft(pr) { return setPrDraft(pr, true); }
+async function setPrDraft(pr, draft) {
+  const f = draftFlip(pr.number, draft);
+  const res = await prCall(f.channel, pr, undefined, f.busy);
+  if (res.error) return prError(f.failed, res.error);
+  toast(f.done, { kind: 'success', action: { label: 'Undo', run: () => setPrDraft(pr, !draft) } });
   lanesPage?.reload();
 }
 
@@ -4745,7 +4751,13 @@ function openPalette() {
     const stackSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stackSelection() : null;
     if (stackSel?.down) add('Review', `Select #${stackSel.down}, the pull request #${stackSel.number} is stacked on`, () => lanesPage.stackStep(-1), { icon: 'merge', kbd: keymap.keys('lanes.stackDown'), keywords: 'stack stacked base parent down previous pull request' });
     if (stackSel?.up) add('Review', `Select #${stackSel.up}, next up the stack`, () => lanesPage.stackStep(1), { icon: 'merge', kbd: keymap.keys('lanes.stackUp'), keywords: 'stack stacked child up next pull request' });
-    for (const a of (stackSel && lanesPage.stackActions()) || []) add('Review', a.label, a.run, { icon: 'merge', keywords: a.id === 'ready' ? 'stack draft ready for review mark ready' : 'stack merge stacked pull requests' });
+    const stackActs = (stackSel && lanesPage.stackActions()) || [];
+    for (const a of stackActs) add('Review', a.label, a.run, { icon: 'merge', keywords: a.id === 'ready' ? 'stack draft ready for review mark ready' : 'stack merge stacked pull requests' });
+    const draftSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.draftSelection() : null;
+    if (draftSel && !stackActs.some((a) => a.pr?.number === draftSel.pr.number)) {
+      const n = draftSel.pr.number;
+      add('Review', draftSel.pr.draft ? `Mark #${n} ready for review` : `Convert #${n} to draft`, draftSel.run, { icon: draftSel.pr.draft ? 'check' : 'edit', keywords: 'pull request draft ready for review convert mark wip' });
+    }
     if (stackSel && lanesPage.canPlan()) add('Review', `Make #${stackSel.number}’s stack a GitHub stack`, () => makeChainStack(stackSel.number), { icon: 'merge', keywords: 'gh stack link chain stacked pull requests series native' });
     const stuckSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stuckSelection() : null;
     if (stuckSel) add('Review', `Fix prompt for ${stuckSel.pr ? `#${stuckSel.pr.number}` : stuckSel.title}…`, () => lanesPage.sendBack(stuckSel.pr?.number ?? null), { icon: 'copy', kbd: keymap.keys('lanes.sendBack'), keywords: 'fix prompt ai prompt copy prompt send back stuck agent conflict ci failing' });

@@ -66,7 +66,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onMarkDraft = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -359,6 +359,10 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     ? { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), run: () => act('checkoutHere', r) }
     : { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.checkout'), run: () => act('checkout', r) }));
 
+  // Draft ⇄ ready for review (AK-612): a row's open PR, with pull requests on.
+  const draftable = (r) => Boolean(r?.pr && onMarkReady && onMarkDraft && prsOn() && (!r.pr.state || r.pr.state === 'open'));
+  const flipDraft = (pr) => (pr.draft ? onMarkReady(pr, inbox?.remote) : onMarkDraft(pr, inbox?.remote));
+
   function stagedMenu(x, y, r) {
     const l = asLane(r);
     contextMenu(x, y, [
@@ -368,6 +372,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), why: r.pr ? null : actionWhy('merge', l) || gitWhy('mergeHere'), gated: !r.pr && !actionWhy('merge', l) && Boolean(gitWhy('mergeHere')), run: () => act('merge', r) },
       ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
       ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),
+      ...(draftable(r) ? [{ label: r.pr.draft ? 'Mark Ready for Review' : 'Convert to Draft', icon: r.pr.draft ? 'check' : 'edit', run: () => flipDraft(r.pr) }] : []),
       ...(r.stage === 'stuck' ? [{ label: 'Send Back…', icon: 'copy', kbd: keymap.keys('lanes.sendBack'), run: () => act('sendBack', r) }] : []),
       { label: details.has(r.key) ? 'Hide Details' : 'Details', icon: 'lanes', kbd: keymap.keys('lanes.details'), run: () => toggleDetails(r.key) },
       ...(r.lane ? ['-', { label: removeLabel(r.lane, switchTo), icon: 'trash', kbd: keymap.keys('lanes.delete'), disabled: !canRemove(r.lane, canSwitch), why: removeWhy(r.lane, canSwitch), run: () => act('delete', r) }] : []),
@@ -475,11 +480,16 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const st = stackStatus(rows, { base });
     const n = st.through;
     const acts = [
-      st.fix && onMarkReady ? { id: 'ready', label: `Mark #${st.fix.pr.number} ready`, run: () => onMarkReady(st.fix.pr, inbox?.remote) } : null,
+      st.fix && onMarkReady ? { id: 'ready', pr: st.fix.pr, label: `Mark #${st.fix.pr.number} ready`, run: () => onMarkReady(st.fix.pr, inbox?.remote) } : null,
       n.length && canPlan() ? { id: 'merge', label: n.length === rows.length ? 'Merge stack' : n.length > 1 ? `Merge #${n[0]} → #${n[n.length - 1]}` : `Merge #${n[0]}`, run: () => mergePlan(null, { only: n }) } : null,
     ].filter(Boolean);
     return { st, acts };
   }
+  // ⌘K's Convert to draft / Mark ready for review for the selected row's PR, or null.
+  const draftSelection = () => {
+    const x = current();
+    return draftable(x) ? { pr: x.pr, run: () => flipDraft(x.pr) } : null;
+  };
   // ⌘K's stack head entries for the selected row's stack (two or more of its rows listed), else [].
   function stackActions() {
     const x = current();
@@ -863,7 +873,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, stackStep, stackSelection, stackActions, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, stackActions, draftSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

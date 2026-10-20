@@ -12,6 +12,8 @@ const ACTIONS = [
   ['pr-merge-info', undefined],
   ['pr-merge', { method: 'squash', deleteBranch: false, admin: false }],
   ['pr-close', { body: '' }],
+  ['pr-ready', undefined],
+  ['pr-draft', undefined],
   ['pr-comment', { body: 'hi' }],
   ['pr-failed-log', undefined],
 ];
@@ -58,4 +60,14 @@ test('prRef: finds the local branch for a copy of the PR (review page, Inbox row
   const data = { remote: { name: 'origin', owner: 'acme' }, prs: [pr] };
   const refs = [{ kind: 'branch', short: 'x' }];
   assert.equal(prRef({ ...pr, remote: 'origin' }, refs, prsByRef(data, refs)), refs[0]);
+});
+
+test('draftFlip: convert to draft and mark ready for review (AK-612)', async () => {
+  const { draftFlip } = await load();
+  const draft = draftFlip(7, true);
+  const ready = draftFlip(7, false);
+  assert.equal(draft.channel, 'pr-draft');
+  assert.equal(ready.channel, 'pr-ready');
+  assert.equal(draft.done, 'Converted #7 to draft');
+  assert.equal(ready.done, 'Marked #7 ready for review');
 });
