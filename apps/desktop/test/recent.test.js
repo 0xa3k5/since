@@ -62,3 +62,18 @@ test('recent.json: closing a repository removes it; others and the order stay', 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('closing a repository while Review or Branches loads shows no error toasts', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  // app:lanes-list looks the session up once, before git and gh run, never after an await.
+  const main = read('main.js');
+  const start = main.indexOf("handle('app:lanes-list'");
+  const handler = main.slice(start, main.indexOf('\n});', start));
+  assert.equal(handler.match(/session\(e\)/g).length, 1);
+  assert.ok(handler.indexOf('session(e)') < handler.indexOf('await'));
+  // A page that is gone keeps its load errors to itself.
+  assert.match(read('renderer/lanes-view.js'), /if \(el\.isConnected\) toast\('Could not load Review'/);
+  assert.match(read('renderer/branches-view.js'), /if \(el\.isConnected\) toast\('Could not load branches'/);
+});

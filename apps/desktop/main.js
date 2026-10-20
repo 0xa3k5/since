@@ -670,7 +670,10 @@ handle('app:lanes-list', async (e, opts) => {
   const base = opts?.base == null ? undefined : check.rev(opts.base, 'base');
   const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
   const withInbox = opts?.inbox == null ? false : check.bool(opts.inbox, 'inbox');
-  const root = session(e).repo.root;
+  // The session from the start: a window that closes its repository while git or gh runs gets
+  // this answer (the page that asked is gone) instead of "No repository open in this window".
+  const s = session(e);
+  const root = s.repo.root;
   let listed = null;
   let prError = null;
   let inbox = null;
@@ -694,7 +697,6 @@ handle('app:lanes-list', async (e, opts) => {
     }
   }
   const { lanes, ...rest } = await git.lanes(root, { base, prHeads });
-  const s = session(e);
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
   if (!withInbox) return { ...rest, lanes: joined, prError };

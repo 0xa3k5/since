@@ -880,7 +880,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
-  const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
+  const fail = (e) => { loaded = true; render(); if (el.isConnected) toast('Could not load Review', { kind: 'error', detail: e.message }); }; // a closed page's errors are old news
   // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub on its own.
   const reload = () => (reloading ? Promise.resolve() : fetchLanes({ prs: true }).catch(fail));
   // Keep the last PR load for the next visit to Review.
