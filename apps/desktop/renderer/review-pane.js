@@ -1,4 +1,5 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from './ui.js';
+import { draftSwitch } from './prs.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
@@ -122,10 +123,13 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     const lead = [...fixes, ...main].find((a) => a.id === primary) || null;
     const rest = [...fixes, ...main].filter((a) => a !== lead);
     // ⋯: every action but the primary one, for the narrowest panes (their keys and ⌘K still work).
-    const more = [...rest, ...icons, github].filter(Boolean);
-    const moreBtn = more.length ? h('button.btn.ghost.icon-btn.pane-more', {
+    // Draft ↔ ready (AK-610) is only here, so with it ⋯ always shows.
+    const ds = pr ? draftSwitch(pr, ctx.viewer) : null;
+    const draftItem = ds ? { id: 'draft', label: ds.label, icon: ds.icon, gated: Boolean(ds.why), note: ds.why } : null;
+    const more = [...rest, ...icons, draftItem, github].filter(Boolean);
+    const moreBtn = more.length ? h('button.btn.ghost.icon-btn.pane-more' + (draftItem ? '.always' : ''), {
       'data-tip': 'More actions', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
-      onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: keymap.keys(a.key), danger: a.danger, disabled: a.gated, why: a.gated ? a.note : null, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
+      onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); contextMenu(r.left, r.bottom + 4, more.map((a) => ({ label: a.id === 'close' ? 'Close PR…' : a.label, icon: a.id === 'github' ? 'github' : a.icon, kbd: a.key ? keymap.keys(a.key) : null, danger: a.danger, disabled: a.gated, why: a.gated ? a.note : null, run: () => (fixing.has(a.id) ? fix(a.id) : run(a.id, row, ctx)) }))); },
     }, icon('more', 15)) : null;
     // Who made it (AK-390): the person, + the agent when its lane looks agent-made, or the bot alone.
     const authors = rowAuthors(row, { agents: ctx.agents });

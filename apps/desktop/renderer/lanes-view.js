@@ -1,9 +1,10 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
 import { updateBranchBlock } from './pr-review.js';
+import { draftSwitch } from './prs.js';
 import { navPos, authorsStack } from './reader.js';
 import { factsFor, peekFacts, peekEvidence } from './evidence-store.js';
 
@@ -66,7 +67,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onApproveAll = null, onMakeStack = null, chains = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -190,6 +191,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // A PR with no lane here squash-merges on GitHub: M and Merge… wait until it's ready, like the button (AK-275).
     const why = id === 'merge' && pr && !(lane?.branch && !lane.isBase) ? mergeBlock(r, { base }) : null;
     if (why) return toast(why);
+    if (id === 'draft') return pr && onPaneAction?.(id, r, paneCtx(r));
     if (split() && ['merge', 'approve', 'close', 'checkout', 'github'].includes(id) && onPaneAction) return onPaneAction(id, r, paneCtx(r));
     if (id === 'review' && split() && paneObj?.key === r.key) paneObj.focus();
     else if (id === 'review') { if (pr) onPrReview(pr, inbox?.remote); else if (lane) onReview(lane, base); }
@@ -210,6 +212,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   const step = (r) => primaryAction(r, { base, requested: requested() });
 
+  // A draft that's only held back by being a draft shows the outlined draft dot, not its checks' colour (AK-611).
+  const drafty = (r) => Boolean(r.pr?.draft) && r.stage !== 'stuck';
   // A row (AK-379): status dot · the title, led by a muted #number (AK-516), over one quiet line (why it's stuck, in red; else
   // its tags, who and where) · age. No buttons: ⌘K "Next step" runs the primary step, the pane's status strip
   // has the rest, and the context menu has them all. Details (D) open under the title.
@@ -225,16 +229,17 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
     const authors = rowAuthors(r, { agents: markAgents() });
     const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    const line = [stack?.text, ...tags.filter((b) => !b.signal && !b.chip).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
+    // "Draft" leads the line (AK-611), as in the pane.
+    const line = [...tags.filter((b) => b.kind === 'draft').map((b) => b.text), stack?.text, ...tags.filter((b) => !b.signal && !b.chip && b.kind !== 'draft').map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     // A stack's rows next to each other share a rail through their dots (AK-537).
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : '') + (rail.up ? '.stack-up' : '') + (rail.down ? '.stack-down' : ''), {
-      role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
+      role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key, 'data-stage': r.stage || undefined,
       title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, authors.length ? `By ${authors.map((a) => a.name).join(' and ')}` : null, stage?.label, stack?.title, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
       onclick: () => select(r.key),
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
-      h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
+      h('span.review-dot' + (r.stage ? `.${r.stage}` : '') + (drafty(r) ? '.draft' : ''), { role: 'img', 'aria-label': drafty(r) ? `${stage?.label || 'Open'}, draft` : stage?.label || 'Open' }),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)), r.title), chipsEl(r)),
         stuck ? reasonEl(r, authors) : subLine('div.list-sub.review-row-sub', null, r, authors, line ? h('span.review-row-text', null, line) : null),
@@ -359,6 +364,12 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     ? { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), run: () => act('checkoutHere', r) }
     : { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.checkout'), run: () => act('checkout', r) }));
 
+  // Draft ↔ ready (AK-610): only the switch that applies, greyed with why.
+  const draftItems = (r) => {
+    const d = r.pr ? draftSwitch(r.pr, inbox?.viewer) : null;
+    return d ? [{ label: d.menu, icon: d.icon, disabled: Boolean(d.why), why: d.why, run: () => act('draft', r) }] : [];
+  };
+
   function stagedMenu(x, y, r) {
     const l = asLane(r);
     contextMenu(x, y, [
@@ -366,6 +377,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       ...(r.pr ? [{ label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }] : [{ label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }]),
       ...checkoutItems(r),
       { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), why: r.pr ? null : actionWhy('merge', l) || gitWhy('mergeHere'), gated: !r.pr && !actionWhy('merge', l) && Boolean(gitWhy('mergeHere')), run: () => act('merge', r) },
+      ...draftItems(r),
       ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
       ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),
       ...(r.stage === 'stuck' ? [{ label: 'Send Back…', icon: 'copy', kbd: keymap.keys('lanes.sendBack'), run: () => act('sendBack', r) }] : []),
@@ -425,12 +437,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // selection to the next row that needs you; the PR list reloads behind it.
   function afterAction(key, id) {
     const before = shown.map((r) => r.key);
-    const n = rowPrNumber(key);
+    // Draft or ready (AK-610) re-stages a lane's row too, and keeps it selected.
+    const flip = id === 'draft' || id === 'ready';
+    const n = rowPrNumber(key) ?? (flip ? shown.find((r) => r.key === key)?.pr?.number ?? null : null);
     if (inbox && n != null) inbox = { ...inbox, ...applyAction(inbox, n, id) };
-    after = { before, key };
+    if (!flip) after = { before, key };
     render();
     list.querySelector('.lanes-row.active')?.scrollIntoView({ block: 'nearest' });
-    if (prsOn() && (id === 'approve' || id === 'close' || id === 'merge')) fetchLanes({ prs: true }).catch(fail);
+    if (prsOn() && ['approve', 'close', 'merge', 'draft', 'ready'].includes(id)) fetchLanes({ prs: true }).catch(fail);
   }
 
   // Below a short Needs you list: one calm line that says what's left (AK-396), from the tab counts.
@@ -445,12 +459,105 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     return h('div.review-calm', { role: 'note' }, h('b', null, some ? 'That’s everything that needs you.' : 'Nothing needs you right now.'), parts.join(' '));
   }
 
+  // Rows in list order, a stack's head over its rows wherever two or more of them sit together. The
+  // stack's rows share one rail colour, from its status (AK-611).
+  function pushRows(out, rs) {
+    let tone = null;
+    rs.forEach((r, i) => {
+      const rail = stackRail(rs, i);
+      if (rail.down && !rail.up) {
+        const mates = [];
+        for (let j = i; j < rs.length && rs[j].stack?.root === r.stack.root; j++) mates.push(rs[j]);
+        tone = stackStatus(mates, { base }).tone;
+        out.push(stackHead(mates));
+      }
+      const el = stagedRow(r, rail);
+      if ((rail.up || rail.down) && tone) el.dataset.rail = tone;
+      if (!rail.down) tone = null;
+      out.push(el);
+    });
+  }
+
+  // GitHub's word on each stack (AK-611): native or a plain chain, and whether it can be linked.
+  // One app:pr-chains per base after a load; root PR number → { native, linkable, why }.
+  let chainInfo = new Map();
+  let chainsFor = null;
+  async function loadChains() {
+    const prs = inbox?.prs || [];
+    if (!chains || !inbox?.remote || chainsFor === prs) return;
+    chainsFor = prs;
+    const bases = new Set((staged?.all || []).filter((r) => r.stack).map((r) => r.stack.base));
+    if (!bases.size) return;
+    const next = new Map();
+    for (const b of bases) {
+      const res = await chains(inbox.remote, b).catch(() => null);
+      for (const c of res?.ok?.chains || []) next.set(c.prs[0], c);
+    }
+    if (chainsFor !== prs) return;
+    chainInfo = next;
+    render();
+  }
+
+  // A stack's head (AK-609, AK-611): one quiet line over its rows, not a row of its own (it's never
+  // selected): name · tag · "3 PRs into main" · status · segments · text buttons.
+  function stackHead(rows) {
+    const { st, acts, link } = stackOffer(rows);
+    const s = rows[0].stack;
+    const c = chainInfo.get(s.root);
+    const segs = h('span.review-stack-segs', { role: 'group', 'aria-label': 'Parts' }, ...rows.map((r) => h('button.review-stack-seg', {
+      type: 'button', 'data-stage': r.stage || 'inProgress', 'data-draft': drafty(r) ? '' : undefined,
+      title: `#${r.pr.number} ${r.title}\n${partWhy(r, { base }).why.replace(/^is /, '').replace(/^./, (x) => x.toUpperCase())}`, 'aria-label': `#${r.pr.number}`, onclick: () => select(r.key),
+    })));
+    return h('div.review-stack-head' + `.${st.stage}` + (st.tone ? `.${st.tone}` : ''), { role: 'presentation', 'data-stack': String(s.root), title: `Stacked: ${[s.base || 'base', ...s.path.map((n) => `#${n}`)].join(' ‹ ')}` },
+      h('span.review-stack-name', null, stackTitle(rows.map((r) => r.pr))),
+      c ? h('span.review-stack-tag' + (c.native ? '.native' : ''), null, c.native ? 'GitHub stack' : 'Chain') : null,
+      h('span.review-stack-meta', null, `${rows.length} PRs into ${s.base || 'the base'}`),
+      h('span.review-stack-status', { title: st.text }, st.text),
+      segs,
+      acts.length || link ? h('span.review-stack-acts', null,
+        ...acts.map((x) => h('button.review-stack-act' + (x.id === 'merge' ? '.primary' : ''), { type: 'button', disabled: x.why ? true : undefined, title: x.why || undefined, onclick: x.run }, x.label)),
+        link) : null);
+  }
+  // What a stack's head offers, for the head and ⌘K: Merge for the parts that merge now, the held
+  // part's fix, Make it a GitHub stack (a chain; else why it can't be), Approve all (someone else's).
+  function stackOffer(rows) {
+    const st = stackStatus(rows, { base });
+    const n = st.through;
+    const prs = rows.map((r) => r.pr);
+    const c = chainInfo.get(rows[0].stack.root);
+    const ok = stackApproval(prs, inbox?.viewer);
+    // One fix per blocker of the held part (AK-611): Mark #6 ready · View failure.
+    const fixes = st.fixes?.filter((f) => f.id !== 'ready' || onMarkReady).map((f) => ({
+      id: f.id, label: f.label, n: f.row.pr.number,
+      run: () => (f.id === 'ready' ? onMarkReady(f.row.pr, inbox?.remote) : act(f.id, f.row)),
+    })) || [];
+    const acts = [
+      n.length && canPlan() ? { id: 'merge', label: n.length === rows.length ? 'Merge stack' : n.length > 1 ? `Merge #${n[0]} → #${n[n.length - 1]}` : `Merge #${n[0]}`, run: () => mergePlan(null, { only: n, held: stackHeld(rows, st) }) } : null,
+      ...fixes,
+      c && !c.native && c.linkable && onMakeStack ? { id: 'link', label: 'Make it a GitHub stack', run: () => onMakeStack(rows[0].pr.number) } : null,
+      ok && onApproveAll ? { id: 'approve', label: `Approve all ${ok.prs.length}…`, why: ok.why, run: () => onApproveAll(ok.prs, inbox?.remote, () => reload()) } : null,
+    ].filter(Boolean);
+    const link = c && !c.native && !c.linkable && c.why ? h('span.review-stack-why', { title: c.why }, c.why) : null;
+    return { st, acts, link };
+  }
+  // The parts a stack merge leaves open, with why: the held part's status, "stacked on #N" above it.
+  const stackHeld = (rows, st) => rows.slice(st.through.length).map((r, i) => ({ number: r.pr.number, why: i ? `Stacked on #${rows[st.through.length + i - 1].pr.number}` : st.why.replace(/^is /, '').replace(/^./, (c) => c.toUpperCase()) }));
+  // ⌘K's stack head entries for the selected row's stack (two or more of its rows listed), else [].
+  function stackActions() {
+    const x = current();
+    const rows = x?.stack ? shown.filter((r) => r.stack?.root === x.stack.root) : [];
+    if (rows.length < 2) return [];
+    const name = stackTitle(rows.map((r) => r.pr));
+    return stackOffer(rows).acts.filter((a) => !a.why && a.id !== 'link').map((a) => ({ ...a, label: a.id === 'merge' && a.label === 'Merge stack' ? `Merge stack: ${name}` : a.id === 'checks' ? `View #${a.n}’s failure` : a.id === 'rebase' ? `Rebase #${a.n}` : a.label }));
+  }
+
   function renderStaged() {
     const prsLoading = prsOn() && !inbox && !inboxFailed && reloading;
     const prsUnloaded = prsOn() && !inbox && !inboxFailed && !reloading; // nothing cached, Reload not pressed yet
     // A PR GitHub is still checking keeps the stage it had (AK-321).
     const previous = staged ? new Map(staged.all.map((x) => [x.key, x.stage])) : null;
     staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now(), previous });
+    loadChains();
     if (pendingSendBack != null && staged.all.some((x) => x.pr?.number === pendingSendBack)) { const n = pendingSendBack; pendingSendBack = null; setTimeout(() => sendBack(n)); }
     if (pendingPr != null && staged.all.some((x) => x.pr?.number === pendingPr)) { const n = pendingPr; pendingPr = null; setTimeout(() => showPr(n)); }
     const rows = [];
@@ -458,7 +565,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (loaded) { lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length, needs: needsYou(staged.stages) }; onCounts(lastCounts); }
     if (q) {
       shown = filterRows(staged.all, q);
-      shown.forEach((r, i) => rows.push(stagedRow(r, stackRail(shown, i))));
+      pushRows(rows, shown);
     } else {
       shown = [];
       const t = TAB.get(tab);
@@ -471,7 +578,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
         if (many && !rs.length) continue;
         if (many) rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': id }, h('span', null, label, ' ', h('span.lanes-count', null, String(rs.length)))));
         if (!rs.length && loaded && !prsLoading && !(prsUnloaded && id !== 'stuck')) rows.push(h('div.review-none', null, NONE[id]));
-        rs.forEach((r, i) => { shown.push(r); rows.push(stagedRow(r, stackRail(rs, i))); });
+        shown.push(...rs);
+        pushRows(rows, rs);
       }
       if (tab === 'open' && !shown.length && settled) rows.push(h('div.review-none', null, 'Nothing is open.'));
       if (tab === 'needs' && settled && shown.length <= SHORT) rows.push(calmLine());
@@ -551,8 +659,10 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     })).sort((a, b) => b.ready - a.ready || b.open - a.open || a.name.localeCompare(b.name));
   }
   const targetKey = () => `pref:mergeTarget:${repo || ''}`;
-  function mergePlan(method = null, { anyway = false, target = null } = {}) {
-    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target }); });
+  // `only`: PR numbers to plan (a stack's head, AK-609); the target is where they land. `held`: the
+  // stack's parts that stay open ({ number, why }, AK-611), listed under the plan.
+  function mergePlan(method = null, { anyway = false, target = null, only = null, held = [] } = {}) {
+    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target, only, held }); });
     if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : `Merge plan needs git ${GIT_NEEDS.mergePlan} or later`);
     const open = inbox?.prs || [];
     if (!open.length) return toast('No open pull requests');
@@ -562,14 +672,15 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     let saved = null;
     try { saved = localStorage.getItem(targetKey()); } catch { /* ignore */ }
     const has = (n) => targets.some((t) => t.name === n);
+    if (only) target = land.get(only[0]) || target;
     const to = target && has(target) ? target : saved && has(saved) ? saved : targets[0].name;
-    const ready = all.filter((p) => land.get(p.number) === to);
+    const ready = all.filter((p) => land.get(p.number) === to && (!only || only.includes(p.number)));
     const others = open.filter((p) => land.get(p.number) === to && !ready.some((x) => x.number === p.number));
     const onTarget = (name, { save = true } = {}) => {
       if (save) { try { localStorage.setItem(targetKey(), name); } catch { /* ignore */ } }
       mergePlan(method, { anyway, target: name });
     };
-    onMergePlan({ ready, others, known: open, base: to, remote: inbox.remote, method, anyway, targets, chosen: Boolean(target || (saved && has(saved))), onTarget });
+    onMergePlan({ ready, others, held, known: open, base: to, remote: inbox.remote, method, anyway, targets, chosen: Boolean(target || (saved && has(saved))), onTarget });
   }
 
   function renderTabs() {
@@ -816,7 +927,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, stackActions, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

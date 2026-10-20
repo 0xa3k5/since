@@ -438,11 +438,17 @@ async function planFacts({ enabled, remotes, number, dirs = searchDirs(), exec }
   return parsePlanFacts(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${PLAN_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`, '-F', `number=${n}`], { dirs, exec }));
 }
 
-// Mark a draft ready for review (`gh pr ready`).
+// Mark a draft ready for review (`gh pr ready`), or turn it back into a draft (`--undo`, AK-610).
+const readyArgs = (number, repo, { draft = false } = {}) => ['pr', 'ready', prNumber(number), '--repo', repo, ...(draft ? ['--undo'] : [])];
 async function markReady({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  await ghRun(bin, ['pr', 'ready', prNumber(number), '--repo', repo], { dirs, exec });
-  return { number };
+  await ghRun(bin, readyArgs(number, repo), { dirs, exec });
+  return { number, draft: false };
+}
+async function markDraft({ enabled, remotes, number, dirs = searchDirs(), exec } = {}) {
+  const { bin, repo } = target({ enabled, remotes, dirs });
+  await ghRun(bin, readyArgs(number, repo, { draft: true }), { dirs, exec });
+  return { number, draft: true };
 }
 
 // Re-run the failed jobs of a PR's failed GitHub Actions runs (at most 3, as failedRunIds finds
@@ -1041,4 +1047,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, readyArgs, markReady, markDraft, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

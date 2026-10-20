@@ -891,11 +891,44 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); }
 .review-dot.stuck { background: var(--red); }
 .review-dot.ready { background: var(--green); }
+.review-dot.draft { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-4); }
 /* A stack's rows next to each other (AK-537): a rail through their dots, up to the row above and
    down to the row below. The dot sits on top of it. Inside a stack, the divider starts under the title
    (AK-540), so the rail runs unbroken from the first dot to the last; the stack's last row keeps a full line. */
 .review-row.staged.stack-up, .review-row.staged.stack-down { position: relative; }
-.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: calc(var(--row-pad) + var(--row-dot) / 2 - 1px); width: 2px; background: var(--border-strong); pointer-events: none; }
+.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: calc(var(--row-pad) + var(--row-dot) / 2 - 0.75px); width: 1.5px; background: var(--rail, var(--border-strong)); pointer-events: none; }
+/* A status rail (AK-609, AK-611): the whole stack's rail takes its status colour: ready, checks
+   failing, conflicts; neutral otherwise. */
+.review-row.staged[data-rail="ready"] { --rail: var(--green); }
+.review-row.staged[data-rail="failing"] { --rail: var(--red); }
+.review-row.staged[data-rail="conflicts"] { --rail: var(--warn); }
+/* A stack's head (AK-609): one overline over its rows, lined up with their titles. Name · count and
+   status · text buttons. Not a row: never selected, no divider of its own. */
+.review-stack-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 10px 14px 3px calc(14px + 8px + 10px); font-size: 12px; color: var(--text-3); }
+.review-stack-name { flex: 0 4 auto; min-width: 4em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-weight: var(--fw-medium); }
+.review-stack-meta { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The status sentence names the blocker, so it gives way last (AK-611). */
+.review-stack-status { flex: 0 1 auto; min-width: 8em; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.review-stack-status::before { content: '· '; color: var(--text-3); }
+.review-stack-head.failing .review-stack-status { color: var(--red); }
+.review-stack-head.conflicts .review-stack-status { color: var(--warn); }
+.review-stack-tag { flex: none; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; font-size: 11px; line-height: 15px; color: var(--text-3); }
+.review-stack-tag.native { border-color: transparent; background: var(--accent-soft); color: var(--accent-fg); }
+/* One segment per part, in its stage's colour; a click selects that part's row. */
+.review-stack-segs { flex: none; display: inline-flex; gap: 2px; align-self: center; }
+.review-stack-seg { width: 14px; height: 4px; padding: 0; border: 0; border-radius: 2px; background: var(--border-strong); cursor: pointer; }
+.review-stack-seg[data-stage="ready"] { background: var(--green); }
+.review-stack-seg[data-stage="stuck"] { background: var(--red); }
+.review-stack-seg[data-draft] { background: transparent; box-shadow: inset 0 0 0 1px var(--text-4); }
+.review-stack-seg:hover { opacity: .75; }
+.review-stack-seg:focus-visible { outline-offset: 2px; }
+.review-stack-why { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
+.review-stack-acts { flex: none; display: inline-flex; gap: 12px; }
+.review-stack-act { padding: 0; border: 0; background: none; font: inherit; font-weight: var(--fw-medium); color: var(--text-2); cursor: pointer; border-radius: 3px; }
+.review-stack-act.primary { color: var(--accent-fg); }
+.review-stack-act:disabled { color: var(--text-3); opacity: .6; cursor: default; text-decoration: none; }
+.review-stack-act:not(:disabled):hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.review-stack-act:focus-visible { outline-offset: 2px; }
 .review-row.staged.stack-up::before { top: -1px; height: calc(50% + 1px); }
 .review-row.staged.stack-down::after { top: 50%; bottom: -1px; }
 .review-row.staged.stack-down { --row-inset: calc(var(--row-pad) + var(--row-dot) + var(--row-gap)); border-bottom-color: transparent; background-image: linear-gradient(var(--border), var(--border)); background-repeat: no-repeat; background-origin: border-box; background-position: right bottom; background-size: calc(100% - var(--row-inset)) 1px; }
@@ -1217,6 +1250,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
+.review-pane-actions .pane-more.always { display: inline-flex; }
 @container review-pane (max-width: 720px) {
   .btn.pane-shrink { width: 32px; padding: 0; justify-content: center; }
   .pane-shrink .btn-label, .pane-shrink .kbd-group { display: none; }
@@ -1280,6 +1314,9 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .dialog-title { font-size: 15px; font-weight: var(--fw-strong); }
 .dialog-desc { margin-top: 4px; color: var(--text-3); font-size: 12.5px; white-space: pre-wrap; }
 .dialog-body { display: grid; gap: 12px; padding: 14px 20px 4px; }
+.dialog-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--text-2); }
+.dialog-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dialog-list b { font-weight: var(--fw-medium); color: var(--text); font-variant-numeric: tabular-nums; }
 .field { display: grid; gap: 6px; }
 .field-label { font-size: 12px; color: var(--text-3); font-weight: var(--fw-medium); }
 .field-note { font-size: 12px; color: var(--text-3); }
