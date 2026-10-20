@@ -21,7 +21,7 @@ test('stuck: failing checks, GitHub conflicts or forecast conflicts, whatever el
   assert.equal(await stageOf(pr(1, { checks: 'failure' })), 'stuck');
   assert.equal(await stageOf(pr(1, { mergeable: false })), 'stuck');
   assert.equal(await stageOf(pr(1), { conflicts: [{ with: 'other', base: false, files: ['a'] }] }), 'inProgress');
-  assert.equal(await stageOf(pr(1, { checks: 'failure', draft: true })), 'stuck');
+  assert.equal(await stageOf(pr(1, { checks: 'failure', draft: true })), 'inProgress'); // the draft is its blocker (AK-611)
   assert.equal(await stageOf(pr(1, { checks: 'failure' }), { requested: [1] }), 'stuck');
   // The local forecast vetoes "ready".
   assert.equal(await stageOf(pr(1, READY), { conflicts: [{ with: 'main', base: true, files: ['a'] }] }), 'stuck');
@@ -430,7 +430,8 @@ test('mergeStateStatus: each state stages the way GitHub would let it merge', as
   assert.equal(await s({ mergeState: 'clean', checks: 'success' }), 'ready');
   assert.equal(await s({ mergeState: 'has_hooks', checks: 'success' }), 'ready');
   assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'success' }), 'inProgress');
-  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure' }), 'stuck');
+  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure' }), 'inProgress');
+  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure', mergeable: false }), 'stuck');
   // Unknown keeps the previous stage; with none, the rules for an older gh.
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'ready'), 'ready');
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'stuck'), 'stuck');
@@ -750,7 +751,7 @@ test('stackStatus: how far the stack merges, what holds it back, its rail and it
   assert.equal(stackStatus([row(4, 'ready'), row(5, 'inProgress', { checks: 'success' })]).text, 'Mergeable through #4 · #5 waiting for review');
   assert.equal(stackStatus([row(4, 'inProgress', { draft: true }), row(5, 'ready')]).text, '#4 is a draft');
   const f = stackStatus([row(4, 'stuck', { checks: 'failure', failing: ['test'], url: 'https://x/4' }), row(5, 'ready')]);
-  assert.deepEqual([f.text, f.tone, f.fix.id, f.fix.label], ['#4 CI ✗ test', 'failing', 'checks', 'View failure']);
+  assert.deepEqual([f.text, f.tone, f.fix.id, f.fix.label], ['#4 checks failing', 'failing', 'checks', 'View failure']);
   const c = stackStatus([row(4, 'stuck', { mergeable: 'CONFLICTING', mergeState: 'dirty' })]);
   assert.equal(c.tone, 'conflicts');
   assert.equal(stackStatus([row(4, 'inProgress', { checks: 'pending' })]).text, '#4 checks running');
@@ -764,4 +765,35 @@ test('stackApproval: someone else’s parts, greyed without write access, never 
   assert.equal(stackApproval(prs, { login: 'me', write: false }).why, 'Needs write access');
   assert.equal(stackApproval([pr(4, { author: 'Me' })], { login: 'me' }), null);
   assert.equal(stackApproval(prs, null), null);
+});
+
+// AK-611 feedback: the blocker decides the colour; a draft wins over checks GitHub doesn't require.
+test('stack parts: stage, colour and status per blocker', async () => {
+  const { reviewRows, stackStatus, rowChips, rowBadges } = await load();
+  const run = (o) => {
+    const prs = [pr(4, { ...READY, mergeState: 'unstable', checks: 'failure', url: 'https://x/4' }), pr(5, { base: 'b4', url: 'https://x/5', ...o })];
+    const r = reviewRows({ prs, prsOn: true, now: NOW });
+    const rows = Object.values(r.stages).flat();
+    return { home: Object.keys(r.stages).find((k) => r.stages[k].length), part: rows.find((x) => x.pr.number === 5), st: stackStatus(rows, { base: 'main' }) };
+  };
+  // Draft only: in progress, no colour, Mark ready.
+  const d = run({ draft: true, mergeState: 'draft', checks: 'success' });
+  assert.deepEqual([d.home, d.part.stage, d.st.tone, d.st.text], ['inProgress', 'inProgress', null, 'Mergeable through #4 · #5 is a draft']);
+  assert.deepEqual(d.st.fixes.map((f) => f.label), ['Mark #5 ready']);
+  // Draft with failing checks: still the draft's colour, both blockers named, both fixes.
+  const df = run({ draft: true, mergeState: 'draft', checks: 'failure' });
+  assert.deepEqual([df.home, df.part.stage, df.st.tone, df.st.text], ['inProgress', 'inProgress', null, 'Mergeable through #4 · #5 is a draft, checks failing']);
+  assert.deepEqual(df.st.fixes.map((f) => f.label), ['Mark #5 ready', 'View failure']);
+  assert.equal(rowChips(df.part)[0].kind, '');
+  // Failing checks GitHub doesn't require: ready, muted chip that says so.
+  const nr = run({ ...READY, mergeState: 'unstable', checks: 'failure' });
+  assert.deepEqual([nr.home, nr.part.stage, nr.st.tone, nr.st.text], ['ready', 'ready', 'ready', 'Ready to merge']);
+  const chip = rowChips(nr.part)[0];
+  assert.deepEqual([chip.kind, chip.title.split('\n')[0]], ['', 'Not required to merge']);
+  assert.equal(rowBadges(nr.part).find((b) => b.text === 'CI failing').kind, '');
+  // Failing required checks: stuck, red, View failure.
+  const rq = run({ mergeState: 'blocked', checks: 'failure', review: 'approved' });
+  assert.deepEqual([rq.home, rq.part.stage, rq.st.tone, rq.st.text], ['stuck', 'stuck', 'failing', 'Mergeable through #4 · #5 checks failing']);
+  assert.deepEqual(rq.st.fixes.map((f) => f.label), ['View failure']);
+  assert.equal(rowChips(rq.part)[0].kind, 'fail');
 });
