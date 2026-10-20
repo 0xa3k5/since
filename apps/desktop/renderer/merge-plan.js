@@ -20,10 +20,9 @@ export const METHODS = ['squash', 'merge', 'rebase'];
 
 // A unit's key in order / forced / blocked: a PR's number or a stack's id.
 const keyOf = (u) => u.stack ?? u.number;
-// "#41", or "the stack #41–#43" for a stack id.
 // PRs bottom…top as copy: "#275 → #278", or "#275" when there's one.
 export const rangeLabel = (prs) => (prs.length > 1 ? `#${prs[0]} → #${prs[prs.length - 1]}` : `#${prs[0]}`);
-
+// "#41", or "the stack #41–#43" for a stack id.
 export const unitLabel = (key, stacks = []) => {
   if (typeof key === 'number') return `#${key}`;
   const s = stacks.find((x) => x.id === key);
