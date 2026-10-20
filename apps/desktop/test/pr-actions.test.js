@@ -12,6 +12,8 @@ const ACTIONS = [
   ['pr-merge-info', undefined],
   ['pr-merge', { method: 'squash', deleteBranch: false, admin: false }],
   ['pr-close', { body: '' }],
+  ['pr-ready', undefined],
+  ['pr-draft', undefined],
   ['pr-comment', { body: 'hi' }],
   ['pr-failed-log', undefined],
 ];
@@ -58,4 +60,34 @@ test('prRef: finds the local branch for a copy of the PR (review page, Inbox row
   const data = { remote: { name: 'origin', owner: 'acme' }, prs: [pr] };
   const refs = [{ kind: 'branch', short: 'x' }];
   assert.equal(prRef({ ...pr, remote: 'origin' }, refs, prsByRef(data, refs)), refs[0]);
+});
+
+test('draftSwitch: only the switch that applies, greyed only without write access on someone else’s PR (AK-610)', async () => {
+  const { draftSwitch } = await load();
+  const open = { number: 4, author: 'ann', draft: false };
+  const d = draftSwitch(open, null);
+  assert.deepEqual([d.channel, d.draft, d.label, d.menu, d.command, d.done, d.back, d.why], ['pr-draft', true, 'Convert to draft', 'Convert to Draft', 'Convert #4 to draft', 'Converted #4 to draft', 'Mark ready for review', null]);
+  const r = draftSwitch({ ...open, draft: true }, null);
+  assert.deepEqual([r.channel, r.draft, r.label, r.menu, r.command, r.done, r.back], ['pr-ready', false, 'Mark ready for review', 'Mark Ready for Review', 'Mark #4 ready for review', 'Marked #4 ready for review', 'Convert back to draft']);
+  // Closed or merged: nothing to switch.
+  for (const state of ['closed', 'merged']) assert.equal(draftSwitch({ ...open, state }, null), null, state);
+  assert.equal(draftSwitch({ ...open, state: 'open' }, null).channel, 'pr-draft');
+  // The author or a writer can; no own-PR block.
+  assert.equal(draftSwitch(open, { login: 'Ann', write: false }).why, null);
+  assert.equal(draftSwitch(open, { login: 'bo', write: true }).why, null);
+  assert.equal(draftSwitch(open, { login: 'bo', write: false }).why, 'Needs write access');
+});
+
+test('switching draft calls gh through the PR’s remote, then the row updates (AK-610)', async () => {
+  const { draftSwitch, withDraft, prActionCall } = await load();
+  const list = [{ number: 4, title: 'a', draft: true }, { number: 5, title: 'b', draft: false }];
+  const { calls, call } = recorder();
+  const d = draftSwitch(list[0], null);
+  assert.deepEqual(await prActionCall(call, d.channel, list[0], undefined, { prs: { data: { remote: { name: 'upstream' } } } }), { ok: true });
+  assert.deepEqual(calls, [['pr-ready', 'upstream', 4, undefined]]);
+  const after = withDraft(list, 4, d.draft);
+  assert.deepEqual(after.map((p) => p.draft), [false, false]);
+  assert.equal(list[0].draft, true); // not mutated
+  assert.deepEqual(withDraft(list, 9, true), list);
+  assert.deepEqual(withDraft(null, 4, true), []);
 });

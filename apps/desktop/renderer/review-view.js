@@ -2,7 +2,7 @@ import { h, icon, kbd, toast, loading } from './ui.js';
 import { renderDiff, statusBadge, fileName, fileRef } from './diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
 import * as keymap from './keymap.js';
-import { prStatusLine } from './prs.js';
+import { prStatusLine, draftSwitch } from './prs.js';
 import { PR_ACTIONS, prActionFor } from './pr-review.js';
 import { fileCard, foldShut } from './reader.js';
 
@@ -15,7 +15,7 @@ import { fileCard, foldShut } from './reader.js';
 // git(method, ...args) calls the main process; store is localStorage; onClose() goes back;
 // onMerge() merges and tidies the branch (null: not offered, e.g. a detached head).
 // pr: an Inbox pull request (pr-review.js): the head shows its author and checks, and
-// onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) on it; prWhy(id) is why
+// onPrAction(id) runs approve / changes / merge / close / checkout (PR_ACTIONS) or draft on it; prWhy(id) is why
 // one doesn't apply (greyed, its click says why), or null.
 // Embedded in Review's pane (review-pane.js): `header` replaces the title, PR line and buttons and
 // runs across the full width above the files and the diff; there's no Back button and it doesn't
@@ -59,6 +59,17 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   const listEl = h('div.file-list.review-list', { role: 'listbox', 'aria-label': 'Files' });
   // With a header, the progress line (reviewed count, Changed since last look) sits under it once,
   // across the pane; the files column is just the list.
+  // Draft ↔ ready (AK-610): the switch that applies; onPrAction('draft') flips it on GitHub, then
+  // setDraft(draft) relabels it. None once the PR is closed or merged.
+  const draftChip = pr && draftSwitch(pr, null) ? h('button.chip', { onclick: () => onPrAction('draft') }) : null;
+  const setDraft = (draft) => {
+    const d = draftChip && draftSwitch({ ...pr, draft }, null);
+    if (!d) return;
+    draftChip.classList.toggle('gated', Boolean(prWhy('draft')));
+    draftChip.title = prWhy('draft') || 'Happens on GitHub: ⌘Z can’t undo it';
+    draftChip.replaceChildren(icon(d.icon, 12), d.label);
+  };
+  setDraft(Boolean(pr?.draft));
   const side = h('div.quick-side.review-side', null,
     header ? null : h('div.quick-head', null,
       embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
@@ -66,7 +77,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.authorName || pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
-      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key))))) : null),
+      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key)))), draftChip) : null),
     listEl,
     embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · ↑/↓ Move · Esc Back`),
   );
@@ -459,5 +470,5 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   }
 
   setTimeout(() => { if (!embedded) el.focus({ preventScroll: true }); load(); });
-  return { el, refresh, showConflicts, hasFile, goToLine };
+  return { el, refresh, showConflicts, hasFile, goToLine, setDraft };
 }

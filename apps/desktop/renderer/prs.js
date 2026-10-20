@@ -79,3 +79,22 @@ export function approveWhy(pr, viewer) {
   if (viewer.write === false) return 'Needs write access';
   return null;
 }
+
+// Draft ↔ ready for review (AK-610): the one switch that applies to an open PR, or null once it's
+// closed or merged. Its author or anyone with write access can flip it, so it's greyed (why) only
+// on someone else's PR when you're known to lack write access. label: pane and page; menu: the
+// context menus' title case; command: ⌘K. It happens on GitHub, so there's no Undo: the toast
+// offers the opposite switch instead.
+export function draftSwitch(pr, viewer) {
+  if (!pr || (pr.state && pr.state !== 'open')) return null;
+  const own = Boolean(pr.author && viewer?.login && pr.author.toLowerCase() === viewer.login.toLowerCase());
+  const why = !own && viewer?.write === false ? 'Needs write access' : null;
+  const n = `#${pr.number}`;
+  return pr.draft
+    ? { channel: 'pr-ready', draft: false, icon: 'eye', why, label: 'Mark ready for review', menu: 'Mark Ready for Review', command: `Mark ${n} ready for review`, busy: `Marking ${n} ready for review…`, done: `Marked ${n} ready for review`, cant: `Can’t mark ${n} ready for review`, failed: `Couldn’t mark ${n} ready for review`, back: 'Convert back to draft' }
+    : { channel: 'pr-draft', draft: true, icon: 'edit', why, label: 'Convert to draft', menu: 'Convert to Draft', command: `Convert ${n} to draft`, busy: `Converting ${n} to draft…`, done: `Converted ${n} to draft`, cant: `Can’t convert ${n} to draft`, failed: `Couldn’t convert ${n} to draft`, back: 'Mark ready for review' };
+}
+
+// The PR list after a switch: that PR's draft flag set, so its badge and row update before the
+// next reload. Other PRs, and a list without it, stay as they are.
+export const withDraft = (prs, number, draft) => (prs || []).map((p) => (p.number === number ? { ...p, draft } : p));
