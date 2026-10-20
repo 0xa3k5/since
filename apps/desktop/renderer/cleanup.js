@@ -14,12 +14,12 @@ export function daysValue(v) {
 
 // In the order the Finished tab of Branches shows them (AK-396). Each card ticks its whole group.
 export const GROUPS = [
-  { id: 'merged', label: 'Merged or shipped', detail: 'Merged, squash-merged, rebased, or shipped through a pull request.' },
-  { id: 'mergedWorktree', label: 'Worktrees of merged branches', detail: 'Removes the worktree folder and its branch.' },
-  { id: 'missing', label: 'Worktree folder missing', detail: 'The folder is already gone; only git’s record is left.' },
-  { id: 'gone', label: 'Deleted on GitHub', detail: 'The remote branch it tracked was deleted, usually after its PR merged.' },
-  { id: 'old', label: 'Untouched', detail: 'Not merged anywhere. Your call; not ticked by default.' },
-  { id: 'dirty', label: 'With uncommitted changes', detail: 'Removing these worktrees deletes their uncommitted files for good.', warn: true },
+  { id: 'merged', label: 'Merged or shipped' },
+  { id: 'mergedWorktree', label: 'Worktrees of merged branches' },
+  { id: 'missing', label: 'Worktree folder missing' },
+  { id: 'gone', label: 'Deleted on GitHub' },
+  { id: 'old', label: 'Untouched' },
+  { id: 'dirty', label: 'With uncommitted changes', warn: true },
 ];
 
 // Uncommitted files that removing the lane's worktree would delete for good.
@@ -75,8 +75,21 @@ export function blocked(lane) {
 // worktree and the base branch are never offered.
 export const preselect = (lane) => !blocked(lane) && !dirty(lane) && lane.group !== 'old';
 
-// Its remote branch, when it still has one (deleting it there is a separate, opt-in tick).
-export const remoteOf = (lane) => (lane.upstream && !lane.upstreamGone ? lane.upstream : null);
+// Its own remote branch (`<remote>/<same name>`), when it still has one; deleting it there is a
+// separate, opt-in tick. A branch tracking something else (usually the base it was made from,
+// `origin/main`) has none: its upstream is never deleted.
+// Where "Also delete them on …" deletes: the one remote's name, else "the remote".
+export function remoteWhere(refs) {
+  const names = new Set(refs.map((r) => r.split('/')[0]));
+  return names.size === 1 ? [...names][0] : 'the remote';
+}
+
+export function remoteOf(lane, base = null) {
+  const up = lane.upstream;
+  if (!up || lane.upstreamGone || !lane.branch || lane.branch === base) return null;
+  const remote = up.slice(0, -lane.branch.length - 1);
+  return up.endsWith(`/${lane.branch}`) && remote ? up : null;
+}
 
 // Finished lanes as [{ group, lanes }] in GROUPS order, each lane with `group` set.
 export function groupLanes(lanes, opts) {
@@ -99,13 +112,16 @@ export function cleanupItem(lane) {
 }
 
 // Counts for the confirmation: { worktrees, branches, dirty: [lanes], remotes: [names] }.
-// `remote` holds the laneKeys ticked for deletion on the remote too.
-export function summarize(lanes, remote = new Set()) {
+// `remote` holds the laneKeys ticked for deletion on the remote too. `all` is every lane: a remote
+// branch that a lane not being cleaned up still tracks stays. `base` is never deleted.
+export function summarize(lanes, remote = new Set(), { all = lanes, base = null } = {}) {
+  const going = new Set(lanes.map(laneKey));
+  const kept = new Set(all.filter((l) => !going.has(laneKey(l))).map((l) => l.upstream).filter(Boolean));
   return {
     worktrees: lanes.filter((l) => l.worktree).length,
     branches: lanes.filter((l) => l.branch).length,
     dirty: lanes.filter(dirty),
-    remotes: lanes.map((l) => remote.has(laneKey(l)) && remoteOf(l)).filter(Boolean),
+    remotes: [...new Set(lanes.map((l) => remote.has(laneKey(l)) && remoteOf(l, base)).filter((r) => r && !kept.has(r)))],
   };
 }
 
