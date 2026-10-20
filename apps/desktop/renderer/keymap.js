@@ -118,6 +118,8 @@ export const COMMANDS = [
 
   // Anywhere in a repository (window keydown in app.js).
   c('global', 'global', 'global.search', 'Search commits', '/'),
+  // ⌘B anywhere: at HEAD, or at the selected commit in the Map (same as its `b`).
+  c('global', 'global', 'global.branch', 'Create Branch…', 'Mod+B'),
   c('global', 'global', 'global.close', 'Close Quick View', 'Escape'),
   c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
