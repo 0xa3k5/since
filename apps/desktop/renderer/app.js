@@ -42,6 +42,7 @@ import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
 import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
 import { peekEvidence } from './evidence-store.js';
+import { commitBlock } from './commit-guards.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -1666,16 +1667,29 @@ function commitShortcut(e, id, c) {
     'commit.drop': () => rewriteOp('drop', c), 'commit.checkout': () => checkoutCommit(c), 'commit.diffHead': () => diffWithHead(c),
     'commit.worktree': () => addWorktree({ base: c.sha }), 'commit.split': () => openSplit(c), 'commit.author': () => openAuthor(c),
   }[id];
-  if (run) { e.preventDefault(); run(); }
+  if (!run) return;
+  e.preventDefault();
+  guarded(id, c, run);
+}
+
+// Loaded graph commits by sha, for commitBlock (a new lookup per menu: its answers are cached per lookup).
+const graphCommits = () => (sha) => state.commits[state.index.get(sha)];
+// Runs a map action, or toasts why it can't run on this commit (the menu greys the same cases).
+function guarded(id, c, run) {
+  const why = commitBlock(id, c, state.head.oid, graphCommits());
+  if (why) toast(why);
+  else run();
 }
 
 function commitMenu(x, y, c) {
   const locals = branchesAt(c.sha);
   const isHead = c.sha === state.head.oid;
   const remote = originRemote();
+  const get = graphCommits();
+  const off = (id) => !!commitBlock(id, c, state.head.oid, get);
   contextMenu(x, y, [
     { label: 'Quick View', icon: 'eye', kbd: keymap.keys('map.quick'), run: () => openQuick(c.sha) },
-    { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), disabled: isHead, run: () => diffWithHead(c) },
+    { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), disabled: off('commit.diffHead'), run: () => diffWithHead(c) },
     '-',
     ...(locals.length
       ? locals.map((b) => (worktreeOf(b.short)
@@ -1688,18 +1702,18 @@ function commitMenu(x, y, c) {
     state.head.branch && !isHead ? { label: `Move “${state.head.branch}” here`, icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
     '-',
     { section: state.head.branch ? `Into ${state.head.branch}` : 'Into HEAD' },
-    { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), disabled: isHead, run: () => mergeCommit(c) },
-    { label: 'Rebase Current onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), disabled: isHead, run: () => rebaseOnto(c) },
-    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), disabled: isHead, run: () => cherryPick(c) },
+    { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), disabled: off('commit.merge'), run: () => mergeCommit(c) },
+    { label: 'Rebase Current onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), disabled: off('commit.rebase'), run: () => rebaseOnto(c) },
+    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), disabled: off('commit.cherryPick'), run: () => cherryPick(c) },
     { label: 'Revert', icon: 'revert', kbd: keymap.keys('commit.revert'), run: () => revertCommit(c) },
     '-',
     { section: 'Rewrite' },
     { label: 'Edit Message…', icon: 'edit', kbd: keymap.keys('commit.edit'), run: () => editMessage(c) },
-    { label: 'Squash with Parent', icon: 'squash', kbd: keymap.keys('commit.squash'), disabled: c.parents.length !== 1, run: () => rewriteOp('squash', c) },
-    { label: 'Fixup with Parent', icon: 'squash', kbd: keymap.keys('commit.fixup'), disabled: c.parents.length !== 1, run: () => rewriteOp('fixup', c) },
-    { label: 'Swap with Parent', icon: 'swap', disabled: c.parents.length !== 1, run: () => rewriteOp('swapParent', c) },
-    { label: 'Split Commit…', icon: 'split', kbd: keymap.keys('commit.split'), disabled: c.parents.length > 1, run: () => openSplit(c) },
-    { label: 'Delete Commit', icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: c.parents.length > 1, run: () => rewriteOp('drop', c) },
+    { label: 'Squash with Parent', icon: 'squash', kbd: keymap.keys('commit.squash'), disabled: off('commit.squash'), run: () => rewriteOp('squash', c) },
+    { label: 'Fixup with Parent', icon: 'squash', kbd: keymap.keys('commit.fixup'), disabled: off('commit.fixup'), run: () => rewriteOp('fixup', c) },
+    { label: 'Swap with Parent', icon: 'swap', disabled: off('swapParent'), run: () => rewriteOp('swapParent', c) },
+    { label: 'Split Commit…', icon: 'split', kbd: keymap.keys('commit.split'), disabled: off('commit.split'), run: () => openSplit(c) },
+    { label: 'Delete Commit', icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: off('commit.drop'), run: () => rewriteOp('drop', c) },
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
     remote?.web ? { label: 'Copy Link to Commit', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
@@ -4050,7 +4064,7 @@ function openPalette() {
     if (sel) add('Commit', 'Checkout selected commit', () => checkoutSelected(sel), { icon: 'checkout', kbd: keymap.keys('commit.checkoutBranch'), detail: sel.sha === state.head.oid ? 'already HEAD' : sel.sha.slice(0, 7), keywords: 'checkout switch detach head' });
     if (sel && authorProfile(sel.email, originRemote()?.web)) add('Commit', 'View author on GitHub', () => openAuthor(sel), { icon: 'external', kbd: keymap.keys('commit.author'), detail: sel.author, keywords: 'author profile github user person' });
     if (sel && originRemote()?.web) add('Commit', 'Copy link to selected commit', () => copyCommitLink(sel.sha), { icon: 'copy', kbd: keymap.keys('map.copyLink'), detail: sel.sha.slice(0, 7), keywords: 'copy link url share permalink github web' });
-    if (sel) add('Commit', 'Split selected commit…', () => openSplit(sel), { icon: 'split', kbd: keymap.keys('commit.split'), detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
+    if (sel) add('Commit', 'Split selected commit…', () => guarded('commit.split', sel, () => openSplit(sel)), { icon: 'split', kbd: keymap.keys('commit.split'), detail: sel.sha.slice(0, 7), keywords: 'split commit lines hunks rewrite' });
     add('View', 'Jump to HEAD', () => jumpTo(state.head.oid), { icon: 'checkout' });
     add('App', 'Open repository…', () => openRepo(), { icon: 'folder', kbd: keymap.keys('file.open') });
     add('App', 'Switch repository…', repoSwitcher, { icon: 'folder', kbd: keymap.keys('file.repoSwitch'), keywords: 'recent open project switch' });
