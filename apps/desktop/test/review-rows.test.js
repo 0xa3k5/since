@@ -283,6 +283,21 @@ test('merge and close take the PR row away; its lane goes to the finished line o
   assert.deepEqual(applyAction(same, 1, 'checkout'), same);
 });
 
+test('marking ready or converting to draft re-stages the row in place (AK-610)', async () => {
+  const { applyAction, reviewRows } = await load();
+  const before = { prs: [pr(1, { ...READY, draft: true }), pr(2, READY)], requested: [1] };
+  const stage = (s) => reviewRows({ prs: s.prs, reviewRequested: s.requested, prsOn: true, now: NOW }).stages;
+  assert.ok(!stage(before).ready.some((r) => r.key === 'pr:1'));
+  const ready = applyAction(before, 1, 'ready');
+  assert.equal(ready.prs[0].draft, false);
+  assert.deepEqual(ready.requested, [1]); // still asked for your review
+  assert.equal(before.prs[0].draft, true); // not mutated
+  assert.ok(stage({ ...ready, requested: [] }).ready.some((r) => r.key === 'pr:1'));
+  const draft = applyAction(ready, 2, 'draft');
+  assert.deepEqual(draft.prs.map((p) => p.draft), [false, true]);
+  assert.ok(!stage(draft).ready.some((r) => r.key === 'pr:2'));
+});
+
 test('rowPrNumber reads PR row keys only', async () => {
   const { rowPrNumber } = await load();
   assert.equal(rowPrNumber('pr:12'), 12);

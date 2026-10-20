@@ -47,7 +47,7 @@ import { markdown } from './markdown.js';
 import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
 import { peekEvidence } from './evidence-store.js';
 import { commitBlock } from './commit-guards.js';
-import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, draftSwitch, withDraft, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -1435,7 +1435,7 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
-  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : null) }); return contentEl.append(reviewPage.el); }
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : id === 'draft' ? draftSwitch(state.review.pr, prViewer())?.why || null : null) }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -3478,6 +3478,7 @@ function prDeskAction(id) {
   if (id === 'merge') return mergePr(pr, leave);
   if (id === 'close') return closePr(pr, leave);
   if (id === 'checkout') return checkoutPr(pr, { worktree: true });
+  if (id === 'draft') return toggleDraft(pr);
 }
 // Menu, ⌘K and shortcut Merge/Close: on the PR review page they act on its PR and leave the page
 // after, like its own buttons (AK-269).
@@ -3495,6 +3496,7 @@ function paneAction(id, row, ctx) {
   if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
   if (id === 'approve' && pr) return approvePr(pr, done, ctx?.viewer);
   if (id === 'close' && pr) return closePr(pr, done);
+  if (id === 'draft' && pr) return toggleDraft(pr, ctx?.viewer, (draft) => lanesPage?.afterAction(row.key, draft ? 'draft' : 'ready'));
   if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
   if (id === 'github' && pr) return openPrOnGitHub(pr);
   if (id === 'checks' && pr?.url) return api.app('external', `${pr.url}/checks`);
@@ -4528,6 +4530,22 @@ const closePr = (given, onDone) => withPr(given, 'Close', async (pr) => {
   refreshPrs();
 });
 
+// Draft ↔ ready for review (AK-610). It happens on GitHub, so there's no Undo: the toast offers
+// the opposite switch instead. onDone(draft) re-stages the Review row it came from; without it an
+// open Review reloads. The graph badges and the review page update at once.
+const toggleDraft = (given, viewer, onDone) => withPr(given, 'Switch draft state of', async (pr) => {
+  const d = draftSwitch(pr, prViewer(viewer));
+  if (!d) return toast(`#${pr.number} isn’t open`);
+  if (d.why) return toast(d.cant, { detail: d.why });
+  const res = await prCall(d.channel, pr, undefined, d.busy);
+  if (res.error) return prError(d.failed, res.error);
+  toast(d.done, { kind: 'success', detail: 'On GitHub: ⌘Z can’t undo it', action: { label: d.back, run: () => toggleDraft({ ...pr, draft: d.draft }, viewer, onDone) } });
+  if (state.prs?.data?.prs) { state.prs.data = { ...state.prs.data, prs: withDraft(state.prs.data.prs, pr.number, d.draft) }; showPrs(); }
+  if (state.review?.pr?.number === pr.number) { state.review.pr = { ...state.review.pr, draft: d.draft }; reviewPage?.setDraft?.(d.draft); }
+  if (onDone) onDone(d.draft);
+  else if (lanesPage?.el.isConnected && lanesPage.canReload()) lanesPage.reload();
+});
+
 // Update branch (AK-364): bring a PR that isn't checked out here up to date with its base on
 // GitHub (`gh pr update-branch`), with a merge commit or a rebase. GitHub refuses when the two
 // conflict; then the PR has to be checked out and fixed here.
@@ -4577,12 +4595,14 @@ async function mergeReadyPrs(prs, remote) {
 
 function prMenu(e, pr) {
   e.preventDefault();
+  const ds = draftSwitch(pr, prViewer());
   contextMenu(e.clientX, e.clientY, [
     { label: 'Go to Branch', icon: 'branch', kbd: keymap.keys('menu.choose'), run: () => goToPr(pr) },
     { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => checkoutPr(pr) },
     { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => checkoutPr(pr, { worktree: true }) },
     '-',
     { label: 'Approve…', icon: 'check', disabled: Boolean(approveWhy(pr, prViewer())), why: approveWhy(pr, prViewer()), run: () => approvePr(pr) },
+    ...(ds ? [{ label: ds.menu, icon: ds.icon, disabled: Boolean(ds.why), why: ds.why, run: () => toggleDraft(pr) }] : []),
     { label: 'Merge…', icon: 'merge', run: () => mergePr(pr) },
     { label: 'Close…', icon: 'x', danger: true, run: () => closePr(pr) },
     '-',
@@ -4764,6 +4784,11 @@ function openPalette() {
         add('Review', `${label} ${t}${a.id === 'updateBranch' ? ' on GitHub…' : ''}`, () => (a.id === 'showConflicts' ? lanesPage.showRowConflicts() : paneAction(a.id, paneSel.row, paneSel.ctx)), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: 'stuck fix conflicts conflicting files ci failing checks rebase update branch behind merge base github' });
       }
     }
+    // Draft ↔ ready (AK-610) for the PR in front of you: the pane's, the review page's, else the checked-out branch's.
+    const draftPr = !state.prs?.active ? null : paneSel?.row.pr ? { ...paneSel.row.pr, remote: prRemote(paneSel.row.pr, paneSel.ctx?.remote) }
+      : state.review?.pr || (state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null);
+    const ds = draftPr && draftSwitch(draftPr, prViewer(paneSel?.row.pr ? paneSel.ctx?.viewer : null));
+    if (ds) add(paneSel?.row.pr ? 'Review' : 'Repository', ds.command, () => (paneSel?.row.pr ? paneAction('draft', paneSel.row, paneSel.ctx) : toggleDraft(draftPr)), { icon: ds.icon, gated: Boolean(ds.why), detail: ds.why, keywords: 'pr github gh draft ready for review wip convert undo draft' });
     add('Repository', 'Clean up finished branches and worktrees…', () => startCleanup(), { icon: 'trash', kbd: keymap.keys('global.cleanup'), keywords: 'prune delete merged squash gone old stale worktrees branches tidy remove bulk finished' });
     if (state.view === 'branches' && branchesPage?.tab() === 'finished' && !state.review) {
       const n = branchesPage.panel.count();

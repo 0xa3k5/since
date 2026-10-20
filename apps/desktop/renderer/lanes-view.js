@@ -4,6 +4,7 @@ import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, 
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
 import { updateBranchBlock } from './pr-review.js';
+import { draftSwitch } from './prs.js';
 import { navPos, authorsStack } from './reader.js';
 import { factsFor, peekFacts, peekEvidence } from './evidence-store.js';
 
@@ -190,6 +191,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // A PR with no lane here squash-merges on GitHub: M and Merge… wait until it's ready, like the button (AK-275).
     const why = id === 'merge' && pr && !(lane?.branch && !lane.isBase) ? mergeBlock(r, { base }) : null;
     if (why) return toast(why);
+    if (id === 'draft') return pr && onPaneAction?.(id, r, paneCtx(r));
     if (split() && ['merge', 'approve', 'close', 'checkout', 'github'].includes(id) && onPaneAction) return onPaneAction(id, r, paneCtx(r));
     if (id === 'review' && split() && paneObj?.key === r.key) paneObj.focus();
     else if (id === 'review') { if (pr) onPrReview(pr, inbox?.remote); else if (lane) onReview(lane, base); }
@@ -359,6 +361,12 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     ? { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), run: () => act('checkoutHere', r) }
     : { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('lanes.checkout'), run: () => act('checkout', r) }));
 
+  // Draft ↔ ready (AK-610): only the switch that applies, greyed with why.
+  const draftItems = (r) => {
+    const d = r.pr ? draftSwitch(r.pr, inbox?.viewer) : null;
+    return d ? [{ label: d.menu, icon: d.icon, disabled: Boolean(d.why), why: d.why, run: () => act('draft', r) }] : [];
+  };
+
   function stagedMenu(x, y, r) {
     const l = asLane(r);
     contextMenu(x, y, [
@@ -366,6 +374,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       ...(r.pr ? [{ label: 'Review…', icon: 'diff', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }] : [{ label: 'Review Branch', icon: 'check', kbd: keymap.keys('lanes.review'), run: () => act('review', r) }]),
       ...checkoutItems(r),
       { label: 'Merge…', icon: 'merge', kbd: keymap.keys('lanes.merge'), disabled: !r.pr && (!l.branch || l.isBase), why: r.pr ? null : actionWhy('merge', l) || gitWhy('mergeHere'), gated: !r.pr && !actionWhy('merge', l) && Boolean(gitWhy('mergeHere')), run: () => act('merge', r) },
+      ...draftItems(r),
       ...(r.lane?.branch && !r.lane.isBase && base ? [{ label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('lanes.rebase'), run: () => act('rebase', r) }] : []),
       ...(r.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('lanes.checks'), run: () => act('checks', r) }] : []),
       ...(r.stage === 'stuck' ? [{ label: 'Send Back…', icon: 'copy', kbd: keymap.keys('lanes.sendBack'), run: () => act('sendBack', r) }] : []),
@@ -425,12 +434,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // selection to the next row that needs you; the PR list reloads behind it.
   function afterAction(key, id) {
     const before = shown.map((r) => r.key);
-    const n = rowPrNumber(key);
+    // Draft or ready (AK-610) re-stages a lane's row too, and keeps it selected.
+    const flip = id === 'draft' || id === 'ready';
+    const n = rowPrNumber(key) ?? (flip ? shown.find((r) => r.key === key)?.pr?.number ?? null : null);
     if (inbox && n != null) inbox = { ...inbox, ...applyAction(inbox, n, id) };
-    after = { before, key };
+    if (!flip) after = { before, key };
     render();
     list.querySelector('.lanes-row.active')?.scrollIntoView({ block: 'nearest' });
-    if (prsOn() && (id === 'approve' || id === 'close' || id === 'merge')) fetchLanes({ prs: true }).catch(fail);
+    if (prsOn() && ['approve', 'close', 'merge', 'draft', 'ready'].includes(id)) fetchLanes({ prs: true }).catch(fail);
   }
 
   // Below a short Needs you list: one calm line that says what's left (AK-396), from the tab counts.

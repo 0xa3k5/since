@@ -475,6 +475,8 @@ export function applyAction({ prs = [], requested = [] } = {}, number, id) {
   const rest = requested.filter((n) => n !== number);
   if (id === 'approve') return { prs: prs.map((p) => (p.number === number ? { ...p, review: 'approved' } : p)), requested: rest };
   if (id === 'merge' || id === 'close') return { prs: prs.filter((p) => p.number !== number), requested: rest };
+  // Converted to draft or marked ready (AK-610): the row re-stages; review requests stay.
+  if (id === 'draft' || id === 'ready') return { prs: prs.map((p) => (p.number === number ? { ...p, draft: id === 'draft' } : p)), requested };
   return { prs, requested };
 }
 
