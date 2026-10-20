@@ -96,8 +96,7 @@ test('remove is blocked while dirty, asks first, and undo brings it back', async
   await app.view('worktrees');
   await expect(row.locator('.wt-changes')).toHaveText('Clean');
   await app.contextMenu(row, 'Remove Worktree…');
-  await app.dialog({ submit: 'Remove' });
-  await app.toast('Remove worktree app-feature');
+  await app.toast('Removed app-feature');
   expect(worktrees(sandbox, repo)).toEqual(['app']);
   expect(fs.existsSync(wt)).toBe(false);
   await expect(app.page.locator('.wt-row')).toHaveCount(1);

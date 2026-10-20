@@ -21,6 +21,6 @@ export function removalPlan(w, { main = null, facts = {}, draft = false } = {}) 
     if (!main || main.missing) return { kind: 'blocked', why: 'The main worktree is missing' };
     plan = { kind: main.elsewhere ? 'handoff' : 'switch', dir: main.path, then: { ...remove, close: main.elsewhere } };
   }
-  const why = facts.op ? `“${w.name}” has a ${facts.op} in progress.` : draft && w.elsewhere ? `“${w.name}” has a commit message in progress.` : null;
+  const why = facts.op ? `“${w.name}” has a ${facts.op} in progress.` : draft && (w.elsewhere || w.current) ? `“${w.name}” has a commit message in progress.` : null;
   return why ? { kind: 'ask', why, then: plan } : plan;
 }

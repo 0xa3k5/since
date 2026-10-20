@@ -1814,7 +1814,7 @@ async function checkout(branch) {
 async function inUseSheet(branch, wt) {
   const hold = wt.missing ? { blocker: 'Its folder no longer exists.' } : await git('worktreeHold', wt.path).catch((e) => ({ blocker: e.message }));
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
-  const mine = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+  const mine = switchChanges();
   const p = inUsePlan(wt, hold, mine);
   const name = h('span', { title: wt.path }, wt.name);
   const v = await resolveSheet({
@@ -1938,6 +1938,11 @@ async function deleteBranch(r) {
 // Local branches this window can switch to instead of `name` (not checked out in another worktree).
 const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
 const canSwitchFrom = (name) => switchTargets(name).length > 0;
+// This window's changes a switch would stash (submodule insides stay).
+const switchChanges = () => {
+  const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
+  return state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
+};
 
 // Delete the checked-out branch: pick a branch to switch to (`base` first, when given), optionally
 // stash, then switch and delete as one undo step.
@@ -2028,7 +2033,7 @@ async function rewriteVia(c, op, run) {
 // brings back the branch, the switch and the stash (Journal.switchRewrite).
 function switchRewrite(op, c, branch, extra = null) {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
-  const n = state.status.staged.length + state.status.unstaged.filter((f) => untracked || f.status !== '?').length;
+  const n = switchChanges();
   const from = state.head.branch;
   const stash = n ? { message: stashMessage(from, branch), untracked } : null;
   const done = { reword: 'Reworded', squash: 'Squashed', fixup: 'Fixed up', swapParent: 'Swapped', split: 'Split', drop: 'Deleted' }[op];
@@ -3350,7 +3355,7 @@ function worktreeMenu(x, y, w) {
     { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: keymap.keys('worktrees.lock'), disabled: w.main, run: () => toggleLock(w) },
     w.missing
       ? { label: 'Prune Missing Worktrees', icon: 'trash', danger: true, run: pruneWorktrees }
-      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main || w.current, run: () => removeWorktree(w) },
+      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main, run: () => removeWorktree(w) },
   ]);
 }
 
@@ -3398,11 +3403,6 @@ async function removeWorktree(w, { handed = false } = {}) {
   if (plan.kind === 'handoff') {
     try { await api.app('handoff', { kind: 'removeWorktree', dir: plan.dir, path: w.path }); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: e.message }); }
     return;
-  }
-  if (!w.elsewhere && !handed && !asked) {
-    const what = w.branch ? `Branch ${w.branch} is kept.` : `Its detached HEAD (${w.head?.slice(0, 7)}) is kept for undo.`;
-    const stashed = facts.changes ? ` ${facts.changes} uncommitted change${facts.changes > 1 ? 's are' : ' is'} stashed.` : '';
-    if (!(await confirm(`Remove worktree “${w.name}”?`, `Deletes the folder ${tildify(w.path)}. ${what}${stashed} Ignored files in it, such as build output, are deleted for good; ${MOD}Z brings everything else back.`, { submit: 'Remove' }))) return;
   }
   if (plan.kind === 'switch') {
     await switchWorktree(main);
@@ -4198,6 +4198,8 @@ function openPalette() {
     add('Worktrees', 'New worktree…', () => addWorktree(), { icon: 'worktree', kbd: keymap.keys('repo.worktreeAdd') });
     add('Worktrees', 'Switch worktree…', worktreeSwitcher, { icon: 'worktree', kbd: keymap.keys('repo.worktreeSwitch') });
     if (state.worktrees.some((w) => w.missing)) add('Worktrees', 'Prune missing worktrees', pruneWorktrees, { icon: 'trash' });
+    const here = state.worktrees.find((w) => w.current && !w.main && !w.missing);
+    if (here) add('Worktrees', `Remove worktree ${here.name}…`, () => removeWorktree(here), { icon: 'trash', detail: here.branch || here.head?.slice(0, 7) || null });
     for (const w of state.worktrees) {
       if (w.current || w.missing) continue;
       const detail = w.branch || (w.head ? w.head.slice(0, 7) : null);

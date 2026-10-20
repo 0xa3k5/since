@@ -2,6 +2,8 @@
 // Removing a worktree (renderer/worktree-removal.js, AK-581): every plan ends with it removed or one reason.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const load = () => import('../renderer/worktree-removal.js');
 const wt = (o = {}) => ({ name: 'wt-dirty', path: '/r/wt-dirty', ...o });
@@ -33,6 +35,20 @@ test('removal plan: asks only for work undo can’t bring back', async () => {
   assert.equal(removalPlan(wt({ elsewhere: true }), { facts: { op: 'merge' } }).why, '“wt-dirty” has a merge in progress.');
   // A draft in a worktree no window shows is kept for when it's back (undo).
   assert.equal(removalPlan(wt(), { draft: true }).kind, 'remove');
+  // This window shows it: closing it on a typed message asks too, whichever window removes it.
+  const m = { ...main(), elsewhere: true };
+  const handoff = removalPlan(wt({ current: true }), { main: m, draft: true });
+  assert.equal(handoff.kind, 'ask');
+  assert.equal(handoff.then.kind, 'handoff');
+  assert.equal(removalPlan(wt({ current: true }), { main: m }).kind, 'handoff');
+});
+
+test('removing a worktree no window shows needs no confirm, and the current one can be removed', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function removeWorktree('), src.indexOf('function askAt('));
+  assert.doesNotMatch(fn, /await confirm\(/);
+  assert.match(src, /label: 'Remove Worktree…'[^\n]*disabled: w\.main,/);
+  assert.match(src, /Remove worktree \$\{here\.name\}…/);
 });
 
 test('removal plan: the reasons it can’t be removed', async () => {
