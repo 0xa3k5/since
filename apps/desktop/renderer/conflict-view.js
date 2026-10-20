@@ -1,5 +1,5 @@
 import { h, icon, confirm } from './ui.js';
-import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers } from './conflict.js';
+import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers, keepLineEndings } from './conflict.js';
 import * as keymap from './keymap.js';
 
 const CONTEXT = 3; // unchanged lines shown around each conflict
@@ -61,7 +61,7 @@ export function conflictEditor(info, ctx) {
   }
   async function resolve() {
     if (info.kind !== 'text') return;
-    const text = st.editing && textarea ? textarea.value : resultText();
+    const text = keepLineEndings(info.text, st.editing && textarea ? textarea.value : resultText());
     if (hasMarkers(text) && !(await confirm('Conflict markers are still in the file', `${blocks.length - done()} conflict${blocks.length - done() === 1 ? '' : 's'} not resolved. Mark the file resolved with the markers left in?`, { submit: 'Mark resolved' }))) return;
     ctx.onResolve(text);
   }
@@ -84,7 +84,7 @@ export function conflictEditor(info, ctx) {
 
   // Binary, missing or very large files: pick a whole side.
   function wholeSide() {
-    const what = { binary: 'This is a binary file or a symlink.', missing: 'One side deleted this file.', large: 'This file is too large for the built-in editor.' }[info.kind];
+    const what = { binary: 'This is a binary file or a symlink.', missing: 'One side deleted this file.', large: 'This file is too large for the built-in editor.', encoding: 'This file is not UTF-8 text.' }[info.kind];
     const side = (s) => h('button.btn.small', { onclick: () => ctx.onSide(s) },
       s === 'ours' ? (info.ours ? 'Use ours' : 'Use ours (delete)') : (info.theirs ? 'Use theirs' : 'Use theirs (delete)'));
     return h('div.cf-whole', null, icon('merge', 28), h('div', null, what), h('div.muted', null, 'Pick the version to keep.'),

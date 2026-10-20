@@ -132,6 +132,30 @@ test('resolveConflict refuses to write through a symlink', async () => {
   assert.equal(fs.readFileSync(path.join(dir, 'plain.txt'), 'utf8'), 'plain\n');
 });
 
+test('chooseSide refuses a path with no conflict stages instead of deleting it', async () => {
+  const { dir } = await repo();
+  await commit(dir, 'plain.txt', 'plain\n', 'plain');
+  for (const side of ['ours', 'theirs']) await assert.rejects(git.chooseSide(dir, 'plain.txt', side), /no conflict/);
+  assert.equal(fs.readFileSync(path.join(dir, 'plain.txt'), 'utf8'), 'plain\n');
+});
+
+test('getConflict: a file that is not UTF-8 takes a whole side', async () => {
+  const latin1 = (s) => Buffer.from(s, 'latin1');
+  const { dir } = await conflicted(latin1('caf\xe9\n'), latin1('caf\xe9 ours\n'), latin1('caf\xe9 theirs\n'));
+  const info = await git.getConflict(dir, 'f.txt');
+  assert.deepEqual([info.kind, info.text], ['encoding', null]);
+  const utf8 = await conflicted('\ufeffcafé\n', 'café ours\n', 'café theirs\n');
+  assert.equal((await git.getConflict(utf8.dir, 'f.txt')).kind, 'text');
+});
+
+test('keepLineEndings: an edited CRLF file is saved with CRLF', async () => {
+  const { keepLineEndings } = await load();
+  assert.equal(keepLineEndings('a\r\n<<<<<<< HEAD\r\n', 'a\nb\n'), 'a\r\nb\r\n');
+  assert.equal(keepLineEndings('a\r\nb\n', 'a\r\nb\n'), 'a\r\nb\n', 'picks already keep their endings');
+  assert.equal(keepLineEndings('a\nb\n', 'a\nb\n'), 'a\nb\n');
+  assert.equal(keepLineEndings(null, 'a\n'), 'a\n');
+});
+
 test('IPC: conflict and resolveConflict take a repository path', () => {
   assert.deepEqual(checkGit('conflict', ['a/b.txt']).args, ['a/b.txt']);
   assert.deepEqual(checkGit('resolveConflict', ['f.txt', '']).args, ['f.txt', '']);
