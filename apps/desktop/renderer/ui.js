@@ -412,57 +412,131 @@ let openMenu = null;
 let anchor = null;
 export const menuAnchor = () => anchor;
 // `focus`: index of the actionable item highlighted on open, so Enter picks it (a popover's default).
-// An item with `submenu` (items) opens them beside it instead of running.
+// An item with `submenu` (items) opens them in a menu beside it: on hover, click, → or Enter; ← or
+// Esc closes it again. While the pointer heads for an open submenu across other rows, the switch
+// waits a moment so a diagonal move doesn't close it.
 export function contextMenu(x, y, items, { focus = -1 } = {}) {
   closeMenu();
-  const flat = items.filter(Boolean);
-  const menu = h('div.menu', { role: 'menu' });
-  const actionable = [];
-  flat.forEach((it) => {
-    if (it === '-') return menu.append(h('div.menu-sep'));
-    if (it.section) return menu.append(h('div.menu-section', null, it.section));
-    const el = h('button.menu-item' + (it.danger ? '.danger' : '') + (it.gated ? '.gated' : ''), {
-      disabled: it.disabled,
-      onclick: () => {
-        const r = el.getBoundingClientRect();
-        anchor = { x: r.left, y: r.top };
-        closeMenu();
-        if (it.submenu) return contextMenu(r.right - 4, r.top, it.submenu, { focus: 0 });
-        it.run();
-        setTimeout(() => { anchor = null; });
-      },
-      onmouseenter: () => focusItem(actionable.indexOf(el)),
-    }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')),
-    // `why`: a greyed item's reason, a few words under its label.
-    it.why ? h('span.menu-label', null, it.label, h('small.menu-why', null, it.why)) : h('span.menu-label', null, it.label),
-    it.kbd?.length ? kbd(...[].concat(it.kbd)) : null);
-    if (!it.disabled) actionable.push(el);
-    menu.append(el);
-  });
-  document.body.append(menu);
-  const r = menu.getBoundingClientRect();
-  menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
-  menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
-  let idx = -1;
-  function focusItem(i) { actionable.forEach((a) => a.classList.remove('active')); idx = i; if (actionable[i]) actionable[i].classList.add('active'); }
-  if (focus >= 0) focusItem(focus);
+  const levels = []; // open menus, root first: { el, actionable, idx, owner }
+  let cur = 0; // the level the keys move through
+  let hoverT = 0;
+  let pts = [];
+  const closeFrom = (d) => {
+    while (levels.length > d) {
+      const l = levels.pop();
+      l.el.remove();
+      if (l.owner) { l.owner.classList.remove('open'); l.owner.setAttribute('aria-expanded', 'false'); }
+    }
+    cur = Math.min(cur, levels.length - 1);
+  };
+  function focusItem(d, i) {
+    const l = levels[d];
+    l.actionable.forEach((a) => a.classList.remove('active'));
+    l.idx = i;
+    if (l.actionable[i]) l.actionable[i].classList.add('active');
+  }
+  // Opens item `el`'s submenu (level d + 1) beside it, unless it's already open.
+  function openSub(d, el, it, { keys = false } = {}) {
+    if (levels[d + 1]?.owner !== el) {
+      closeFrom(d + 1);
+      const r = el.getBoundingClientRect();
+      const pr = levels[d].el.getBoundingClientRect();
+      const sub = build(it.submenu, d + 1, el);
+      const sr = sub.el.getBoundingClientRect();
+      const left = pr.right + 2 + sr.width > innerWidth - 8 ? pr.left - sr.width - 2 : pr.right + 2;
+      sub.el.style.left = Math.max(8, left) + 'px';
+      sub.el.style.top = Math.max(8, Math.min(r.top - 4, innerHeight - sr.height - 8)) + 'px';
+      el.classList.add('open');
+      el.setAttribute('aria-expanded', 'true');
+    }
+    if (keys) { cur = d + 1; focusItem(d + 1, 0); }
+  }
+  // Is the pointer moving towards level d + 1 (inside the triangle from its last spot to the
+  // submenu's near edge)?
+  function aiming(d) {
+    const sub = levels[d + 1];
+    if (!sub || pts.length < 2) return false;
+    const [a, p] = pts;
+    const r = sub.el.getBoundingClientRect();
+    const ex = r.left >= a.x ? r.left : r.right;
+    const side = (p1, p2, q) => (p2.x - p1.x) * (q.y - p1.y) - (p2.y - p1.y) * (q.x - p1.x);
+    const t = { x: ex, y: r.top - 8 }, b = { x: ex, y: r.bottom + 8 };
+    const s1 = side(a, t, p), s2 = side(t, b, p), s3 = side(b, a, p);
+    return !((s1 < 0 || s2 < 0 || s3 < 0) && (s1 > 0 || s2 > 0 || s3 > 0));
+  }
+  function build(list, d, owner) {
+    const menu = h('div.menu' + (d ? '.submenu' : ''), { role: 'menu' });
+    const level = { el: menu, actionable: [], idx: -1, owner };
+    levels[d] = level;
+    list.filter(Boolean).forEach((it) => {
+      if (it === '-') return menu.append(h('div.menu-sep'));
+      if (it.section) return menu.append(h('div.menu-section', null, it.section));
+      const el = h('button.menu-item' + (it.danger ? '.danger' : '') + (it.gated ? '.gated' : ''), {
+        disabled: it.disabled,
+        'aria-haspopup': it.submenu ? 'menu' : null,
+        'aria-expanded': it.submenu ? 'false' : null,
+        onclick: () => {
+          if (it.submenu) return openSub(d, el, it, { keys: true });
+          const r = el.getBoundingClientRect();
+          anchor = { x: r.left, y: r.top };
+          closeMenu();
+          it.run();
+          setTimeout(() => { anchor = null; });
+        },
+        onmouseenter: () => {
+          clearTimeout(hoverT);
+          const go = () => {
+            cur = d;
+            focusItem(d, level.actionable.indexOf(el));
+            if (it.submenu) openSub(d, el, it);
+            else closeFrom(d + 1);
+          };
+          if (aiming(d)) hoverT = setTimeout(go, 300);
+          else go();
+        },
+      }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')),
+      // `why`: a greyed item's reason, a few words under its label.
+      it.why ? h('span.menu-label', null, it.label, h('small.menu-why', null, it.why)) : h('span.menu-label', null, it.label),
+      it.kbd?.length ? kbd(...[].concat(it.kbd)) : null,
+      it.submenu ? h('span.menu-chev', null, icon('chevron', 12)) : null);
+      if (!it.disabled) level.actionable.push(el);
+      menu.append(el);
+    });
+    menu.addEventListener('mousemove', (e) => { pts = [pts[1] || { x: e.clientX, y: e.clientY }, { x: e.clientX, y: e.clientY }]; });
+    // Back on the submenu: its row in the parent stays the highlighted one.
+    if (owner) menu.addEventListener('mouseenter', () => { clearTimeout(hoverT); focusItem(d - 1, levels[d - 1].actionable.indexOf(owner)); });
+    document.body.append(menu);
+    return level;
+  }
+  const root = build(items, 0, null);
+  const r = root.el.getBoundingClientRect();
+  root.el.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  root.el.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  if (focus >= 0) focusItem(0, focus);
   const onKey = (e) => {
     const id = keymap.match('dialog', e);
-    if (id === 'dialog.cancel') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
-    else if (id === 'menu.next') { e.preventDefault(); e.stopPropagation(); focusItem((idx + 1) % actionable.length); }
-    else if (id === 'menu.prev') { e.preventDefault(); e.stopPropagation(); focusItem((idx - 1 + actionable.length) % actionable.length); }
-    else if (id === 'menu.choose' && actionable[idx]) { e.preventDefault(); e.stopPropagation(); actionable[idx].click(); }
+    const l = levels[cur];
+    const n = l.actionable.length;
+    const it = l.actionable[l.idx];
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    if (id === 'dialog.cancel') { stop(); if (cur > 0) { closeFrom(cur); } else closeMenu(); }
+    else if (id === 'menu.back' && cur > 0) { stop(); closeFrom(cur); }
+    else if (id === 'menu.open' && it?.getAttribute('aria-haspopup')) { stop(); it.click(); }
+    else if (id === 'menu.next') { stop(); focusItem(cur, (l.idx + 1) % n); }
+    else if (id === 'menu.prev') { stop(); focusItem(cur, (l.idx - 1 + n) % n); }
+    else if (id === 'menu.choose' && it) { stop(); it.click(); }
   };
-  const onDown = (e) => { if (!menu.contains(e.target)) closeMenu(); };
+  const inside = (t) => levels.some((l) => l.el.contains(t));
+  const onDown = (e) => { if (!inside(e.target)) closeMenu(); };
   window.addEventListener('keydown', onKey, true);
   setTimeout(() => window.addEventListener('mousedown', onDown, true));
   window.addEventListener('blur', closeMenu);
-  openMenu = { el: menu, cleanup: () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onDown, true); window.removeEventListener('blur', closeMenu); } };
+  openMenu = { close: () => { clearTimeout(hoverT); closeFrom(0); }, cleanup: () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onDown, true); window.removeEventListener('blur', closeMenu); } };
 }
 export function closeMenu() {
   if (!openMenu) return;
   openMenu.cleanup();
-  openMenu.el.remove();
+  openMenu.close();
   openMenu = null;
 }
 
