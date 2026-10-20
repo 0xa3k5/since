@@ -264,6 +264,67 @@ export const confirm = (title, description, { submit = 'Confirm', destructive = 
 export const prompt = (title, { label, value, placeholder, submit = 'Create', description, multiline } = {}) =>
   dialog({ title, description, submit, fields: [{ name: 'v', label, value, placeholder, multiline }] }).then((v) => (v ? v.v.trim() : null));
 
+// --- Resolve sheet --------------------------------------------------------------
+// A blocked action, offered with fixes: `title` names the action, `reason` says in one line what's
+// blocking it, `actions` fix the cause and then do it (the first is the primary, Enter). Optional
+// `pick` ({ label, options, value }) chooses a target, e.g. "Switch to [main ▾]"; optional
+// `checkbox` ({ label, checked }), e.g. "Stash 3 uncommitted changes". Resolves to
+// { id, value, checked } for the chosen action, or null on Cancel / Escape.
+export const ref = (name) => h('span.ref', null, name);
+
+// Footer order, left to right: secondary actions, then the primary (rightmost, Enter).
+export function sheetActions(actions = []) {
+  const list = actions.filter(Boolean).map((a, i) => ({ ...a, primary: i === 0 && a.primary !== false }));
+  return [...list.slice(1), ...list.slice(0, 1)];
+}
+
+export function resolveSheet({ title, reason, actions = [], pick, checkbox }) {
+  return new Promise((resolve) => {
+    const prev = document.activeElement;
+    let value = pick?.value ?? pick?.options?.[0]?.value;
+    const labelOf = (v) => pick.options.find((o) => o.value === v)?.label ?? v;
+    const pickBtn = pick ? h('button.btn.subtle.small.sheet-pick', {
+      type: 'button', 'aria-haspopup': 'menu',
+      onclick: () => {
+        const r = pickBtn.getBoundingClientRect();
+        contextMenu(r.left, r.bottom + 4, pick.options.map((o) => ({
+          label: o.label ?? o.value, icon: o.value === value ? 'check' : null,
+          run: () => { value = o.value; pickBtn.firstChild.textContent = labelOf(value); pickBtn.focus(); },
+        })), { focus: Math.max(0, pick.options.findIndex((o) => o.value === value)) });
+      },
+    }, h('span', null, labelOf(value)), icon('chevronDown', 12)) : null;
+    const box = checkbox ? h('input', { type: 'checkbox', checked: !!checkbox.checked }) : null;
+    const choose = (a) => finish({ id: a.id, value, checked: box ? box.checked : undefined });
+    const ordered = sheetActions(actions);
+    const primary = ordered.find((a) => a.primary);
+    const form = h('form.dialog.resolve-sheet', { role: 'dialog', 'aria-modal': 'true', onsubmit: (e) => { e.preventDefault(); if (primary) choose(primary); } },
+      h('div.dialog-head', null,
+        h('div.dialog-title', null, title),
+        reason ? h('div.sheet-reason', null, icon('warning', 14), h('span', null, reason)) : null),
+      pick || checkbox ? h('div.dialog-body', null,
+        pick ? h('div.sheet-pick-row', null, pick.label ? h('span', null, pick.label) : null, pickBtn) : null,
+        checkbox ? h('label.check', null, box, h('span', null, checkbox.label)) : null) : null,
+      h('div.dialog-foot', null,
+        h('button.btn.ghost.sheet-cancel', { type: 'button', onclick: () => finish(null) }, 'Cancel', kbd(...keymap.keys('dialog.cancel'))),
+        ordered.map((a) => a.primary
+          ? h('button.btn.' + (a.danger ? 'danger' : 'primary'), { type: 'submit' }, a.label, kbd('↵'))
+          : h('button.btn.subtle', { type: 'button', onclick: () => choose(a) }, a.label))),
+    );
+    const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) finish(null); } }, form);
+    overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); finish(null); } });
+    document.body.append(overlay);
+    requestAnimationFrame(() => overlay.classList.add('in'));
+    (form.querySelector('button[type=submit]') || form.querySelector('.sheet-row-link') || form.querySelector('.sheet-cancel')).focus();
+    function finish(v) {
+      closeMenu();
+      overlay.classList.remove('in');
+      setTimeout(() => overlay.remove(), 120);
+      prev?.focus?.();
+      resolve(v);
+    }
+  });
+}
+
 // --- Context menu ---------------------------------------------------------------
 let openMenu = null;
 // `focus`: index of the actionable item highlighted on open, so Enter picks it (a popover's default).
@@ -279,7 +340,10 @@ export function contextMenu(x, y, items, { focus = -1 } = {}) {
       disabled: it.disabled,
       onclick: () => { closeMenu(); it.run(); },
       onmouseenter: () => focusItem(actionable.indexOf(el)),
-    }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')), h('span.menu-label', null, it.label), it.kbd ? kbd(...[].concat(it.kbd)) : null);
+    }, it.lead || (it.icon ? icon(it.icon) : h('span.icon')),
+    // `why`: a greyed item's reason, a few words under its label.
+    it.why ? h('span.menu-label', null, it.label, h('small.menu-why', null, it.why)) : h('span.menu-label', null, it.label),
+    it.kbd ? kbd(...[].concat(it.kbd)) : null);
     if (!it.disabled) actionable.push(el);
     menu.append(el);
   });
