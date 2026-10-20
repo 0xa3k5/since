@@ -80,21 +80,26 @@ export function personAvatar(name, key = name, size = 18) {
 
 // Who made it (AK-390): authors = [{ name, key, agent, title }] (review-rows.js authorsOf). One
 // person is their avatar and name; two or more are one avatar group, names in its tooltip (AK-533).
-export function authorsEl(authors = [], size = 16, cls = '') {
+// profile(a): { url, label, open } for an author we can place on GitHub (AK-627), else null; one
+// author is then a link, a group's popover rows open theirs.
+export function authorsEl(authors = [], size = 16, cls = '', profile = null) {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
-  if (list.length > 1) return authorsStack(list, size, '.reader-authors' + cls);
+  if (list.length > 1) return authorsStack(list, size, '.reader-authors' + cls, profile);
   const [a] = list;
-  return h('span.reader-authors' + cls, { title: a.title || a.name },
-    h('span.reader-author' + (a.agent ? '.agent' : ''), null, personAvatar(a.name, a.key || a.name, size), h('span.reader-author-name', null, a.name)));
+  const p = profile?.(a);
+  const body = [personAvatar(a.name, a.key || a.name, size), h('span.reader-author-name', null, a.name)];
+  return h('span.reader-authors' + cls, { title: p ? `${p.label}\n${a.title || a.name}` : a.title || a.name },
+    p ? h('a.reader-author.person-link', { href: p.url, onclick: (e) => { e.preventDefault(); p.open(); } }, ...body, icon('external', 12))
+      : h('span.reader-author' + (a.agent ? '.agent' : ''), null, ...body));
 }
 
 // The same people as one overlapping avatar group, no names (list rows, AK-400); like the map's
 // co-author stack. Who they are is in its popover (AK-535): the login under each name, agents tagged.
-export function authorsStack(authors = [], size = 14, cls = '') {
+export function authorsStack(authors = [], size = 14, cls = '', profile = null) {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
-  const people = list.map((a) => ({ name: a.name, key: a.key || a.name, agent: !!a.agent, sub: a.key && a.key !== a.name && !a.agent ? a.key : '' }));
+  const people = list.map((a) => ({ name: a.name, key: a.key || a.name, agent: !!a.agent, sub: a.key && a.key !== a.name && !a.agent ? a.key : '', open: profile?.(a)?.open }));
   const el = avatarStack(people, size, list.length);
   if (cls) el.classList.add(...cls.split('.').filter(Boolean));
   return el;
@@ -113,14 +118,14 @@ function navEl({ at, of, onStep }) {
 // name shown (authorKey picks its colour);
 // branch/base: "branch → base" (base alone: "on base"); badges sit after the title; meta after the
 // branch; below: extra lines under the meta. nav: { at, of, onStep } or null.
-export function readerHead({ num = null, numTip = '', title, badges = [], authors = null, author = null, authorKey = null, authorTip = null, branch = null, base = null, meta = [], below = [], nav = null }) {
+export function readerHead({ num = null, numTip = '', title, badges = [], authors = null, authorProfile = null, author = null, authorKey = null, authorTip = null, branch = null, base = null, meta = [], below = [], nav = null }) {
   return h('header.reader-head', null,
     h('div.reader-title-row', null,
       h('h2.reader-title', { title }, num ? h('span.reader-num', { title: numTip || null }, num) : null, num ? ' ' : null, title),
       ...badges,
       nav ? navEl(nav) : null),
     h('div.reader-meta', null,
-      authors ? authorsEl(authors, 16)
+      authors ? authorsEl(authors, 16, '', authorProfile)
         : author ? h('span.reader-author', { title: authorTip || author }, personAvatar(author, authorKey || author, 16), h('span', null, author)) : null,
       branch ? h('span.reader-branch', null, h('span.mono', null, branch), base ? [h('span.reader-arrow', null, ' → '), h('span.mono', null, base)] : null)
         : base ? h('span.reader-branch', null, 'on ', h('span.mono', null, base)) : null,

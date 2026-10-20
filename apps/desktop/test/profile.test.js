@@ -29,3 +29,11 @@ test('authorProfile falls back to the author’s commits on a GitHub repo', asyn
   assert.equal(authorProfile('me@example.com', null), null);
   assert.equal(authorProfile('', 'https://github.com/o/r'), null);
 });
+
+test('loginProfile links a known GitHub login and refuses anything else (AK-627)', async () => {
+  const { loginProfile } = await load();
+  assert.deepEqual(loginProfile('octo-cat'), { url: 'https://github.com/octo-cat', label: 'Open @octo-cat on GitHub' });
+  assert.equal(loginProfile(''), null);
+  assert.equal(loginProfile('app/dependabot'), null);
+  assert.equal(loginProfile('-bad'), null);
+});

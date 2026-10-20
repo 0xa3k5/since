@@ -24,3 +24,10 @@ export function authorProfile(email, remoteWeb) {
   }
   return null;
 }
+
+// { url, label } for a GitHub login we already know (a PR's author), or null when it isn't one.
+export function loginProfile(login) {
+  const l = String(login || '').trim();
+  if (!/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(l)) return null;
+  return { url: `${GITHUB}/${l}`, label: `Open @${l} on GitHub` };
+}
