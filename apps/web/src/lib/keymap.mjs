@@ -51,7 +51,7 @@ export function row(cmd) {
 export const GROUPS = [
   { id: 'map', title: 'Map', note: 'With the commit list focused.' },
   { id: 'commit-actions', title: 'Commit actions', note: 'Single keys on the selected commit in the map. Every change to history can be undone with ⌘Z.' },
-  { id: 'views', title: 'Views', note: 'Press G, then the letter, or use ⌘ and the number.' },
+  { id: 'views', title: 'Views', note: 'Use ⌘ and the number, or press G, then the letter.' },
   { id: 'commit-view', title: 'Commit view' },
   { id: 'quick-view', title: 'Quick View' },
   { id: 'global', title: 'Anywhere in a repository' },
@@ -65,7 +65,7 @@ export const GROUPS = [
 export function loadKeymap(sources = readSources()) {
   const groups = GROUPS.map((g) => ({
     ...g,
-    items: COMMANDS.filter((c) => c.group === g.id && !c.role).map(row),
+    items: COMMANDS.filter((c) => c.group === g.id && !c.role).map(row).filter((r) => r.keys.length), // ⌘K-only commands have no keys
   }));
   return { groups, palette: paletteCommands(sources.app) };
 }

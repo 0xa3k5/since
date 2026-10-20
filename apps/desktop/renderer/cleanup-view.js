@@ -1,4 +1,4 @@
-import { h, icon, kbd, timeAgo, fullDate, dialog, toast } from './ui.js';
+import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor } from './ui.js';
 import { laneKey } from './lanes.js';
 import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat } from './cleanup.js';
 import * as keymap from './keymap.js';
@@ -44,7 +44,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
   const counts = h('span.cleanup-counts');
   const remoteBox = h('input', { type: 'checkbox', tabIndex: -1, onchange: () => { alsoRemote = remoteBox.checked; render(); } });
   const remoteText = h('span', null, 'Also delete them on the remote (can’t be undone)');
-  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': `Also delete them on the remote (${keymap.keys('cleanup.remote').join('')})` }, remoteBox, remoteText);
+  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': tipFor('Also delete them on the remote', 'cleanup.remote') }, remoteBox, remoteText);
   const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), h('span'));
   const daysBox = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
     onkeydown: (e) => { if (e.key !== 'Escape') e.stopPropagation(); },
@@ -133,7 +133,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     const remoteRefs = chosen.map((l) => remoteOf(l, base)).filter(Boolean), remotes = remoteRefs.length;
     const where = remoteWhere(remoteRefs.length ? remoteRefs : lanes.map((l) => remoteOf(l, base)).filter(Boolean));
     remoteText.textContent = `Also delete them on ${where} (can’t be undone)`;
-    remoteLabel.dataset.tip = `Also delete them on ${where} (${keymap.keys('cleanup.remote').join('')})`;
+    remoteLabel.dataset.tip = tipFor(`Also delete them on ${where}`, 'cleanup.remote');
     goBtn.disabled = busy || !chosen.length;
     goBtn.replaceChildren(chosen.length ? `Clean up ${chosen.length}` : 'Clean up', kbd(...keymap.keys('cleanup.run')));
     counts.textContent = chosen.length ? [chosen.length === 1 ? 'branch' : 'branches', s.worktrees ? plural(s.worktrees, 'worktree') : null].filter(Boolean).join(' · ') : 'Tick what can go';

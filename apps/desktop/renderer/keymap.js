@@ -9,6 +9,7 @@
 // keys a binding with no modifiers also matches with ⇧ held, unless a Shift binding in the same scope wins.
 // `group` is the /shortcuts page section (null: not listed there yet); `pair` shows a second command's keys beside
 // this one (↓ ↑). `reserved` marks keys macOS or the app menu owns (⌘, ⌘Q…), which must never be rebound.
+// Keys `[]`: no default shortcut (AK-628), so ⌘K and the menu item only; keys a user set earlier keep working.
 // The user can rebind the rest (Keyboard Shortcuts window): `setOverrides` layers their changes over `keys`.
 
 export const SCOPES = {
@@ -48,12 +49,12 @@ const c = (scope, group, id, label, keys, extra) => ({ id, label, scope, group, 
 export const COMMANDS = [
   // Menu bar: accelerators in main.js. `menu` is the menu the item sits in.
   c('menu', 'file', 'app.settings', 'Settings…', 'Mod+,', { reserved: true }),
-  c('menu', 'file', 'app.licence', 'Enter Licence Key…', 'Mod+Alt+L'),
+  c('menu', 'file', 'app.licence', 'Enter Licence Key…', []),
   c('menu', 'file', 'file.newWindow', 'New Window', 'Mod+Shift+N'),
   c('menu', 'file', 'file.init', 'New Repository…', 'Mod+N'),
   c('menu', 'file', 'file.open', 'Open Repository…', 'Mod+O'),
   c('menu', 'file', 'file.clone', 'Clone Repository…', 'Mod+Shift+O'),
-  c('menu', 'file', 'file.repoSwitch', 'Switch Repository…', 'Mod+Alt+KeyO'),
+  c('menu', 'file', 'file.repoSwitch', 'Switch Repository…', []),
   c('menu', 'file', 'file.close', 'Close Window', 'Mod+W', { reserved: true, role: true }),
   c('menu', 'file', 'app.quit', 'Quit GitLanes', 'Mod+Q', { reserved: true, role: true }),
   c('menu', 'file', 'app.hide', 'Hide GitLanes', 'Mod+H', { reserved: true, role: true }),
@@ -62,23 +63,23 @@ export const COMMANDS = [
   c('menu', 'edit', 'edit.find', 'Find…', 'Mod+F'),
   c('menu', 'view', 'view.palette', 'Command Menu', 'Mod+K'),
   c('menu', 'help', 'help.shortcuts', 'Keyboard Shortcuts', 'Mod+Slash'),
-  c('menu', 'views', 'view.catchup', 'Catch up', ['Mod+1', 'g u']),
-  c('menu', 'views', 'view.lanes', 'Review', ['Mod+2', 'g l']),
-  c('menu', 'views', 'view.map', 'Map', ['Mod+3', 'g m']),
-  c('menu', 'views', 'view.commit', 'Commit', ['Mod+4', 'g c']),
+  c('menu', 'views', 'view.catchup', 'Catch up', 'Mod+1'),
+  c('menu', 'views', 'view.lanes', 'Review', 'Mod+2'),
+  c('menu', 'views', 'view.map', 'Map', 'Mod+3'),
+  c('menu', 'views', 'view.commit', 'Commit', 'Mod+4'),
   // The rest of the sidebar's pages (AK-491), then the full pages of the fold-out lists below its divider.
-  c('menu', 'views', 'view.branches', 'Branches', ['Mod+5', 'g b']),
-  c('menu', 'views', 'view.stashes', 'Stashes', ['Mod+6', 'g s']),
-  c('menu', 'views', 'view.snapshots', 'History', ['Mod+7', 'g h']),
-  c('menu', 'views', 'view.submoduleList', 'Submodules', ['Mod+8', 'g n']),
+  c('menu', 'views', 'view.branches', 'Branches', 'Mod+5'),
+  c('menu', 'views', 'view.stashes', 'Stashes', 'Mod+6'),
+  c('menu', 'views', 'view.snapshots', 'History', 'Mod+7'),
+  c('menu', 'views', 'view.submoduleList', 'Submodules', 'Mod+8'),
   c('menu', 'views', 'view.remoteList', 'Remotes', 'g o'),
   c('menu', 'views', 'view.tagList', 'Tags', 'g t'),
   c('menu', 'views', 'view.worktrees', 'Worktrees', 'g w'),
-  c('menu', 'views', 'view.config', 'Repository Settings', 'Mod+9'),
+  c('menu', 'views', 'view.config', 'Repository Settings', []),
   c('menu', 'views', 'view.reflog', 'Reflog', 'g r'),
   c('menu', 'view', 'view.back', 'Back', 'Mod+['),
   c('menu', 'view', 'view.forward', 'Forward', 'Mod+]'),
-  c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', ['Mod+S', 'Mod+Backslash']),
+  c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', 'Mod+S'),
   c('menu', 'view', 'view.tags', 'Show Tags', 'Mod+Alt+T'),
   c('menu', 'view', 'view.remotes', 'Show Remote Branches', 'Mod+Alt+R'),
   c('menu', 'view', 'view.swatches', 'Show Colour Swatches in Diffs', 'Mod+Alt+C'),
@@ -121,13 +122,13 @@ export const COMMANDS = [
   // ⌘B anywhere: at HEAD, or at the selected commit in the Map (same as its `b`).
   c('global', 'global', 'global.branch', 'Create Branch…', 'Mod+B'),
   c('global', 'global', 'global.close', 'Close Quick View', 'Escape'),
-  c('global', 'global', 'global.setup', 'Choose defaults', 'Mod+Shift+Comma'),
+  c('global', 'global', 'global.setup', 'Choose defaults', []),
   c('global', null, 'global.detail', 'Show or hide the detail panel', 'Mod+Alt+Backslash'),
-  c('global', 'global', 'global.prs', 'Turn pull requests on or off', 'Mod+Alt+Shift+KeyG'),
+  c('global', 'global', 'global.prs', 'Turn pull requests on or off', []),
   c('global', 'global', 'global.cleanup', 'Clean up finished branches and worktrees', 'Mod+Alt+Backspace'),
-  c('global', 'global', 'global.resetPanes', 'Reset pane sizes', 'Mod+Alt+Digit0'),
-  c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', 'Mod+Alt+Shift+KeyH'),
-  c('global', 'global', 'global.prRemote', 'Choose the remote for pull requests', 'Mod+Alt+Shift+KeyU'),
+  c('global', 'global', 'global.resetPanes', 'Reset pane sizes', []),
+  c('global', 'global', 'global.prHide', 'Hide or show pull requests in this repository', []),
+  c('global', 'global', 'global.prRemote', 'Choose the remote for pull requests', []),
 
   // Map, with the commit list focused.
   c('map', 'map', 'map.next', 'Next / previous commit', 'ArrowDown', { pair: 'map.prev' }),
@@ -158,7 +159,7 @@ export const COMMANDS = [
   c('map', 'commit-actions', 'commit.fixup', 'Fixup with Parent', 'f'),
   c('map', 'commit-actions', 'commit.split', 'Split Commit…', 'Shift+S'),
   c('map', 'commit-actions', 'commit.drop', 'Delete Commit', ['Backspace', 'Delete']),
-  c('map', 'commit-actions', 'commit.author', 'View Author on GitHub', 'Shift+A'),
+  c('map', 'commit-actions', 'commit.author', 'View Author on GitHub', []),
 
   // Quick View.
   c('quick', 'quick-view', 'quick.next', 'Next / previous file', 'ArrowDown', { pair: 'quick.prev' }),
@@ -214,7 +215,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.prev', 'Previous row', 'ArrowUp'),
   c('lanes', null, 'lanes.open', 'Read the row: move into the pane', 'Enter'),
   c('lanes', null, 'lanes.filter', 'Filter', '/'),
-  c('lanes', null, 'lanes.reload', 'Reload pull requests', 'Shift+R'),
+  c('lanes', null, 'lanes.reload', 'Reload pull requests', 'Mod+R'),
   c('lanes', null, 'lanes.clear', 'Clear the filter', 'Escape'),
   c('lanes', null, 'lanes.agents', 'Show agent-made branches (opens Branches)', 'a'),
   c('lanes', null, 'lanes.all', 'Show every active branch and worktree (opens Branches)', 's'),
@@ -225,7 +226,7 @@ export const COMMANDS = [
   c('lanes', null, 'lanes.tabReady', 'Show ready to merge', '3'),
   c('lanes', null, 'lanes.tabProgress', 'Show in progress', '4'),
   c('lanes', null, 'lanes.tabAll', 'Show all open', '5'),
-  c('lanes', null, 'lanes.mergeReady', 'Squash-merge every pull request ready to merge', 'Shift+M'),
+  c('lanes', null, 'lanes.mergeReady', 'Squash-merge every pull request ready to merge', []),
   c('lanes', null, 'lanes.mergePlan', 'Plan merge: merge the ready pull requests in an order with no conflicts', 'Shift+P'),
   c('lanes', null, 'lanes.stackDown', 'Select the pull request this one is stacked on', '['),
   c('lanes', null, 'lanes.stackUp', 'Select the next pull request up the stack', ']'),
@@ -266,10 +267,10 @@ export const COMMANDS = [
   c('catchup', null, 'catchup.open', 'Read it: move into the reader', 'Enter'),
   c('catchup', null, 'catchup.caughtUp', 'Mark caught up: move your checkpoint to the base’s tip', 'Shift+C'),
   c('catchup', null, 'catchup.since', 'Catch up since… (checkpoint, yesterday, last week, a tag)', 'Shift+T'),
-  c('catchup', null, 'catchup.reload', 'Reload merged pull requests and CI', 'Shift+R'),
+  c('catchup', null, 'catchup.reload', 'Reload merged pull requests and CI', 'Mod+R'),
   c('catchup', null, 'catchup.more', 'Show everything that landed', 'e'),
   c('catchup', null, 'catchup.viewed', 'Mark the next file viewed (folds it)', 'v'),
-  c('catchup', null, 'catchup.branch', 'Catch up on another branch', 'b'),
+  c('catchup', null, 'catchup.branch', 'Catch up on another branch', []),
   // The reader (reader.js): Review's pane and Catch up's reader, once focus is in it (↵ from the list).
   // ←/→ also step the list from the list itself; ↑/↓ there move the selection instead of scrolling.
   c('reader', null, 'reader.next', 'Next item in the list', 'ArrowRight'),
@@ -289,7 +290,7 @@ export const COMMANDS = [
   c('review', null, 'review.delta', 'Only what changed since you last looked', 'd'),
   c('review', null, 'review.merge', 'Merge and tidy the branch, or merge the pull request', 'm'),
   c('review', null, 'review.approve', 'Approve the pull request', 'a'),
-  c('review', null, 'review.changes', 'Request changes on the pull request', 'c'),
+  c('review', null, 'review.changes', 'Request changes on the pull request', 'q'),
   c('review', null, 'review.closePr', 'Close the pull request', 'x'),
   c('review', null, 'review.checkout', 'Check out the pull request in a new worktree', 'Enter'),
   c('review', null, 'review.github', 'Open the pull request on GitHub', 'Shift+O'),
@@ -334,8 +335,8 @@ export const COMMANDS = [
   c('cleanup', null, 'cleanup.prev', 'Previous card or branch', 'ArrowUp'),
   c('cleanup', null, 'cleanup.toggle', 'Tick or untick the group or branch', 'Space'),
   c('cleanup', null, 'cleanup.expand', 'Open or close the group', 'Enter'),
-  c('cleanup', null, 'cleanup.all', 'Tick everything safe to remove (or nothing)', ['a', 'Mod+a']),
-  c('cleanup', null, 'cleanup.remote', 'Also delete them on GitHub (asks once more)', 'r'),
+  c('cleanup', null, 'cleanup.all', 'Tick everything safe to remove (or nothing)', 'Mod+a'),
+  c('cleanup', null, 'cleanup.remote', 'Also delete them on GitHub (asks once more)', []),
   c('cleanup', null, 'cleanup.run', 'Clean up the ticked branches', ['Mod+Backspace', 'Mod+Enter']),
   c('cleanup', null, 'cleanup.back', 'Back to the Active tab', 'Escape'),
 
@@ -382,25 +383,22 @@ export const COMMANDS = [
   c('prefs', null, 'prefs.toggle', 'Toggle the switch or press the button', 'Enter'),
   c('prefs', null, 'prefs.right', 'Next choice', 'ArrowRight'),
   c('prefs', null, 'prefs.left', 'Previous choice', 'ArrowLeft'),
-  c('prefs', null, 'prefs.moveUp', 'Move the sidebar section up', 'Alt+ArrowUp'),
-  c('prefs', null, 'prefs.moveDown', 'Move the sidebar section down', 'Alt+ArrowDown'),
-  c('prefs', null, 'prefs.unset', 'Remove the local git config value', 'Mod+Backspace'),
+  c('prefs', null, 'prefs.moveUp', 'Move the sidebar section up', []),
+  c('prefs', null, 'prefs.moveDown', 'Move the sidebar section down', []),
+  c('prefs', null, 'prefs.unset', 'Remove the local git config value', []),
   c('prefs', null, 'prefs.find', 'Search preferences', 'Mod+f'),
   c('prefs', null, 'prefs.close', 'Clear the search, then close', 'Escape'),
 
   // Dialogs, context menus and the ⌘K menu.
   c('dialog', null, 'dialog.cancel', 'Close', 'Escape'),
   c('dialog', null, 'dialog.submit', 'Submit a multi-line field', 'Mod+Enter'),
-  c('dialog', null, 'menu.next', 'Next item', ['ArrowDown', 'Ctrl+n']),
-  c('dialog', null, 'menu.prev', 'Previous item', ['ArrowUp', 'Ctrl+p']),
+  c('dialog', null, 'menu.next', 'Next item', 'ArrowDown'),
+  c('dialog', null, 'menu.prev', 'Previous item', 'ArrowUp'),
   c('dialog', null, 'menu.choose', 'Choose the item', 'Enter'),
 
   // Tour: the practice graph and the lesson tabs.
   c('tour', null, 'tour.next', 'Next commit', 'ArrowDown'),
   c('tour', null, 'tour.prev', 'Previous commit', 'ArrowUp'),
-  c('tour', null, 'tour.squash', 'Squash (practice)', 's'),
-  c('tour', null, 'tour.rebase', 'Rebase (practice)', 'r'),
-  c('tour', null, 'tour.cherryPick', 'Cherry-pick (practice)', 'p'),
   c('tour', null, 'tour.nextTab', 'Next lesson', 'ArrowRight'),
   c('tour', null, 'tour.prevTab', 'Previous lesson', 'ArrowLeft'),
 ];
