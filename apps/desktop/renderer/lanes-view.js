@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -66,7 +66,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -228,7 +228,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const line = [stack?.text, ...tags.filter((b) => !b.signal && !b.chip).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     // A stack's rows next to each other share a rail through their dots (AK-537).
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : '') + (rail.up ? '.stack-up' : '') + (rail.down ? '.stack-down' : ''), {
-      role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key,
+      role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key, 'data-stage': r.stage || undefined,
       title: [r.pr ? `#${r.pr.number} ${r.title}` : r.title, authors.length ? `By ${authors.map((a) => a.name).join(' and ')}` : null, stage?.label, stack?.title, ...tags.map((b) => b.title), overlap?.title, r.ahead ? `↑${r.ahead} against ${base || 'the base'}` : null].filter(Boolean).join('\n'),
       onclick: () => select(r.key),
       ondblclick: () => act('open', r),
@@ -445,6 +445,50 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     return h('div.review-calm', { role: 'note' }, h('b', null, some ? 'That’s everything that needs you.' : 'Nothing needs you right now.'), parts.join(' '));
   }
 
+  // Rows in list order, a stack's head over its rows wherever two or more of them sit together.
+  function pushRows(out, rs) {
+    rs.forEach((r, i) => {
+      const rail = stackRail(rs, i);
+      if (rail.down && !rail.up) {
+        const mates = [];
+        for (let j = i; j < rs.length && rs[j].stack?.root === r.stack.root; j++) mates.push(rs[j]);
+        out.push(stackHead(mates));
+      }
+      out.push(stagedRow(r, rail));
+    });
+  }
+
+  // A stack's head (AK-609): one quiet line over its rows, not a row of its own (it's never
+  // selected): name · PR count · how far it merges · Mark ready (a draft holds it) · Merge.
+  // Merge opens Merge plan with just this stack, GitHub's merges keep their one sheet.
+  function stackHead(rows) {
+    const { st, acts } = stackOffer(rows);
+    const s = rows[0].stack;
+    return h('div.review-stack-head' + `.${st.stage}`, { role: 'presentation', 'data-stack': String(s.root), title: `Stacked: ${[s.base || 'base', ...s.path.map((n) => `#${n}`)].join(' ‹ ')}` },
+      h('span.review-stack-name', null, stackTitle(rows.map((r) => r.pr))),
+      h('span.review-stack-meta', null, `${rows.length} PRs · ${st.text}`),
+      acts.length ? h('span.review-stack-acts', null, ...acts.map((x) => h('button.review-stack-act' + (x.id === 'merge' ? '.primary' : ''), { type: 'button', onclick: x.run }, x.label))) : null);
+  }
+  // What a stack's head offers, for the head and ⌘K: Mark ready on the draft holding it back, and
+  // Merge for the parts that merge now.
+  function stackOffer(rows) {
+    const st = stackStatus(rows, { base });
+    const n = st.through;
+    const acts = [
+      st.fix && onMarkReady ? { id: 'ready', label: `Mark #${st.fix.pr.number} ready`, run: () => onMarkReady(st.fix.pr, inbox?.remote) } : null,
+      n.length && canPlan() ? { id: 'merge', label: n.length === rows.length ? 'Merge stack' : n.length > 1 ? `Merge #${n[0]} → #${n[n.length - 1]}` : `Merge #${n[0]}`, run: () => mergePlan(null, { only: n }) } : null,
+    ].filter(Boolean);
+    return { st, acts };
+  }
+  // ⌘K's stack head entries for the selected row's stack (two or more of its rows listed), else [].
+  function stackActions() {
+    const x = current();
+    const rows = x?.stack ? shown.filter((r) => r.stack?.root === x.stack.root) : [];
+    if (rows.length < 2) return [];
+    const name = stackTitle(rows.map((r) => r.pr));
+    return stackOffer(rows).acts.map((a) => ({ ...a, label: a.id === 'merge' && a.label === 'Merge stack' ? `Merge stack: ${name}` : a.label }));
+  }
+
   function renderStaged() {
     const prsLoading = prsOn() && !inbox && !inboxFailed && reloading;
     const prsUnloaded = prsOn() && !inbox && !inboxFailed && !reloading; // nothing cached, Reload not pressed yet
@@ -458,7 +502,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (loaded) { lastCounts = { repo, stuck: staged.stages.stuck.length, ready: staged.stages.ready.length, needs: needsYou(staged.stages) }; onCounts(lastCounts); }
     if (q) {
       shown = filterRows(staged.all, q);
-      shown.forEach((r, i) => rows.push(stagedRow(r, stackRail(shown, i))));
+      pushRows(rows, shown);
     } else {
       shown = [];
       const t = TAB.get(tab);
@@ -471,7 +515,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
         if (many && !rs.length) continue;
         if (many) rows.push(h('div.lanes-group.needs', { role: 'presentation', 'data-stage': id }, h('span', null, label, ' ', h('span.lanes-count', null, String(rs.length)))));
         if (!rs.length && loaded && !prsLoading && !(prsUnloaded && id !== 'stuck')) rows.push(h('div.review-none', null, NONE[id]));
-        rs.forEach((r, i) => { shown.push(r); rows.push(stagedRow(r, stackRail(rs, i))); });
+        shown.push(...rs);
+        pushRows(rows, rs);
       }
       if (tab === 'open' && !shown.length && settled) rows.push(h('div.review-none', null, 'Nothing is open.'));
       if (tab === 'needs' && settled && shown.length <= SHORT) rows.push(calmLine());
@@ -551,8 +596,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     })).sort((a, b) => b.ready - a.ready || b.open - a.open || a.name.localeCompare(b.name));
   }
   const targetKey = () => `pref:mergeTarget:${repo || ''}`;
-  function mergePlan(method = null, { anyway = false, target = null } = {}) {
-    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target }); });
+  // `only`: PR numbers to plan (a stack's head, AK-609); the target is where they land.
+  function mergePlan(method = null, { anyway = false, target = null, only = null } = {}) {
+    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target, only }); });
     if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : `Merge plan needs git ${GIT_NEEDS.mergePlan} or later`);
     const open = inbox?.prs || [];
     if (!open.length) return toast('No open pull requests');
@@ -562,8 +608,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     let saved = null;
     try { saved = localStorage.getItem(targetKey()); } catch { /* ignore */ }
     const has = (n) => targets.some((t) => t.name === n);
+    if (only) target = land.get(only[0]) || target;
     const to = target && has(target) ? target : saved && has(saved) ? saved : targets[0].name;
-    const ready = all.filter((p) => land.get(p.number) === to);
+    const ready = all.filter((p) => land.get(p.number) === to && (!only || only.includes(p.number)));
     const others = open.filter((p) => land.get(p.number) === to && !ready.some((x) => x.number === p.number));
     const onTarget = (name, { save = true } = {}) => {
       if (save) { try { localStorage.setItem(targetKey(), name); } catch { /* ignore */ } }
@@ -816,7 +863,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
   function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
-  return { el, destroy, stackStep, stackSelection, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
+  return { el, destroy, stackStep, stackSelection, stackActions, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
 // The load when a repo opens (AK-382): the same pull requests Reload asks for, into prCache, so Review shows

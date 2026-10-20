@@ -701,3 +701,34 @@ test('stackFoldOrder folds the farthest PRs first, then the bottom one, then the
   assert.deepEqual(stackFoldOrder([1, 2], 2), [0]);
   assert.deepEqual(stackFoldOrder([1, 2, 3, 4, 5], 5), [1, 2, 0, 3]);
 });
+
+// Stack heads (AK-609): one stage for the whole stack, its name and status.
+test('reviewRows keeps a stack in its bottom part’s stage, each row keeping its own stage', async () => {
+  const { reviewRows } = await load();
+  const prs = [pr(4, READY), pr(5, { ...READY, base: 'b4' }), pr(6, { base: 'b5', draft: true }), pr(9, READY)];
+  const r = reviewRows({ prs, prsOn: true, now: NOW });
+  assert.deepEqual(r.stages.ready.map((x) => x.pr.number).filter((n) => n !== 9), [4, 5, 6]);
+  assert.equal(r.stages.inProgress.length, 0);
+  assert.equal(r.stages.ready.find((x) => x.pr.number === 6).stage, 'inProgress');
+  // A stuck bottom part takes the whole stack to Stuck.
+  const s = reviewRows({ prs: [pr(4, { checks: 'failure' }), pr(5, { ...READY, base: 'b4' })], prsOn: true, now: NOW });
+  assert.deepEqual(s.stages.stuck.map((x) => x.pr.number), [4, 5]);
+});
+
+test('stackTitle: the shared title without part markers, else the number range', async () => {
+  const { stackTitle } = await load();
+  assert.equal(stackTitle([pr(4, { title: 'Search part 1 of 3' }), pr(5, { title: 'Search part 2 of 3' })]), 'Search');
+  assert.equal(stackTitle([pr(4, { title: 'feat: search [1/2]' }), pr(5, { title: 'feat: search [2/2]' })]), 'feat: search');
+  assert.equal(stackTitle([pr(4, { title: 'Engine [1/2]' }), pr(5, { title: 'UI [2/2]' }), pr(6)]), 'Stack #4 → #6');
+});
+
+test('stackStatus: how far the stack merges and what holds it back', async () => {
+  const { stackStatus } = await load();
+  const row = (n, stage, o = {}) => ({ stage, pr: pr(n, o) });
+  assert.deepEqual(stackStatus([row(4, 'ready'), row(5, 'ready')]), { through: [4, 5], held: null, text: 'Ready to merge', stage: 'ready', fix: null });
+  const d = stackStatus([row(4, 'ready'), row(5, 'ready'), row(6, 'inProgress', { draft: true })]);
+  assert.equal(d.text, 'Mergeable through #5 · #6 draft');
+  assert.equal(d.fix.pr.number, 6);
+  assert.equal(stackStatus([row(4, 'stuck', { checks: 'failure', failing: ['test'] }), row(5, 'ready')]).text, '#4 CI ✗ test');
+  assert.equal(stackStatus([row(4, 'inProgress')]).text, '#4 CI running');
+});
