@@ -82,6 +82,18 @@ export const canRemove = (l, canSwitch = null) => (!l.isBase && !l.worktree?.cur
 export const removeWhy = (l, canSwitch = null) => canRemove(l, canSwitch) || !(l.branch || l.worktree) ? null
   : l.isBase ? 'Base branch' : canSwitch && switchAway(l) ? 'Only branch' : l.worktree?.current ? 'Open in this window'
     : l.worktree?.main ? 'In the main worktree' : l.worktree?.locked ? 'Worktree is locked' : null;
+// Why a row action doesn't apply to the lane, in a few words (the toast's second line and the
+// greyed menu item's sub-label); null when it does. `finished`: the lane is merged or gone; `canSwitch` as for canRemove.
+export function actionWhy(id, l, { base = null, finished = false, canSwitch = null } = {}) {
+  const noBranch = l.isBase ? 'Base branch' : 'No branch';
+  if (id === 'review') return !l.isBase && (l.branch || l.head) ? null : noBranch;
+  if (id === 'merge') return l.branch && !l.isBase ? null : noBranch;
+  if (id === 'rebase') return l.branch && !l.isBase ? (base ? null : 'No base branch') : noBranch;
+  if (id === 'checks') return l.pr?.url ? null : 'No pull request';
+  if (id === 'delete' || id === 'discard') return canRemove(l, canSwitch) ? null : removeWhy(l, canSwitch) || 'No branch';
+  if (id === 'cleanup') return finished ? null : 'Not finished';
+  return null;
+}
 
 // The actions a lane offers, next step first (ids of ACTIONS); [] when nothing needs doing.
 // `bucket` is the lane's sortLanes bucket.

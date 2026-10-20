@@ -1695,17 +1695,18 @@ async function commitMenu(x, y, c) {
   const locals = branchesAt(c.sha);
   const isHead = c.sha === state.head.oid;
   const remote = originRemote();
+  // Greyed with the reason under the label (AK-582).
   const get = graphCommits();
-  const off = (id) => !!commitBlock(id, c, state.head.oid, get);
+  const off = (id) => { const why = commitBlock(id, c, state.head.oid, get); return { disabled: !!why, why }; };
   contextMenu(x, y, [
     { label: 'Quick View', icon: 'eye', kbd: keymap.keys('map.quick'), run: () => openQuick(c.sha) },
-    { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), disabled: off('commit.diffHead'), run: () => diffWithHead(c) },
+    { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), ...off('commit.diffHead'), run: () => diffWithHead(c) },
     '-',
     ...(locals.length
       ? locals.map((b) => (worktreeOf(b.short)
         ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => switchWorktree(worktreeOf(b.short)) }
-        : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, run: () => checkout(b.short) }))
-      : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: keymap.keys('commit.checkout'), disabled: isHead && state.head.detached, run: () => checkoutCommit(c) }]),
+        : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, why: b.short === state.head.branch ? 'Current branch' : null, run: () => checkout(b.short) }))
+      : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: keymap.keys('commit.checkout'), disabled: isHead && state.head.detached, why: isHead && state.head.detached ? 'Checked out' : null, run: () => checkoutCommit(c) }]),
     { label: 'Create Branch…', icon: 'branch', kbd: keymap.keys('commit.branch'), run: () => createBranch(c.sha) },
     { label: 'Create Tag…', icon: 'tag', kbd: keymap.keys('commit.tag'), run: () => createTag(c.sha) },
     { label: 'New Worktree Here…', icon: 'worktree', kbd: keymap.keys('commit.worktree'), run: () => addWorktree({ base: c.sha }) },
@@ -1713,18 +1714,18 @@ async function commitMenu(x, y, c) {
     ...locals.map((b) => deleteBranchItem(b)),
     '-',
     { section: state.head.branch ? `Into ${state.head.branch}` : 'Into HEAD' },
-    { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), disabled: off('commit.merge'), run: () => mergeCommit(c) },
-    { label: 'Rebase Current onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), disabled: off('commit.rebase'), run: () => rebaseOnto(c) },
-    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), disabled: off('commit.cherryPick'), run: () => cherryPick(c) },
+    { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), ...off('commit.merge'), run: () => mergeCommit(c) },
+    { label: 'Rebase Current onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), ...off('commit.rebase'), run: () => rebaseOnto(c) },
+    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), ...off('commit.cherryPick'), run: () => cherryPick(c) },
     { label: 'Revert', icon: 'revert', kbd: keymap.keys('commit.revert'), run: () => revertCommit(c) },
     '-',
     { section: 'Rewrite' },
-    rewriteItem(targets, 'reword', 'Edit Message…', { icon: 'edit', kbd: keymap.keys('commit.edit') }, (b) => editMessage(c, b)),
-    rewriteItem(targets, 'squash', 'Squash with Parent', { icon: 'squash', kbd: keymap.keys('commit.squash'), disabled: off('commit.squash') }, (b) => rewriteOp('squash', c, b)),
-    rewriteItem(targets, 'fixup', 'Fixup with Parent', { icon: 'squash', kbd: keymap.keys('commit.fixup'), disabled: off('commit.fixup') }, (b) => rewriteOp('fixup', c, b)),
-    rewriteItem(targets, 'swapParent', 'Swap with Parent', { icon: 'swap', disabled: off('swapParent') }, (b) => rewriteOp('swapParent', c, b)),
-    rewriteItem(targets, 'split', 'Split Commit…', { icon: 'split', kbd: keymap.keys('commit.split'), disabled: off('commit.split') }, (b) => openSplit(c, b)),
-    rewriteItem(targets, 'drop', 'Delete Commit', { icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, disabled: off('commit.drop') }, (b) => rewriteOp('drop', c, b)),
+    rewriteItem(targets, 'reword', 'Edit Message…', { icon: 'edit', kbd: keymap.keys('commit.edit'), ...off('commit.edit') }, (b) => editMessage(c, b)),
+    rewriteItem(targets, 'squash', 'Squash with Parent', { icon: 'squash', kbd: keymap.keys('commit.squash'), ...off('commit.squash') }, (b) => rewriteOp('squash', c, b)),
+    rewriteItem(targets, 'fixup', 'Fixup with Parent', { icon: 'squash', kbd: keymap.keys('commit.fixup'), ...off('commit.fixup') }, (b) => rewriteOp('fixup', c, b)),
+    rewriteItem(targets, 'swapParent', 'Swap with Parent', { icon: 'swap', ...off('swapParent') }, (b) => rewriteOp('swapParent', c, b)),
+    rewriteItem(targets, 'split', 'Split Commit…', { icon: 'split', kbd: keymap.keys('commit.split'), ...off('commit.split') }, (b) => openSplit(c, b)),
+    rewriteItem(targets, 'drop', 'Delete Commit', { icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, ...off('commit.drop') }, (b) => rewriteOp('drop', c, b)),
     '-',
     { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
     remote?.web ? { label: 'Copy Link to Commit', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
@@ -1918,12 +1919,12 @@ async function checkoutSelected(c, at) {
   }
 }
 async function createBranch(sha) {
-  const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch' }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
+  const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch', required: true }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
   if (!v || !v.name.trim()) return;
   act(`Create branch ${v.name.trim()}`, 'createBranch', [v.name.trim(), sha, v.co]);
 }
 async function createTag(sha) {
-  const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v1.0.0' }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
+  const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v1.0.0', required: true }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
   if (!v || !v.name.trim()) return;
   act(`Create tag ${v.name.trim()}`, 'createTag', [v.name.trim(), sha, v.msg.trim() || null]);
 }
@@ -2104,7 +2105,9 @@ function createCommitView(container) {
   function updateCommitBtn() {
     const can = textarea.value.trim() && (state.status.staged.length || state.amend) && !state.status.conflicts.length;
     commitBtn.disabled = !can;
-    commitBtn.firstChild.textContent = state.amend ? 'Amend' : `Commit${state.status.staged.length ? ` ${state.status.staged.length} file${state.status.staged.length > 1 ? 's' : ''}` : ''}`;
+    // Greyed for a reason the message can't fix: the label says it.
+    const n = state.status.staged.length;
+    commitBtn.firstChild.textContent = state.status.conflicts.length ? 'Resolve conflicts' : state.amend ? 'Amend' : n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing staged';
   }
 
   async function doCommit() {
@@ -2423,8 +2426,11 @@ function createCommitView(container) {
       if (state.cv.lines.size && stageSelectedLines) return stageSelectedLines();
       const [l, f] = all[i];
       if (l === 'unstaged') quiet('stageFiles', paths(targets(l, f))); else if (l === 'staged') quiet('unstageFiles', paths(targets(l, f)));
-    } else if (id === 'cv.discard' && i !== -1 && all[i][0] === 'unstaged') {
-      e.preventDefault(); discard(targets('unstaged', all[i][1]));
+      else toast(`Can’t stage ${baseName(f.path)}`, { detail: 'Conflicted' });
+    } else if (id === 'cv.discard' && i !== -1) {
+      e.preventDefault();
+      if (all[i][0] === 'unstaged') discard(targets('unstaged', all[i][1]));
+      else toast(`Can’t discard ${baseName(all[i][1].path)}`, { detail: all[i][0] === 'staged' ? 'Staged' : 'Conflicted' });
     } else if (id === 'cv.message') {
       e.preventDefault(); textarea.focus();
     } else if (id === 'cv.layout') {
@@ -3144,7 +3150,8 @@ function paneAction(id, row, ctx) {
   if (id === 'rebase' && local && ctx.base) return rebaseLane(local, ctx.base);
   if (id === 'updateBranch' && pr) return updatePrBranch(pr, done);
   if (id === 'sendBack') return sendBackRow(row, ctx);
-  toast(`That doesn’t apply to ${row.title}`);
+  const why = id !== 'rebase' ? 'No pull request' : !local ? (lane?.isBase ? 'Base branch' : 'Not checked out here') : 'No base branch';
+  toast(`That doesn’t apply to ${row.title}`, { detail: why });
 }
 
 // Send back (send-back-view.js): the sheet for a stuck row. sendBackPr(number) opens it for that
@@ -3352,10 +3359,10 @@ function worktreeMenu(x, y, w) {
     { label: 'Open in Terminal', icon: 'terminal', disabled: w.missing, run: () => api.app('terminal', w.path) },
     { label: 'Copy Path', icon: 'copy', run: () => copy(w.path, 'Copied path') },
     '-',
-    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: keymap.keys('worktrees.lock'), disabled: w.main, run: () => toggleLock(w) },
+    { label: w.locked ? 'Unlock' : 'Lock…', icon: 'key', kbd: keymap.keys('worktrees.lock'), disabled: w.main, why: w.main ? 'Main worktree' : null, run: () => toggleLock(w) },
     w.missing
       ? { label: 'Prune Missing Worktrees', icon: 'trash', danger: true, run: pruneWorktrees }
-      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main, run: () => removeWorktree(w) },
+      : { label: 'Remove Worktree…', icon: 'trash', kbd: keymap.keys('worktrees.remove'), danger: true, disabled: w.main, why: w.main ? 'Main worktree' : null, run: () => removeWorktree(w) },
   ]);
 }
 
@@ -3443,7 +3450,7 @@ async function takeHandoff() {
 }
 
 async function toggleLock(w) {
-  if (w.main) return;
+  if (w.main) return toast('The main worktree can’t be locked');
   if (w.locked) return act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false });
   const v = await dialog({ title: `Lock worktree “${w.name}”?`, description: 'A locked worktree can’t be removed or pruned, by GitLanes or by git, until it is unlocked.', submit: 'Lock', fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'On an external drive' }] });
   if (v) act(`Lock ${w.name}`, 'lockWorktree', [w.path, v.reason.trim() || null], { undoable: false });

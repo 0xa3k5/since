@@ -745,6 +745,7 @@ kbd.inline { flex: none; }
 .input { width: 100%; height: 32px; padding: 0 10px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--bg-input); }
 textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.5; font-family: var(--font); }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.input[aria-invalid='true'] { border-color: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent); }
 .input.small { height: 28px; width: 200px; }
 
 .timeline { position: relative; }

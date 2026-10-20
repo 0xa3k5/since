@@ -64,11 +64,14 @@ test('each guarded action key and its menu item use the same check', () => {
   const shortcut = src.slice(src.indexOf('function commitShortcut('), src.indexOf('function commitMenu('));
   assert.match(shortcut, /guarded\(id, c, run\)/);
   const menu = src.slice(src.indexOf('function commitMenu('), src.indexOf('function refMenu('));
-  for (const id of ['commit.squash', 'commit.fixup', 'commit.split', 'commit.drop', 'commit.cherryPick', 'commit.merge', 'commit.rebase', 'commit.diffHead']) {
-    assert.ok(menu.includes(`disabled: off('${id}')`), id);
+  // off() returns { disabled, why }, so a greyed item shows its reason (AK-582).
+  assert.match(menu, /const off = \(id\) => \{ const why = commitBlock\(id, c, state\.head\.oid, get\); return \{ disabled: !!why, why \}; \};/);
+  for (const id of ['commit.squash', 'commit.fixup', 'commit.split', 'commit.drop', 'commit.cherryPick', 'commit.merge', 'commit.rebase', 'commit.diffHead', 'commit.edit']) {
+    assert.ok(menu.includes(`...off('${id}')`), id);
     assert.ok(shortcut.includes(`'${id}':`), id);
   }
-  assert.ok(menu.includes("disabled: off('swapParent')"));
+  assert.ok(menu.includes("...off('swapParent')"));
+  assert.doesNotMatch(menu, /disabled: off\(/);
   assert.doesNotMatch(menu, /disabled: c\.parents/);
 });
 
