@@ -447,7 +447,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (prsOn() && ['approve', 'close', 'merge', 'draft', 'ready'].includes(id)) fetchLanes({ prs: true }).catch(fail);
   }
 
-  // Below a short Needs you list: one calm line that says what's left (AK-396), from the tab counts.
+  // Below a short Needs you list: one calm line that says what's left (AK-396), from the tab counts;
+  // nothing when there's nothing more to say (AK-627).
   function calmLine() {
     const ready = staged.stages.ready.length;
     const going = staged.stages.inProgress.length;
@@ -456,7 +457,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       some && prsOn() && !ready ? 'Nothing is ready to merge yet.' : null,
       going ? `${plural(going, prsOn() ? 'PR is' : 'branch is', prsOn() ? 'PRs are' : 'branches are')} still in progress.` : null,
     ].filter(Boolean);
-    return h('div.review-calm', { role: 'note' }, h('b', null, some ? 'That’s everything that needs you.' : 'Nothing needs you right now.'), parts.join(' '));
+    if (some && !parts.length) return null;
+    return h('div.review-calm', { role: 'note' }, some ? null : h('b', null, 'Nothing needs you right now.'), parts.join(' '));
   }
 
   // Rows in list order, a stack's head over its rows wherever two or more of them sit together. The
@@ -513,7 +515,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       title: segTitle(r), 'aria-label': `#${r.pr.number}`, onclick: () => select(r.key),
     })));
     const tag = c ? (c.native ? 'GitHub stack' : 'Chain') : null;
-    const more = h('button.review-stack-more', { type: 'button', hidden: true, 'aria-haspopup': 'menu', 'aria-label': 'More stack actions', title: 'More stack actions', onclick: (e) => {
+    const more = h('button.review-stack-menu', { type: 'button', hidden: true, 'aria-haspopup': 'menu', 'aria-label': 'More stack actions', title: 'More stack actions', onclick: (e) => {
       const b = e.currentTarget.getBoundingClientRect();
       const all = e.currentTarget.closest('.review-stack-head').dataset.shed === 'tight';
       contextMenu(b.left, b.bottom + 4, [...acts.filter((x) => all || x.id !== 'merge').map((x) => ({ label: menuLabel(x), run: x.run, disabled: Boolean(x.why), why: x.why || undefined })),
@@ -554,7 +556,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const status = head.querySelector('.review-stack-status');
     const lv = stackFit(head.clientWidth, { base, gap, sentence: parseFloat(getComputedStyle(status).minWidth) || 0, main: w(main), secondary: secondary.map(w), more: 22 });
     head.dataset.shed = lv;
-    head.querySelector('.review-stack-more').hidden = !((lv === 'menu' && secondary.length) || (lv === 'tight' && (main || secondary.length)));
+    head.querySelector('.review-stack-menu').hidden = !((lv === 'menu' && secondary.length) || (lv === 'tight' && (main || secondary.length)));
   }
 
   // What a stack's head offers, for the head and ⌘K: Merge for the parts that merge now, the held
@@ -621,7 +623,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
         pushRows(rows, rs);
       }
       if (tab === 'open' && !shown.length && settled) rows.push(h('div.review-none', null, 'Nothing is open.'));
-      if (tab === 'needs' && settled && shown.length <= SHORT) rows.push(calmLine());
+      if (tab === 'needs' && settled && shown.length <= SHORT) { const calm = calmLine(); if (calm) rows.push(calm); }
       if (!prsOn()) rows.push(h('button.review-prs-off', { onclick: () => onPrSetup() }, icon('merge', 12), 'Local work only. Turn on PR features to see stuck and ready pull requests here'));
     }
     adopt(shown.map((r) => r.key));
@@ -733,7 +735,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       }, t.label, loaded ? h('span.review-tab-n', null, String(n)) : null);
     }),
     h('span.spacer'),
-    ...[(tab === 'needs' || tab === 'ready') && (canPlan() || planGated()) && readyPrs().length ? h('button.btn.ghost.small.lanes-group-act' + (planGated() ? '.gated' : ''), { onclick: () => mergePlan(), 'data-tip': planGated() ? `Needs git ${GIT_NEEDS.mergePlan}` : tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null].filter(Boolean)); // nothing (not "null") when Plan merge isn't offered
+    ...[(tab === 'needs' || tab === 'ready') && (canPlan() || planGated()) && readyPrs().length ? h('button.btn.subtle.small.lanes-group-act' + (planGated() ? '.gated' : ''), { onclick: () => mergePlan(), 'data-tip': planGated() ? `Needs git ${GIT_NEEDS.mergePlan}` : tipFor('Plan merge', 'lanes.mergePlan') + '\nWork out an order with no conflicts, then merge in that order' }, 'Plan merge ▸') : null].filter(Boolean)); // nothing (not "null") when Plan merge isn't offered
   }
   // 1–5 and the tabs: one list at a time; the selection moves to the tab's first row unless it's on the tab.
   function setTab(id) {
