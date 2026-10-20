@@ -40,9 +40,14 @@ const known = (pr) => Boolean(pr?.mergeState && pr.mergeState !== 'unknown' && p
 // check or the local forecast against the base. Overlaps with other PRs never count.
 const conflicted = (row) => (known(row.pr) ? row.pr.mergeState === 'dirty'
   : row.pr?.mergeable === false || (row.conflicts || []).some((c) => c.base));
+// Failing checks that hold a PR back (AK-611). GitHub merges past them when its merge box says
+// clean, unstable, behind or has_hooks (none is required); a draft's state hides that, and the
+// draft is its blocker, so they don't count there. With no word from GitHub they count.
+const LETS_MERGE = new Set(['clean', 'unstable', 'behind', 'has_hooks']);
+export const checksBlock = (pr) => pr?.checks === 'failure' && !pr.draft && !LETS_MERGE.has(pr.mergeState);
 // Without GitHub's merge state (an older gh): failing checks or conflicts are stuck; approved, CI
 // green (or no checks at all) and not a draft is ready.
-const stuck = (row) => row.pr.checks === 'failure' || conflicted(row);
+const stuck = (row) => checksBlock(row.pr) || conflicted(row);
 const ready = (pr) => !pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null);
 
 // A PR's stage from GitHub's merge box, the way GitHub would let you merge it (AK-321):
@@ -51,7 +56,7 @@ const ready = (pr) => !pr.draft && pr.review === 'approved' && (pr.checks === 's
 //                             a review or for checks to finish is in progress
 //   clean, unstable, behind   ready (unstable: non-required checks fail, GitHub still merges it;
 //   has_hooks                 behind: GitHub didn't block it, so it only gets a note)
-//   draft                     in progress, as before: stuck when checks fail or it conflicts
+//   draft                     in progress; stuck only when it conflicts (its checks don't count, AK-611)
 //   unknown                   null: the caller keeps the row's previous stage
 function prStage(row) {
   const { pr } = row;
@@ -240,24 +245,42 @@ export function stackTitle(prs = []) {
 
 // A stack's status line (AK-609, AK-611) from its rows bottom first: how far up it merges now and
 // what holds the next part back. → { through: [numbers that merge now], held: the first row that
-// doesn't, text: "Ready to merge" | "Mergeable through #5 · #6 waiting for review" | "#4 is a draft",
-// why (the held part's reason), stage, tone, fix }. tone colours the rail: 'ready' | 'failing' (checks) | 'conflicts' | null.
-// fix is the header's one fix for the held part: { id: 'ready' | 'checks' | 'rebase', label, row }.
+// doesn't, text: "Ready to merge" | "Mergeable through #5 · #6 waiting for review" | "#4 is a draft, checks failing",
+// why (the held part's blockers, partWhy), stage, tone, fixes, fix }. tone colours the rail: 'ready' | 'failing' (checks) | 'conflicts' | null.
+// fixes are the header's fixes for the held part, one per blocker: { id: 'ready' | 'checks' | 'rebase', label, row }; fix is the first.
 export function stackStatus(rows = [], { base = null } = {}) {
   let k = 0;
   while (k < rows.length && rows[k].stage === 'ready') k++;
   const through = rows.slice(0, k).map((r) => r.pr.number);
   const held = rows[k] || null;
   if (!held) return { through, held, text: 'Ready to merge', stage: 'ready', tone: 'ready', fix: null };
-  const pr = held.pr || {};
-  const stuck = held.stage === 'stuck';
-  const why = (stuck && stuckReason(held, { base })) || (pr.draft ? 'is a draft' : pr.checks === 'pending' ? 'checks running' : 'waiting for review');
-  const text = `${k ? `Mergeable through #${through[k - 1]} · ` : ''}#${pr.number} ${why}`;
-  const tone = stuck && pr.checks === 'failure' ? 'failing' : stuck && conflicted(held) ? 'conflicts' : null;
-  const fix = pr.draft ? { id: 'ready', label: `Mark #${pr.number} ready`, row: held }
-    : tone === 'failing' && pr.url ? { id: 'checks', label: 'View failure', row: held }
-    : stuck && primaryAction(held, { base }) === 'rebase' ? { id: 'rebase', label: 'Rebase', row: held } : null;
-  return { through, held, text, why, stage: held.stage || 'inProgress', tone, fix };
+  const { why, tone, fixes } = partWhy(held, { base });
+  const text = `${k ? `Mergeable through #${through[k - 1]} · ` : ''}#${held.pr.number} ${why}`;
+  return { through, held, text, why, stage: held.stage || 'inProgress', tone, fix: fixes[0] || null, fixes };
+}
+
+// What holds one part of a stack back (AK-611), every blocker, draft first:
+// → { why: "is a draft, checks failing", tone: 'failing' | 'conflicts' | null, fixes: [{ id, label, row }] }.
+// A draft's failing checks are named but never colour it; a ready part's why is "ready to merge".
+export function partWhy(row, { base = null } = {}) {
+  const pr = row.pr || {};
+  if (row.stage === 'ready') return { why: 'ready to merge', tone: null, fixes: [] };
+  const out = [];
+  const fixes = [];
+  if (pr.draft) { out.push('is a draft'); fixes.push({ id: 'ready', label: `Mark #${pr.number} ready`, row }); }
+  const conflicts = conflicted(row);
+  if (conflicts) {
+    out.push(`conflicts with ${pr.base || base || 'its base'}`);
+    if (row.lane?.branch && !row.lane.isBase && base) fixes.push({ id: 'rebase', label: 'Rebase', row });
+  }
+  if (pr.checks === 'failure' && (pr.draft || checksBlock(pr))) {
+    out.push('checks failing');
+    if (pr.url) fixes.push({ id: 'checks', label: 'View failure', row });
+  }
+  if (pr.review === 'changes') out.push('changes requested');
+  if (!out.length) out.push(pr.checks === 'pending' ? 'checks running' : 'waiting for review');
+  const tone = checksBlock(pr) ? 'failing' : conflicts ? 'conflicts' : null;
+  return { why: out.join(', '), tone, fixes };
 }
 
 // Approve all on a stack (AK-611): the parts you can approve and why the button is greyed.
@@ -378,7 +401,7 @@ export function rowBadges(row, { requested = new Set() } = {}) {
   const out = [];
   if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
   if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed', chip: true });
-  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: 'warn', title: 'Checks are failing', signal: true, chip: true });
+  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: checksBlock(pr) ? 'warn' : '', title: LETS_MERGE.has(pr.mergeState) ? 'Checks are failing · Not required to merge' : 'Checks are failing', signal: true, chip: true });
   else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
   if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
   else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check', chip: true });
@@ -655,7 +678,9 @@ export function rowChips(row, { facts = null, evidence = null, requested = new S
     const c = pr.checkCounts;
     const n = failing.length || (c && Number.isSafeInteger(c.total) && Number.isSafeInteger(c.passed) ? c.total - c.passed : 0);
     const s = rowSignals(row);
-    out.push({ id: 'checks', kind: 'fail', icon: 'x', text: failing.length === 1 ? failing[0] : n ? `${n} failed` : 'failed', title: s.checks?.title || 'Checks are failing' });
+    // Checks GitHub merges past (or a draft's) are muted, not red (AK-611).
+    const title = s.checks?.title || 'Checks are failing';
+    out.push({ id: 'checks', kind: checksBlock(pr) ? 'fail' : '', icon: 'x', text: failing.length === 1 ? failing[0] : n ? `${n} failed` : 'failed', title: LETS_MERGE.has(pr.mergeState) ? `Not required to merge\n${title}` : title });
   } else if (pr?.checks === 'success') {
     const c = pr.checkCounts;
     const counted = c && Number.isSafeInteger(c.passed) && Number.isSafeInteger(c.total) && c.total > 0;

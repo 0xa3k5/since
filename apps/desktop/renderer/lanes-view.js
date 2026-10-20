@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -212,6 +212,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   const step = (r) => primaryAction(r, { base, requested: requested() });
 
+  // A draft that's only held back by being a draft shows the outlined draft dot, not its checks' colour (AK-611).
+  const drafty = (r) => Boolean(r.pr?.draft) && r.stage !== 'stuck';
   // A row (AK-379): status dot · the title, led by a muted #number (AK-516), over one quiet line (why it's stuck, in red; else
   // its tags, who and where) · age. No buttons: ⌘K "Next step" runs the primary step, the pane's status strip
   // has the rest, and the context menu has them all. Details (D) open under the title.
@@ -227,7 +229,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
     const authors = rowAuthors(r, { agents: markAgents() });
     const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    const line = [stack?.text, ...tags.filter((b) => !b.signal && !b.chip).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
+    // "Draft" leads the line (AK-611), as in the pane.
+    const line = [...tags.filter((b) => b.kind === 'draft').map((b) => b.text), stack?.text, ...tags.filter((b) => !b.signal && !b.chip && b.kind !== 'draft').map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     // A stack's rows next to each other share a rail through their dots (AK-537).
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : '') + (rail.up ? '.stack-up' : '') + (rail.down ? '.stack-down' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key, 'data-stage': r.stage || undefined,
@@ -236,7 +239,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
-      h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
+      h('span.review-dot' + (r.stage ? `.${r.stage}` : '') + (drafty(r) ? '.draft' : ''), { role: 'img', 'aria-label': drafty(r) ? `${stage?.label || 'Open'}, draft` : stage?.label || 'Open' }),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)), r.title), chipsEl(r)),
         stuck ? reasonEl(r, authors) : subLine('div.list-sub.review-row-sub', null, r, authors, line ? h('span.review-row-text', null, line) : null),
@@ -502,12 +505,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const s = rows[0].stack;
     const c = chainInfo.get(s.root);
     const segs = h('span.review-stack-segs', { role: 'group', 'aria-label': 'Parts' }, ...rows.map((r) => h('button.review-stack-seg', {
-      type: 'button', 'data-stage': r.stage || 'inProgress', title: `#${r.pr.number} ${r.title}`, 'aria-label': `#${r.pr.number}`, onclick: () => select(r.key),
+      type: 'button', 'data-stage': r.stage || 'inProgress', 'data-draft': drafty(r) ? '' : undefined,
+      title: `#${r.pr.number} ${r.title}\n${partWhy(r, { base }).why.replace(/^is /, '').replace(/^./, (x) => x.toUpperCase())}`, 'aria-label': `#${r.pr.number}`, onclick: () => select(r.key),
     })));
     return h('div.review-stack-head' + `.${st.stage}` + (st.tone ? `.${st.tone}` : ''), { role: 'presentation', 'data-stack': String(s.root), title: `Stacked: ${[s.base || 'base', ...s.path.map((n) => `#${n}`)].join(' ‹ ')}` },
       h('span.review-stack-name', null, stackTitle(rows.map((r) => r.pr))),
       c ? h('span.review-stack-tag' + (c.native ? '.native' : ''), null, c.native ? 'GitHub stack' : 'Chain') : null,
-      h('span.review-stack-meta', null, `${rows.length} PRs into ${s.base || 'the base'} · ${st.text}`),
+      h('span.review-stack-meta', null, `${rows.length} PRs into ${s.base || 'the base'}`),
+      h('span.review-stack-status', { title: st.text }, st.text),
       segs,
       acts.length || link ? h('span.review-stack-acts', null,
         ...acts.map((x) => h('button.review-stack-act' + (x.id === 'merge' ? '.primary' : ''), { type: 'button', disabled: x.why ? true : undefined, title: x.why || undefined, onclick: x.run }, x.label)),
@@ -521,13 +526,14 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const prs = rows.map((r) => r.pr);
     const c = chainInfo.get(rows[0].stack.root);
     const ok = stackApproval(prs, inbox?.viewer);
-    const fix = st.fix && (st.fix.id !== 'ready' || onMarkReady) ? {
-      id: st.fix.id, label: st.fix.label, n: st.fix.row.pr.number,
-      run: () => (st.fix.id === 'ready' ? onMarkReady(st.fix.row.pr, inbox?.remote) : act(st.fix.id, st.fix.row)),
-    } : null;
+    // One fix per blocker of the held part (AK-611): Mark #6 ready · View failure.
+    const fixes = st.fixes?.filter((f) => f.id !== 'ready' || onMarkReady).map((f) => ({
+      id: f.id, label: f.label, n: f.row.pr.number,
+      run: () => (f.id === 'ready' ? onMarkReady(f.row.pr, inbox?.remote) : act(f.id, f.row)),
+    })) || [];
     const acts = [
       n.length && canPlan() ? { id: 'merge', label: n.length === rows.length ? 'Merge stack' : n.length > 1 ? `Merge #${n[0]} → #${n[n.length - 1]}` : `Merge #${n[0]}`, run: () => mergePlan(null, { only: n, held: stackHeld(rows, st) }) } : null,
-      fix,
+      ...fixes,
       c && !c.native && c.linkable && onMakeStack ? { id: 'link', label: 'Make it a GitHub stack', run: () => onMakeStack(rows[0].pr.number) } : null,
       ok && onApproveAll ? { id: 'approve', label: `Approve all ${ok.prs.length}…`, why: ok.why, run: () => onApproveAll(ok.prs, inbox?.remote, () => reload()) } : null,
     ].filter(Boolean);
