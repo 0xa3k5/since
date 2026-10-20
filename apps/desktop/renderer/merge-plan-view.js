@@ -17,7 +17,7 @@
 // Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
 import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from './ui.js';
 import * as keymap from './keymap.js';
-import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, stackName, cleanTitle } from './merge-plan.js';
+import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, stackName, cleanTitle } from './merge-plan.js';
 import { buildPrompt } from './send-back.js';
 import { openStackLink } from './stack-link-view.js';
 
@@ -103,7 +103,8 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     const pt = stacks.get(k)?.partial;
     if (!pt) return null;
     const files = pt.files.map((f) => f.split('/').pop());
-    return pt.upTo ? `Merges #${stacks.get(k).prs[0]} → #${pt.upTo}. #${pt.at} conflicts with ${base} in ${fileNames(files)}` : `#${pt.at} conflicts with ${base} in ${fileNames(files)}`;
+    const prs = stacks.get(k).prs;
+    return pt.upTo ? `Merges ${rangeLabel(prs.slice(0, prs.indexOf(pt.upTo) + 1))}. #${pt.at} conflicts with ${base} in ${fileNames(files)}` : `#${pt.at} conflicts with ${base} in ${fileNames(files)}`;
   };
   const singles = () => left.filter((n) => !memberOf(n) && !notReady.has(n));
   const pickable = () => [...singles(), ...[...stacks.values()].filter(stackOk).map((st) => st.id)];
@@ -599,7 +600,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       const key = step.stack ?? step.number;
       const prs = step.prs || [step.number];
       const n = prs[prs.length - 1];
-      status.set(key, { text: step.stack ? 'Merging the stack…' : 'Merging…', kind: 'busy' });
+      status.set(key, { text: prs.length > 1 ? 'Merging the stack…' : 'Merging…', kind: 'busy' });
       render();
       const arg = step.stack
         ? { baseSha, method, cleanup, stack: prs.map((x) => ({ number: x, snap: plan.snapshots[x] })) }
@@ -610,7 +611,7 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       if (res?.error?.code === 'gh-no-stack' && (await installStack())) res = await merge();
       if (res?.error || res.ok.stop) {
         status.set(key, { text: res.error ? 'Not merged' : 'Not merged: stopped', kind: 'warn' });
-        stopReason = res.error ? `${step.stack ? `The stack #${prs[0]} → #${n}` : `#${n}`} failed: ${res.error.message}` : res.ok.stop;
+        stopReason = res.error ? `${prs.length > 1 ? `The stack ${rangeLabel(prs)}` : `#${n}`} failed: ${res.error.message}` : res.ok.stop;
         phase = 'stopped';
         break;
       }

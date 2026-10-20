@@ -21,6 +21,9 @@ export const METHODS = ['squash', 'merge', 'rebase'];
 // A unit's key in order / forced / blocked: a PR's number or a stack's id.
 const keyOf = (u) => u.stack ?? u.number;
 // "#41", or "the stack #41–#43" for a stack id.
+// PRs bottom…top as copy: "#275 → #278", or "#275" when there's one.
+export const rangeLabel = (prs) => (prs.length > 1 ? `#${prs[0]} → #${prs[prs.length - 1]}` : `#${prs[0]}`);
+
 export const unitLabel = (key, stacks = []) => {
   if (typeof key === 'number') return `#${key}`;
   const s = stacks.find((x) => x.id === key);
@@ -203,6 +206,26 @@ export function bottomPart(chain, facts) {
   if (first == null && k < 2) return null;
   return { ...chain, prs: chain.prs.slice(0, k), ...(chain.heads ? { heads: chain.heads.slice(0, k) } : {}) };
 }
+
+// The part of a ready stack that merges with the base now. Like GitHub, a stack merges from the
+// bottom up to any PR: when the whole stack conflicts with the base (it moved on since the branches
+// were cut), the longest bottom part that doesn't. That can be the bottom PR alone (AK-619): it
+// still merges as a stack step, through `gh stack merge` for a GitHub stack (GitHub refuses its PRs
+// one at a time) and as a single PR for a plain chain. stack: { id, prs }; heads: their head
+// commits; merge(head) → { commit, files } against the base. → { prs, head, partial }, partial
+// { upTo, at, files } when it doesn't merge whole (upTo null when not even the bottom PR merges).
+export async function cleanPart(stack, heads, merge) {
+  const top = heads.length - 1;
+  if ((await merge(heads[top])).commit) return { prs: stack.prs, head: heads[top], partial: null };
+  let k = top - 1;
+  while (k >= 0 && !(await merge(heads[k])).commit) k--;
+  const partial = { upTo: k >= 0 ? stack.prs[k] : null, at: stack.prs[k + 1], files: (await merge(heads[k + 1])).files };
+  return k >= 0 ? { prs: stack.prs.slice(0, k + 1), head: heads[k], partial } : { prs: stack.prs, head: heads[top], partial };
+}
+
+// A merge step's stack (the merge-plan-merge IPC check): its PR numbers bottom…top, one PR or more
+// (AK-619: just the bottom PR when only it merges clean), at most MAX_STACK, ending at `top`.
+export const stackStepOk = (numbers, top) => numbers.length >= 1 && numbers.length <= MAX_STACK && numbers[numbers.length - 1] === top;
 
 export function isNative(chain, facts) {
   const ids = chain.prs.map((n) => facts.get?.(n)?.stack?.number ?? null);
