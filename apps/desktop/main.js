@@ -782,6 +782,8 @@ handle('app:pr-close', prAction((t, o) => github.closePr({ ...t, body: check.str
 // Merge plan fixes (AK-550): mark a draft ready, re-run failed Actions jobs. Opt-in like every
 // PR action: target() refuses while pull requests are off.
 handle('app:pr-ready', prAction((t) => github.markReady(t)));
+// Back to draft (AK-612): the undo of Mark ready, and its own action on a ready PR.
+handle('app:pr-draft', prAction((t) => github.markDraft(t)));
 handle('app:pr-rerun-failed', prAction((t) => github.rerunFailed(t)));
 handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, rebase: check.bool(o?.rebase ?? false, 'rebase') })));
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on

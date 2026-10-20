@@ -655,16 +655,18 @@ test('planFacts: required checks, review rule and who may approve, from one Grap
   assert.throws(() => github.parsePlanFacts('{"data":{"repository":{"pullRequest":null}}}'), { code: 'gh-failed' });
 });
 
-test('markReady and rerunFailed: gh arguments, Actions runs only (AK-550)', async () => {
+test('markReady, markDraft and rerunFailed: gh arguments, Actions runs only (AK-550, AK-612)', async () => {
   const { calls, exec } = recorder('');
   await github.markReady({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
   assert.deepEqual(calls[0].args, ['pr', 'ready', '7', '--repo', 'github.com/acme/app']);
+  await github.markDraft({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec });
+  assert.deepEqual(calls[1].args, ['pr', 'ready', '7', '--repo', 'github.com/acme/app', '--undo']);
   const rollup = JSON.stringify({ statusCheckRollup: [{ conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/9/job/1' }, { state: 'FAILURE', targetUrl: 'https://ci.example.com/2' }, { conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/app/actions/runs/8/job/2' }] });
   const r = recorder((args) => (args[0] === 'pr' ? rollup : ''));
   const res = await github.rerunFailed({ enabled: true, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec: r.exec });
   assert.deepEqual(res, { number: 7, runs: ['9'] });
   assert.deepEqual(r.calls[1].args, ['run', 'rerun', '9', '--repo', 'github.com/acme/app', '--failed']);
-  for (const fn of ['planFacts', 'markReady', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
+  for (const fn of ['planFacts', 'markReady', 'markDraft', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
 });
 
 test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your own (AK-577)', async () => {
