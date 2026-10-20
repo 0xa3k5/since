@@ -273,7 +273,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   async function fetchLanes() {
     const t = loads.start(false);
     const res = await load({ prs: false });
-    if (!loads.lanes(t) || (loaded && !el.isConnected)) return;
+    if (!res || !loads.lanes(t) || (loaded && !el.isConnected)) return; // null: the repository closed
     base = res.base;
     lanes = sortLanes(withConflicts(keepPrs(res.lanes, prs()), conflicts));
     loaded = true;

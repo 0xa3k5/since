@@ -165,7 +165,7 @@ function parsePrs(out) {
 
 const authProblem = (msg) => /auth login|not logged in|authenticat|HTTP 401|bad credentials/i.test(msg || '');
 
-const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli, env }) => exec(bin, args, '', { dirs, timeout, env: env ? { ...GH_ENV, ...env } : GH_ENV });
+const run = (bin, args, { dirs, timeout = TIMEOUT, exec = runCli, env, signal }) => exec(bin, args, '', { dirs, timeout, signal, env: env ? { ...GH_ENV, ...env } : GH_ENV });
 
 // The enable sheet's check, after the user chose to turn it on: is `gh` installed, and logged in
 // to this remote's host? Returns { gh: 'missing' | 'logged-out' | 'ready', remote }.
@@ -192,7 +192,7 @@ function loginScript(host = 'github.com') {
 }
 
 // One refresh. While the repository's toggle is off, nothing runs: no binary lookup, no process.
-async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+async function listPrs({ enabled, remotes, dirs = searchDirs(), exec, signal } = {}) {
   if (!enabled) return null;
   const remote = pickRemote(remotes);
   if (!remote) throw coded('This repository has no GitHub remote.', 'gh-no-remote');
@@ -200,11 +200,11 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   if (!bin) throw coded('Couldn’t find the `gh` command. Install GitHub CLI.', 'gh-missing');
   let out;
   try {
-    out = await run(bin, ['pr', 'list', '--repo', `${remote.host}/${remote.owner}/${remote.repo}`, '--state', 'open', '--limit', String(LIMIT), '--json', PR_FIELDS.join(',')], { dirs, exec });
+    out = await run(bin, ['pr', 'list', '--repo', `${remote.host}/${remote.owner}/${remote.repo}`, '--state', 'open', '--limit', String(LIMIT), '--json', PR_FIELDS.join(',')], { dirs, exec, signal });
   } catch (err) {
     throw coded(err.message, authProblem(err.message) ? 'gh-auth' : 'gh-failed');
   }
-  const viewer = await viewerFacts(bin, remote, { dirs, exec });
+  const viewer = await viewerFacts(bin, remote, { dirs, exec, signal });
   return { remote, owners: remoteOwners(remotes), prs: parsePrs(out), viewer, at: Date.now() };
 }
 
@@ -221,10 +221,10 @@ function parseViewer(out) {
   if (!/^[\w-]+$/.test(login) || typeof perm !== 'string') return null;
   return { login, write: CAN_REVIEW.has(perm) };
 }
-async function viewerFacts(bin, remote, { dirs, exec }) {
+async function viewerFacts(bin, remote, { dirs, exec, signal }) {
   const key = `${remote.host}/${remote.owner}/${remote.repo}`;
   if (viewers.has(key)) return viewers.get(key);
-  const out = await run(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${VIEWER_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }).catch((err) => {
+  const out = await run(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${VIEWER_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec, signal }).catch((err) => {
     console.warn('could not read your GitHub login and permission', err.message);
     return null;
   });
@@ -237,9 +237,9 @@ async function viewerFacts(bin, remote, { dirs, exec }) {
 // Recently merged PRs, for the lanes list's "shipped" check (git.lanes `prHeads`): a lane whose
 // tip or one of whose commits is a merged PR's head is done. One call per lanes refresh, only
 // while PRs are on. → [{ number, title, sha, branch, merge, mergedAt, body, author, authorName, bot }].
-async function mergedPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+async function mergedPrs({ enabled, remotes, dirs = searchDirs(), exec, signal } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt,body,author'], { dirs, exec });
+  const out = await ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'merged', '--limit', String(LIMIT), '--json', 'number,title,headRefOid,headRefName,mergeCommit,mergedAt,body,author'], { dirs, exec, signal });
   return parseMerged(out);
 }
 function parseMerged(out) {
@@ -283,12 +283,12 @@ function parseMergedStacks(out, numbers) {
   }
   return facts;
 }
-async function mergedStacks({ enabled, remotes, numbers, dirs = searchDirs(), exec } = {}) {
+async function mergedStacks({ enabled, remotes, numbers, dirs = searchDirs(), exec, signal } = {}) {
   const { bin, remote } = target({ enabled, remotes, dirs });
   if (!Array.isArray(numbers) || !numbers.length) return new Map();
   const ns = [...new Set(numbers.map((n) => Number(prNumber(n))))].slice(0, LIMIT);
   const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${ns.map((n) => `p${n}:pullRequest(number:${n}){${MERGED_STACK_FIELDS}}`).join(' ')}}}`;
-  return parseMergedStacks(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${query}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }), ns);
+  return parseMergedStacks(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${query}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec, signal }), ns);
 }
 // Review's re-check (AK-625): GitHub works out a PR's merge state lazily, so a PR list can say
 // unknown for some. This asks again for those only: one GraphQL call per MERGE_STATE_BATCH PRs,
@@ -325,9 +325,9 @@ const joinStacks = (merged, facts) => (facts ? merged.map((p) => {
 // The base branch's CI for Review's catch-up card (AK-281): the newest workflow runs on it, summed
 // up for its newest commit. One call per catch-up load, only while PRs are on.
 // → { state: 'passing' | 'failing' | 'pending', sha, failed: [names] } or null when it has no runs.
-async function baseCi({ enabled, remotes, branch, dirs = searchDirs(), exec } = {}) {
+async function baseCi({ enabled, remotes, branch, dirs = searchDirs(), exec, signal } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
-  const out = await ghRun(bin, ['run', 'list', '--repo', repo, '--branch', branchArg(branch, 'branch'), '--limit', '20', '--json', 'headSha,status,conclusion,workflowName'], { dirs, exec });
+  const out = await ghRun(bin, ['run', 'list', '--repo', repo, '--branch', branchArg(branch, 'branch'), '--limit', '20', '--json', 'headSha,status,conclusion,workflowName'], { dirs, exec, signal });
   return parseBaseCi(out);
 }
 const RUN_FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']); // a cancelled run was superseded
@@ -356,10 +356,10 @@ const parseNumbers = (out) => {
   return list.map((p) => p?.number).filter((n) => Number.isSafeInteger(n) && n > 0);
 };
 const logins = new Map();
-async function inbox({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
+async function inbox({ enabled, remotes, dirs = searchDirs(), exec, signal } = {}) {
   const { bin, remote, repo } = target({ enabled, remotes, dirs });
   const login = logins.has(remote.host) ? Promise.resolve(logins.get(remote.host))
-    : ghRun(bin, ['api', 'user', '--hostname', remote.host, '--jq', '.login'], { dirs, exec }).then((out) => {
+    : ghRun(bin, ['api', 'user', '--hostname', remote.host, '--jq', '.login'], { dirs, exec, signal }).then((out) => {
       const me = text(String(out).trim(), 200);
       if (!/^[\w-]+$/.test(me)) throw coded('GitHub CLI didn’t say who you are.', 'gh-failed');
       logins.set(remote.host, me);
@@ -367,7 +367,7 @@ async function inbox({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
     });
   const [me, requested] = await Promise.all([
     login,
-    ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'open', '--search', 'review-requested:@me', '--limit', String(LIMIT), '--json', 'number'], { dirs, exec }).then(parseNumbers),
+    ghRun(bin, ['pr', 'list', '--repo', repo, '--state', 'open', '--search', 'review-requested:@me', '--limit', String(LIMIT), '--json', 'number'], { dirs, exec, signal }).then(parseNumbers),
   ]);
   return { me, requested };
 }

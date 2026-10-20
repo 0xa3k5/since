@@ -135,12 +135,20 @@ function tests(skipE2e) {
   run('pnpm', ['test:e2e']);
 }
 
+// Only the keychain profile notarizes; stray Apple ID or API key variables would take precedence.
+// CSC_IDENTITY_AUTO_DISCOVERY=false (exported for local unsigned builds) makes electron-builder skip
+// signing while electron-builder.config.js still names the build signed and notarizes it (AK-431).
+const DROPPED_ENV = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_IDENTITY_AUTO_DISCOVERY', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER'];
+function buildEnv(base) {
+  const env = { ...base, GITLANES_STORE: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
+  for (const k of DROPPED_ENV) delete env[k];
+  return env;
+}
+
 function build(version) {
   step(`Build ${version} (signed, notarized, GITLANES_STORE=beta)`);
   fs.rmSync(DIST, { recursive: true, force: true });
-  const env = { ...process.env, GITLANES_STORE: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
-  // Only the keychain profile notarizes; stray Apple ID or API key variables would take precedence.
-  for (const k of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER']) delete env[k];
+  const env = buildEnv(process.env);
   // The version goes through the environment (electron-builder.config.js reads GITLANES_VERSION): a `--`
   // argument has to cross two `pnpm run` layers and not every pnpm strips it, which built 0.1.0 as beta.2 (AK-571).
   run('pnpm', ['dist'], { env: { ...env, GITLANES_VERSION: version } });
@@ -212,4 +220,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion };
+module.exports = { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion, buildEnv };

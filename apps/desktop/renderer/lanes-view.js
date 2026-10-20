@@ -851,6 +851,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       toast('Could not load pull requests', { kind: 'error', detail: e.message });
       return;
     }
+    if (!res) return; // the repository closed while it loaded (app:lanes-list)
     const newest = loads.lanes(t);
     if (withPrs && loads.prs(t)) reloading = false;
     if ((!newest && !loads.prs(t)) || (loaded && !el.isConnected)) return;
@@ -1027,6 +1028,7 @@ export const cachedPrs = (repo) => (prCache?.repo === repo ? prCache.prs : []);
 export async function reviewCounts({ repo, load, prsOn }) {
   if (lastCounts?.repo === repo) return lastCounts;
   const res = await load({ prs: false });
+  if (!res) return null; // the repository closed
   const cached = prsOn() && prCache?.repo === repo ? prCache : null;
   const lanes = cached ? keepPrs(res.lanes, cached.prs) : res.lanes;
   const { stages } = reviewRows({ lanes, prs: cached?.inbox.prs || [], reviewRequested: cached?.inbox.requested || [], forecast: null, prsOn: prsOn(), now: Date.now(), previous: null });

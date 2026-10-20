@@ -101,11 +101,14 @@ function findBinary(name, dirs = searchDirs()) {
   return null;
 }
 
-function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env = {} } = {}) {
+// `signal` (an AbortSignal) stops the CLI too: the promise rejects with an AbortError.
+function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env = {}, signal } = {}) {
   return new Promise((resolve, reject) => {
+    const cancelled = () => Object.assign(new Error(`${path.basename(bin)} was cancelled`), { name: 'AbortError' });
+    if (signal?.aborted) return reject(cancelled());
     // An empty folder, so the CLI never reads or edits the repository on its own.
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-ai-'));
-    const done = (fn, v) => { clearTimeout(timer); try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* best effort */ } fn(v); };
+    const done = (fn, v) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* best effort */ } fn(v); };
     // PATH includes the usual install folders: npm-installed CLIs start with `env node`.
     // Own process group, so a timeout stops the CLI and anything it started.
     const child = spawn(bin, args, { cwd, env: { ...process.env, ...env, PATH: dirs.join(path.delimiter) }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
@@ -115,7 +118,10 @@ function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env 
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
-    const timer = setTimeout(() => { try { process.kill(-child.pid); } catch { child.kill(); } done(reject, new Error(`${path.basename(bin)} didn’t answer within ${timeout / 1000} s`)); }, timeout);
+    const stop = () => { try { process.kill(-child.pid); } catch { child.kill(); } };
+    const timer = setTimeout(() => { stop(); done(reject, new Error(`${path.basename(bin)} didn’t answer within ${timeout / 1000} s`)); }, timeout);
+    const onAbort = () => { stop(); done(reject, cancelled()); };
+    signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (e) => done(reject, e));
     child.on('close', (code) => {
       if (code === 0) done(resolve, out);
