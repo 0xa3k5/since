@@ -361,7 +361,7 @@ export function contextMenu(x, y, items, { focus = -1 } = {}) {
   flat.forEach((it) => {
     if (it === '-') return menu.append(h('div.menu-sep'));
     if (it.section) return menu.append(h('div.menu-section', null, it.section));
-    const el = h('button.menu-item' + (it.danger ? '.danger' : ''), {
+    const el = h('button.menu-item' + (it.danger ? '.danger' : '') + (it.gated ? '.gated' : ''), {
       disabled: it.disabled,
       onclick: () => {
         const r = el.getBoundingClientRect();
