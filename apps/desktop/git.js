@@ -1732,14 +1732,28 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
 
 // Delete branches on their remotes, one `git push --delete` per remote. `shorts` are
 // remote-tracking names ("origin/feature/x"), split on the longest matching remote name.
+// Never deletes a remote's default branch (its `<remote>/HEAD`) or a branch a local branch still
+// tracks: run it after the local branches are gone. Duplicates are dropped.
 // Not undoable. Returns { deleted, failed }.
 async function deleteRemoteBranches(cwd, shorts) {
   const remotes = (await getRemotes(cwd)).map((r) => r.name).sort((a, b) => b.length - a.length);
+  const tracked = new Set((await run(cwd, ['for-each-ref', '--format=%(upstream:short)', 'refs/heads'])).split('\n').filter(Boolean));
+  const heads = new Map();
+  const defaultOf = async (remote) => {
+    // Without a known `<remote>/HEAD`, main and master both count as the default.
+    if (!heads.has(remote)) {
+      const head = (await run(cwd, ['symbolic-ref', '--short', '-q', `refs/remotes/${remote}/HEAD`]).catch(() => '')).trim();
+      heads.set(remote, new Set(head ? [head, `${remote}/HEAD`] : [`${remote}/main`, `${remote}/master`, `${remote}/HEAD`]));
+    }
+    return heads.get(remote);
+  };
   const byRemote = new Map();
   const failed = [];
-  for (const s of shorts) {
+  for (const s of new Set(shorts)) {
     const remote = remotes.find((r) => s.startsWith(`${r}/`) && s.length > r.length + 1);
     if (!remote) { failed.push({ name: s, message: 'No such remote.' }); continue; }
+    if ((await defaultOf(remote)).has(s)) { failed.push({ name: s, message: 'It’s the default branch.' }); continue; }
+    if (tracked.has(s)) { failed.push({ name: s, message: 'A local branch still tracks it.' }); continue; }
     byRemote.set(remote, [...(byRemote.get(remote) || []), s.slice(remote.length + 1)]);
   }
   const deleted = [];

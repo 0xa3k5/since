@@ -32,7 +32,7 @@ let lastTab = 'active';
 // onNewWorktree() opens New worktree…; onCount(n) gets the number of finished branches (the sidebar
 // badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab` opens on that
 // tab; `only` (a laneKey) opens Finished with just that branch ticked. `cleanup` holds Clean up's
-// own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo, mod).
+// own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo).
 export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup }) {
   let lanes = [];
   let byTab = branchTabs([]);

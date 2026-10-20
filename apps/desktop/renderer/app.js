@@ -2854,7 +2854,6 @@ function openBranches() {
       onProgress: (fn) => api.on('cleanup:progress', fn),
       onDone: refreshAll,
       onUndo: undo,
-      mod: MOD,
     },
   });
   branchesTab = null;
