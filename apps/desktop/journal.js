@@ -69,8 +69,9 @@ function pins(entry) {
   }
   if (entry.stash) objects.push(entry.stash.sha);
   if (entry.autostash) objects.push(entry.autostash.sha);
-  if (entry.worktree) objects.push(entry.worktree.head, entry.worktree.stash);
-  for (const w of entry.cleanup || []) objects.push(w.head);
+  if (entry.discarded) objects.push(entry.discarded.sha);
+  if (entry.worktree) objects.push(entry.worktree.head, entry.worktree.stash, entry.worktree.saved?.sha);
+  for (const w of entry.cleanup || []) objects.push(w.head, w.saved?.sha);
   for (const [, oid, sym] of entry.remote?.saved?.refs || []) if (!sym) objects.push(oid);
   return { blobs: [...git.snapshotBlobs(entry.work?.before), ...git.snapshotBlobs(entry.work?.after)], objects };
 }
@@ -86,8 +87,8 @@ const worktreeOps = {
 // stash, with the paths each may change; the journal snapshots those paths (and
 // a dropped or added stash) around them.
 const workOps = {
-  discardFiles: { run: git.discardFiles, paths: (cwd, files) => files.map((f) => f.path) },
-  discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path] },
+  discardFiles: { run: git.discardFiles, paths: (cwd, files) => files.map((f) => f.path), mustChange: true },
+  discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path], mustChange: true },
   resetHard: { run: git.resetHard, paths: (cwd, sha) => git.resetHardPaths(cwd, sha || 'HEAD') },
   chooseSide: { run: git.chooseSide, paths: (cwd, p) => [p] },
   resolveConflict: { run: git.resolveConflict, paths: (cwd, p) => [p] },
@@ -105,6 +106,9 @@ const remoteOps = { addRemote: 'add', setRemoteUrl: 'url', renameRemote: 'rename
 
 // Lane steps (runLane) that can also remove a worktree.
 const laneOps = new Set(['mergeLane', 'tidyLane']);
+
+// Git refusing to move the working copy over uncommitted changes.
+const DIRTY = /not uptodate|would be overwritten|commit your changes or stash them|you have unstaged changes|your index contains uncommitted changes/i;
 
 const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
 
@@ -324,10 +328,16 @@ class Journal {
   }
 
   // Run one of `workOps` as an undoable step.
+  // A discard that changed nothing fails, so the app never reports it as done.
   runWork(method, label, args) {
     const op = workOps[method];
     const cwd = this.root;
-    return this.record(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
+    return this.lock(async () => {
+      const top = this.undo.top;
+      const res = await this.recordNow(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
+      if (op.mustChange && this.undo.top === top) throw new git.GitError('Nothing changed.');
+      return res;
+    });
   }
 
   // Stash the changes that block switching to `branch`, then switch, as one undoable step.
@@ -377,12 +387,11 @@ class Journal {
       await git.rewriteRange(cwd, rewrite.op, rewrite.sha, branch);
     }
     const env = { GIT_OPTIONAL_LOCKS: '1' };
-    const top = () => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
     let sha = null, made = false;
     if (stash) {
-      const prev = await top();
+      const prev = await stashTop(cwd);
       await git.stashPush(cwd, { message: stash.message, untracked: stash.untracked });
-      sha = await top();
+      sha = await stashTop(cwd);
       made = !!sha && sha !== prev;
     }
     try {
@@ -539,6 +548,33 @@ class Journal {
     }
   }
 
+  // Stash every uncommitted change, then run `fn` (a ref mutation git refused over them), as one
+  // undoable step like autostash: undo moves the refs back and pops the stash, redo stashes again
+  // and moves them forward. If fn fails without moving anything, the stash is popped right away.
+  stashAnd(label, method, fn) {
+    return this.lock(async () => {
+      const cwd = this.root;
+      const id = ++nextId;
+      const before = await git.captureRefState(cwd);
+      const message = `Set aside for “${label}”`;
+      const prev = await stashTop(cwd);
+      await git.stashPush(cwd, { message, untracked: true });
+      const sha = await stashTop(cwd);
+      const made = !!sha && sha !== prev;
+      const autostash = made ? { sha, message, untracked: true, branch: null } : null;
+      try {
+        return await fn();
+      } catch (err) {
+        if (made && same(await git.captureRefState(cwd), before)) await git.stashApply(cwd, 'stash@{0}', true).catch(() => {});
+        throw err;
+      } finally {
+        // The stash is part of the step only if refs moved (a failed merge leaves it listed, unrecorded).
+        const keep = made && !same(await git.captureRefState(cwd), before) && (await git.getStashes(cwd)).some((x) => x.sha === sha);
+        await this.finish({ id, label, method, before, autostash: keep ? autostash : null }).catch((err) => console.warn('journal failed', err.message));
+      }
+    });
+  }
+
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
   runWorktree(method, label, args) {
     return this.lock(() => this.runWorktreeNow(method, label, args));
@@ -588,7 +624,7 @@ class Journal {
       try {
         res = await git.cleanupLanes(this.root, items, opts);
       } finally {
-        const cleanup = res.removed.map(({ path: p, branch, head, pruned }) => ({ path: p, branch, head, pruned }));
+        const cleanup = res.removed.map(({ path: p, branch, head, pruned, saved }) => ({ path: p, branch, head, pruned, ...(saved ? { saved } : {}) }));
         await this.finish({ id, label, method: 'cleanupLanes', before, cleanup }).catch((err) => console.warn('journal failed', err.message));
       }
       return res;
@@ -596,14 +632,31 @@ class Journal {
   }
 
   // Initialise or update submodules as an undoable step (see git.updateSubmodules).
-  runSubmodules(label, paths) {
+  runSubmodules(label, paths, opts) {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
-      const { changes, error } = await git.updateSubmodules(this.root, paths);
+      const { changes, error } = await git.updateSubmodules(this.root, paths, opts);
       await this.finish({ id, label, method: 'updateSubmodules', before, submodules: changes });
       if (error) throw error;
       return changes.length;
+    });
+  }
+
+  // Stash or discard the uncommitted changes inside submodule `p` as an undoable step. Undo
+  // pops the stash or puts the discarded changes back (see git.restoreSubmodules).
+  runSubmoduleWork(label, p, mode) {
+    return this.lock(async () => {
+      const id = ++nextId;
+      const before = await git.captureRefState(this.root);
+      const head = await git.submoduleHead(this.root, p);
+      if (!head) throw new git.GitError(`${p} isn’t checked out.`);
+      const message = `Stashed from ${p}`;
+      const sha = await (mode === 'discard' ? git.discardSubmodule(this.root, p) : git.stashSubmodule(this.root, p, message));
+      if (!sha) throw new git.GitError(`${p} has no uncommitted changes.`);
+      const change = { path: p, before: head, after: head, stash: sha, ...(mode === 'discard' ? { discarded: true } : { message }) };
+      await this.finish({ id, label, method: 'submoduleWork', before, submodules: [change] });
+      return true;
     });
   }
 
@@ -686,8 +739,53 @@ class Journal {
     return null;
   }
 
-  step(dir) {
-    return this.lock(() => this.stepNow(dir));
+  // `stash`: stash what blocks the step first (see stashThenStep).
+  // `discard`: the same, but the changes leave the stash list; the opposite step brings them back.
+  step(dir, { stash = false, discard = false } = {}) {
+    return this.lock(() => (stash || discard ? this.stashThenStep(dir, discard) : this.stepNow(dir)));
+  }
+
+  // "Stash and undo" (or redo): stash what blocks the step, then take it. For a work step, the
+  // paths that changed since; for a submodule step, the changes in those submodules; otherwise
+  // every uncommitted change. The stashes stay in their lists; if the step still fails, they are
+  // popped right away.
+  // "Discard and undo" (AK-583): the stash is dropped from the list but kept on the entry
+  // (`discarded`, pinned), and re-applied when the opposite step is taken.
+  async stashThenStep(dir, discard = false) {
+    const cwd = this.root;
+    const entry = (dir === 'undo' ? this.undo : this.redo).top;
+    if (!entry) return null;
+    const cur = dir === 'undo' ? 'after' : 'before';
+    const message = `Set aside to ${dir} “${entry.label}”`;
+    const made = []; // [submodule path or null, sha]
+    if (entry.submodules) {
+      for (const c of entry.submodules) {
+        const sha = c[cur] && !(dir === 'redo' && c.stash) ? await git.stashSubmodule(cwd, c.path, message) : null;
+        if (sha) made.push([c.path, sha]);
+      }
+    } else {
+      const snap = entry.work?.[cur];
+      const paths = snap ? git.workChanges(snap, await git.snapshotWork(cwd, snap.files.map((f) => f.path), { write: false, indexOnly: !!snap.indexOnly })) : [];
+      const prev = await stashTop(cwd);
+      await git.stashPush(cwd, { message, untracked: true, paths: paths.length ? paths : undefined });
+      const sha = await stashTop(cwd);
+      if (sha && sha !== prev) made.push([null, sha]);
+    }
+    const dropped = discard && !entry.submodules && made[0]?.[1];
+    if (dropped) {
+      entry.discarded = { sha: dropped, dir };
+      await this.pin(entry.id, pins(entry));
+      await git.dropStashCommit(cwd, dropped);
+    }
+    try {
+      return await this.stepNow(dir);
+    } catch (err) {
+      if (dropped) {
+        delete entry.discarded;
+        await git.stashApply(cwd, dropped).catch(() => {});
+      } else for (const [p, sha] of made) await (p ? git.popSubmoduleStash(cwd, p, sha) : git.stashApply(cwd, 'stash@{0}', true)).catch(() => {});
+      throw err;
+    }
   }
 
   async stepNow(dir) {
@@ -696,15 +794,28 @@ class Journal {
     const entry = from.top;
     if (!entry) return null;
     let note = null;
-    if (entry.moved) await this.restoreMoved(entry, dir);
-    else if (entry.freed) await this.restoreFreed(entry, dir);
-    else if (entry.worktree) await this.restoreWorktree(entry, dir);
-    else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
-    else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
-    else if (entry.autostash || ['switchDelete', 'switchMerge', 'switchRewrite'].includes(entry.method)) await this.restoreAutostash(entry, dir);
-    else if (entry.remote) await this.restoreRemote(entry, dir);
-    else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
-    else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
+    try {
+      if (entry.moved) await this.restoreMoved(entry, dir);
+      else if (entry.freed) await this.restoreFreed(entry, dir);
+      else if (entry.worktree) await this.restoreWorktree(entry, dir);
+      else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
+      else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`, { code: err.code }); });
+      else if (entry.autostash || ['switchDelete', 'switchMerge', 'switchRewrite'].includes(entry.method)) await this.restoreAutostash(entry, dir);
+      else if (entry.remote) await this.restoreRemote(entry, dir);
+      else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
+      else await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
+    } catch (err) {
+      // Uncommitted changes in the way (git's own codes are exit numbers): the renderer offers
+      // "Stash and undo" (step with `stash`).
+      if (typeof err.code !== 'string' && !entry.worktree && !entry.cleanup && DIRTY.test(`${err.stderr || ''}\n${err.message}`)) err.code = 'dirty';
+      throw err;
+    }
+    // Changes discarded to take this step the other way come back with it.
+    if (entry.discarded && entry.discarded.dir !== dir) {
+      const { sha } = entry.discarded;
+      delete entry.discarded;
+      await git.stashApply(this.root, sha).catch(() => { note = 'the discarded changes couldn’t be put back'; });
+    }
     from.hot.pop();
     to.hot.push(entry);
     const loaded = this.unarchive(from);
@@ -734,7 +845,7 @@ class Journal {
         delete entry.pin; // an archived entry now has its own pins again
       } else {
         const changed = git.workChanges(entry.work[cur], await git.snapshotWork(cwd, paths, { write: false, indexOnly }));
-        if (changed.length) throw fail(`${listPaths(changed)} changed since. Commit or stash ${changed.length > 1 ? 'those changes' : 'that change'} first.`);
+        if (changed.length) throw Object.assign(fail(`${listPaths(changed)} changed since.`), { code: 'dirty' });
       }
     }
     // A dropped stash comes back on undo; an added one goes away on undo.
@@ -763,10 +874,9 @@ class Journal {
       await git.stashApply(cwd, `stash@{${i}}`, true);
     } else {
       // Only adopt refs/stash if this push made it: with nothing to stash it is an older, unrelated stash.
-      const top = () => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
-      const prev = await top();
+      const prev = await stashTop(cwd);
       await git.stashPush(cwd, { message: a.message, untracked: a.untracked });
-      const sha = await top();
+      const sha = await stashTop(cwd);
       if (!sha || sha === prev) throw fail('there are no changes to stash again.');
       a.sha = sha;
       await this.pin(entry.id, pins(entry));
@@ -842,11 +952,19 @@ class Journal {
     }
   }
 
+  // A worktree removed again on redo has a new stash commit (or none, if it had no changes left).
+  async resave(entry, w, saved) {
+    if (saved) w.saved = saved;
+    else delete w.saved;
+    await this.pin(entry.id, pins(entry));
+    delete entry.pin; // an archived entry now has its own pins again
+  }
+
   // Undo or redo a bulk cleanup. Only the branches it deleted must be where it left them;
   // other refs (agents committing elsewhere) may move freely. Undo puts the branches back,
   // then re-adds each removed worktree at its path where nothing is in the way. Worktrees that
-  // were already missing (pruned) aren't re-added, and a dirty worktree comes back clean: its
-  // uncommitted files were deleted with it. Redo removes them again (only if still clean).
+  // were already missing (pruned) aren't re-added; a dirty one comes back with its changes, from
+  // the stash taken when it was removed. Redo removes them again (stashing those changes again).
   // Returns a note about worktrees that couldn't be re-added, or null.
   async restoreCleanup(entry, dir) {
     const cwd = this.root;
@@ -867,11 +985,14 @@ class Journal {
       const list = await git.getWorktrees(cwd);
       const back = worktrees.filter((w) => list.some((x) => !x.missing && git.samePath(x.path, w.path)));
       for (const w of back) {
-        const n = await git.worktreeChanges(w.path);
+        const n = w.saved ? 0 : await git.worktreeChanges(w.path);
         if (n) throw fail(`${path.basename(w.path)} has ${n} uncommitted change${n > 1 ? 's' : ''}.`);
       }
       try {
-        for (const w of back) await git.removeWorktree(cwd, w.path);
+        for (const w of back) {
+          const res = await git.removeWorktree(cwd, w.path, { changes: w.saved && (w.saved.kept ? 'stash' : 'discard') });
+          if (w.saved) await this.resave(entry, w, res.saved);
+        }
         await git.restoreRefState(cwd, target, { refsOnly: true });
       } catch (err) {
         throw fail(err.message);
