@@ -20,6 +20,28 @@ test('rewrite actions are blocked on merge commits with a reason', async () => {
     assert.equal(commitBlock(id, plain, HEAD), null, id);
   }
   assert.equal(commitBlock('commit.squash', merge, HEAD), 'Merge commits can’t be squashed');
+  assert.equal(commitBlock('commit.fixup', merge, HEAD), 'Merge commits can’t be fixed up');
+});
+
+test('rewrites that would replay a merge on HEAD say a merge is in the way', async () => {
+  const { commitBlock } = await load();
+  // init ← header ← M(header, side) ← tip (HEAD); side ← init.
+  const g = {};
+  const add = (sha, parents) => { g[sha] = { sha, parents }; return g[sha]; };
+  const init = add('init', []), header = add('header', ['init']), side = add('side', ['init']);
+  add('M', ['header', 'side']); const tip = add('tip', ['M']);
+  const get = (sha) => g[sha];
+  for (const id of ['commit.edit', 'commit.split', 'commit.drop']) assert.equal(commitBlock(id, init, 'tip', get), 'A merge commit is in the way', id);
+  assert.equal(commitBlock('commit.squash', header, 'tip', get), 'A merge commit is in the way');
+  assert.equal(commitBlock('commit.edit', side, 'tip', get), 'A merge commit is in the way');
+  assert.equal(commitBlock('commit.edit', tip, 'tip', get), null);
+  assert.equal(commitBlock('commit.drop', tip, 'tip', get), null);
+  assert.equal(commitBlock('commit.squash', tip, 'tip', get), 'A merge commit is in the way');
+  // Not on HEAD: the rewrite runs on its own branch, so no verdict here.
+  const other = add('other', ['init']);
+  assert.equal(commitBlock('commit.edit', other, 'tip', get), null);
+  // No lookup: unchanged.
+  assert.equal(commitBlock('commit.edit', init, 'tip'), null);
 });
 
 test('squash, fixup and swap need a parent; split and delete work on the first commit', async () => {

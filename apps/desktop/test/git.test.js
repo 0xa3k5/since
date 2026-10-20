@@ -274,3 +274,20 @@ test('partial stash: selected lines leave the working tree and apply back', asyn
   const d2 = await git.workingDiff(dir, file, { staged: false });
   await assert.rejects(git.stashLines(dir, file, [`0:${d2.hunks[0].lines.findIndex((l) => l.t === '+')}`]), /staged changes/);
 });
+
+test('rewording a merge commit at HEAD amends it in place', async () => {
+  const dir = await repo();
+  await commit(dir, 'a.txt', '1\n', 'first');
+  await git.run(dir, ['checkout', '-q', '-b', 'side']);
+  await commit(dir, 'b.txt', '1\n', 'side');
+  await git.run(dir, ['checkout', '-q', '-']);
+  await commit(dir, 'c.txt', '1\n', 'main');
+  await git.run(dir, ['merge', '-q', '--no-ff', '-m', 'Merge side', 'side']);
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'staged\n');
+  await git.run(dir, ['add', 'a.txt']);
+  const sha = (await git.run(dir, ['rev-parse', 'HEAD'])).trim();
+  await git.rewrite(dir, 'reword', sha, { message: 'Merge the side branch\n' });
+  assert.equal((await subjects(dir))[0], 'Merge the side branch');
+  assert.equal((await git.run(dir, ['rev-list', '--parents', '-n', '1', 'HEAD'])).trim().split(' ').length, 3);
+  assert.equal((await git.run(dir, ['diff', '--cached', '--name-only'])).trim(), 'a.txt');
+});

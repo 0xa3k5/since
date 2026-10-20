@@ -1672,9 +1672,11 @@ function commitShortcut(e, id, c) {
   guarded(id, c, run);
 }
 
+// Loaded graph commits by sha, for commitBlock (a new lookup per menu: its answers are cached per lookup).
+const graphCommits = () => (sha) => state.commits[state.index.get(sha)];
 // Runs a map action, or toasts why it can't run on this commit (the menu greys the same cases).
 function guarded(id, c, run) {
-  const why = commitBlock(id, c, state.head.oid);
+  const why = commitBlock(id, c, state.head.oid, graphCommits());
   if (why) toast(why);
   else run();
 }
@@ -1683,7 +1685,8 @@ function commitMenu(x, y, c) {
   const locals = branchesAt(c.sha);
   const isHead = c.sha === state.head.oid;
   const remote = originRemote();
-  const off = (id) => !!commitBlock(id, c, state.head.oid);
+  const get = graphCommits();
+  const off = (id) => !!commitBlock(id, c, state.head.oid, get);
   contextMenu(x, y, [
     { label: 'Quick View', icon: 'eye', kbd: keymap.keys('map.quick'), run: () => openQuick(c.sha) },
     { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), disabled: off('commit.diffHead'), run: () => diffWithHead(c) },
