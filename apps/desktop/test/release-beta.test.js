@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion } = require('../scripts/release-beta');
+const { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion, buildEnv } = require('../scripts/release-beta');
 const { planUploads, pruneList, r2Client, publish, PUBLIC_URL } = require('../scripts/beta-publish');
 
 test('nextBetaVersion starts at beta.1 and counts up from the highest tag of this version', () => {
@@ -127,4 +127,12 @@ test('publish stops at the first failed upload, before the feeds', () => {
   assert.ok(keys.every((u) => !u.includes('update-mac') && !u.includes('/latest/')));
   assert.throws(() => publish({ version: '0.1.0', dir, client: r2Client({ accountId: 'acct', send }) }), /Not a beta version/);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildEnv drops CSC_IDENTITY_AUTO_DISCOVERY and stray signing variables, keeps the rest', () => {
+  const env = buildEnv({ PATH: '/bin', CSC_IDENTITY_AUTO_DISCOVERY: 'false', CSC_LINK: 'x.p12', APPLE_ID: 'a@b.c' });
+  assert.equal('CSC_IDENTITY_AUTO_DISCOVERY' in env, false);
+  assert.equal('CSC_LINK' in env, false);
+  assert.equal('APPLE_ID' in env, false);
+  assert.deepEqual([env.PATH, env.GITLANES_STORE, env.APPLE_KEYCHAIN_PROFILE], ['/bin', 'beta', 'gitlanes-notary']);
 });
