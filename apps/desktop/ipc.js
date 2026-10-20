@@ -307,8 +307,8 @@ const gitSchemas = {
   // undoable stash or discard of the changes inside one submodule (journal.runSubmoduleWork)
   submoduleWork: [repoPath, oneOf('stash', 'discard')],
   // history
-  undo: [optional((v, w) => obj(v, w, { stash: optional(bool), discard: optional(bool) }))],
-  redo: [optional((v, w) => obj(v, w, { stash: optional(bool), discard: optional(bool) }))],
+  undo: [optional((v, w) => obj(v, w, { stash: optional(bool), force: optional(bool), skip: optional(bool), discard: optional(bool) }))],
+  redo: [optional((v, w) => obj(v, w, { stash: optional(bool), force: optional(bool), skip: optional(bool), discard: optional(bool) }))],
   // A ref mutation git refused over uncommitted changes, run again after stashing them (journal.stashAnd).
   stashAnd: [oneOf(...STASH_AND), (v, w) => { if (!Array.isArray(v)) fail(w, 'expected an array'); return v; }],
   restoreHistory: [int],

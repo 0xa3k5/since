@@ -149,7 +149,7 @@ test('undoing an add refuses while the new worktree has work in it', async () =>
   // A commit there moves the branch: undo must not delete it either.
   await git.run(wt, ['add', 'wip.txt']);
   await git.run(wt, ['commit', '-q', '-m', 'wip']);
-  await assert.rejects(journal.step('undo'), /branches or HEAD have moved/);
+  await assert.rejects(journal.step('undo'), /feature moved since/);
   assert.ok(await branchExists(dir, 'feature'));
   assert.equal(journal.list().undo.length, 1);
 });
