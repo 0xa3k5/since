@@ -661,18 +661,22 @@ class Journal {
   }
 
   // Merge and tidy a lane (git.mergeLane) as one undoable step: the base moved, the worktree
-  // removed and the branch deleted all come back with one undo. `fn(done)` fills `done`.
+  // removed and the branch deleted all come back with one undo. `fn(done)` fills `done`; resolved
+  // files it saved before aborting an operation stopped here (`done.saved`) are pinned with the step
+  // and returned with the result as { op, saved }, for restoreResolved.
   runLane(label, method, fn) {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
       const done = {};
       try {
-        return await fn(done);
+        const res = await fn(done);
+        return done.saved ? { ...res, op: done.op, saved: done.saved } : res;
       } finally {
         const wt = done.worktree;
         const worktree = wt && { op: 'remove', path: wt.path, branch: wt.branch, head: wt.head };
-        await this.finish({ id, label, method, before, worktree }).catch((err) => console.warn('journal failed', err.message));
+        const resolved = done.saved?.sha ? { sha: done.saved.sha } : null;
+        await this.finish({ id, label, method, before, worktree, resolved }).catch((err) => console.warn('journal failed', err.message));
       }
     });
   }

@@ -76,3 +76,7 @@ export function stoppedStepToast(dir, op, info, conflicts = 0) {
 
 // The branch a stopped operation is on: HEAD's, else (detached mid-rebase) the one being rebased.
 export const stoppedBranch = (head, info) => head?.branch || info?.branch || null;
+
+// Methods that switch this worktree's branch (AK-577). With an operation stopped here they get its
+// toast (continue, or abort and then switch), never git's "resolve your current index first".
+export const SWITCHES = new Set(['checkout', 'checkoutTracking', 'autostashCheckout', 'freeCheckout', 'moveCheckout', 'switchDelete', 'switchRewrite', 'switchMerge']);

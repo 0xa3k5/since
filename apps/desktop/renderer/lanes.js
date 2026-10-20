@@ -74,6 +74,17 @@ export const ACTIONS = {
 
 // The lane this window shows: its branch goes by switching this window to another branch first.
 export const switchAway = (l) => Boolean(l.worktree?.current && l.branch && !l.isBase);
+// Menu items say what will happen (AK-598): the branch this window shows switches away first.
+// Its changes are stashed, not discarded, so it says Delete. `switchTo(branch, base)` → the branch
+// it would switch to, or null.
+export function removeLabel(l, switchTo = null) {
+  const to = switchAway(l) && switchTo?.(l.branch);
+  return to ? `Switch to ${to} & Delete` : l.changes ? 'Discard Branch…' : 'Delete Branch…';
+}
+export function mergeLabel(l, switchTo = null, base = null) {
+  const to = switchAway(l) && switchTo?.(l.branch, base);
+  return to ? `Switch to ${to} & Merge and Tidy…` : 'Merge and Tidy…';
+}
 // Can the lane's worktree and branch go? Not the base, nor a worktree this window or the main one shows.
 // With `canSwitch(branch)` (is there a branch to switch to?), the lane this window shows can go too.
 export const canRemove = (l, canSwitch = null) => (!l.isBase && !l.worktree?.current && !l.worktree?.main && !l.worktree?.locked && Boolean(l.branch || l.worktree))

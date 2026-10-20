@@ -395,9 +395,10 @@ function insideRepo(root, rel) {
   return abs;
 }
 
-// A step handed to another window of this repository (AK-581): remove a worktree, or merge and tidy a branch there.
+// A step handed to another window of this repository (AK-581): remove a worktree, or merge and tidy
+// or rebase (AK-601) a branch there.
 const handoff = (v) => {
-  obj(v, 'handoff', { kind: oneOf('removeWorktree', 'mergeLane'), dir: absDir, path: absDir, branch: rev, base: rev });
+  obj(v, 'handoff', { kind: oneOf('removeWorktree', 'mergeLane', 'rebaseLane'), dir: absDir, path: absDir, branch: rev, base: rev });
   const need = v.kind === 'removeWorktree' ? ['path'] : ['branch', 'base'];
   for (const k of ['kind', 'dir', ...need]) if (v[k] == null) fail(`handoff.${k}`, 'is required');
   return v;

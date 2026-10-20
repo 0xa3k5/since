@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel } from './lanes.js';
 import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from './review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
@@ -33,7 +33,7 @@ let lastTab = 'active';
 // badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab` opens on that
 // tab; `only` (a laneKey) opens Finished with just that branch ticked. `cleanup` holds Clean up's
 // own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo).
-export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup, gitWhy = () => null }) {
+export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, switchTo = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup, gitWhy = () => null }) {
   let lanes = [];
   let byTab = branchTabs([]);
   let shown = [];
@@ -218,12 +218,12 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('branches.open'), run: () => onOpen(l) },
       { label: 'Review Branch', icon: 'check', kbd: keymap.keys('branches.review'), disabled: !can('review', l), why: why('review', l), run: () => run('review', l) },
-      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('branches.merge'), disabled: !can('merge', l), why: why('merge', l) || gitWhy('mergeHere'), gated: can('merge', l) && Boolean(gitWhy('mergeHere')), run: () => run('merge', l) },
+      { label: mergeLabel(l, switchTo, base), icon: 'merge', kbd: keymap.keys('branches.merge'), disabled: !can('merge', l), why: why('merge', l) || gitWhy('mergeHere'), gated: can('merge', l) && Boolean(gitWhy('mergeHere')), run: () => run('merge', l) },
       { label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('branches.rebase'), disabled: !can('rebase', l), why: why('rebase', l), run: () => run('rebase', l) },
       ...(l.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('branches.checks'), run: () => run('checks', l) }] : []),
       ...(isFinished(l) ? [{ label: 'Clean Up…', icon: 'trash', kbd: keymap.keys('branches.cleanup'), run: () => run('cleanup', l) }] : []),
       '-',
-      { label: l.changes ? 'Discard Branch…' : 'Delete Branch…', icon: 'trash', kbd: keymap.keys('branches.delete'), disabled: !canRemove(l, canSwitch), why: why('delete', l), run: () => run('delete', l) },
+      { label: removeLabel(l, switchTo), icon: 'trash', kbd: keymap.keys('branches.delete'), disabled: !canRemove(l, canSwitch), why: why('delete', l), run: () => run('delete', l) },
     ]);
   }
 

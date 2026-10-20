@@ -2279,7 +2279,12 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true, abort 
     // The base checked out here: move it with the working copy (local changes are kept, as undo does).
     if (here === `refs/heads/${plan.base}`) {
       const op = await worktreeOp(cwd);
-      if (op && abort) await run(cwd, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+      if (op && abort) {
+        // Files already resolved are saved first (saveResolved), for Restore (journal.runLane).
+        done.saved = await saveResolved(cwd, (await run(cwd, ['rev-parse', '--absolute-git-dir'])).trim()).catch(() => null);
+        done.op = op;
+        await run(cwd, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+      }
       else if (op) throw opInProgress(`A ${op} is in progress.`, op);
       await run(cwd, ['reset', '--keep', commit], { env: { GIT_OPTIONAL_LOCKS: '1' } });
     } else {
