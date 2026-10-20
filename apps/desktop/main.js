@@ -15,6 +15,7 @@ const updater = require('./updater');
 const pkg = require('./package.json');
 const check = require('./ipc');
 const catchupStore = require('./catchup-store');
+const recentStore = require('./recent-store');
 const ai = require('./ai');
 const github = require('./github');
 const changeFacts = require('./change-facts');
@@ -28,16 +29,13 @@ const sessions = new Map(); // webContents.id -> RepoSession
 // Recent repositories
 
 const recentFile = () => path.join(app.getPath('userData'), 'recent.json');
-function readRecent() {
-  try { return JSON.parse(fs.readFileSync(recentFile(), 'utf8')).filter((r) => fs.existsSync(r.root)); } catch { return []; }
-}
+const readRecent = () => recentStore.readRecent(recentFile());
 function addRecent(repo) {
-  const list = readRecent().filter((r) => r.root !== repo.root);
-  list.unshift({ root: repo.root, name: repo.name, opened: Date.now() });
-  fs.mkdirSync(path.dirname(recentFile()), { recursive: true });
-  fs.writeFileSync(recentFile(), JSON.stringify(list.slice(0, 20)));
+  recentStore.addRecent(recentFile(), repo);
   if (isMac) app.addRecentDocument(repo.root);
 }
+// macOS keeps its own Open Recent list, which Electron can only clear as a whole; it is left as is.
+const removeRecent = (root) => recentStore.removeRecent(recentFile(), root);
 
 // ---------------------------------------------------------------------------
 // Theme: System / Light / Dark. nativeTheme.themeSource drives both native UI
@@ -492,6 +490,10 @@ handle('git', async (e, method, ...args) => {
 // Window / app level IPC
 
 handle('app:recent', () => readRecent());
+handle('app:remove-recent', (e, root) => {
+  removeRecent(check.absDir(root, 'repository folder'));
+  buildMenu();
+});
 handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
 handle('app:platform', () => process.platform);
 handle('app:theme', () => currentTheme());
@@ -598,7 +600,7 @@ async function prRemotes(root) {
 }
 // The user-wide switch works before a repository is open (the welcome screen's setup step).
 async function prState(e) {
-  const root = sessions.get(e.sender.id)?.repo.root;
+  const root = sessions.get(e.sender.id)?.repo?.root;
   await prSettings();
   const saved = readSettings().github;
   const remotes = root ? await prRemotes(root).catch(() => []) : [];
@@ -1409,7 +1411,10 @@ handle('app:clone', async (e, url) => {
   } catch (err) { return { error: serializeError(err) }; }
 });
 
+// Closing a repository also takes it off the recent list.
 handle('app:close-repo', (e) => {
+  const root = sessions.get(e.sender.id)?.repo?.root;
+  if (root) removeRecent(root);
   sessions.get(e.sender.id)?.dispose();
   sessions.delete(e.sender.id);
   BrowserWindow.fromWebContents(e.sender).setTitle('GitLanes');

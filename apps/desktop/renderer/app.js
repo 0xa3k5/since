@@ -4647,7 +4647,19 @@ function tildePath(p) { return p.replace(/^\/Users\/[^/]+/, '~'); }
 async function repoSwitcher() {
   const recent = await recentRepos();
   if (!recent.length) return toast('No other recent repositories');
-  palette(() => recent.map((x) => ({ group: 'Recent repositories', label: x.name, icon: 'folder', detail: tildePath(x.root), keywords: x.root, run: () => openRepo(x.root) })), { placeholder: 'Switch repository…' });
+  palette(() => [
+    ...recent.map((x) => ({ group: 'Recent repositories', label: x.name, icon: 'folder', detail: tildePath(x.root), keywords: x.root, run: () => openRepo(x.root) })),
+    { group: 'Recent repositories', label: 'Remove from recent…', icon: 'x', keywords: 'forget clear', run: removeFromRecent },
+  ], { placeholder: 'Switch repository…' });
+}
+
+async function removeFromRecent() {
+  const recent = await recentRepos();
+  if (!recent.length) return toast('No other recent repositories');
+  palette(() => recent.map((x) => ({ group: 'Remove from recent', label: x.name, icon: 'x', detail: tildePath(x.root), keywords: x.root, run: async () => {
+    await api.app('remove-recent', x.root);
+    toast(`Removed ${x.name} from recent`);
+  } })), { placeholder: 'Remove from recent…' });
 }
 
 // Opens at once; the recent repositories are added when the app:recent IPC answers.
@@ -4864,6 +4876,7 @@ function openPalette() {
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
     add('App', 'Close repository', closeRepo, { icon: 'x' });
+    add('App', 'Remove from recent…', removeFromRecent, { icon: 'x', keywords: 'recent repository forget clear' });
     if (state.licence?.mode !== 'beta') add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
     if (state.licence?.mode !== 'licensed' && state.licence?.mode !== 'beta') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
@@ -5229,6 +5242,7 @@ async function cloneRepo() {
   t.close();
 }
 async function closeRepo() {
+  const name = state.repo?.name;
   cancelHistory();
   clearTimeout(sbHideTimer); // the sidebar's hover-close poll would hit the removed sidebar
   await api.app('close-repo');
@@ -5236,6 +5250,7 @@ async function closeRepo() {
   sidebarEl = topbarEl = bannerEl = contentEl = null;
   mapView?.destroy(); mapView = null;
   renderShell();
+  if (name) toast(`Closed ${name}`);
 }
 
 // ---------------------------------------------------------------------------
