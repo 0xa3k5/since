@@ -229,7 +229,11 @@ export function dialog({ title, description, content = [], fields = [], submit =
         }
         if (f.type === 'select') {
           inputs[f.name] = h('select.input', null, f.options.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
-          return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name]);
+          // `note(value)` → { text, warn } the line under the select for the current choice.
+          const note = f.note ? h('div.field-note') : null;
+          const sync = () => { const n = f.note(inputs[f.name].value); note.textContent = n?.text || ''; note.classList.toggle('warn', Boolean(n?.warn)); };
+          if (note) { inputs[f.name].addEventListener('change', sync); sync(); }
+          return h('label.field', null, f.label ? h('span.field-label', null, f.label) : null, inputs[f.name], note);
         }
         inputs[f.name] = f.multiline
           ? h('textarea.input', { rows: f.rows || 6, placeholder: f.placeholder || '', value: f.value || '', spellcheck: false, readonly: f.readonly })
@@ -562,7 +566,7 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
     let group = null;
     results.forEach((it, i) => {
       if (!q && it.group !== group) { group = it.group; list.append(h('div.palette-group', null, group)); }
-      const row = h('div.palette-item' + (i === idx ? '.active' : ''), {
+      const row = h('div.palette-item' + (i === idx ? '.active' : '') + (it.gated ? '.gated' : ''), {
         onmousemove: () => { if (idx !== i) { idx = i; mark(); } },
         onclick: () => choose(i),
       }, icon(it.icon || 'command'), h('span.palette-label', null, it.label), it.detail ? h('span.palette-detail', null, it.detail) : null, it.kbd ? kbd(...[].concat(it.kbd)) : null);

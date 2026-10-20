@@ -1,4 +1,5 @@
 import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
@@ -46,7 +47,7 @@ import { markdown } from './markdown.js';
 import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
 import { peekEvidence } from './evidence-store.js';
 import { commitBlock } from './commit-guards.js';
-import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -1387,7 +1388,7 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
-  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction }); return contentEl.append(reviewPage.el); }
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : null) }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -3430,7 +3431,7 @@ function paneAction(id, row, ctx) {
   const done = () => lanesPage?.afterAction(row.key, id);
   const local = lane?.branch && !lane.isBase ? (pr && !lane.pr ? { ...lane, pr } : lane) : null;
   if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
-  if (id === 'approve' && pr) return approvePr(pr, done);
+  if (id === 'approve' && pr) return approvePr(pr, done, ctx?.viewer);
   if (id === 'close' && pr) return closePr(pr, done);
   if (id === 'checkout') return lane ? openLane(lane) : pr ? checkoutPr(pr, { worktree: true }) : null;
   if (id === 'github' && pr) return openPrOnGitHub(pr);
@@ -3504,6 +3505,11 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const lopt = ab.length || close.length ? [{ ...ab[0], ...close[0] }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   const n = plan.commits.length;
+  // An open PR GitHub would refuse (a draft, conflicts): fix that first, from every entry point.
+  if (pr) {
+    const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    if (info.ok?.gate.hard && !(await fixMergeGate(pr, info.ok))) return;
+  }
   const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
   // Too old a git: offer another one first, then carry on from here.
   if (block?.kind === 'git-version') return updateGit('mergeHere', () => mergeLane(lane, base, onDone, { handed }));
@@ -3546,13 +3552,11 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     description: h('div.pr-merge', null,
       h('div', null, here),
       checkFailEl(laneChecks),
-      pr ? h('div.pr-remote-note', null, `On GitHub: #${pr.number} is squash-merged there, which ⌘Z can’t undo. The local tidy after it can be undone.`) : null,
-      plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null,
-      kept ? null : h('div.muted', null, '⌘Z undoes the local merge and tidy in one step.')),
+      plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null),
     submit: kept ? 'Merge' : 'Merge and tidy',
     wide: n > 0,
     fields: [
-      pr ? { name: 'via', type: 'select', label: 'Merge', value: plan.mergeBlocker && n ? 'github' : 'here', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }] } : null,
+      pr ? { name: 'via', type: 'select', label: 'Merge', value: 'github', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }], note: (via) => mergeViaNote(via, pr.number) } : null,
       n ? { name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message } : null,
       remote && !kept ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
     ].filter(Boolean),
@@ -3560,17 +3564,25 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   if (!v) return;
   const label = `Merge and tidy ${lane.branch}`;
   if (v.via === 'github') {
-    const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
     if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
+    if (info.ok.gate.hard) {
+      const fixed = await fixMergeGate(pr, info.ok);
+      if (!fixed) return;
+      info = { ok: fixed };
+    }
     const { gate } = info.ok;
-    if (gate.hard || gate.soft.length) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard || `${gate.soft.join(' ')} Use Merge pull request… to merge anyway.` });
+    if (gate.soft.length) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Use Merge pull request… to merge anyway.` });
     // Checks that failed since the list was loaded get their own confirm: a confirm, never a block.
     if (needsCheckConfirm(Boolean(laneChecks), info.ok.failing)) {
       const ok = await dialog({ title: `Merge #${pr.number} with a failing check?`, description: h('div.pr-merge', null, checkFailEl(prCheckLines(pr, info.ok.failing, info.ok.checkCounts))), submit: 'Merge' });
       if (!ok) return;
     }
-    if (!info.ok.methods.includes('squash')) return toast(`#${pr.number} can’t be squash-merged`, { kind: 'error', detail: 'Use Merge pull request… to pick another method.' });
-    const res = await prCall('pr-merge', pr, { method: 'squash', deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
+    // Squash merging off in the repo's settings: name what's on and offer it (AK-588).
+    const off = methodFix(info.ok.methods, 'squash');
+    const how = off ? await resolveSheet({ title: `Merge #${pr.number}`, reason: off.reason, actions: off.actions }) : { id: 'squash' };
+    if (!how) return;
+    const res = await prCall('pr-merge', pr, { method: how.id, deleteBranch: Boolean(v.remote), admin: false }, `Merging #${pr.number}…`);
     if (res.error) return prError(`Couldn’t merge #${pr.number}`, res.error);
     toast(`Merged #${pr.number} on GitHub`, { kind: 'success', detail: 'The merge on GitHub can’t be undone.' });
     onDone?.();
@@ -3711,14 +3723,21 @@ async function addWorktree({ base = null, branch = '' } = {}) {
 // ⌘Z brings it all back. Asks first, on the menu item, only when that window holds work undo
 // can't bring back. When this window shows it, the main worktree's window (or this one, switched
 // there) removes it. `handed`: another window asked already and handed it over.
-async function removeWorktree(w, { handed = false } = {}) {
+async function removeWorktree(w, opts) {
+  // Any failure says so (AK-577): never a silent no-op.
+  try { await removeWorktreeNow(w, opts); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: e.message }); }
+}
+async function removeWorktreeNow(w, { handed = false } = {}) {
   const at = menuAnchor();
   if (w.locked && !w.main && !w.missing) {
     if (!(await resolveSheet({ title: `Remove worktree “${w.name}”?`, reason: 'It’s locked.', actions: [{ id: 'unlock', label: 'Unlock and remove' }] }))) return;
     if (!(await act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false, quiet: true }))) return;
-    return removeWorktree({ ...w, locked: false }, { handed });
+    return removeWorktreeNow({ ...w, locked: false }, { handed });
   }
-  const main = state.worktrees.find((x) => x.main);
+  // Plan on a fresh read: the row can be older than the windows (one opened or closed since it was drawn).
+  const list = await git('worktrees').catch(() => state.worktrees);
+  w = list.find((x) => x.path === w.path) || w;
+  const main = list.find((x) => x.main);
   const facts = w.missing || w.main || w.locked ? {} : await git('removalFacts', w.path).catch(() => ({}));
   let draft = false;
   try { draft = !!localStorage.getItem('draft:' + w.path)?.trim(); } catch { /* ignore */ }
@@ -4050,10 +4069,11 @@ async function checkoutPr(pr, { worktree = false } = {}) {
     if (!v) return;
     res = await run(update, w.path, v.id === 'move' ? { stash: v.stash } : null);
   }
-  if (res.error) return toast(`Couldn’t check out #${pr.number}`, { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : res.error.stderr || res.error.message });
+  if (res.error) return prError(`Couldn’t check out #${pr.number}`, { ...res.error, message: res.error.stderr || res.error.message });
   const { branch, worktree: wt } = res.ok;
   toast(wt ? `New worktree for #${pr.number} on ${branch}` : `Switched to ${branch} (#${pr.number})`, { kind: 'success', action: { label: 'Undo', run: undo } });
   if (wt && opts.open) openRepo(wt.path);
+  return res.ok;
 }
 
 // ⌘⌥⇧O / ⌘⌥⇧L: pick an open PR to check out here or in a new worktree.
@@ -4144,7 +4164,7 @@ async function refreshPrs({ manual = false } = {}) {
     // Offline or a `gh` error: keep what we had, marked stale. After a fetch this stays quiet.
     p.stale = Boolean(p.data);
     p.error = res.error.message;
-    if (manual) toast('Couldn’t refresh pull requests', { kind: 'error', detail: res.error.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then refresh.' : res.error.message });
+    if (manual) prError('Couldn’t refresh pull requests', res.error);
   }
   showPrs();
 }
@@ -4157,7 +4177,7 @@ async function setupPrs({ ask = true } = {}) {
   const st = await api.app('pr-state').catch(() => null);
   if (!st) return toast('Open a repository to turn on pull requests', { detail: 'After that they’re on in every repository.' });
   if (st.enabled && st.hidden) return hidePrs(false);
-  if (st.enabled && !st.remote) return toast('This repository has no GitHub remote', { detail: 'Pull requests are on and show in repositories that have one.' });
+  if (st.enabled && !st.remote) return toast('This repository has no GitHub remote', { action: { label: 'Add remote…', run: () => addRemote() } });
   if (ask) {
     const ok = await dialog({
       title: 'Show pull requests from GitHub?',
@@ -4178,9 +4198,8 @@ async function setupPrs({ ask = true } = {}) {
     prLoggedOut = det.ok.gh === 'logged-out';
     if (prLoggedOut) {
       const host = st.remote.host;
-      const cmd = host === 'github.com' ? 'gh auth login' : `gh auth login --hostname ${host}`;
-      const login = await dialog({ title: `Log in to ${host} with GitHub CLI`, description: `Run \`${cmd}\` in a terminal, then turn pull requests on again.`, submit: 'Copy command' });
-      if (login) copy(cmd, 'Copied the login command');
+      const login = await resolveSheet({ title: 'Turn on pull requests', reason: `GitHub CLI isn’t logged in to ${host}.`, actions: [{ id: 'login', label: 'Open Terminal' }] });
+      if (login) api.app('gh-login');
       return;
     }
   }
@@ -4219,7 +4238,7 @@ async function setPrRemote(name) {
 }
 function pickPrRemote() {
   const st = state.prs;
-  if (!st?.choices?.length) return toast('This repository has no GitHub remote');
+  if (!st?.choices?.length) return toast('This repository has no GitHub remote', { action: { label: 'Add remote…', run: () => addRemote() } });
   palette(() => [
     { group: 'Remote for pull requests', label: 'Automatic', detail: 'origin when it is on GitHub, else the first GitHub remote', icon: st.chosen ? 'cloud' : 'check', run: () => setPrRemote(null) },
     ...st.choices.map((c) => ({ group: 'Remote for pull requests', label: c.name, detail: `${c.owner}/${c.repo}`, icon: st.chosen === c.name ? 'check' : 'cloud', run: () => setPrRemote(c.name) })),
@@ -4236,7 +4255,7 @@ function prList() {
     { group: 'Pull requests', label: 'New pull request…', icon: 'plus', kbd: keymap.keys('repo.prCreate'), run: () => createPr() },
     { group: 'Pull requests', label: 'Check out pull request…', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => pickPr(false) },
     { group: 'Pull requests', label: 'Check out pull request in new worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => pickPr(true) },
-    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: keymap.keys('repo.prApprove'), run: () => approvePr() },
+    { group: 'Pull requests', label: 'Approve pull request…', icon: 'check', kbd: keymap.keys('repo.prApprove'), detail: approveTargetWhy(), gated: Boolean(approveTargetWhy()), run: () => approvePr() },
     { group: 'Pull requests', label: 'Merge pull request…', icon: 'merge', kbd: keymap.keys('repo.prMerge'), run: mergePrCmd },
     { group: 'Pull requests', label: 'Close pull request…', icon: 'x', kbd: keymap.keys('repo.prClose'), run: closePrCmd },
     { group: 'Pull requests', label: 'Show in sidebar', icon: 'sidebar', run: () => openSidebarAt('prs') },
@@ -4249,7 +4268,7 @@ const REMOTE_NOTE = 'This happens on GitHub. ⌘Z can’t undo it.';
 const prRemote = (pr, fallback) => prActionRemote(pr, state.prs, fallback);
 
 // The PR to act on: the one given, else the checked-out branch's, else pick one.
-function withPr(pr, verb, fn) {
+function withPr(pr, verb, fn, whyOf = () => null) {
   if (!state.prs?.active) return setupPrs();
   pr ||= state.review?.pr; // the PR on the review page
   if (pr) return fn(pr);
@@ -4257,8 +4276,14 @@ function withPr(pr, verb, fn) {
   if (mine) return fn(mine);
   const prs = state.prs.data?.prs || [];
   if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${keyText('repo.prRefresh')}) to load them.` });
-  palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
+  palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'merge', detail: whyOf(p) || p.branch, gated: Boolean(whyOf(p)), keywords: `${p.author} ${p.branch} ${p.base}`, run: () => fn(p) })), { placeholder: `${verb} pull request…` });
 }
+// The PR a bare Approve acts on without asking (withPr), and why it can't be approved, for ⌘K (AK-577).
+const approveTargetWhy = () => {
+  if (!state.prs?.active) return null;
+  const pr = state.review?.pr || (state.head.branch ? prFor({ kind: 'branch', short: state.head.branch }) : null);
+  return pr ? approveWhy(pr, prViewer()) : null;
+};
 
 async function prCall(channel, pr, opts, busy) {
   const t = toast(busy, { kind: 'busy', timeout: 0 });
@@ -4266,9 +4291,30 @@ async function prCall(channel, pr, opts, busy) {
   t.close();
   return res;
 }
-const prError = (title, err) => toast(title, { kind: 'error', detail: err.code === 'gh-auth' ? 'Run `gh auth login` in a terminal, then try again.' : err.message });
+// gh errors with a fix one click away (AK-588): log in from Terminal, or add a GitHub remote.
+const ghFixAction = (err) => {
+  const fix = ghErrorFix(err);
+  if (fix?.id === 'login') return { label: fix.label, run: () => api.app('gh-login') };
+  if (fix?.id === 'addRemote') return { label: fix.label, run: () => addRemote() };
+  if (fix?.id === 'installStack') return { label: fix.label, run: installStack };
+  return null;
+};
+async function installStack() {
+  const t = toast('Installing the stack extension…', { kind: 'busy', timeout: 0 });
+  const res = await api.app('pr-stack-install').catch((e) => ({ error: { message: e.message } }));
+  t.close();
+  if (res?.error) toast('Couldn’t install the stack extension', { kind: 'error', detail: res.error.message });
+  else toast('Installed the stack extension', { kind: 'success' });
+}
+const ghErrorDetail = (err) => (err.code === 'gh-auth' ? 'GitHub CLI isn’t logged in.' : err.message);
+const prError = (title, err) => toast(title, { kind: 'error', detail: ghErrorDetail(err), action: ghFixAction(err) });
 
-const approvePr = (given, onDone) => withPr(given, 'Approve', async (pr) => {
+// Who you are on GitHub for Approve's reason (AK-577): the caller's (Review's), else the PR list's.
+const OWN_PR = /can ?not approve your own pull request/i;
+const prViewer = (viewer) => viewer || state.prs?.data?.viewer || null;
+const approvePr = (given, onDone, viewer) => withPr(given, 'Approve', async (pr) => {
+  const why = approveWhy(pr, prViewer(viewer));
+  if (why) return toast(`Can’t approve #${pr.number}`, { detail: why });
   const v = await dialog({
     title: `Approve #${pr.number}?`,
     description: `${pr.title}\n${REMOTE_NOTE}`,
@@ -4277,11 +4323,13 @@ const approvePr = (given, onDone) => withPr(given, 'Approve', async (pr) => {
   });
   if (!v) return;
   const res = await prCall('pr-approve', pr, { body: v.body }, `Approving #${pr.number}…`);
+  // GitHub's word when the reason above wasn't known (AK-577): said the same way, never gh's text.
+  if (res.error && OWN_PR.test(res.error.message)) return toast(`Can’t approve #${pr.number}`, { detail: 'Your own pull request' });
   if (res.error) return prError(`Couldn’t approve #${pr.number}`, res.error);
   toast(`Approved #${pr.number}`, { kind: 'success' });
   onDone?.();
   refreshPrs();
-});
+}, (p) => approveWhy(p, prViewer(viewer)));
 
 const requestChangesPr = (given) => withPr(given, 'Request changes on', async (pr) => {
   const v = await dialog({
@@ -4310,12 +4358,46 @@ const checkFailEl = (c) => (c ? h('div.pr-check-fail', null,
   ...c.lines.map((l) => h('div.pr-check-line', null, h('span.ev-icon.fail', null, icon('x', 12)), h('span.name', null, l.name), h('span.muted', null, l.text))),
   c.more || c.passed ? h('div.muted', null, [c.more, c.passed].filter(Boolean).join(' · ')) : null) : null);
 
+// A merge GitHub refuses outright (AK-588): a draft is marked ready, a conflicting PR is rebased
+// here. → the fresh merge info when the merge can go on, else null (cancelled, failed or rebasing).
+async function fixMergeGate(pr, info) {
+  const local = prRef(pr, state.refs, state.prs.byRef);
+  const branch = local?.kind === 'branch' ? local.short : null;
+  const fix = mergeGateFix(info, { local: Boolean(branch) });
+  if (!fix) { toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: info.gate.hard }); return null; }
+  const v = await resolveSheet({ title: `Merge #${pr.number}`, reason: fix.reason, actions: fix.actions });
+  if (!v) return null;
+  if (v.id === 'rebase') { await rebasePr(pr, branch); return null; }
+  const ready = await prCall('pr-ready', pr, undefined, `Marking #${pr.number} ready for review…`);
+  if (ready.error) { prError(`Couldn’t mark #${pr.number} ready`, ready.error); return null; }
+  const again = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+  if (again.error) { prError(`Couldn’t check #${pr.number}`, again.error); return null; }
+  return again.ok.gate.hard ? fixMergeGate(pr, again.ok) : again.ok;
+}
+
+// Rebase a PR's branch onto its base as GitHub has it: the local branch when there is one (one
+// undo step), else check the PR out first.
+async function rebasePr(pr, branch) {
+  const remote = prRemote(pr);
+  const onto = state.refs.some((r) => r.kind === 'remote' && r.short === `${remote}/${pr.base}`) ? `${remote}/${pr.base}` : pr.base;
+  if (branch) {
+    const wt = state.worktrees.find((w) => w.branch === branch);
+    return rebaseLane({ branch, worktree: wt ? { path: wt.path, current: wt.current } : null }, onto);
+  }
+  const out = await checkoutPr(pr);
+  if (out?.branch && !out.worktree) return act(`Rebase ${out.branch} onto ${onto}`, 'rebaseOnto', [onto], { busy: 'Rebasing…' });
+}
+
 const MERGE_LABELS = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
 const mergePr = (given, onDone) => withPr(given, 'Merge', async (pr) => {
-  const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+  let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
   if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
+  if (info.ok.gate.hard) {
+    const fixed = await fixMergeGate(pr, info.ok);
+    if (!fixed) return;
+    info = { ok: fixed };
+  }
   const { gate, methods, headOid, checking } = info.ok;
-  if (gate.hard) return toast(`Can’t merge #${pr.number}`, { kind: 'error', detail: gate.hard });
   if (gate.soft.length && !gate.canOverride) return toast(`GitHub blocks merging #${pr.number}`, { kind: 'error', detail: `${gate.soft.join(' ')} Only a repository admin can bypass it.` });
   // The local branch to delete afterwards, found now: the refresh after merging drops the PR.
   const local = prRef(pr, state.refs, state.prs.byRef);
@@ -4425,7 +4507,7 @@ function prMenu(e, pr) {
     { label: 'Check Out', icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), run: () => checkoutPr(pr) },
     { label: 'Check Out in New Worktree…', icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), run: () => checkoutPr(pr, { worktree: true }) },
     '-',
-    { label: 'Approve…', icon: 'check', run: () => approvePr(pr) },
+    { label: 'Approve…', icon: 'check', disabled: Boolean(approveWhy(pr, prViewer())), why: approveWhy(pr, prViewer()), run: () => approvePr(pr) },
     { label: 'Merge…', icon: 'merge', run: () => mergePr(pr) },
     { label: 'Close…', icon: 'x', danger: true, run: () => closePr(pr) },
     '-',
@@ -4484,7 +4566,7 @@ function openPalette() {
     add('Repository', 'Check out pull request…', () => pickPr(false), { icon: 'checkout', kbd: keymap.keys('repo.prCheckout'), keywords: 'pr github gh branch review' });
     add('Repository', 'Check out pull request in new worktree…', () => pickPr(true), { icon: 'worktree', kbd: keymap.keys('repo.prWorktree'), keywords: 'pr github gh branch review' });
     if (state.prs?.active) {
-      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), keywords: 'pr github gh review approve' });
+      add('Repository', 'Approve pull request…', () => approvePr(), { icon: 'check', kbd: keymap.keys('repo.prApprove'), detail: approveTargetWhy(), gated: Boolean(approveTargetWhy()), keywords: 'pr github gh review approve' });
       add('Repository', 'Request changes on pull request…', () => requestChangesPr(), { icon: 'edit', kbd: keymap.keys(state.review?.pr ? 'review.changes' : 'repo.prChanges'), keywords: 'pr github gh review request changes reject' });
       add('Repository', 'Review pull request…', pickPrReview, { icon: 'diff', keywords: 'pr github gh review diff files inbox' });
       if (state.review?.pr) add('Repository', `Check out #${state.review.pr.number} in a new worktree`, () => prDeskAction('checkout'), { icon: 'worktree', kbd: keymap.keys('review.checkout'), keywords: 'pr github gh worktree branch checkout' });
@@ -4593,8 +4675,8 @@ function openPalette() {
     const paneSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.paneSelection() : null;
     if (paneSel) {
       const t = paneSel.row.pr ? `#${paneSel.row.pr.number}` : paneSel.row.title;
-      for (const a of paneActions(paneSel.row, paneSel.ctx.step).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
-        add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
+      for (const a of paneActions(paneSel.row, paneSel.ctx.step, { viewer: paneSel.ctx.viewer }).actions.filter((x) => !(x.id === 'merge' && paneSel.row.lane?.branch))) {
+        add('Review', `${a.label.replace('…', '')} ${t}${a.label.endsWith('…') ? '…' : ''}`, () => paneAction(a.id, paneSel.row, paneSel.ctx), { icon: a.icon, kbd: keymap.keys(a.listKey), gated: a.gated, detail: a.gated ? a.note : null, keywords: `review pane pull request ${a.remote ? 'github remote' : 'local'} ${a.id}` });
       }
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show media of ${t}`, () => lanesPage.media(), { icon: 'image', kbd: keymap.keys('review.media'), keywords: 'media gallery images videos screenshots recordings pictures thumbnails' });
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show checks and reviews of ${t}`, () => lanesPage.evidence(), { icon: 'checks', kbd: keymap.keys('review.evidence'), keywords: 'evidence checks ci annotations media screenshots images videos reviews open threads log failed' });

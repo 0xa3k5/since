@@ -297,7 +297,7 @@ test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan n
   assert.equal(calls[0].env.GH_PROMPT_DISABLED, '1');
   await assert.rejects(github.mergeStack({ ...t, number: 6, method: 'octopus' }), /Unknown merge method/);
   reply = new Error('unknown command "stack" for "gh"');
-  await assert.rejects(github.mergeStack({ ...t, number: 6 }), /gh extension install github\/gh-stack/);
+  await assert.rejects(github.mergeStack({ ...t, number: 6 }), (err) => err.code === 'gh-no-stack' && /stack extension/.test(err.message));
 });
 
 test('clean up after merging: removes worktrees and branches, skips dirty and checked-out ones, one undo', async () => {

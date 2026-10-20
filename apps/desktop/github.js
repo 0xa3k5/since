@@ -179,6 +179,14 @@ async function detect({ remotes, dirs = searchDirs(), exec } = {}) {
   }
 }
 
+// "Open Terminal" for a logged-out `gh` (AK-588): a .command script Terminal runs as-is, with the
+// login for this remote's host, then a normal shell. The host comes from the remote URL, so it's
+// checked before it goes into a script.
+function loginScript(host = 'github.com') {
+  if (typeof host !== 'string' || !/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?$/i.test(host)) throw coded('Invalid GitHub host.', 'gh-failed');
+  return `#!/bin/sh\ngh auth login${host === 'github.com' ? '' : ` --hostname ${host}`}\nexec "\${SHELL:-/bin/zsh}" -l\n`;
+}
+
 // One refresh. While the repository's toggle is off, nothing runs: no binary lookup, no process.
 async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   if (!enabled) return null;
@@ -192,7 +200,34 @@ async function listPrs({ enabled, remotes, dirs = searchDirs(), exec } = {}) {
   } catch (err) {
     throw coded(err.message, authProblem(err.message) ? 'gh-auth' : 'gh-failed');
   }
-  return { remote, owners: remoteOwners(remotes), prs: parsePrs(out), at: Date.now() };
+  const viewer = await viewerFacts(bin, remote, { dirs, exec });
+  return { remote, owners: remoteOwners(remotes), prs: parsePrs(out), viewer, at: Date.now() };
+}
+
+// Who you are on this repository (AK-577), so Approve can say why it doesn't apply instead of
+// GitHub's error: { login, write } (write: GitHub counts your approval). One call per repository,
+// remembered for the session; null when it fails, and then nothing is greyed.
+const VIEWER_QUERY = 'query($owner:String!,$name:String!){viewer{login} repository(owner:$owner,name:$name){viewerPermission}}';
+const viewers = new Map();
+function parseViewer(out) {
+  let d;
+  try { d = JSON.parse(out)?.data; } catch { return null; }
+  const login = text(d?.viewer?.login, 100);
+  const perm = d?.repository?.viewerPermission;
+  if (!/^[\w-]+$/.test(login) || typeof perm !== 'string') return null;
+  return { login, write: CAN_REVIEW.has(perm) };
+}
+async function viewerFacts(bin, remote, { dirs, exec }) {
+  const key = `${remote.host}/${remote.owner}/${remote.repo}`;
+  if (viewers.has(key)) return viewers.get(key);
+  const out = await run(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${VIEWER_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }).catch((err) => {
+    console.warn('could not read your GitHub login and permission', err.message);
+    return null;
+  });
+  const v = out == null ? null : parseViewer(out);
+  if (out != null && !v) console.warn('could not read your GitHub login and permission from', out.slice(0, 200));
+  if (v) viewers.set(key, v);
+  return v;
 }
 
 // Recently merged PRs, for the lanes list's "shipped" check (git.lanes `prHeads`): a lane whose
@@ -566,7 +601,7 @@ async function mergeStack({ enabled, remotes, number, method = 'squash', dirs = 
   try {
     await ghRun(bin, ['stack', 'merge', prNumber(number), `--merge-method=${method}`, '--yes'], { dirs, exec, env: { GH_REPO: repo } });
   } catch (err) {
-    if (NO_STACK_EXT.test(err.message)) throw coded('Merging a stack needs GitHub CLI’s stack extension: run `gh extension install github/gh-stack`.', 'gh-failed');
+    if (NO_STACK_EXT.test(err.message)) throw coded('Merging a stack needs GitHub CLI’s stack extension.', 'gh-no-stack');
     throw err;
   }
   return { number, method };
@@ -985,7 +1020,7 @@ function joinLanes(lanes = [], listed = null) {
     const head = slash > 0 ? l.upstream.slice(slash + 1) : l.branch;
     const owner = slash > 0 ? owners[l.upstream.slice(0, slash)] : null;
     const p = head && !l.isBase ? prs.find((x) => x.branch === head && (!owner || !x.headOwner || x.headOwner.toLowerCase() === owner.toLowerCase())) : null;
-    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, ...(p.failing?.length ? { failing: p.failing } : {}), review: p.review, url: p.url } : null };
+    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, ...(p.author ? { author: p.author } : {}), state: 'open', draft: p.draft, checks: p.checks, ...(p.failing?.length ? { failing: p.failing } : {}), review: p.review, url: p.url } : null };
   });
 }
 
@@ -1006,4 +1041,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, markReady, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };

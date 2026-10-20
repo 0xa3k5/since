@@ -161,7 +161,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // A row as a lane for the lane actions: its PR joined on, or just the PR when it isn't checked out here.
   const asLane = (r) => (r.lane ? (r.pr && !r.lane.pr ? { ...r.lane, pr: r.pr } : r.lane) : { name: r.title, title: r.title, pr: r.pr });
   const paneCtx = (r) => ({
-    base, remote: inbox?.remote || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
+    base, remote: inbox?.remote || null, viewer: inbox?.viewer || null, requested: requested(), step: step(r), prsOn: prsOn(), agents: markAgents(),
     conflicts: r.stage === 'stuck' && Boolean(baseConflict(r, base)), onConflicts: (files) => noteConflicts(r.key, files),
     onFacts: () => refreshChips(r.key),
     onSelectPr: (n) => selectPr(n),
@@ -701,7 +701,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (withPrs && loads.prs(t)) {
       // Without the login and review requests (res.inboxError) the PRs still show.
       inboxFailed = !res.prs;
-      if (!inboxFailed) { inbox = { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }; loadedAt = Date.now(); }
+      if (!inboxFailed) { inbox = { prs: res.prs, remote: res.remote, viewer: res.viewer || null, ...(res.inbox || {}) }; loadedAt = Date.now(); }
       if (res.inboxError) toast('Could not load your review requests', { kind: 'error', detail: res.inboxError.message });
     }
     if (!prsOn()) { inbox = null; inboxFailed = false; loadedAt = null; seedLanes = []; prCache = null; }
