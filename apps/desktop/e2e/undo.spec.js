@@ -71,7 +71,7 @@ test('reset hard from the command menu, then undo', async ({ sandbox, launch }) 
   expect(sandbox.git(repo, 'diff', '--cached', '--name-only')).toBe('two.txt');
 });
 
-test('undo refuses to overwrite newer changes', async ({ sandbox, launch }) => {
+test('undo over newer changes stashes them and offers to discard', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('undo-guard', ['one']);
   sandbox.write(repo, 'one.txt', 'first edit\n');
   const app = await launch(repo);
@@ -81,9 +81,20 @@ test('undo refuses to overwrite newer changes', async ({ sandbox, launch }) => {
   await app.toast('Discard changes to one.txt');
   sandbox.write(repo, 'one.txt', 'second edit\n');
 
+  // The safe default (AK-598): the newer edit is stashed, the undo is taken, and the toast
+  // offers to discard the stash instead.
   await app.undoButton().click();
-  await expect(app.page.locator('.toast.error', { hasText: 'Undo failed' })).toContainText('one.txt changed since');
-  expect(sandbox.read(repo, 'one.txt')).toBe('second edit\n');
+  const undone = await app.toast('Undid “Discard changes to one.txt”');
+  await expect(undone).toContainText('Your newer edit to one.txt is stashed.');
+  expect(sandbox.read(repo, 'one.txt')).toBe('first edit\n');
+  const stashes = () => sandbox.git(repo, 'stash', 'list', '--format=%gs').split('\n').filter(Boolean);
+  expect(stashes()).toHaveLength(1);
+  expect(stashes()[0].endsWith('Set aside to undo “Discard changes to one.txt”')).toBe(true);
+
+  await undone.locator('.toast-actions button', { hasText: 'Discard it instead' }).click();
+  await app.toast('Discarded your newer edit to one.txt');
+  expect(stashes()).toEqual([]);
+  expect(sandbox.read(repo, 'one.txt')).toBe('first edit\n');
 });
 
 test('Snapshots lists every step and restores an earlier state', async ({ sandbox, launch }) => {
