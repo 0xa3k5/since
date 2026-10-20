@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -67,7 +67,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onApproveAll = null, onMakeStack = null, chains = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -212,6 +212,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   }
   const step = (r) => primaryAction(r, { base, requested: requested() });
 
+  // A draft that's only held back by being a draft shows the outlined draft dot, not its checks' colour (AK-611).
+  const drafty = (r) => Boolean(r.pr?.draft) && r.stage !== 'stuck';
   // A row (AK-379): status dot · the title, led by a muted #number (AK-516), over one quiet line (why it's stuck, in red; else
   // its tags, who and where) · age. No buttons: ⌘K "Next step" runs the primary step, the pane's status strip
   // has the rest, and the context menu has them all. Details (D) open under the title.
@@ -227,7 +229,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // Who made it leads the line (AK-390): "(AK) AK + (CO) Claude Opus 5.5 · CI failing · ak/branch".
     const authors = rowAuthors(r, { agents: markAgents() });
     const sub = [r.branch, !r.pr && r.worktree ? r.lane?.worktree?.short || tildify(r.worktree.path) : null].filter(Boolean).join(' · ');
-    const line = [stack?.text, ...tags.filter((b) => !b.signal && !b.chip).map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
+    // "Draft" leads the line (AK-611), as in the pane.
+    const line = [...tags.filter((b) => b.kind === 'draft').map((b) => b.text), stack?.text, ...tags.filter((b) => !b.signal && !b.chip && b.kind !== 'draft').map((b) => b.text), sub, overlap?.text].filter(Boolean).join(' · ');
     // A stack's rows next to each other share a rail through their dots (AK-537).
     return h('div.list-row.lanes-row.review-row.staged' + (active ? '.active' : '') + (rail.up ? '.stack-up' : '') + (rail.down ? '.stack-down' : ''), {
       role: 'option', 'aria-selected': String(active), 'aria-expanded': String(open), 'data-key': r.key, 'data-stage': r.stage || undefined,
@@ -236,7 +239,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       ondblclick: () => act('open', r),
       oncontextmenu: (e) => { e.preventDefault(); select(r.key); stagedMenu(e.clientX, e.clientY, r); },
     },
-      h('span.review-dot' + (r.stage ? `.${r.stage}` : ''), { role: 'img', 'aria-label': stage?.label || 'Open' }),
+      h('span.review-dot' + (r.stage ? `.${r.stage}` : '') + (drafty(r) ? '.draft' : ''), { role: 'img', 'aria-label': drafty(r) ? `${stage?.label || 'Open'}, draft` : stage?.label || 'Open' }),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name', { title: r.title }, r.pr ? h('span.review-row-num', null, `#${r.pr.number}`) : h('span.review-row-num', null, icon(r.worktree ? 'worktree' : 'branch', 13)), r.title), chipsEl(r)),
         stuck ? reasonEl(r, authors) : subLine('div.list-sub.review-row-sub', null, r, authors, line ? h('span.review-row-text', null, line) : null),
@@ -277,7 +280,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     more.title = hidden.map((c) => c.title || c.textContent).join('\n');
   }
   let fitFrame = 0;
-  const fitAll = () => { cancelAnimationFrame(fitFrame); fitFrame = requestAnimationFrame(() => { for (const row of list.querySelectorAll('.review-row')) fitChips(row); }); };
+  const fitAll = () => { cancelAnimationFrame(fitFrame); fitFrame = requestAnimationFrame(() => { for (const row of list.querySelectorAll('.review-row')) fitChips(row); for (const head of list.querySelectorAll('.review-stack-head')) fitHead(head); }); };
   new ResizeObserver(fitAll).observe(list);
   function refreshChips(key) {
     const rowEl = [...list.querySelectorAll('.review-row')].find((x) => x.dataset.key === key);
@@ -456,48 +459,135 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     return h('div.review-calm', { role: 'note' }, h('b', null, some ? 'That’s everything that needs you.' : 'Nothing needs you right now.'), parts.join(' '));
   }
 
-  // Rows in list order, a stack's head over its rows wherever two or more of them sit together.
+  // Rows in list order, a stack's head over its rows wherever two or more of them sit together. The
+  // stack's rows share one rail colour, from its status (AK-611).
   function pushRows(out, rs) {
+    let tone = null;
     rs.forEach((r, i) => {
       const rail = stackRail(rs, i);
       if (rail.down && !rail.up) {
         const mates = [];
         for (let j = i; j < rs.length && rs[j].stack?.root === r.stack.root; j++) mates.push(rs[j]);
+        tone = stackStatus(mates, { base }).tone;
         out.push(stackHead(mates));
       }
-      out.push(stagedRow(r, rail));
+      const el = stagedRow(r, rail);
+      if ((rail.up || rail.down) && tone) el.dataset.rail = tone;
+      if (!rail.down) tone = null;
+      out.push(el);
     });
   }
 
-  // A stack's head (AK-609): one quiet line over its rows, not a row of its own (it's never
-  // selected): name · PR count · how far it merges · Mark ready (a draft holds it) · Merge.
-  // Merge opens Merge plan with just this stack, GitHub's merges keep their one sheet.
-  function stackHead(rows) {
-    const { st, acts } = stackOffer(rows);
-    const s = rows[0].stack;
-    return h('div.review-stack-head' + `.${st.stage}`, { role: 'presentation', 'data-stack': String(s.root), title: `Stacked: ${[s.base || 'base', ...s.path.map((n) => `#${n}`)].join(' ‹ ')}` },
-      h('span.review-stack-name', null, stackTitle(rows.map((r) => r.pr))),
-      h('span.review-stack-meta', null, `${rows.length} PRs · ${st.text}`),
-      acts.length ? h('span.review-stack-acts', null, ...acts.map((x) => h('button.review-stack-act' + (x.id === 'merge' ? '.primary' : ''), { type: 'button', onclick: x.run }, x.label))) : null);
+  // GitHub's word on each stack (AK-611): native or a plain chain, and whether it can be linked.
+  // One app:pr-chains per base after a load; root PR number → { native, linkable, why }.
+  let chainInfo = new Map();
+  let chainsFor = null;
+  async function loadChains() {
+    const prs = inbox?.prs || [];
+    if (!chains || !inbox?.remote || chainsFor === prs) return;
+    chainsFor = prs;
+    const bases = new Set((staged?.all || []).filter((r) => r.stack).map((r) => r.stack.base));
+    if (!bases.size) return;
+    const next = new Map();
+    for (const b of bases) {
+      const res = await chains(inbox.remote, b).catch(() => null);
+      for (const c of res?.ok?.chains || []) next.set(c.prs[0], c);
+    }
+    if (chainsFor !== prs) return;
+    chainInfo = next;
+    render();
   }
-  // What a stack's head offers, for the head and ⌘K: Mark ready on the draft holding it back, and
-  // Merge for the parts that merge now.
+
+  // A stack's head (AK-609, AK-611): one quiet line over its rows, not a row of its own (it's never
+  // selected): #4 → #6 · "3 PRs into main" · tag · segments · status · text buttons · ⋯. It sheds
+  // as the list narrows (stackShed): container queries first, then fitHead.
+  function stackHead(rows) {
+    const { st, acts, link } = stackOffer(rows);
+    const s = rows[0].stack;
+    const c = chainInfo.get(s.root);
+    const prs = rows.map((r) => r.pr);
+    const name = stackTitle(prs);
+    const range = `#${prs[0].number} → #${prs[prs.length - 1].number}`;
+    const segs = h('span.review-stack-segs', { role: 'group', 'aria-label': 'Parts' }, ...rows.map((r) => h('button.review-stack-seg', {
+      type: 'button', 'data-stage': r.stage || 'inProgress', 'data-draft': drafty(r) ? '' : undefined, 'data-soft-fail': softFail(r) ? '' : undefined,
+      title: segTitle(r), 'aria-label': `#${r.pr.number}`, onclick: () => select(r.key),
+    })));
+    const tag = c ? (c.native ? 'GitHub stack' : 'Chain') : null;
+    const more = h('button.review-stack-more', { type: 'button', hidden: true, 'aria-haspopup': 'menu', 'aria-label': 'More stack actions', title: 'More stack actions', onclick: (e) => {
+      const b = e.currentTarget.getBoundingClientRect();
+      const all = e.currentTarget.closest('.review-stack-head').dataset.shed === 'tight';
+      contextMenu(b.left, b.bottom + 4, [...acts.filter((x) => all || x.id !== 'merge').map((x) => ({ label: menuLabel(x), run: x.run, disabled: Boolean(x.why), why: x.why || undefined })),
+        link ? { label: 'Make it a GitHub stack', disabled: true, why: c.why } : null], { focus: e.detail === 0 ? 0 : -1 });
+    } }, icon('more', 14));
+    return h('div.review-stack-head' + `.${st.stage}` + (st.tone ? `.${st.tone}` : ''), { role: 'presentation', 'data-stack': String(s.root), title: `${name === `Stack ${range}` ? '' : `${name}\n`}Stacked: ${[s.base || 'base', ...s.path.map((n) => `#${n}`)].join(' ‹ ')}` },
+      h('span.review-stack-name', null, range),
+      h('span.review-stack-meta', null, `${rows.length} PRs into ${s.base || 'the base'}`),
+      tag ? h('span.review-stack-tag' + (c.native ? '.native' : ''), { role: 'img', 'aria-label': tag, title: tag }, icon(c.native ? 'github' : 'catchup', 12), h('span.review-stack-tag-text', null, tag)) : null,
+      segs,
+      h('span.review-stack-status', { title: st.text }, h('span.full', null, st.text), h('span.short', null, st.short)),
+      h('span.review-stack-end', null,
+        acts.length || link ? h('span.review-stack-acts', null,
+          ...acts.map((x) => h('button.review-stack-act' + (x.id === 'merge' ? '.primary' : ''), { type: 'button', disabled: x.why ? true : undefined, title: x.why || undefined, onclick: x.run }, x.label)),
+          link) : null,
+        more));
+  }
+  // A ready part whose failing checks GitHub doesn't require (AK-611): its own segment, not plain green.
+  const softFail = (r) => r.stage === 'ready' && r.pr.checks === 'failure' && !r.pr.draft && !checksBlock(r.pr);
+  function segTitle(r) {
+    const n = r.pr.number;
+    if (softFail(r)) return `#${n} · ${(r.pr.failing || []).join(', ') || 'checks'} failing · Not required to merge`;
+    return `#${n} ${r.title}\n${partWhy(r, { base }).why.replace(/^is /, '').replace(/^./, (x) => x.toUpperCase())}`;
+  }
+  // A head action in ⋯ says what it does on its own.
+  const menuLabel = (x) => (x.id === 'checks' ? `View #${x.n}’s failure` : x.id === 'rebase' ? `Rebase #${x.n}` : x.label);
+  // One head on one line (AK-611): with the container queries applied, hide the sentence, then move
+  // the secondary actions, then the main one, into ⋯ until it fits.
+  function fitHead(head) {
+    head.dataset.shed = '';
+    const w = (el) => (el ? el.getBoundingClientRect().width : 0);
+    const cs = getComputedStyle(head);
+    const gap = parseFloat(cs.columnGap) || 8;
+    const kept = [...head.querySelectorAll(':scope > .review-stack-name, :scope > .review-stack-meta, :scope > .review-stack-tag, :scope > .review-stack-segs')].map(w).filter((x) => x > 0);
+    const base = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + kept.reduce((a, b) => a + b, 0) + gap * (kept.length - 1);
+    const main = head.querySelector('.review-stack-act.primary');
+    const secondary = [...head.querySelectorAll('.review-stack-acts > :not(.primary)')];
+    const status = head.querySelector('.review-stack-status');
+    const lv = stackFit(head.clientWidth, { base, gap, sentence: parseFloat(getComputedStyle(status).minWidth) || 0, main: w(main), secondary: secondary.map(w), more: 22 });
+    head.dataset.shed = lv;
+    head.querySelector('.review-stack-more').hidden = !((lv === 'menu' && secondary.length) || (lv === 'tight' && (main || secondary.length)));
+  }
+
+  // What a stack's head offers, for the head and ⌘K: Merge for the parts that merge now, the held
+  // part's fix, Make it a GitHub stack (a chain; else why it can't be), Approve all (someone else's).
   function stackOffer(rows) {
     const st = stackStatus(rows, { base });
     const n = st.through;
+    const prs = rows.map((r) => r.pr);
+    const c = chainInfo.get(rows[0].stack.root);
+    const ok = stackApproval(prs, inbox?.viewer);
+    // One fix per blocker of the held part (AK-611): Mark #6 ready · View failure.
+    const fixes = st.fixes?.filter((f) => f.id !== 'ready' || onMarkReady).map((f) => ({
+      id: f.id, label: f.label, n: f.row.pr.number,
+      run: () => (f.id === 'ready' ? onMarkReady(f.row.pr, inbox?.remote) : act(f.id, f.row)),
+    })) || [];
     const acts = [
-      st.fix && onMarkReady ? { id: 'ready', label: `Mark #${st.fix.pr.number} ready`, run: () => onMarkReady(st.fix.pr, inbox?.remote) } : null,
-      n.length && canPlan() ? { id: 'merge', label: n.length === rows.length ? 'Merge stack' : n.length > 1 ? `Merge #${n[0]} → #${n[n.length - 1]}` : `Merge #${n[0]}`, run: () => mergePlan(null, { only: n }) } : null,
+      n.length && canPlan() ? { id: 'merge', label: n.length === rows.length ? 'Merge stack' : n.length > 1 ? `Merge #${n[0]} → #${n[n.length - 1]}` : `Merge #${n[0]}`, run: () => mergePlan(null, { only: n, held: stackHeld(rows, st) }) } : null,
+      ...fixes,
+      c && !c.native && c.linkable && onMakeStack ? { id: 'link', label: 'Make it a GitHub stack', run: () => onMakeStack(rows[0].pr.number) } : null,
+      ok && onApproveAll ? { id: 'approve', label: `Approve all ${ok.prs.length}…`, why: ok.why, run: () => onApproveAll(ok.prs, inbox?.remote, () => reload()) } : null,
     ].filter(Boolean);
-    return { st, acts };
+    const link = c && !c.native && !c.linkable && c.why ? h('span.review-stack-why', { title: c.why }, c.why) : null;
+    return { st, acts, link };
   }
+  // The parts a stack merge leaves open, with why: the held part's status, "stacked on #N" above it.
+  const stackHeld = (rows, st) => rows.slice(st.through.length).map((r, i) => ({ number: r.pr.number, why: i ? `Stacked on #${rows[st.through.length + i - 1].pr.number}` : st.why.replace(/^is /, '').replace(/^./, (c) => c.toUpperCase()) }));
   // ⌘K's stack head entries for the selected row's stack (two or more of its rows listed), else [].
   function stackActions() {
     const x = current();
     const rows = x?.stack ? shown.filter((r) => r.stack?.root === x.stack.root) : [];
     if (rows.length < 2) return [];
     const name = stackTitle(rows.map((r) => r.pr));
-    return stackOffer(rows).acts.map((a) => ({ ...a, label: a.id === 'merge' && a.label === 'Merge stack' ? `Merge stack: ${name}` : a.label }));
+    return stackOffer(rows).acts.filter((a) => !a.why && a.id !== 'link').map((a) => ({ ...a, label: a.id === 'merge' && a.label === 'Merge stack' ? `Merge stack: ${name}` : a.id === 'checks' ? `View #${a.n}’s failure` : a.id === 'rebase' ? `Rebase #${a.n}` : a.label }));
   }
 
   function renderStaged() {
@@ -506,6 +596,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     // A PR GitHub is still checking keeps the stage it had (AK-321).
     const previous = staged ? new Map(staged.all.map((x) => [x.key, x.stage])) : null;
     staged = reviewRows({ lanes, prs: inbox?.prs || [], reviewRequested: inbox?.requested || [], forecast: forecastOk && conflicts.size ? conflicts : null, prsOn: prsOn(), now: Date.now(), previous });
+    loadChains();
     if (pendingSendBack != null && staged.all.some((x) => x.pr?.number === pendingSendBack)) { const n = pendingSendBack; pendingSendBack = null; setTimeout(() => sendBack(n)); }
     if (pendingPr != null && staged.all.some((x) => x.pr?.number === pendingPr)) { const n = pendingPr; pendingPr = null; setTimeout(() => showPr(n)); }
     const rows = [];
@@ -607,9 +698,10 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     })).sort((a, b) => b.ready - a.ready || b.open - a.open || a.name.localeCompare(b.name));
   }
   const targetKey = () => `pref:mergeTarget:${repo || ''}`;
-  // `only`: PR numbers to plan (a stack's head, AK-609); the target is where they land.
-  function mergePlan(method = null, { anyway = false, target = null, only = null } = {}) {
-    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target, only }); });
+  // `only`: PR numbers to plan (a stack's head, AK-609); the target is where they land. `held`: the
+  // stack's parts that stay open ({ number, why }, AK-611), listed under the plan.
+  function mergePlan(method = null, { anyway = false, target = null, only = null, held = [] } = {}) {
+    if (planGated()) return onGitTooOld('mergePlan', () => { forecastOk = true; render(); mergePlan(method, { anyway, target, only, held }); });
     if (!canPlan()) return toast(forecastOk ? 'Merge plan needs pull requests on' : `Merge plan needs git ${GIT_NEEDS.mergePlan} or later`);
     const open = inbox?.prs || [];
     if (!open.length) return toast('No open pull requests');
@@ -627,7 +719,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       if (save) { try { localStorage.setItem(targetKey(), name); } catch { /* ignore */ } }
       mergePlan(method, { anyway, target: name });
     };
-    onMergePlan({ ready, others, known: open, base: to, remote: inbox.remote, method, anyway, targets, chosen: Boolean(target || (saved && has(saved))), onTarget });
+    onMergePlan({ ready, others, held, known: open, base: to, remote: inbox.remote, method, anyway, targets, chosen: Boolean(target || (saved && has(saved))), onTarget });
   }
 
   function renderTabs() {

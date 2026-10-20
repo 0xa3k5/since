@@ -3290,7 +3290,10 @@ function openLanes() {
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
-    onMarkReady: markPrReady,
+    onMarkReady: (pr, remote) => toggleDraft({ ...pr, remote: prRemote(pr, remote) }),
+    onApproveAll: approveStack,
+    onMakeStack: (n) => makeChainStack(n),
+    chains: (remote, base) => api.app('pr-chains', remote, base),
     onGitTooOld: updateGit,
     gitWhy,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
@@ -3537,12 +3540,25 @@ async function makeChainStack(number = null) {
   palette(() => linkable.map((c) => ({ group: 'Chains', label: `#${c.prs[0]} → #${c.prs[c.prs.length - 1]}`, detail: `${c.prs.length} pull requests onto ${c.base}`, icon: 'merge', run: () => go(c) })), { placeholder: 'Make which chain a GitHub stack…' });
 }
 
-// Mark a draft ready for review from a stack's head (AK-609); Review reloads to re-stage it.
-async function markPrReady(pr) {
-  const res = await prCall('pr-ready', pr, undefined, `Marking #${pr.number} ready for review…`);
-  if (res.error) return prError(`Couldn’t mark #${pr.number} ready`, res.error);
-  toast(`Marked #${pr.number} ready for review`, { kind: 'success' });
-  lanesPage?.reload();
+// Approve all on someone else's stack (AK-611): one dialog listing the parts, an optional comment,
+// then each part is approved in turn; a failure stops there and says which.
+async function approveStack(prs, remote, onDone) {
+  const v = await dialog({
+    title: `Approve ${prs.length} pull requests?`,
+    description: REMOTE_NOTE,
+    content: [h('ul.dialog-list', null, ...prs.map((p) => h('li', null, h('b', null, `#${p.number}`), ` ${p.title}`)))],
+    submit: `Approve ${prs.length}`,
+    fields: [{ name: 'body', label: 'Comment (optional)', multiline: true, rows: 3 }],
+  });
+  if (!v) return;
+  let done = 0;
+  for (const pr of prs) {
+    const res = await prCall('pr-approve', pr, { body: v.body }, `Approving #${pr.number}…`);
+    if (res.error) { prError(`Couldn’t approve #${pr.number}${done ? ` (approved ${done})` : ''}`, OWN_PR.test(res.error.message) ? { message: 'Your own pull request' } : res.error); break; }
+    done++;
+  }
+  if (done === prs.length) toast(`Approved ${done} pull requests`, { kind: 'success' });
+  if (done) { onDone?.(); refreshPrs(); }
 }
 
 function sendBackPr(number) {

@@ -21,7 +21,7 @@ test('stuck: failing checks, GitHub conflicts or forecast conflicts, whatever el
   assert.equal(await stageOf(pr(1, { checks: 'failure' })), 'stuck');
   assert.equal(await stageOf(pr(1, { mergeable: false })), 'stuck');
   assert.equal(await stageOf(pr(1), { conflicts: [{ with: 'other', base: false, files: ['a'] }] }), 'inProgress');
-  assert.equal(await stageOf(pr(1, { checks: 'failure', draft: true })), 'stuck');
+  assert.equal(await stageOf(pr(1, { checks: 'failure', draft: true })), 'inProgress'); // the draft is its blocker (AK-611)
   assert.equal(await stageOf(pr(1, { checks: 'failure' }), { requested: [1] }), 'stuck');
   // The local forecast vetoes "ready".
   assert.equal(await stageOf(pr(1, READY), { conflicts: [{ with: 'main', base: true, files: ['a'] }] }), 'stuck');
@@ -430,7 +430,8 @@ test('mergeStateStatus: each state stages the way GitHub would let it merge', as
   assert.equal(await s({ mergeState: 'clean', checks: 'success' }), 'ready');
   assert.equal(await s({ mergeState: 'has_hooks', checks: 'success' }), 'ready');
   assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'success' }), 'inProgress');
-  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure' }), 'stuck');
+  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure' }), 'inProgress');
+  assert.equal(await s({ mergeState: 'draft', draft: true, checks: 'failure', mergeable: false }), 'stuck');
   // Unknown keeps the previous stage; with none, the rules for an older gh.
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'ready'), 'ready');
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'stuck'), 'stuck');
@@ -717,17 +718,18 @@ test('stackFoldOrder folds the farthest PRs first, then the bottom one, then the
   assert.deepEqual(stackFoldOrder([1, 2, 3, 4, 5], 5), [1, 2, 0, 3]);
 });
 
-// Stack heads (AK-609): one stage for the whole stack, its name and status.
-test('reviewRows keeps a stack in its bottom part’s stage, each row keeping its own stage', async () => {
+// Stack heads (AK-609, AK-611): one stage for the whole stack, its name and status.
+test('reviewRows keeps a stack in its least-ready part’s stage, each row keeping its own stage', async () => {
   const { reviewRows } = await load();
   const prs = [pr(4, READY), pr(5, { ...READY, base: 'b4' }), pr(6, { base: 'b5', draft: true }), pr(9, READY)];
   const r = reviewRows({ prs, prsOn: true, now: NOW });
-  assert.deepEqual(r.stages.ready.map((x) => x.pr.number).filter((n) => n !== 9), [4, 5, 6]);
-  assert.equal(r.stages.inProgress.length, 0);
-  assert.equal(r.stages.ready.find((x) => x.pr.number === 6).stage, 'inProgress');
-  // A stuck bottom part takes the whole stack to Stuck.
-  const s = reviewRows({ prs: [pr(4, { checks: 'failure' }), pr(5, { ...READY, base: 'b4' })], prsOn: true, now: NOW });
+  assert.deepEqual(r.stages.inProgress.map((x) => x.pr.number), [4, 5, 6]);
+  assert.deepEqual(r.stages.ready.map((x) => x.pr.number), [9]);
+  assert.equal(r.stages.inProgress.find((x) => x.pr.number === 4).stage, 'ready');
+  // A stuck part anywhere takes the whole stack to Stuck.
+  const s = reviewRows({ prs: [pr(4, READY), pr(5, { base: 'b4', checks: 'failure' })], prsOn: true, now: NOW });
   assert.deepEqual(s.stages.stuck.map((x) => x.pr.number), [4, 5]);
+  assert.equal(s.stages.ready.length, 0);
 });
 
 test('stackTitle: the shared title without part markers, else the number range', async () => {
@@ -737,13 +739,88 @@ test('stackTitle: the shared title without part markers, else the number range',
   assert.equal(stackTitle([pr(4, { title: 'Engine [1/2]' }), pr(5, { title: 'UI [2/2]' }), pr(6)]), 'Stack #4 → #6');
 });
 
-test('stackStatus: how far the stack merges and what holds it back', async () => {
+test('stackStatus: how far the stack merges, what holds it back, its rail and its fix', async () => {
   const { stackStatus } = await load();
   const row = (n, stage, o = {}) => ({ stage, pr: pr(n, o) });
-  assert.deepEqual(stackStatus([row(4, 'ready'), row(5, 'ready')]), { through: [4, 5], held: null, text: 'Ready to merge', stage: 'ready', fix: null });
+  const all = stackStatus([row(4, 'ready'), row(5, 'ready')]);
+  assert.deepEqual([all.through, all.text, all.tone, all.fix], [[4, 5], 'Ready to merge', 'ready', null]);
   const d = stackStatus([row(4, 'ready'), row(5, 'ready'), row(6, 'inProgress', { draft: true })]);
-  assert.equal(d.text, 'Mergeable through #5 · #6 draft');
-  assert.equal(d.fix.pr.number, 6);
-  assert.equal(stackStatus([row(4, 'stuck', { checks: 'failure', failing: ['test'] }), row(5, 'ready')]).text, '#4 CI ✗ test');
-  assert.equal(stackStatus([row(4, 'inProgress')]).text, '#4 CI running');
+  assert.deepEqual(d.through, [4, 5]);
+  assert.equal(d.text, 'Mergeable through #5 · #6 is a draft');
+  assert.deepEqual([d.fix.id, d.fix.label, d.tone], ['ready', 'Mark #6 ready', null]);
+  assert.equal(stackStatus([row(4, 'ready'), row(5, 'inProgress', { checks: 'success' })]).text, 'Mergeable through #4 · #5 waiting for review');
+  assert.equal(stackStatus([row(4, 'inProgress', { draft: true }), row(5, 'ready')]).text, '#4 is a draft');
+  const f = stackStatus([row(4, 'stuck', { checks: 'failure', failing: ['test'], url: 'https://x/4' }), row(5, 'ready')]);
+  assert.deepEqual([f.text, f.tone, f.fix.id, f.fix.label], ['#4 checks failing', 'failing', 'checks', 'View failure']);
+  const c = stackStatus([row(4, 'stuck', { mergeable: 'CONFLICTING', mergeState: 'dirty' })]);
+  assert.equal(c.tone, 'conflicts');
+  assert.equal(stackStatus([row(4, 'inProgress', { checks: 'pending' })]).text, '#4 checks running');
+});
+
+test('stackStatus: a short form that names only the blocker', async () => {
+  const { stackStatus } = await load();
+  const row = (n, stage, o = {}) => ({ stage, pr: pr(n, o) });
+  assert.equal(stackStatus([row(11, 'ready'), row(12, 'inProgress', { draft: true, checks: 'failure' })]).short, '#12 draft');
+  assert.equal(stackStatus([row(15, 'stuck', { checks: 'failure', url: 'https://x/15' })]).short, '#15 checks failing');
+  assert.equal(stackStatus([row(18, 'stuck', { mergeable: 'CONFLICTING', mergeState: 'dirty' })]).short, '#18 conflicts');
+  assert.equal(stackStatus([row(4, 'ready'), row(5, 'ready')]).short, 'Ready to merge');
+});
+
+test('stackShed: the head sheds count, tag, sentence, then secondary and main actions as the list narrows', async () => {
+  const { stackShed, STACK_SHED } = await load();
+  // A head's full-size parts: #14 → #16 · 3 PRs into main · GitHub stack · bar · sentence · Merge #14 → #15 · Mark #16 ready · View failure.
+  const need = { pad: 46, inset: 16, numbers: 62, count: 90, tag: 80, tagIcon: 12, bar: 48, sentence: 64, main: 100, secondary: [96, 76], more: 22 };
+  const at = (w) => stackShed(w, need);
+  assert.deepEqual(at(900), { count: true, tag: 'name', sentence: 'full', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(700), { count: false, tag: 'name', sentence: 'full', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(580), { count: false, tag: 'icon', sentence: 'full', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(520), { count: false, tag: 'icon', sentence: 'none', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(400), { count: false, tag: 'icon', sentence: 'none', secondary: 'menu', main: 'inline' });
+  assert.deepEqual(at(260), { count: false, tag: 'icon', sentence: 'none', secondary: 'menu', main: 'menu' });
+  // Fewer actions keep the short sentence at the same width.
+  assert.deepEqual(stackShed(500, { ...need, secondary: [] }), { count: false, tag: 'icon', sentence: 'short', secondary: 'inline', main: 'inline' });
+  // The container queries in styles.css use the same widths.
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '../renderer/styles.css'), 'utf8');
+  for (const w of Object.values(STACK_SHED)) assert.match(css, new RegExp(`@container review-list \\(max-width: ${w}px\\) \\{[^@]*review-stack`));
+});
+
+test('stackApproval: someone else’s parts, greyed without write access, never your own stack', async () => {
+  const { stackApproval } = await load();
+  const prs = [pr(4, { author: 'ana' }), pr(5, { author: 'ana', review: 'approved' }), pr(6, { author: 'ana' })];
+  assert.deepEqual(stackApproval(prs, { login: 'me', write: true }).prs.map((p) => p.number), [4, 6]);
+  assert.equal(stackApproval(prs, { login: 'me', write: true }).why, null);
+  assert.equal(stackApproval(prs, { login: 'me', write: false }).why, 'Needs write access');
+  assert.equal(stackApproval([pr(4, { author: 'Me' })], { login: 'me' }), null);
+  assert.equal(stackApproval(prs, null), null);
+});
+
+// AK-611 feedback: the blocker decides the colour; a draft wins over checks GitHub doesn't require.
+test('stack parts: stage, colour and status per blocker', async () => {
+  const { reviewRows, stackStatus, rowChips, rowBadges } = await load();
+  const run = (o) => {
+    const prs = [pr(4, { ...READY, mergeState: 'unstable', checks: 'failure', url: 'https://x/4' }), pr(5, { base: 'b4', url: 'https://x/5', ...o })];
+    const r = reviewRows({ prs, prsOn: true, now: NOW });
+    const rows = Object.values(r.stages).flat();
+    return { home: Object.keys(r.stages).find((k) => r.stages[k].length), part: rows.find((x) => x.pr.number === 5), st: stackStatus(rows, { base: 'main' }) };
+  };
+  // Draft only: in progress, no colour, Mark ready.
+  const d = run({ draft: true, mergeState: 'draft', checks: 'success' });
+  assert.deepEqual([d.home, d.part.stage, d.st.tone, d.st.text], ['inProgress', 'inProgress', null, 'Mergeable through #4 · #5 is a draft']);
+  assert.deepEqual(d.st.fixes.map((f) => f.label), ['Mark #5 ready']);
+  // Draft with failing checks: still the draft's colour, both blockers named, both fixes.
+  const df = run({ draft: true, mergeState: 'draft', checks: 'failure' });
+  assert.deepEqual([df.home, df.part.stage, df.st.tone, df.st.text], ['inProgress', 'inProgress', null, 'Mergeable through #4 · #5 is a draft, checks failing']);
+  assert.deepEqual(df.st.fixes.map((f) => f.label), ['Mark #5 ready', 'View failure']);
+  assert.equal(rowChips(df.part)[0].kind, '');
+  // Failing checks GitHub doesn't require: ready, muted chip that says so.
+  const nr = run({ ...READY, mergeState: 'unstable', checks: 'failure' });
+  assert.deepEqual([nr.home, nr.part.stage, nr.st.tone, nr.st.text], ['ready', 'ready', 'ready', 'Ready to merge']);
+  const chip = rowChips(nr.part)[0];
+  assert.deepEqual([chip.kind, chip.title.split('\n')[0]], ['', 'Not required to merge']);
+  assert.equal(rowBadges(nr.part).find((b) => b.text === 'CI failing').kind, '');
+  // Failing required checks: stuck, red, View failure.
+  const rq = run({ mergeState: 'blocked', checks: 'failure', review: 'approved' });
+  assert.deepEqual([rq.home, rq.part.stage, rq.st.tone, rq.st.text], ['stuck', 'stuck', 'failing', 'Mergeable through #4 · #5 checks failing']);
+  assert.deepEqual(rq.st.fixes.map((f) => f.label), ['View failure']);
+  assert.equal(rowChips(rq.part)[0].kind, 'fail');
 });
