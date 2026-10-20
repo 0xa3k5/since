@@ -198,6 +198,26 @@ test('stash staged → undo restores the staged change, not just the file', asyn
   assert.equal((await git.getStashes(dir)).length, 0);
 });
 
+test('stash all with untracked → undo brings back the nested untracked file → redo stashes it again', async () => {
+  const { dir, journal, read, write } = await repo();
+  await commit(dir, 'a.txt', '0\n', 'base');
+  write('a.txt', 'a\n');
+  fs.mkdirSync(path.join(dir, 'new/deep'), { recursive: true });
+  write('new/deep/u.txt', 'untracked\n');
+  await journal.runWork('stashSave', 'Stash all changes', ['wip', true, {}]);
+  assert.equal(read('a.txt'), '0\n');
+  assert.equal(exists(dir, 'new/deep/u.txt'), false);
+  const [stash] = await git.getStashes(dir);
+  await journal.step('undo');
+  assert.equal(read('a.txt'), 'a\n');
+  assert.equal(read('new/deep/u.txt'), 'untracked\n');
+  assert.equal((await git.getStashes(dir)).length, 0);
+  await journal.step('redo');
+  assert.equal(read('a.txt'), '0\n');
+  assert.equal(exists(dir, 'new/deep/u.txt'), false);
+  assert.deepEqual((await git.getStashes(dir)).map((s) => [s.sha, s.message]), [[stash.sha, stash.message]]);
+});
+
 test('stash lines → undo puts the lines back and drops the stash', async () => {
   const { dir, journal, read, write } = await repo();
   await commit(dir, 'a.txt', '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n', 'base');
