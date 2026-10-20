@@ -229,3 +229,20 @@ test('the branch open in this window can go when there is a branch to switch to 
   assert.equal(canRemove({ branch: 'main', isBase: true, worktree: { current: true } }, () => true), false);
   assert.equal(canRemove({ branch: 'g', worktree: { main: true } }, () => true), false);
 });
+
+test('actionWhy says why a row action doesn’t apply, null when it does (AK-582)', async () => {
+  const { actionWhy } = await load();
+  const f = lane('f');
+  const main = lane('main', { isBase: true });
+  assert.equal(actionWhy('rebase', f, { base: 'main' }), null);
+  assert.equal(actionWhy('rebase', f), 'No base branch');
+  assert.equal(actionWhy('rebase', main, { base: 'main' }), 'Base branch');
+  assert.equal(actionWhy('merge', lane('wt', { branch: null })), 'No branch');
+  assert.equal(actionWhy('review', main), 'Base branch');
+  assert.equal(actionWhy('checks', f), 'No pull request');
+  assert.equal(actionWhy('checks', lane('f', { pr: { url: 'https://x/pull/1' } })), null);
+  assert.equal(actionWhy('delete', lane('f', { worktree: { current: true } })), 'Open in this window');
+  assert.equal(actionWhy('cleanup', f), 'Not finished');
+  assert.equal(actionWhy('cleanup', f, { finished: true }), null);
+  assert.equal(actionWhy('open', main), null);
+});

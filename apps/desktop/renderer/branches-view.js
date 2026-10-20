@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, removeWhy } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy } from './lanes.js';
 import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from './review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
@@ -194,19 +194,13 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     el.focus({ preventScroll: true });
   }
 
-  // Whether an action applies to the lane; the keys toast when it doesn't.
-  const can = (id, l) => ({
-    review: !l.isBase && Boolean(l.branch || l.head),
-    merge: Boolean(l.branch) && !l.isBase,
-    rebase: Boolean(l.branch && !l.isBase && base),
-    checks: Boolean(l.pr?.url),
-    delete: canRemove(l, canSwitch),
-    cleanup: isFinished(l),
-    open: true,
-  }[id]);
+  // Why an action doesn't apply to the lane (null when it does); the keys toast it, the menu greys it.
+  const why = (id, l) => actionWhy(id, l, { base, finished: isFinished(l), canSwitch });
+  const can = (id, l) => !why(id, l);
   function run(id, l) {
     if (!l) return;
-    if (!can(id, l)) return toast(`${ACTIONS[id]?.label || 'That'} doesn’t apply to ${l.name}`);
+    const no = why(id, l);
+    if (no) return toast(`${ACTIONS[id]?.label || 'That'} doesn’t apply to ${l.name}`, { detail: no });
     if (id === 'review') onReview(l, base);
     else if (id === 'merge') onMerge(l, base);
     else if (id === 'open') onOpen(l);
@@ -223,13 +217,13 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   function menu(x, y, l) {
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('branches.open'), run: () => onOpen(l) },
-      { label: 'Review Branch', icon: 'check', kbd: keymap.keys('branches.review'), disabled: !can('review', l), run: () => run('review', l) },
-      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('branches.merge'), disabled: !can('merge', l), run: () => run('merge', l) },
-      { label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('branches.rebase'), disabled: !can('rebase', l), run: () => run('rebase', l) },
+      { label: 'Review Branch', icon: 'check', kbd: keymap.keys('branches.review'), disabled: !can('review', l), why: why('review', l), run: () => run('review', l) },
+      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('branches.merge'), disabled: !can('merge', l), why: why('merge', l), run: () => run('merge', l) },
+      { label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('branches.rebase'), disabled: !can('rebase', l), why: why('rebase', l), run: () => run('rebase', l) },
       ...(l.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('branches.checks'), run: () => run('checks', l) }] : []),
       ...(isFinished(l) ? [{ label: 'Clean Up…', icon: 'trash', kbd: keymap.keys('branches.cleanup'), run: () => run('cleanup', l) }] : []),
       '-',
-      { label: l.changes ? 'Discard Branch…' : 'Delete Branch…', icon: 'trash', kbd: keymap.keys('branches.delete'), disabled: !canRemove(l, canSwitch), why: removeWhy(l, canSwitch), run: () => run('delete', l) },
+      { label: l.changes ? 'Discard Branch…' : 'Delete Branch…', icon: 'trash', kbd: keymap.keys('branches.delete'), disabled: !canRemove(l, canSwitch), why: why('delete', l), run: () => run('delete', l) },
     ]);
   }
 
