@@ -149,3 +149,66 @@ test('update checks out the recorded commit even with submodule.<name>.update=re
   assert.equal((await git.run(lib, ['symbolic-ref', '--short', 'HEAD'])).trim(), 'work');
   assert.equal(await head(lib), c2);
 });
+
+// A submodule with an edited and an untracked file inside it; its recorded commit is unchanged.
+async function dirtySubmodule() {
+  const s = await setup();
+  const lib = path.join(s.app, 'lib');
+  for (const [k, v] of [['user.name', 'Test'], ['user.email', 't@example.com']]) await git.run(lib, ['config', k, v]);
+  fs.writeFileSync(path.join(lib, 'lib.txt'), 'edited\n');
+  fs.writeFileSync(path.join(lib, 'new.txt'), 'new\n');
+  return { ...s, lib };
+}
+
+test('a submodule with changes only inside it is marked inside in the status', async () => {
+  const { app } = await dirtySubmodule();
+  const st = await git.getStatus(app);
+  assert.deepEqual(st.unstaged, [{ path: 'lib', status: 'M', inside: true }]);
+  assert.equal(await git.submoduleChanges(app, 'lib'), 2);
+});
+
+test('discarding a dirty submodule gitlink changes nothing and is not reported as done', async () => {
+  const { app, lib } = await dirtySubmodule();
+  const journal = new Journal(await git.openRepo(app));
+  await assert.rejects(journal.runWork('discardFiles', 'Discard changes to lib', [[{ path: 'lib', status: 'M' }]]), /Nothing changed/);
+  assert.equal(fs.readFileSync(path.join(lib, 'lib.txt'), 'utf8'), 'edited\n');
+  assert.equal(journal.undo.length, 0);
+});
+
+test('discard in submodule removes its changes; undo puts them back, redo removes them again', async () => {
+  const { app, lib, c1 } = await dirtySubmodule();
+  const journal = new Journal(await git.openRepo(app));
+  assert.equal(await journal.runSubmoduleWork('Discard changes in lib', 'lib', 'discard'), true);
+  assert.equal(fs.readFileSync(path.join(lib, 'lib.txt'), 'utf8'), 'one\n');
+  assert.equal(fs.existsSync(path.join(lib, 'new.txt')), false);
+  assert.deepEqual(await git.getStashes(lib), []);
+  assert.equal((await git.getStatus(app)).unstaged.length, 0);
+  assert.equal(await journal.step('undo'), 'Discard changes in lib');
+  assert.equal(fs.readFileSync(path.join(lib, 'lib.txt'), 'utf8'), 'edited\n');
+  assert.equal(fs.readFileSync(path.join(lib, 'new.txt'), 'utf8'), 'new\n');
+  assert.equal(await head(lib), c1);
+  await journal.step('redo');
+  assert.equal(fs.readFileSync(path.join(lib, 'lib.txt'), 'utf8'), 'one\n');
+  assert.equal(fs.existsSync(path.join(lib, 'new.txt')), false);
+  await journal.step('undo');
+  assert.equal(fs.readFileSync(path.join(lib, 'new.txt'), 'utf8'), 'new\n');
+});
+
+test('stash in submodule puts its changes in its own stash list; undo pops them', async () => {
+  const { app, lib } = await dirtySubmodule();
+  const journal = new Journal(await git.openRepo(app));
+  await journal.runSubmoduleWork('Stash changes in lib', 'lib', 'stash');
+  assert.equal((await git.getStashes(lib)).length, 1);
+  assert.equal(fs.existsSync(path.join(lib, 'new.txt')), false);
+  await journal.step('undo');
+  assert.deepEqual(await git.getStashes(lib), []);
+  assert.equal(fs.readFileSync(path.join(lib, 'lib.txt'), 'utf8'), 'edited\n');
+  await journal.runSubmoduleWork('Stash changes in lib', 'lib', 'stash');
+  await assert.rejects(journal.runSubmoduleWork('Stash changes in lib', 'lib', 'stash'), /no uncommitted changes/);
+});
+
+test('submoduleWork arguments are a repository path and stash or discard', () => {
+  assert.throws(() => ipc.checkGit('submoduleWork', ['../x', 'stash']));
+  assert.throws(() => ipc.checkGit('submoduleWork', ['lib', 'reset']));
+  ipc.checkGit('submoduleWork', ['lib', 'discard']);
+});
