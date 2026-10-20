@@ -260,3 +260,11 @@ test('tipFor: the label, two spaces, then the first binding as joined keycaps (A
   assert.equal(tipFor('Previous'), 'Previous');
   assert.equal(tipFor('Previous', null), 'Previous');
 });
+
+test('⌘B creates a branch anywhere, without taking the Map’s b or ⌘⇧B', async () => {
+  const { match, conflicts } = await load();
+  assert.equal(match('global', ev('b', { metaKey: true })), 'global.branch');
+  assert.notEqual(match('global', ev('B', { metaKey: true, shiftKey: true })), 'global.branch');
+  assert.equal(match('map', ev('b')), 'commit.branch');
+  assert.deepEqual(conflicts('global.branch', 'Mod+B', true), []);
+});
