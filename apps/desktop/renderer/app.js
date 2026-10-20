@@ -6,6 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
+import { opSentence } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -73,6 +74,7 @@ const state = {
   split: null,
   status: { staged: [], unstaged: [], conflicts: [] },
   opState: null,
+  opInfo: null,
   lfs: null, // { used, installed, version, patterns, files }; see git.getLfs
   show: loadPref('show', { tags: true, remotes: true, swatches: true, agentLanes: true, unified: false }),
   search: '',
@@ -114,8 +116,14 @@ async function git(method, ...args) {
 // Ref mutations git can refuse over uncommitted changes; act() then offers to stash and retry (stashAnd).
 const STASH_AND = new Set(['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip']);
 
-async function act(label, method, args = [], { busy, success, detail, undoable = true, quiet = false, then, actions } = {}) {
+// Git refuses these while a rebase, merge, cherry-pick or revert is stopped here; act() then offers
+// to continue it (or open its conflicts), or abort it and go on (abortAnd).
+const OP_BLOCKED = new Set(['merge', 'pull', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch']);
+
+async function act(label, method, args = [], opts = {}) {
+  const { busy, success, detail, undoable = true, quiet = false, then, actions } = opts;
   closeMenu();
+  if (state.opState && (OP_BLOCKED.has(method) || (method === 'mergeLane' && args[1] === state.head?.branch && !args[3]?.abort))) return resolveOp(label, method, args, opts);
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
     const res = await git(method, ...args, { __label: label });
@@ -133,10 +141,59 @@ async function act(label, method, args = [], { busy, success, detail, undoable =
     if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
       const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${label.split(' ')[0].toLowerCase()}` }] });
       if (v) return act(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
-    } else if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    } else if (!e.readOnly) {
+      await refreshAll();
+      // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
+      const n = state.opState ? state.status.conflicts.length : 0;
+      if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, { action: { label: 'Open conflicts', run: openConflicts } });
+      else toast(`${label} failed`, { kind: 'error', detail: e.message });
+      return false;
+    }
     await refreshAll();
     return false;
   }
+}
+
+// `label` is blocked by the operation stopped here: continue it (then offer `label` again), open its
+// conflicts, or abort it and run `label`, as one undo step.
+// "Abort rebase and merge", but "Abort and merge" when the stopped op is a merge too.
+const abortAnd = (op, verb) => (op === verb ? `Abort and ${verb}` : `Abort ${op} and ${verb}`);
+// After abortAnd: when resolved files were saved, say so and offer them back until the next action.
+async function aborted(label, res, opts) {
+  const { op, saved } = res || {};
+  if (saved && op && !saved.sha) {
+    toast(`Aborted the ${op}`, { kind: 'success', detail: `${saved.unchanged} resolved file${saved.unchanged > 1 ? 's match' : ' matches'} HEAD. Nothing to save.` });
+  } else if (saved && op) {
+    const n = saved.paths.length;
+    toast(`Aborted the ${op}`, {
+      kind: 'success', detail: `${n} resolved file${n > 1 ? 's' : ''} saved.`, timeout: 0,
+      actions: [{ label: 'Restore', primary: true, run: () => act('Restore resolved files', 'restoreResolved', [saved.sha], { success: `Restored ${n} resolved file${n > 1 ? 's' : ''}` }) }, { label: 'Undo', run: undo }],
+    });
+  } else if (!opts.quiet) {
+    toast(opts.success || label, { kind: 'success', action: opts.undoable === false ? null : { label: 'Undo', run: undo } });
+  }
+  await opts.then?.(res?.result);
+}
+
+async function resolveOp(label, method, args, opts) {
+  const op = state.opState;
+  const n = state.status.conflicts.length;
+  const verb = label.split(' ')[0];
+  const v = await resolveSheet({
+    title: label,
+    reason: opSentence(state.opInfo, n),
+    actions: [n ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${op}` }, { id: 'abort', label: abortAnd(op, verb.toLowerCase()) }],
+  });
+  if (!v) return false;
+  if (v.id === 'open') { openConflicts(); return false; }
+  if (v.id === 'abort') {
+    return method === 'mergeLane'
+      ? act(label, method, [...args.slice(0, 3), { abort: true }], opts)
+      : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
+  }
+  const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
+  if (ok && !state.opState) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
+  return false;
 }
 
 async function quiet(method, ...args) {
@@ -209,9 +266,9 @@ const refreshHistory = coalesce(async () => {
   if (!state.repo) return;
   // On a first load, start reading the newest commits while the refs load.
   if (!state.logKey && !previewAhead) previewAhead = readPreview(logOpts()).catch(() => null);
-  const [{ refs, head }, opState, history, worktrees] = await Promise.all([
+  const [{ refs, head }, opInfo, history, worktrees] = await Promise.all([
     git('refs'),
-    git('opState'),
+    git('opInfo'),
     git('history', state.historyLimit),
     git('worktrees').catch(() => []),
   ]);
@@ -219,7 +276,8 @@ const refreshHistory = coalesce(async () => {
   state.worktrees = worktrees;
   state.refs = refs;
   state.head = head;
-  state.opState = opState;
+  state.opInfo = opInfo;
+  state.opState = opInfo?.op ?? null;
   state.history = history;
   // The log is fully determined by the tips it starts from, so only reload when they move.
   const key = tipsKey(refs, head, worktrees);
@@ -445,10 +503,11 @@ function cancelHistory() {
 
 const refreshStatus = coalesce(async () => {
   if (!state.repo) return;
-  const [status, opState] = await Promise.all([git('status'), git('opState')]);
+  const [status, opInfo] = await Promise.all([git('status'), git('opInfo')]);
+  const opChanged = JSON.stringify(opInfo) !== JSON.stringify(state.opInfo) || status.conflicts.length !== state.status?.conflicts?.length;
   state.status = status;
-  const opChanged = opState !== state.opState;
-  state.opState = opState;
+  state.opInfo = opInfo;
+  state.opState = opInfo?.op ?? null;
   renderNavCounts();
   if (opChanged) renderBanner();
   if (state.view === 'commit') commitView?.refresh();
@@ -1082,7 +1141,7 @@ function renderBanner() {
   const name = { rebase: 'Rebase', merge: 'Merge', 'cherry-pick': 'Cherry-pick', revert: 'Revert' }[state.opState];
   bannerEl.replaceChildren(h('div.banner', null,
     icon('warning'),
-    h('span', null, h('b', null, `${name} in progress`), n ? ` · ${n} conflicted file${n > 1 ? 's' : ''}` : ' · ready to continue'),
+    h('span', null, state.opInfo ? opSentence(state.opInfo, n) : h('b', null, `${name} in progress`)),
     h('span.spacer'),
     state.view !== 'commit' ? h('button.btn.subtle', { onclick: () => setView('commit') }, 'Resolve') : null,
     h('button.btn.subtle', { onclick: () => act(`Abort ${name.toLowerCase()}`, 'abortOp', [], { undoable: false }) }, 'Abort'),
@@ -3063,7 +3122,7 @@ function openBranches() {
     tab: branchesTab,
     only: cleanupOnly,
     cleanup: {
-      run: (items, label) => git('cleanupLanes', items, { __label: label }),
+      run: async (items, label) => git('cleanupLanes', await abortStopped(items, label), { __label: label }),
       runRemote: (names) => git('deleteRemoteBranches', names),
       days: cleanupPrefs().days,
       onDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
@@ -3246,10 +3305,20 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   if (!lane.branch) return toast(`${lane.name} is not on a branch`, { detail: 'Merge and tidy works on branches.' });
   let plan;
   try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+  // Its worktree has an operation stopped in it: abort that as part of the tidy (one undo step).
+  const abort = Boolean(plan.blockerOp && plan.worktree);
+  if (abort) {
+    const info = await git('worktreeOpInfo', plan.worktree.path).catch(() => null);
+    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: info ? opSentence(info) : `“${plan.worktree.name}” has a ${plan.blockerOp} in progress.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
+    if (!go) return;
+    try { plan = await git('mergeLanePlan', lane.branch, base, { abort: true }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+  }
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
+  const ab = abort ? [{ abort: true }] : [];
   const away = plan.worktree && state.worktrees.find((w) => w.path === plan.worktree.path);
   if (away?.elsewhere && !handed) return openElsewhere(`Merge and tidy ${lane.name}`, away);
   const close = away?.elsewhere ? [{ close: true }] : [];
+  const lopt = ab.length || close.length ? [{ ...ab[0], ...close[0] }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   const n = plan.commits.length;
   // The base is checked out in another worktree: that worktree's window opens and merges there.
@@ -3325,14 +3394,14 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     if (move) return act(`Delete branch ${lane.branch}`, 'switchDelete', [move.to, ...(move.stash ? [move.stash] : [])], { success: `Switched to ${move.to} and deleted ${lane.branch}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null });
     if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
     if (kept) return;
-    return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...close], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
+    return act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...lopt], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
   const ok = move
     ? await act(label, 'switchMerge', [move.to, lane.branch, plan.base, v.message, ...(move.stash ? [move.stash] : [])], { busy: 'Merging…', success: `Switched to ${move.to} and merged ${lane.branch} into ${plan.base}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null })
     : n
-    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message, ...close], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
-    : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...close], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
+    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message, ...lopt], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
+    : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...lopt], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
   if (ok) onDone?.();
   if (ok && state.review && !kept) closeReview();
@@ -3372,6 +3441,21 @@ async function rebaseLane(lane, base) {
   act(label, 'rebaseBranch', [base, lane.branch], { busy: 'Rebasing…' });
 }
 
+// Clean up: worktrees with a rebase, merge, cherry-pick or revert stopped in them get it aborted,
+// or are skipped (kept, listed as failed) when the sheet is dismissed.
+async function abortStopped(items, label) {
+  const ops = await Promise.all(items.map((i) => (i.worktree ? git('worktreeOp', i.worktree).catch(() => null) : null)));
+  const n = ops.filter(Boolean).length;
+  if (!n) return items;
+  const first = ops.findIndex(Boolean);
+  const v = await resolveSheet({
+    title: label,
+    reason: n === 1 ? `“${baseName(items[first].worktree)}” has a ${ops[first]} in progress.` : `${n} worktrees have an operation in progress.`,
+    actions: [{ id: 'abort', label: 'Abort and clean up' }, { id: 'skip', label: n === 1 ? 'Skip it' : 'Skip them' }],
+  });
+  return v?.id === 'abort' ? items.map((i, k) => (ops[k] ? { ...i, abort: true } : i)) : items;
+}
+
 // Delete a lane (Lanes: conflicts → Delete, stalled → Discard): its worktree and branch, one undo
 // step. Its remote branch stays.
 async function deleteLane(lane) {
@@ -3381,8 +3465,10 @@ async function deleteLane(lane) {
   const verb = n ? 'Discard' : 'Delete';
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
   const lost = n ? ` with ${n} uncommitted file${n > 1 ? 's' : ''}` : '';
+  const op = lane.worktree && await git('worktreeOpInfo', lane.worktree.path).catch(() => null);
+  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: opSentence(op), actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
   if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: verb }))) return;
-  act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[cleanupItem(lane)]], {
+  act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[{ ...cleanupItem(lane), ...(op ? { abort: true } : {}) }]], {
     busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,
     then: (res) => { if (res?.failed?.length) toast(`Couldn’t remove all of ${lane.name}`, { kind: 'error', detail: res.failed.map((f) => `${f.name}: ${f.message}`).join('\n') }); },
   });

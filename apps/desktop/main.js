@@ -180,8 +180,8 @@ const reads = {
   // Review (AK-305): the files and hunks that conflict when `head` merges into `base` (merge-tree, read-only).
   mergeConflicts: (s, base, head) => git.mergeConflictHunks(s.repo.root, base, head),
   // Merge and tidy: the plan, with the squash commit message drafted from the branch's commits.
-  mergeLanePlan: async (s, branch, base) => {
-    const plan = await git.mergeLanePlan(s.repo.root, branch, base);
+  mergeLanePlan: async (s, branch, base, opts) => {
+    const plan = await git.mergeLanePlan(s.repo.root, branch, base, opts || {});
     const d = github.prDraft(plan.commits);
     return { ...plan, message: [d.title, d.body].filter(Boolean).join('\n\n') };
   },
@@ -193,6 +193,7 @@ const reads = {
   // Read-only: the tool gets temporary copies; for the working tree it may edit the real file.
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
   opState: (s) => git.getOperationState(s.repo.gitDir),
+  opInfo: (s) => git.getOperationInfo(s.repo.root, s.repo.gitDir),
   conflict: (s, p) => git.getConflict(s.repo.root, p),
   fileHistory: (s, p, page) => git.fileHistory(s.repo.root, page?.path || p, page),
   trackedFiles: (s) => git.trackedFiles(s.repo.root),
@@ -224,6 +225,16 @@ const reads = {
   },
   // What removing that worktree stashes ({ changes }) and would abort ({ op }).
   removalFacts: async (s, dir) => git.removalFacts(await git.findWorktree(s.repo.root, dir)),
+  worktreeOp: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    return wt.missing ? null : git.worktreeOp(wt.path);
+  },
+  // The same, named (AK-584): what it's merging, picking or rebasing, and how far it got.
+  worktreeOpInfo: async (s, dir) => {
+    const wt = await git.findWorktree(s.repo.root, dir);
+    if (wt.missing) return null;
+    return git.getOperationInfo(wt.path, (await git.run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  },
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };
 
@@ -385,6 +396,8 @@ handle('git', async (e, method, ...args) => {
     }
     s.busy++;
     try {
+      // Aborting isn't a step of its own: the stopped sequence it ends is dropped (Journal.abortOp).
+      if (method === 'abortOp') return { ok: await s.journal.abortOp(() => refMutations.abortOp(s)) };
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
@@ -392,6 +405,11 @@ handle('git', async (e, method, ...args) => {
         const [inner, innerArgs] = realArgs;
         return { ok: await s.journal.stashAnd(label || inner, inner, () => refMutations[inner](s, ...innerArgs)) };
       }
+      if (method === 'abortAnd') {
+        const [inner, innerArgs] = realArgs;
+        return { ok: await s.journal.abortAnd(label || inner, inner, () => refMutations[inner](s, ...innerArgs)) };
+      }
+      if (method === 'restoreResolved') return { ok: await s.journal.restoreResolved(label || method, ...realArgs) };
       if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
       if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
       if (method === 'switchRewrite') {
@@ -424,14 +442,14 @@ handle('git', async (e, method, ...args) => {
       if (laneOps.has(method)) {
         // Merge and tidy (git.mergeLane); tidyLane only removes the worktree and branch, after a GitHub merge.
         const [branch, base, message] = realArgs;
-        const close = (method === 'mergeLane' ? realArgs[3] : realArgs[1])?.close;
+        const { close = false, abort = false } = (method === 'mergeLane' ? realArgs[3] : realArgs[1]) || {};
         const wt = (await git.getWorktrees(s.repo.root)).find((w) => w.branch === branch);
         const other = wt && windowFor(wt.path);
         if (![undefined, s.win].includes(other)) {
           if (!close) throw new git.GitError('That worktree is open in another window. Close the window first.');
           await closeWindow(other, wt.name);
         }
-        const opts = method === 'mergeLane' ? { branch, base, message } : { branch, merge: false };
+        const opts = method === 'mergeLane' ? { branch, base, message, abort } : { branch, merge: false, abort };
         return { ok: await s.journal.runLane(label || method, method, (done) => git.mergeLane(s.repo.root, opts, done)) };
       }
       if (method === 'cleanupLanes') return { ok: await cleanupLanes(s, realArgs[0], label) };

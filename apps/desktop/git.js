@@ -642,6 +642,41 @@ async function getOperationState(gitDir) {
   return null;
 }
 
+// What the stopped operation is doing, to name it (AK-584). merge: `from` merging into `branch`;
+// cherry-pick/revert: the commit (`sha`, `subject`); rebase: `branch` onto `onto`, at `step` of
+// `total`, on `subject`. null when nothing is stopped.
+async function getOperationInfo(cwd, gitDir) {
+  const op = await getOperationState(gitDir);
+  if (!op) return null;
+  const read = (p) => { try { return fs.readFileSync(path.join(gitDir, p), 'utf8').trim(); } catch { return ''; } };
+  const short = (ref) => ref.replace(/^refs\/(heads|remotes)\//, '');
+  const subjectOf = async (sha) => (sha ? (await run(cwd, ['log', '-1', '--format=%s', sha, '--']).catch(() => '')).trim() : '');
+  // A branch whose tip is `sha` names it better than the sha itself.
+  const nameOf = async (sha) => {
+    const out = await run(cwd, ['for-each-ref', '--points-at', sha, '--format=%(refname)', 'refs/heads', 'refs/remotes']).catch(() => '');
+    const ref = out.split('\n').find((r) => r && !r.endsWith('/HEAD'));
+    return ref ? short(ref) : sha.slice(0, 7);
+  };
+  const branch = (await run(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowCodes: [0, 1] }).catch(() => '')).trim();
+  if (op === 'merge') {
+    const sha = read('MERGE_HEAD').split('\n')[0];
+    const m = /^Merge (?:remote-tracking )?branch '([^']+)'/.exec(read('MERGE_MSG'));
+    return { op, branch, from: m ? m[1] : await nameOf(sha), sha };
+  }
+  if (op === 'cherry-pick' || op === 'revert') {
+    const sha = read(op === 'revert' ? 'REVERT_HEAD' : 'CHERRY_PICK_HEAD');
+    return { op, branch, sha, subject: await subjectOf(sha) };
+  }
+  const dir = fs.existsSync(path.join(gitDir, 'rebase-merge')) ? 'rebase-merge' : 'rebase-apply';
+  const merge = dir === 'rebase-merge';
+  const onto = read(`${dir}/onto`);
+  const step = Number(read(merge ? `${dir}/msgnum` : `${dir}/next`)) || 0;
+  const total = Number(read(merge ? `${dir}/end` : `${dir}/last`)) || 0;
+  const stopped = read(`${dir}/stopped-sha`) || read(`${dir}/original-commit`);
+  const subject = (merge ? read(`${dir}/message`).split('\n')[0] : '') || await subjectOf(stopped);
+  return { op, branch: short(read(`${dir}/head-name`)) || branch, onto: onto ? await nameOf(onto) : '', step, total, subject };
+}
+
 async function workingDiff(cwd, file, { staged }) {
   if (file.status === '?') {
     const out = await run(cwd, ['diff', '--no-color', '--no-index', '--', '/dev/null', file.path], { allowCodes: [0, 1] });
@@ -1629,6 +1664,73 @@ async function resolveConflict(cwd, p, content) {
 const stashApply = (cwd, ref, pop) => run(cwd, ['stash', pop ? 'pop' : 'apply', '--index', ref], { env: W_ENV });
 const stashDrop = (cwd, ref) => run(cwd, ['stash', 'drop', ref], { env: W_ENV });
 
+// Resolved files of a stopped merge, rebase, cherry-pick or revert (AK-584): staged, no longer
+// unmerged and changed from HEAD; limited to the conflicts git listed in MERGE_MSG when it did.
+// Listed conflicts resolved to HEAD's version only: { sha: null, paths: [], unchanged: n }.
+// Saved as a stash-shaped commit (parents HEAD and an index commit, both with those files over
+// HEAD) so it can be applied with `git stash apply <sha>` later. Returns { sha, paths } or null.
+async function saveResolved(cwd, gitDir) {
+  const head = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD^{commit}'], { allowCodes: [0, 1] })).trim();
+  if (!head) return null;
+  const z = (out) => out.split('\0').filter(Boolean);
+  const unmerged = new Set(z(await run(cwd, ['ls-files', '-u', '-z'], { env: W_ENV })).map((r) => r.slice(r.indexOf('\t') + 1)));
+  let paths = z(await run(cwd, ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'], { env: W_ENV })).filter((p) => !unmerged.has(p));
+  let msg = '';
+  try { msg = fs.readFileSync(path.join(gitDir, 'MERGE_MSG'), 'utf8'); } catch {}
+  const at = msg.split('\n').findIndex((l) => /^\S\s*Conflicts:\s*$/.test(l));
+  const listed = new Set();
+  if (at !== -1) {
+    for (const l of msg.split('\n').slice(at + 1)) { const m = /^\S\t(.+)$/.exec(l); if (!m) break; listed.add(m[1]); }
+    paths = paths.filter((p) => listed.has(p));
+  }
+  if (!paths.length) {
+    // Resolved to what HEAD has (all ours): nothing to save, but say so ({ sha: null, unchanged }).
+    const unchanged = [...listed].filter((p) => !unmerged.has(p)).length;
+    return unchanged ? { sha: null, paths: [], unchanged } : null;
+  }
+  const staged = new Map();
+  for (const rec of z(await run(cwd, ['ls-files', '-s', '-z', '--', ...paths], { env: W_ENV }))) {
+    const tab = rec.indexOf('\t');
+    const [mode, oid] = rec.slice(0, tab).split(' ');
+    staged.set(rec.slice(tab + 1), `${mode} ${oid}`);
+  }
+  const indexFile = path.join(gitDir, `gitlanes-resolved-${process.pid}.index`);
+  const env = { ...W_ENV, GIT_INDEX_FILE: indexFile };
+  try {
+    await run(cwd, ['read-tree', head], { env });
+    const info = paths.map((p) => `${staged.get(p) || `0 ${'0'.repeat(head.length)}`}\t${p}\0`).join('');
+    await run(cwd, ['update-index', '-z', '--index-info'], { env, input: info });
+    const tree = (await run(cwd, ['write-tree'], { env })).trim();
+    const index = (await run(cwd, ['commit-tree', tree, '-p', head], { input: 'index of resolved files\n' })).trim();
+    const sha = (await run(cwd, ['commit-tree', tree, '-p', head, '-p', index], { input: 'Resolved files\n' })).trim();
+    return { sha, paths };
+  } finally {
+    fs.rmSync(indexFile, { force: true });
+  }
+}
+
+// Put saved resolved files back (saveResolved's commit). With an operation stopped here again on
+// those same files, write them and stage them (that resolves their conflicts); otherwise apply
+// them to the work tree as a stash (by SHA).
+async function restoreResolved(cwd, gitDir, sha) {
+  const paths = await resolvedPaths(cwd, sha);
+  const unmerged = new Set((await run(cwd, ['ls-files', '-u', '-z'], { env: W_ENV })).split('\0').filter(Boolean).map((r) => r.slice(r.indexOf('\t') + 1)));
+  const again = (await getOperationState(gitDir)) && paths.every((p) => unmerged.has(p));
+  if (!again) return run(cwd, ['stash', 'apply', '--index', sha], { env: W_ENV });
+  const present = new Set((await run(cwd, ['ls-tree', '-r', '-z', '--name-only', sha, '--', ...paths], { env: W_ENV })).split('\0').filter(Boolean));
+  const gone = paths.filter((p) => !present.has(p));
+  if (present.size) await run(cwd, ['checkout', sha, '--', ...present], { env: W_ENV });
+  if (gone.length) await run(cwd, ['rm', '-q', '-f', '--ignore-unmatch', '--', ...gone], { env: W_ENV });
+}
+
+// The files saveResolved kept in `sha` (it must look like one: two parents with the same tree).
+async function resolvedPaths(cwd, sha) {
+  const [tree, ...parents] = (await run(cwd, ['show', '-s', '--format=%T %P', sha])).trim().split(' ');
+  const indexTree = parents.length === 2 && (await run(cwd, ['rev-parse', `${parents[1]}^{tree}`])).trim();
+  if (indexTree !== tree) throw new GitError('Those saved files are not available.');
+  return (await run(cwd, ['diff', '--name-only', '--no-renames', '-z', parents[0], sha], { env: W_ENV })).split('\0').filter(Boolean);
+}
+
 // ---------------------------------------------------------------------------
 // Worktrees. Each one is a plain record, so later features (per-agent lanes)
 // can hang more fields off it without changing the callers.
@@ -1713,13 +1815,15 @@ async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
 // `changes` (cleanup redo only, not over IPC): 'stash' or 'discard' its changes via saveWorktree,
 // returned as `saved`.
 async function removeWorktree(cwd, dir, { stash = false, abort = false, changes } = {}) {
-  const wt = await findWorktree(cwd, dir);
+  let wt = await findWorktree(cwd, dir);
   if (wt.main) throw new GitError('The main worktree can’t be removed.');
   if (wt.current) throw new GitError('This window is showing that worktree. Switch to another one first.');
   if (wt.locked || wt.missing) await checkRemovable(wt);
   if (abort) {
     const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
     if (op) await run(wt.path, [op, '--abort'], { env: W_ENV });
+    // An aborted rebase puts its branch back: undo re-adds the worktree on that, not the detached HEAD.
+    if (op) wt = await findWorktree(cwd, dir);
   }
   let sha = null, saved = null;
   if (stash && await worktreeChanges(wt.path)) sha = await stashWorktree(wt.path, `GitLanes: ${wt.name} before removing it`);
@@ -1788,7 +1892,8 @@ const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 // Lanes → Clean up: remove worktrees and delete branches in bulk. Each item is
 // { branch, head, worktree, force }: `head` is the branch tip the user saw (a branch that has
 // moved since is kept), `force` allows removing a dirty worktree (its uncommitted files are lost to
-// git, though undo brings them back), `stash` does too but keeps them in the stash list.
+// git, though undo brings them back), `stash` does too but keeps them in the stash list, `abort`
+// aborts a rebase, merge, cherry-pick or revert stopped in it (a failure over one has `op` set).
 // Worktrees go first, since a branch checked out in one can't be deleted: one `worktree remove`
 // each, or a single `worktree prune` when every missing folder is selected. Branches then go in
 // one `git branch -D` per 200. Never throws part-way: returns { removed, deleted, failed } so the
@@ -1824,17 +1929,20 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
       if (wt.locked) throw new GitError('It is locked.');
       let lost = 0;
       if (!wt.missing) {
+        const op = await worktreeOp(wt.path);
+        if (op && item.abort) {
+          await run(wt.path, [op, '--abort'], { env: W_ENV });
+          Object.assign(wt, await findWorktree(cwd, wt.path)); // the branch it was rebasing is back
+        } else if (op) throw opInProgress(`It has a ${op} in progress.`, op);
         lost = await worktreeChanges(wt.path);
-        if (lost && !item.force && !item.stash) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
-        const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
-        if (op) throw new GitError(`It has a ${op} in progress.`);
+        if (lost && !item.force && !item.stash && !item.abort) throw new GitError(`It has ${lost} uncommitted change${lost > 1 ? 's' : ''}.`);
       }
-      // Uncommitted changes are stashed first (the stash dropped again unless `stash`), so undo has them.
-      const saved = lost ? await saveWorktree(wt, !!item.stash) : null;
+      // Uncommitted changes are stashed first (the stash dropped again unless `stash` or `abort`), so undo has them.
+      const saved = lost ? await saveWorktree(wt, !!(item.stash || item.abort)) : null;
       await run(cwd, ['worktree', 'remove', ...(lost || wt.missing ? ['--force'] : []), wt.path], { env: W_ENV });
       removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost, ...(saved ? { saved } : {}) });
     } catch (err) {
-      failed.push({ name: wt?.name || path.basename(item.worktree), message: err.message });
+      failed.push({ name: wt?.name || path.basename(item.worktree), message: err.message, ...(err.op ? { op: err.op, worktree: wt.path } : {}) });
       if (item.branch) keep.add(item.branch);
     } finally {
       tick();
@@ -1914,7 +2022,7 @@ async function deleteRemoteBranches(cwd, shorts) {
 // What merging `branch` into `base` would do, without changing anything. `blocker` stops the
 // whole action; `mergeBlocker` only stops merging here (a GitHub merge can still go ahead).
 // commits: newest first, [{ subject, body }]; empty when the branch has nothing left to merge.
-async function mergeLanePlan(cwd, branch, base) {
+async function mergeLanePlan(cwd, branch, base, { abort = false } = {}) {
   if (String(branch).startsWith('-')) throw new GitError(`Unknown branch ${branch}`);
   const head = (await run(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`], { allowCodes: [0, 1] })).trim();
   if (!head) throw new GitError(`There is no branch ${branch}.`);
@@ -1922,14 +2030,15 @@ async function mergeLanePlan(cwd, branch, base) {
   const into = b?.local || null;
   const baseSha = into ? (await run(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${into}^{commit}`], { allowCodes: [0, 1] })).trim() : '';
   const worktrees = await getWorktrees(cwd);
-  const wt = worktrees.find((w) => w.branch === branch) || null;
+  const wt = worktrees.find((w) => w.branch === branch) || (await rebasingIn(worktrees, branch));
   const baseWt = into ? worktrees.find((w) => w.branch === into) : null;
   // `keep`: the branch is checked out in this window ('current') or the main worktree ('main'), so
   // it is merged but kept, with its worktree. `baseWorktree`: the other worktree that has the base.
   const keep = wt?.current ? 'current' : wt?.main ? 'main' : null;
-  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && !keep ? { path: wt.path, name: wt.name } : null, keep, baseWorktree: null, blocker: null, mergeBlocker: null };
+  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && !keep ? { path: wt.path, name: wt.name } : null, keep, baseWorktree: null, blocker: null, blockerOp: null, mergeBlocker: null };
   if (wt && !keep) {
-    try { await checkRemovable(wt); } catch (err) { plan.blocker = err.message; }
+    // `abort`: an operation stopped in it is aborted when it is removed, after the merge.
+    try { await checkRemovable(wt, { ignoreOp: abort }); } catch (err) { plan.blocker = err.message; plan.blockerOp = err.op || null; }
   }
   if (!into || !baseSha) plan.mergeBlocker = into ? `There is no local ${into} branch to merge into.` : 'There is no base branch (main or master) to merge into.';
   else if (into === branch) plan.blocker = `${branch} is the base branch.`;
@@ -1964,15 +2073,18 @@ async function squashTree(cwd, baseSha, head) {
   return { tree: tree.trim(), conflicts: [...new Set(rest.filter(Boolean))] };
 }
 
-// Whether `wt` (from getWorktrees) can be removed: unlocked, on disk, clean (unless `dirty` is
-// allowed), nothing in progress. A dirty refusal has code 'dirty-worktree' and `changes` set.
-async function checkRemovable(wt, { dirty = false } = {}) {
+// Whether `wt` (from getWorktrees) can be removed: unlocked, on disk, nothing in progress (unless
+// `abort`: then it is aborted here, or `ignoreOp`: a later removal aborts it), clean (unless
+// `dirty` is allowed). A refusal over an operation has code 'op-in-progress' and `op` set; a
+// dirty one has code 'dirty-worktree' and `changes` set.
+async function checkRemovable(wt, { dirty = false, abort = false, ignoreOp = false } = {}) {
   if (wt.locked) throw new GitError(`“${wt.name}” is locked${wt.lockReason ? ` (${wt.lockReason})` : ''}. Unlock it first.`);
   if (wt.missing) throw new GitError(`“${wt.name}” no longer exists on disk. Use Prune Missing Worktrees instead.`);
-  const n = dirty ? 0 : await worktreeChanges(wt.path);
+  const op = await worktreeOp(wt.path);
+  if (op && abort) await run(wt.path, [op, '--abort'], { env: W_ENV });
+  else if (op && !ignoreOp) throw opInProgress(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`, op);
+  const n = dirty || (op && ignoreOp) ? 0 : await worktreeChanges(wt.path);
   if (n) throw Object.assign(new GitError(`“${wt.name}” has ${n} uncommitted change${n > 1 ? 's' : ''}. Commit, stash or discard ${n > 1 ? 'them' : 'it'} first.`), { code: 'dirty-worktree', changes: n });
-  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
-  if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
 }
 
 // Why worktree `wt` (from getWorktrees) can't give up its branch (HEAD detached there, so the
@@ -2009,13 +2121,33 @@ async function worktreeHold(wt) {
   return { blocker: null, changes: paths.length, changedAt };
 }
 
+// The rebase, merge, cherry-pick or revert stopped in the worktree at `dir`, or null.
+async function worktreeOp(dir) {
+  return getOperationState((await run(dir, ['rev-parse', '--absolute-git-dir'])).trim());
+}
+
+// The worktree stopped part-way through rebasing `branch` (git lists it as detached), or null.
+async function rebasingIn(worktrees, branch) {
+  for (const w of worktrees) {
+    if (!w.detached || w.missing) continue;
+    const dir = (await run(w.path, ['rev-parse', '--absolute-git-dir'])).trim();
+    for (const d of ['rebase-merge', 'rebase-apply']) {
+      try { if (fs.readFileSync(path.join(dir, d, 'head-name'), 'utf8').trim() === `refs/heads/${branch}`) return w; } catch {}
+    }
+  }
+  return null;
+}
+
+const opInProgress = (message, op) => Object.assign(new GitError(message), { code: 'op-in-progress', op });
+
 // Squash `branch` onto `base` with `message` (skipped when `merge` is false, or when the branch
 // has nothing left to merge), then remove its worktree and delete it, unless it is checked out
 // here or in the main worktree (plan.keep): then it is kept. Everything is checked
 // before anything changes. `done` reports what happened, for the journal, even on a failure
-// part-way: { commit, worktree } (the removed worktree, as removeWorktree returns it).
-async function mergeLane(cwd, { branch, base, message = '', merge = true } = {}, done = {}) {
-  const plan = await mergeLanePlan(cwd, branch, base);
+// part-way: { commit, worktree } (the removed worktree, as removeWorktree returns it). `abort`
+// aborts an operation stopped here (base checked out) or in the lane's worktree.
+async function mergeLane(cwd, { branch, base, message = '', merge = true, abort = false } = {}, done = {}) {
+  const plan = await mergeLanePlan(cwd, branch, base, { abort });
   if (plan.blocker) throw new GitError(plan.blocker);
   let tree = null;
   if (merge && plan.commits.length) {
@@ -2029,7 +2161,9 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true } = {},
     const here = (await run(cwd, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] })).trim();
     // The base checked out here: move it with the working copy (local changes are kept, as undo does).
     if (here === `refs/heads/${plan.base}`) {
-      if (await getOperationState((await run(cwd, ['rev-parse', '--absolute-git-dir'])).trim())) throw new GitError('Finish or abort the operation in progress first.');
+      const op = await worktreeOp(cwd);
+      if (op && abort) await run(cwd, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+      else if (op) throw opInProgress(`A ${op} is in progress.`, op);
       await run(cwd, ['reset', '--keep', commit], { env: { GIT_OPTIONAL_LOCKS: '1' } });
     } else {
       await run(cwd, ['update-ref', '-m', `gitlanes: merge ${branch}`, `refs/heads/${plan.base}`, commit, plan.baseSha]);
@@ -2037,7 +2171,7 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true } = {},
     done.commit = commit;
   }
   if (plan.keep) return { commit: done.commit || null, base: plan.base, worktree: null, kept: plan.keep };
-  if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path);
+  if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path, abort ? { abort, changes: 'stash' } : {});
   await run(cwd, ['branch', '-D', '--', branch]);
   return { commit: done.commit || null, base: plan.base, worktree: plan.worktree, kept: null };
 }
@@ -2905,10 +3039,11 @@ function parseBlame(out) {
 }
 
 module.exports = {
+  saveResolved, restoreResolved, resolvedPaths,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
   GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
-  getStatus, getOperationState, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
+  getStatus, getOperationState, getOperationInfo, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,
