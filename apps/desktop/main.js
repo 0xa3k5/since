@@ -794,6 +794,15 @@ handle('app:pr-ready', prAction((t) => github.markReady(t)));
 handle('app:pr-draft', prAction((t) => github.markDraft(t)));
 handle('app:pr-rerun-failed', prAction((t) => github.rerunFailed(t)));
 handle('app:pr-update-branch', prAction((t, o) => github.updatePrBranch({ ...t, rebase: check.bool(o?.rebase ?? false, 'rebase') })));
+// Review's re-check (AK-625): GitHub's merge state for the open PRs it was still working out on
+// the last PR load (github.mergeStates, read-only). Only while pull requests are on (target() checks).
+handle('app:pr-merge-states', okCall(async (e, remoteName, numbers) => {
+  const root = session(e).repo.root;
+  if (!Array.isArray(numbers) || numbers.length > github.LIMIT) throw new check.IpcArgError('Invalid pull request numbers');
+  const ns = numbers.map((n) => check.prNumber(n));
+  const remote = check.knownRemote(await git.getRemotes(root), remoteName);
+  return github.mergeStates({ enabled: await prEnabled(root), remotes: [remote], numbers: ns });
+}));
 // Send back: the failed CI log's last lines, and posting the prompt as a PR comment. Both only on
 // an explicit click in the sheet, and only while pull requests are on (target() checks).
 handle('app:pr-failed-log', prAction((t) => github.failedLog(t)));

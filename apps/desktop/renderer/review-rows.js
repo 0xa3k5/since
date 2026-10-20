@@ -42,11 +42,12 @@ const conflicted = (row) => (known(row.pr) ? row.pr.mergeState === 'dirty'
   : row.pr?.mergeable === false || (row.conflicts || []).some((c) => c.base));
 // Failing checks that hold a PR back (AK-611). GitHub merges past them when its merge box says
 // clean, unstable, behind or has_hooks (none is required); a draft's state hides that, and the
-// draft is its blocker, so they don't count there. With no word from GitHub they count.
+// draft is its blocker, so they don't count there. With no word from GitHub (an older gh) they
+// count; while GitHub is still checking (unknown) they don't yet, it may well merge past them (AK-625).
 const LETS_MERGE = new Set(['clean', 'unstable', 'behind', 'has_hooks']);
-export const checksBlock = (pr) => pr?.checks === 'failure' && !pr.draft && !LETS_MERGE.has(pr.mergeState);
-// Without GitHub's merge state (an older gh): failing checks or conflicts are stuck; approved, CI
-// green (or no checks at all) and not a draft is ready.
+export const checksBlock = (pr) => pr?.checks === 'failure' && !pr.draft && !LETS_MERGE.has(pr.mergeState) && pr.mergeState !== 'unknown';
+// Without GitHub's merge state (an older gh, or still unknown): failing checks (checksBlock) or
+// conflicts are stuck; approved, CI green (or no checks at all) and not a draft is ready.
 const stuck = (row) => checksBlock(row.pr) || conflicted(row);
 const ready = (pr) => !pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null);
 
@@ -75,7 +76,7 @@ function prStage(row) {
 //   inProgress any other open PR (drafts, waiting for review, CI running)
 //   finished   a lane without an open PR whose work shipped (lane.done, AK-255)
 // A PR GitHub is still checking (unknown) keeps `previous`, its stage before; with none it falls
-// back to the rules for an older gh. A lane without a PR uses local data only (forecast conflicts
+// back to the rules for an older gh, where its failing checks alone don't make it stuck. A lane without a PR uses local data only (forecast conflicts
 // with the base are stuck, uncommitted changes or recent commits are in progress; it's never
 // ready, there's no review). One with none of those, and the base branch, has no stage (null):
 // it's only in Everything else. Overlaps with other PRs (row.overlaps) never change the stage.

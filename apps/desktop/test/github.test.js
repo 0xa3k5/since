@@ -680,6 +680,29 @@ test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your ow
   assert.equal(approveWhy(lane.pr, { login: 'someone', write: true }), null);
 });
 
+test('mergeStates: asks again in batches of 20, skips a failed batch, numbers checked (AK-625)', async () => {
+  await assert.rejects(github.mergeStates({ enabled: false, remotes: [ORIGIN], numbers: [1], dirs: [fakeGh()] }), { code: 'gh-off' });
+  const ns = Array.from({ length: 45 }, (_, i) => i + 1);
+  const calls = [];
+  const exec = async (bin, args) => {
+    calls.push(args);
+    if (calls.length === 2) throw new Error('HTTP 502');
+    const asked = [...args[5].matchAll(/p(\d+):pullRequest\(number:(\d+)\)/g)].map((m) => Number(m[2]));
+    return JSON.stringify({ data: { repository: Object.fromEntries(asked.map((n) => [`p${n}`, { number: n, mergeable: n === 1 ? 'CONFLICTING' : 'MERGEABLE', mergeStateStatus: n === 2 ? 'UNKNOWN' : 'UNSTABLE' }])) } });
+  };
+  const dirs = [fakeGh()];
+  const out = await github.mergeStates({ enabled: true, remotes: [ORIGIN], numbers: [...ns, 1], dirs, exec });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[0].slice(0, 4), ['api', '--hostname', 'github.com', 'graphql']);
+  assert.match(calls[0][5], /\{p1:pullRequest\(number:1\)\{number mergeable mergeStateStatus\} p2:/);
+  assert.equal(calls[0][5].match(/pullRequest/g).length, 20);
+  assert.equal(calls[2][5].match(/pullRequest/g).length, 5);
+  assert.deepEqual(out.map((x) => x.number), [...ns.slice(0, 20), ...ns.slice(40)]); // 21–40 failed: skipped
+  assert.deepEqual(out[0], { number: 1, mergeable: false, mergeState: 'unstable' });
+  assert.deepEqual(out[1], { number: 2, mergeable: true, mergeState: 'unknown' });
+  await assert.rejects(github.mergeStates({ enabled: true, remotes: [ORIGIN], numbers: ['1){x}'], dirs, exec }));
+});
+
 test('mergedStacks: one GraphQL call for the merged PRs in range, numbers checked (AK-616)', async () => {
   await assert.rejects(github.mergedStacks({ enabled: false, remotes: [ORIGIN], numbers: [1], dirs: [fakeGh()] }), { code: 'gh-off' });
   const { calls, exec } = recorder(JSON.stringify({ data: { repository: { p3: { number: 3, additions: 1, deletions: 0, changedFiles: 1, stack: { number: 2, size: 2, entries: { nodes: [{ position: 2, pullRequest: { number: 4 } }, { position: 1, pullRequest: { number: 3 } }] } } } } } }));

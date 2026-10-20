@@ -54,6 +54,10 @@ let lastCounts = null;
 // The last tab, kept across visits to Review (this window, this session).
 let lastTab = 'needs';
 const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
+// After a PR load, when GitHub was still working out some PRs' merge state (unknown), Review asks
+// again for those only: this long after the load, then this long after that answer (AK-625).
+const RECHECK = [3e3, 12e3];
+const unknownState = (pr) => pr.mergeState === 'unknown';
 
 // load({ prs, inbox }) → app:lanes-list result; forecast() → app:lanes-forecast result; prsOn() and markAgents() read current settings;
 // onOpen(lane) opens it in the graph, onReview(lane, base) opens its branch review, onMerge(lane, base) merges and tidies it and
@@ -67,7 +71,7 @@ const AGO_TICK = 30e3; // how often "Updated 4m ago" catches up
 // { el, key, refresh, update, focus, destroy }), onPaneAction(id, row, ctx) runs its actions (PANE_ACTIONS) from the
 // list's keys, paneWidth()/setPaneWidth(px) keep its width, and onSettle(from) records a move to another row once the
 // pane shows it (`from` is the location before it), for Back and Forward. After an action app.js calls afterAction.
-export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onApproveAll = null, onMakeStack = null, chains = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, place = null }) {
+export function lanesView({ repo = null, git = null, pane = null, onPaneAction = null, paneWidth = () => null, setPaneWidth = () => {}, onSettle = () => {}, load, forecast = async () => null, prsOn, markAgents, onOpen, onCleanup, onReview = () => {}, onMerge = () => {}, onAction = () => {}, canSwitch = null, switchTo = null, progress = () => null, onCheckout = () => {}, onPrReview = () => {}, onMergeReady = () => {}, onPrSetup = () => {}, onSendBack = () => {}, onMarkReady = null, onApproveAll = null, onMakeStack = null, chains = null, onMergePlan = null, onGitTooOld = null, gitWhy = () => null, onBranches = () => {}, onCounts = () => {}, mergeStates = null, place = null }) {
   if (prCache && prCache.repo !== repo) prCache = null; // another repo: its PRs don't apply
   openRepo = repo;
   const seed = prsOn() && prCache ? prCache : null;
@@ -869,6 +873,30 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     if (res.prError) toast('Could not load pull requests', { kind: 'error', detail: res.prError.message });
     render();
     if (newest) runForecast(t);
+    if (withPrs && loads.prs(t) && inbox) recheckStates();
+  }
+  // GitHub works out a PR's merge state lazily: just after a push it answers unknown, and such a PR
+  // has no stage of its own yet (AK-625). Review asks again for those PRs only (one GraphQL call per
+  // 20, github.mergeStates), RECHECK's rounds, then leaves them to Reload. A newer PR load or
+  // leaving Review stops it.
+  let recheck = null;
+  function recheckStates(round = 0) {
+    clearTimeout(recheck);
+    const from = inbox;
+    const remote = from?.remote;
+    if (!mergeStates || round >= RECHECK.length || !remote || !from.prs.some(unknownState)) return;
+    recheck = setTimeout(async () => {
+      if (!el.isConnected || inbox !== from || reloading) return;
+      const res = await mergeStates(remote, from.prs.filter(unknownState).map((p) => p.number)).catch(() => null);
+      if (!el.isConnected || inbox !== from || reloading) return;
+      const known = new Map((res?.ok || []).filter((x) => x.mergeState && x.mergeState !== 'unknown').map(({ number, ...x }) => [number, x]));
+      if (known.size) {
+        inbox = { ...from, prs: from.prs.map((p) => (known.has(p.number) ? { ...p, ...known.get(p.number) } : p)) };
+        remember();
+        render();
+      }
+      recheckStates(round + 1);
+    }, RECHECK[round]);
   }
   // Off the hot path: after the list shows. Unchanged pairs come from the main process's cache;
   // a newer list cancels this run (main resolves the cancelled one to null).
@@ -881,7 +909,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     render();
   }
   const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
-  // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub on its own.
+  // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub for its PRs
+  // on its own (besides recheckStates, for merge states GitHub hadn't worked out yet).
   const reload = () => (reloading ? Promise.resolve() : fetchLanes({ prs: true }).catch(fail));
   // Keep the last PR load for the next visit to Review.
   function remember() {
@@ -965,7 +994,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     select(r.key);
   }
   // The page is being replaced: drop its window listener and timer now, not on the next focus.
-  function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); }
+  function destroy() { window.removeEventListener('focus', onFocus); clearInterval(tick); clearTimeout(timer); clearTimeout(recheck); }
   return { el, destroy, stackStep, stackSelection, stackActions, setTab, tab: () => tab, refresh, stuckSelection, evidence: () => paneObj?.evidence?.(), media: () => paneObj?.media?.(), showRowConflicts, sendBack, showPr, mergePlan, mergeTargets, canPlan, planGated, inboxPrs: () => inbox?.prs || [], inboxRemote: () => inbox?.remote || null, afterAction, paneSelection, rerender: render, selected, location, step: runStep, reload, canReload: () => prsOn() };
 }
 
