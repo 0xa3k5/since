@@ -1052,11 +1052,11 @@ async function revertRemote(cwd, change, dir) {
 // History rewriting (in-place commit editing), implemented as a
 // non-interactive `git rebase -i` with a generated todo list.
 
-// Check that `sha` can be rewritten by `op`, and find where the rebase starts
-// (`base`, null for the root) and the commits it replays.
-async function rewriteRange(cwd, op, sha) {
-  const onBranch = await run(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']).then(() => true, () => false);
-  if (!onBranch) throw new GitError('This commit is not on the current branch. Check out a branch containing it first.');
+// Check that `sha` can be rewritten by `op` on `tip` (HEAD, or the branch about to be checked
+// out), and find where the rebase starts (`base`, null for the root) and the commits it replays.
+async function rewriteRange(cwd, op, sha, tip = 'HEAD') {
+  const onBranch = await run(cwd, ['merge-base', '--is-ancestor', sha, tip]).then(() => true, () => false);
+  if (!onBranch) throw new GitError(tip === 'HEAD' ? 'This commit is not on the current branch.' : `This commit is not on ${tip}.`);
   const parents = (await run(cwd, ['rev-list', '--parents', '-n', '1', sha])).trim().split(' ').slice(1);
   if (parents.length > 1) throw new GitError('Rewriting merge commits is not supported.');
 
@@ -1069,11 +1069,18 @@ async function rewriteRange(cwd, op, sha) {
     if (gp.length > 1) throw new GitError('The parent is a merge commit; cannot rewrite across it.');
     base = gp[0] || null;
   }
-  const range = base ? `${base}..HEAD` : 'HEAD';
+  const range = base ? `${base}..${tip}` : tip;
   const merges = (await run(cwd, ['rev-list', '--merges', range])).trim();
   if (merges) throw new GitError('There are merge commits between this commit and HEAD; rewriting would flatten them.');
   const list = (await run(cwd, ['rev-list', '--reverse', range])).trim().split('\n').filter(Boolean);
   return { parents, base, list };
+}
+
+// Whether `sha` is on HEAD, and the local branches that contain it (to switch to and rewrite it there).
+async function commitBranches(cwd, sha) {
+  const onHead = await run(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']).then(() => true, () => false);
+  const out = await run(cwd, ['branch', '--format=%(refname:short)', '--contains', sha]).catch(() => '');
+  return { onHead, branches: out.split('\n').map((b) => b.trim()).filter(Boolean) };
 }
 
 async function rewrite(cwd, op, sha, extra = {}) {
@@ -1646,13 +1653,44 @@ async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
 // Remove a worktree's folder. Refused unless the worktree is clean: there is
 // nothing to snapshot then, and undo can recreate it from its branch or commit.
 // Ignored files (build output, dependencies) are deleted with the folder.
-async function removeWorktree(cwd, dir) {
+// `stash` first stashes its uncommitted changes (the stash's SHA is returned as `stash`);
+// `abort` first aborts a stopped rebase, merge, cherry-pick or revert there (not undoable).
+async function removeWorktree(cwd, dir, { stash = false, abort = false } = {}) {
   const wt = await findWorktree(cwd, dir);
   if (wt.main) throw new GitError('The main worktree can’t be removed.');
   if (wt.current) throw new GitError('This window is showing that worktree. Switch to another one first.');
-  await checkRemovable(wt);
-  await run(cwd, ['worktree', 'remove', wt.path], { env: W_ENV });
-  return wt;
+  if (wt.locked || wt.missing) await checkRemovable(wt);
+  if (abort) {
+    const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+    if (op) await run(wt.path, [op, '--abort'], { env: W_ENV });
+  }
+  let sha = null;
+  if (stash && await worktreeChanges(wt.path)) sha = await stashWorktree(wt.path, `GitLanes: ${wt.name} before removing it`);
+  try {
+    await checkRemovable(wt);
+    await run(cwd, ['worktree', 'remove', wt.path], { env: W_ENV });
+  } catch (err) {
+    if (sha) await popStash(wt.path, sha).catch(() => {});
+    throw err;
+  }
+  return sha ? { ...wt, stash: sha } : wt;
+}
+
+// Stash everything in worktree `dir` (untracked files too); returns the new stash's SHA.
+async function stashWorktree(dir, message) {
+  const top = () => run(dir, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+  const prev = await top();
+  await stashPush(dir, { message, untracked: true });
+  const sha = await top();
+  if (!sha || sha === prev) throw new GitError('Its changes could not be stashed.');
+  return sha;
+}
+
+// Apply and drop the stash with this SHA in worktree `dir`.
+async function popStash(dir, sha) {
+  const i = (await getStashes(dir)).findIndex((x) => x.sha === sha);
+  if (i === -1) throw new GitError('Its stash was applied or dropped since.');
+  await stashApply(dir, `stash@{${i}}`, true);
 }
 
 // Put a removed worktree back at the same path, on the same branch or commit.
@@ -1801,15 +1839,19 @@ async function mergeLanePlan(cwd, branch, base) {
   const worktrees = await getWorktrees(cwd);
   const wt = worktrees.find((w) => w.branch === branch) || null;
   const baseWt = into ? worktrees.find((w) => w.branch === into) : null;
-  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && { path: wt.path, name: wt.name }, blocker: null, mergeBlocker: null };
-  if (wt?.current) plan.blocker = `${branch} is checked out in this window. Switch to another branch first.`;
-  else if (wt?.main) plan.blocker = `${branch} is checked out in the main worktree (${wt.name}). Switch it to another branch first.`;
-  else if (wt) {
+  // `keep`: the branch is checked out in this window ('current') or the main worktree ('main'), so
+  // it is merged but kept, with its worktree. `baseWorktree`: the other worktree that has the base.
+  const keep = wt?.current ? 'current' : wt?.main ? 'main' : null;
+  const plan = { branch, head, base: into, baseSha: baseSha || null, commits: [], conflicts: [], worktree: wt && !keep ? { path: wt.path, name: wt.name } : null, keep, baseWorktree: null, blocker: null, mergeBlocker: null };
+  if (wt && !keep) {
     try { await checkRemovable(wt); } catch (err) { plan.blocker = err.message; }
   }
   if (!into || !baseSha) plan.mergeBlocker = into ? `There is no local ${into} branch to merge into.` : 'There is no base branch (main or master) to merge into.';
   else if (into === branch) plan.blocker = `${branch} is the base branch.`;
-  else if (baseWt && !baseWt.current) plan.mergeBlocker = `${into} is checked out in ${baseWt.name}. Merge from that worktree’s window.`;
+  else if (baseWt && !baseWt.current) {
+    plan.mergeBlocker = `${into} is checked out in ${baseWt.name}.`;
+    plan.baseWorktree = { path: baseWt.path, name: baseWt.name };
+  }
   if (plan.blocker || !baseSha) return plan;
   plan.commits = (await run(cwd, ['log', '--format=%s%x00%b%x1e', `${baseSha}..${head}`, '--'])).split('\x1e').map((r) => r.replace(/^\n+/, '')).filter(Boolean)
     .map((r) => { const i = r.indexOf('\0'); return { subject: r.slice(0, i).trim(), body: r.slice(i + 1).trim() }; });
@@ -1847,8 +1889,43 @@ async function checkRemovable(wt) {
   if (op) throw new GitError(`“${wt.name}” has a ${op} in progress. Finish or abort it first.`);
 }
 
+// Why worktree `wt` (from getWorktrees) can't give up its branch (HEAD detached there, so the
+// branch can be checked out elsewhere), or null: it must be on disk, clean, nothing in progress.
+async function freeBlocker(wt) {
+  if (wt.missing) return 'Its folder no longer exists.';
+  const n = await worktreeChanges(wt.path);
+  if (n) return `It has ${n} uncommitted change${n > 1 ? 's' : ''}.`;
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  if (op) return `It has a ${op} in progress.`;
+  return null;
+}
+
+// What removing worktree `wt` (from getWorktrees) has to deal with: its uncommitted changes
+// (stashed by the removal) and a stopped operation there (aborted, after asking).
+async function removalFacts(wt) {
+  if (wt.missing) return { changes: 0, op: null };
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  return { changes: await worktreeChanges(wt.path), op };
+}
+
+// What decides whether worktree `wt` can hand its branch and its uncommitted changes to another
+// worktree (Journal.moveCheckout): `blocker` (folder gone, operation in progress), else how many
+// changes it has and when the newest of them was written (ms, null when none is on disk).
+async function worktreeHold(wt) {
+  if (wt.missing) return { blocker: 'Its folder no longer exists.' };
+  const op = await getOperationState((await run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+  if (op) return { blocker: `It has a ${op} in progress.` };
+  const paths = [...new Set(await dirtyPaths(wt.path))];
+  let changedAt = null;
+  for (const p of paths) {
+    try { changedAt = Math.max(changedAt || 0, fs.lstatSync(path.join(wt.path, p)).mtimeMs); } catch {}
+  }
+  return { blocker: null, changes: paths.length, changedAt };
+}
+
 // Squash `branch` onto `base` with `message` (skipped when `merge` is false, or when the branch
-// has nothing left to merge), then remove its worktree and delete it. Everything is checked
+// has nothing left to merge), then remove its worktree and delete it, unless it is checked out
+// here or in the main worktree (plan.keep): then it is kept. Everything is checked
 // before anything changes. `done` reports what happened, for the journal, even on a failure
 // part-way: { commit, worktree } (the removed worktree, as removeWorktree returns it).
 async function mergeLane(cwd, { branch, base, message = '', merge = true } = {}, done = {}) {
@@ -1873,9 +1950,10 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true } = {},
     }
     done.commit = commit;
   }
+  if (plan.keep) return { commit: done.commit || null, base: plan.base, worktree: null, kept: plan.keep };
   if (plan.worktree) done.worktree = await removeWorktree(cwd, plan.worktree.path);
   await run(cwd, ['branch', '-D', '--', branch]);
-  return { commit: done.commit || null, base: plan.base, worktree: plan.worktree };
+  return { commit: done.commit || null, base: plan.base, worktree: plan.worktree, kept: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -2751,8 +2829,8 @@ module.exports = {
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,
   pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
-  samePath, getWorktrees, findWorktree, worktreeChanges, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
-  restoreWorktree, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
+  rewriteRange, commitBranches, samePath, getWorktrees, findWorktree, worktreeChanges, freeBlocker, worktreeHold, removalFacts, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
+  restoreWorktree, stashWorktree, popStash, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
   AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, rebaseStack, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,

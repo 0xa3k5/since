@@ -208,3 +208,24 @@ test('every pull request row lists Check Out; one open in another worktree has n
   assert.deepEqual(checkoutChoices({ pr, lane: lane('feat', { worktree: { path: '/w/feat', current: false } }) }), ['here']);
   assert.deepEqual(checkoutChoices({ pr: null, lane: lane('feat') }), []);
 });
+
+test('removeWhy says in a few words why a lane can’t be deleted (AK-581)', async () => {
+  const { removeWhy } = await load();
+  assert.equal(removeWhy({ branch: 'f' }), null);
+  assert.equal(removeWhy({ branch: 'main', isBase: true }), 'Base branch');
+  assert.equal(removeWhy({ branch: 'f', worktree: { current: true } }), 'Open in this window');
+  assert.equal(removeWhy({ branch: 'f', worktree: { main: true } }), 'In the main worktree');
+  assert.equal(removeWhy({ branch: 'f', worktree: { locked: true } }), 'Worktree is locked');
+});
+
+test('the branch open in this window can go when there is a branch to switch to (AK-581)', async () => {
+  const { canRemove, removeWhy } = await load();
+  const here = { branch: 'f', worktree: { current: true, main: true } };
+  assert.equal(canRemove(here), false);
+  assert.equal(canRemove(here, () => true), true);
+  assert.equal(removeWhy(here, () => true), null);
+  assert.equal(canRemove(here, () => false), false);
+  assert.equal(removeWhy(here, () => false), 'Only branch');
+  assert.equal(canRemove({ branch: 'main', isBase: true, worktree: { current: true } }, () => true), false);
+  assert.equal(canRemove({ branch: 'g', worktree: { main: true } }, () => true), false);
+});
