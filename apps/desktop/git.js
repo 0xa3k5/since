@@ -1077,6 +1077,18 @@ async function rewriteRange(cwd, op, sha) {
 }
 
 async function rewrite(cwd, op, sha, extra = {}) {
+  // A merge commit at HEAD can't be replayed by a rebase: reword it in place.
+  if (op === 'reword' && (await run(cwd, ['rev-parse', 'HEAD'])).trim() === sha
+    && (await run(cwd, ['rev-list', '--parents', '-n', '1', sha])).trim().split(' ').length > 2) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-'));
+    try {
+      fs.writeFileSync(path.join(tmp, 'msg'), extra.message);
+      await run(cwd, ['commit', '--amend', '--only', '--allow-empty', '--no-verify', '-q', '-F', path.join(tmp, 'msg')], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+    return;
+  }
   const { parents, base, list } = await rewriteRange(cwd, op, sha);
   // A split builds its two commits up front; the rebase picks them in place of the original.
   const halves = op === 'split' ? await splitCommits(cwd, sha, parents[0] || null, extra) : null;
