@@ -928,16 +928,10 @@ handle('app:merge-plan', okCall(async (e, remoteName, baseName, ready, others, o
     // No history check of our own: GitHub merges a stack with merge commits in it (checked on a
     // throwaway repo, 2026-10-18), and it evaluates its own rules when the merge runs.
     const linear = !blocker && stHeads.every(Boolean);
-    let unit = { stack: st.id, prs: st.prs, head: stHeads[stHeads.length - 1] };
-    // Like GitHub, a stack merges from the bottom up to any PR. When the whole stack conflicts with
-    // the base (it moved on since the branches were cut), take the longest bottom part that doesn't.
-    let partial = null;
-    if (!blocker && linear && !(await sim(s.repo.root, baseSha, unit.head)).commit) {
-      let k = st.prs.length - 2;
-      while (k >= 0 && !(await sim(s.repo.root, baseSha, stHeads[k])).commit) k--;
-      partial = { upTo: k >= 0 ? st.prs[k] : null, at: st.prs[k + 1], files: (await sim(s.repo.root, baseSha, stHeads[k + 1])).files };
-      if (k >= 0) unit = { stack: st.id, prs: st.prs.slice(0, k + 1), head: stHeads[k] };
-    }
+    // The whole stack, or the longest bottom part that merges with the base (maybe just one PR).
+    const part = !blocker && linear ? await mergePlan.cleanPart(st, stHeads, (head) => sim(s.repo.root, baseSha, head)) : null;
+    const unit = { stack: st.id, prs: part?.prs || st.prs, head: part?.head || stHeads[stHeads.length - 1] };
+    const partial = part?.partial || null;
     stacks.push({ id: st.id, prs: st.prs, linear, blocker, partial, native: mergePlan.isNative(st, chainFacts) });
     if (blocker || !linear) continue;
     const at = numbers.indexOf(st.prs[0]);
@@ -1029,9 +1023,10 @@ handle('app:pr-stack-rebase', okCall(async (e, remoteName, baseName, numbers) =>
 }));
 // One step of a plan: { snap, baseSha, method } from the plan (or the previous merge's commit), or
 // for a stack (AK-545) { stack: [{ number, snap }] bottom…top, baseSha, method } with `number` its
-// top PR. Every PR is checked before the merge. → { stop: reason } when something changed, else
-// { merged: true, commit } (commit null when a merge queue took it, so the plan stops there), plus
-// `cleaned` (cleanupMerged) when o.cleanup is true: only the sheet asks for it.
+// top PR (just the bottom PR when only it merges clean, AK-619). Every PR is checked before the
+// merge. → { stop: reason } when something changed, else { merged: true, commit } (commit null
+// when a merge queue took it, so the plan stops there), plus `cleaned` (cleanupMerged) when
+// o.cleanup is true: only the sheet asks for it.
 const nullable = (v, w) => (v === null ? v : check.str(v, w, { max: 32 }));
 const snapArg = (v, w) => check.obj(v, w, { head: oidArg, checks: nullable, review: nullable });
 handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o) => {
@@ -1039,9 +1034,9 @@ handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o)
   check.prNumber(number);
   const stackArg = (v, w) => {
     if (v == null) return v;
-    if (!Array.isArray(v) || v.length < 2 || v.length > mergePlan.MAX_STACK) throw new check.IpcArgError(`Invalid ${w}`);
+    if (!Array.isArray(v) || v.length > mergePlan.MAX_STACK) throw new check.IpcArgError(`Invalid ${w}`);
     v.forEach((x) => { check.obj(x, w, { number: check.prNumber, snap: snapArg }); if (!x.snap) throw new check.IpcArgError(`Invalid ${w}`); });
-    if (v[v.length - 1].number !== number) throw new check.IpcArgError(`Invalid ${w}`);
+    if (!mergePlan.stackStepOk(v.map((x) => x.number), number)) throw new check.IpcArgError(`Invalid ${w}`);
     return v;
   };
   check.obj(o, 'merge step', { baseSha: oidArg, snap: (v, w) => (o?.stack ? v : snapArg(v, w)), method: (v, w) => (v == null ? v : check.oneOf(...mergePlan.METHODS)(v, w)), stack: stackArg, cleanup: (v, w) => (v == null ? v : check.bool(v, w)) });
@@ -1055,7 +1050,8 @@ handle('app:merge-plan-merge', okCall(async (e, remoteName, baseName, number, o)
   }
   if ((await remoteBase(s, remote, base)) !== o.baseSha) return { stop: `${base} moved on GitHub since the plan` };
   // A chain GitHub has as a stack merges with `gh stack merge`; a plain chain (AK-555) one PR at a
-  // time, bottom up, each one after the bottom retargeted to the base first.
+  // time, bottom up, each one after the bottom retargeted to the base first. A step of one PR
+  // (AK-619) is `gh stack merge <bottom>` or that PR's own merge.
   const facts = o.stack ? await github.stackFacts({ ...t, numbers: steps.map((x) => x.number) }) : null;
   if (o.stack && mergePlan.isNative({ prs: steps.map((x) => x.number) }, facts)) await github.mergeStack({ ...t, number, method });
   else if (o.stack) {

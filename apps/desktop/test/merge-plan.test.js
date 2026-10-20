@@ -472,3 +472,27 @@ test('bottomPart cuts a chain where GitHub stacks begin or end (AK-541)', async 
   assert.equal(bottomPart({ id: 'y', prs: [237, 240] }, facts), null);
   assert.deepEqual(bottomPart({ id: 'z', prs: [240, 237] }, facts).prs, [240]);
 });
+
+test('a stack whose only clean part is its bottom PR plans and merges that PR alone (AK-619)', async () => {
+  const { cleanPart, stackStepOk, rangeLabel } = await load();
+  const st = { id: 'stack-275', prs: [275, 276, 277, 278] };
+  const heads = ['a', 'b', 'c', 'd'];
+  // Only #275 merges clean with the base; #276 conflicts in app.js (and so does everything above it).
+  const merge = async (head) => (head === 'a' ? { commit: 'B+a', files: [] } : { commit: null, files: head === 'b' ? ['src/app.js'] : ['x'] });
+  assert.deepEqual(await cleanPart(st, heads, merge), { prs: [275], head: 'a', partial: { upTo: 275, at: 276, files: ['src/app.js'] } });
+  // The one-PR stack step passes the IPC check; an empty one or one that doesn't end at the top doesn't.
+  assert.equal(stackStepOk([275], 275), true);
+  assert.equal(stackStepOk([], 275), false);
+  assert.equal(stackStepOk([275], 278), false);
+  assert.equal(rangeLabel([275]), '#275');
+  assert.equal(rangeLabel([275, 276, 277]), '#275 → #277');
+});
+
+test('cleanPart: the whole stack when it merges, a longer bottom part, or none (AK-619)', async () => {
+  const { cleanPart } = await load();
+  const st = { id: 's', prs: [1, 2, 3] };
+  const clean = (ok) => async (head) => (ok.includes(head) ? { commit: `B+${head}`, files: [] } : { commit: null, files: [`${head}.js`] });
+  assert.deepEqual(await cleanPart(st, ['a', 'b', 'c'], clean(['a', 'b', 'c'])), { prs: [1, 2, 3], head: 'c', partial: null });
+  assert.deepEqual(await cleanPart(st, ['a', 'b', 'c'], clean(['a', 'b'])), { prs: [1, 2], head: 'b', partial: { upTo: 2, at: 3, files: ['c.js'] } });
+  assert.deepEqual(await cleanPart(st, ['a', 'b', 'c'], clean([])), { prs: [1, 2, 3], head: 'c', partial: { upTo: null, at: 1, files: ['a.js'] } });
+});
