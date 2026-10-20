@@ -207,6 +207,69 @@ function keepStacks(rows) {
   return out;
 }
 
+// A stack stays together in Review (AK-609, AK-611): every open part moves to the stage of its
+// least-ready part (Stuck, then In progress, then Ready to merge), so a draft part no longer drops out
+// of its stack. Each row keeps its own stage (its dot); only the list it's in changes.
+const READINESS = { stuck: 0, inProgress: 1, ready: 2 };
+function stackHomes(stages) {
+  const home = new Map();
+  for (const s of STAGES) for (const r of stages[s.id]) {
+    const h = r.stack && home.get(r.stack.root);
+    if (r.stack && (!h || READINESS[s.id] < READINESS[h])) home.set(r.stack.root, s.id);
+  }
+  for (const s of STAGES) {
+    const stay = [];
+    for (const r of stages[s.id]) {
+      const to = r.stack && home.get(r.stack.root);
+      if (to && to !== s.id) stages[to].push(r); else stay.push(r);
+    }
+    stages[s.id] = stay;
+  }
+}
+
+// A stack's name over its rows (AK-609): the title its PRs share once a part marker ("part 2 of 3",
+// "[2/3]") is gone, else "Stack #4 → #6". `prs` bottom first.
+const PART_MARK = /\[\d+\/\d+\]|\(?\bpart \d+ of \d+\)?/gi;
+export function stackTitle(prs = []) {
+  const bare = (t) => String(t || '').replace(PART_MARK, ' ').replace(/\s+/g, ' ').replace(/[\s:·,–—-]+$/, '').trim();
+  const names = new Set(prs.map((p) => bare(p.title)));
+  const [one] = names;
+  if (prs.length > 1 && names.size === 1 && one) return one;
+  return prs.length ? `Stack #${prs[0].number} → #${prs[prs.length - 1].number}` : 'Stack';
+}
+
+// A stack's status line (AK-609, AK-611) from its rows bottom first: how far up it merges now and
+// what holds the next part back. → { through: [numbers that merge now], held: the first row that
+// doesn't, text: "Ready to merge" | "Mergeable through #5 · #6 waiting for review" | "#4 is a draft",
+// why (the held part's reason), stage, tone, fix }. tone colours the rail: 'ready' | 'failing' (checks) | 'conflicts' | null.
+// fix is the header's one fix for the held part: { id: 'ready' | 'checks' | 'rebase', label, row }.
+export function stackStatus(rows = [], { base = null } = {}) {
+  let k = 0;
+  while (k < rows.length && rows[k].stage === 'ready') k++;
+  const through = rows.slice(0, k).map((r) => r.pr.number);
+  const held = rows[k] || null;
+  if (!held) return { through, held, text: 'Ready to merge', stage: 'ready', tone: 'ready', fix: null };
+  const pr = held.pr || {};
+  const stuck = held.stage === 'stuck';
+  const why = (stuck && stuckReason(held, { base })) || (pr.draft ? 'is a draft' : pr.checks === 'pending' ? 'checks running' : 'waiting for review');
+  const text = `${k ? `Mergeable through #${through[k - 1]} · ` : ''}#${pr.number} ${why}`;
+  const tone = stuck && pr.checks === 'failure' ? 'failing' : stuck && conflicted(held) ? 'conflicts' : null;
+  const fix = pr.draft ? { id: 'ready', label: `Mark #${pr.number} ready`, row: held }
+    : tone === 'failing' && pr.url ? { id: 'checks', label: 'View failure', row: held }
+    : stuck && primaryAction(held, { base }) === 'rebase' ? { id: 'rebase', label: 'Rebase', row: held } : null;
+  return { through, held, text, why, stage: held.stage || 'inProgress', tone, fix };
+}
+
+// Approve all on a stack (AK-611): the parts you can approve and why the button is greyed.
+// Your own stack → null (not offered). → { prs, why: null | 'Needs write access' }.
+export function stackApproval(prs = [], viewer = null) {
+  if (!viewer?.login) return null;
+  const me = viewer.login.toLowerCase();
+  const theirs = prs.filter((p) => !p.draft && (p.author || '').toLowerCase() !== me && p.review !== 'approved');
+  if (!theirs.length) return null;
+  return { prs: theirs, why: viewer.write === false ? 'Needs write access' : null };
+}
+
 // The row's stack note: "on #41 · 2 of 3", or "Stack · 1 of 3" at the bottom; null outside a stack.
 // Its tooltip spells the stack out: "Stacked: main ‹ #41 ‹ #42 ‹ #43. Merge from the bottom."
 export function stackNote(row) {
@@ -274,6 +337,7 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
     else if (row.stage) stages[row.stage].push(row);
     else rest.push(row);
   }
+  stackHomes(stages);
   for (const s of STAGES) stages[s.id] = keepStacks(sortStage(stages[s.id], s.id, requested));
   sortStage(finished, 'finished', requested);
   sortStage(rest, null, requested);

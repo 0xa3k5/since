@@ -716,3 +716,52 @@ test('stackFoldOrder folds the farthest PRs first, then the bottom one, then the
   assert.deepEqual(stackFoldOrder([1, 2], 2), [0]);
   assert.deepEqual(stackFoldOrder([1, 2, 3, 4, 5], 5), [1, 2, 0, 3]);
 });
+
+// Stack heads (AK-609, AK-611): one stage for the whole stack, its name and status.
+test('reviewRows keeps a stack in its least-ready part’s stage, each row keeping its own stage', async () => {
+  const { reviewRows } = await load();
+  const prs = [pr(4, READY), pr(5, { ...READY, base: 'b4' }), pr(6, { base: 'b5', draft: true }), pr(9, READY)];
+  const r = reviewRows({ prs, prsOn: true, now: NOW });
+  assert.deepEqual(r.stages.inProgress.map((x) => x.pr.number), [4, 5, 6]);
+  assert.deepEqual(r.stages.ready.map((x) => x.pr.number), [9]);
+  assert.equal(r.stages.inProgress.find((x) => x.pr.number === 4).stage, 'ready');
+  // A stuck part anywhere takes the whole stack to Stuck.
+  const s = reviewRows({ prs: [pr(4, READY), pr(5, { base: 'b4', checks: 'failure' })], prsOn: true, now: NOW });
+  assert.deepEqual(s.stages.stuck.map((x) => x.pr.number), [4, 5]);
+  assert.equal(s.stages.ready.length, 0);
+});
+
+test('stackTitle: the shared title without part markers, else the number range', async () => {
+  const { stackTitle } = await load();
+  assert.equal(stackTitle([pr(4, { title: 'Search part 1 of 3' }), pr(5, { title: 'Search part 2 of 3' })]), 'Search');
+  assert.equal(stackTitle([pr(4, { title: 'feat: search [1/2]' }), pr(5, { title: 'feat: search [2/2]' })]), 'feat: search');
+  assert.equal(stackTitle([pr(4, { title: 'Engine [1/2]' }), pr(5, { title: 'UI [2/2]' }), pr(6)]), 'Stack #4 → #6');
+});
+
+test('stackStatus: how far the stack merges, what holds it back, its rail and its fix', async () => {
+  const { stackStatus } = await load();
+  const row = (n, stage, o = {}) => ({ stage, pr: pr(n, o) });
+  const all = stackStatus([row(4, 'ready'), row(5, 'ready')]);
+  assert.deepEqual([all.through, all.text, all.tone, all.fix], [[4, 5], 'Ready to merge', 'ready', null]);
+  const d = stackStatus([row(4, 'ready'), row(5, 'ready'), row(6, 'inProgress', { draft: true })]);
+  assert.deepEqual(d.through, [4, 5]);
+  assert.equal(d.text, 'Mergeable through #5 · #6 is a draft');
+  assert.deepEqual([d.fix.id, d.fix.label, d.tone], ['ready', 'Mark #6 ready', null]);
+  assert.equal(stackStatus([row(4, 'ready'), row(5, 'inProgress', { checks: 'success' })]).text, 'Mergeable through #4 · #5 waiting for review');
+  assert.equal(stackStatus([row(4, 'inProgress', { draft: true }), row(5, 'ready')]).text, '#4 is a draft');
+  const f = stackStatus([row(4, 'stuck', { checks: 'failure', failing: ['test'], url: 'https://x/4' }), row(5, 'ready')]);
+  assert.deepEqual([f.text, f.tone, f.fix.id, f.fix.label], ['#4 CI ✗ test', 'failing', 'checks', 'View failure']);
+  const c = stackStatus([row(4, 'stuck', { mergeable: 'CONFLICTING', mergeState: 'dirty' })]);
+  assert.equal(c.tone, 'conflicts');
+  assert.equal(stackStatus([row(4, 'inProgress', { checks: 'pending' })]).text, '#4 checks running');
+});
+
+test('stackApproval: someone else’s parts, greyed without write access, never your own stack', async () => {
+  const { stackApproval } = await load();
+  const prs = [pr(4, { author: 'ana' }), pr(5, { author: 'ana', review: 'approved' }), pr(6, { author: 'ana' })];
+  assert.deepEqual(stackApproval(prs, { login: 'me', write: true }).prs.map((p) => p.number), [4, 6]);
+  assert.equal(stackApproval(prs, { login: 'me', write: true }).why, null);
+  assert.equal(stackApproval(prs, { login: 'me', write: false }).why, 'Needs write access');
+  assert.equal(stackApproval([pr(4, { author: 'Me' })], { login: 'me' }), null);
+  assert.equal(stackApproval(prs, null), null);
+});
