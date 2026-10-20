@@ -902,17 +902,19 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-row.staged[data-rail="ready"] { --rail: var(--green); }
 .review-row.staged[data-rail="failing"] { --rail: var(--red); }
 .review-row.staged[data-rail="conflicts"] { --rail: var(--warn); }
-/* A stack's head (AK-609): one overline over its rows, lined up with their titles. Name · count and
-   status · text buttons. Not a row: never selected, no divider of its own. */
-.review-stack-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 10px 14px 3px calc(14px + 8px + 10px); font-size: 12px; color: var(--text-3); }
-.review-stack-name { flex: 0 4 auto; min-width: 4em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-weight: var(--fw-medium); }
-.review-stack-meta { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-/* The status sentence names the blocker, so it gives way last (AK-611). */
-.review-stack-status { flex: 0 1 auto; min-width: 8em; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.review-stack-status::before { content: '· '; color: var(--text-3); }
+/* A stack's head (AK-609, AK-611): one overline over its rows, lined up with their titles. Numbers ·
+   count · tag · segments · status · text buttons · ⋯. Not a row: never selected, no divider of its
+   own. One line at every width, never scrolled: it sheds as the list narrows (stackShed). */
+.review-stack-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; padding: 10px 14px 3px calc(14px + 8px + 10px); font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.review-stack-name { flex: none; color: var(--text-2); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.review-stack-meta { flex: none; font-variant-numeric: tabular-nums; }
+/* The status sentence names the blocker: the only part that ellipsises, before it hides. */
+.review-stack-status { flex: 0 1 auto; min-width: 5em; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.review-stack-status .short { display: none; }
 .review-stack-head.failing .review-stack-status { color: var(--red); }
 .review-stack-head.conflicts .review-stack-status { color: var(--warn); }
-.review-stack-tag { flex: none; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; font-size: 11px; line-height: 15px; color: var(--text-3); }
+.review-stack-tag { flex: none; display: inline-flex; align-items: center; align-self: center; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; font-size: 11px; line-height: 15px; color: var(--text-3); }
+.review-stack-tag .icon { display: none; }
 .review-stack-tag.native { border-color: transparent; background: var(--accent-soft); color: var(--accent-fg); }
 /* One segment per part, in its stage's colour; a click selects that part's row. */
 .review-stack-segs { flex: none; display: inline-flex; gap: 2px; align-self: center; }
@@ -920,15 +922,41 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-stack-seg[data-stage="ready"] { background: var(--green); }
 .review-stack-seg[data-stage="stuck"] { background: var(--red); }
 .review-stack-seg[data-draft] { background: transparent; box-shadow: inset 0 0 0 1px var(--text-4); }
+/* Ready, but a check GitHub doesn't require is failing: grey with a red tick at its end. */
+.review-stack-seg[data-soft-fail] { background: linear-gradient(to right, var(--text-4) 0 calc(100% - 3px), var(--red) calc(100% - 3px)); }
 .review-stack-seg:hover { opacity: .75; }
 .review-stack-seg:focus-visible { outline-offset: 2px; }
-.review-stack-why { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
-.review-stack-acts { flex: none; display: inline-flex; gap: 12px; }
-.review-stack-act { padding: 0; border: 0; background: none; font: inherit; font-weight: var(--fw-medium); color: var(--text-2); cursor: pointer; border-radius: 3px; }
+.review-stack-why { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--text-3); }
+.review-stack-end { flex: none; display: inline-flex; align-items: baseline; gap: 12px; margin-left: auto; }
+.review-stack-acts { display: inline-flex; align-items: baseline; gap: 12px; }
+.review-stack-act { flex: none; padding: 0; border: 0; background: none; font: inherit; font-weight: var(--fw-medium); color: var(--text-2); cursor: pointer; border-radius: 3px; }
 .review-stack-act.primary { color: var(--accent-fg); }
 .review-stack-act:disabled { color: var(--text-3); opacity: .6; cursor: default; text-decoration: none; }
 .review-stack-act:not(:disabled):hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
 .review-stack-act:focus-visible { outline-offset: 2px; }
+.review-stack-more { flex: none; display: inline-grid; place-items: center; align-self: center; width: 22px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-3); cursor: pointer; }
+.review-stack-more[hidden] { display: none; }
+.review-stack-more:hover { background: var(--bg-hover); color: var(--text); }
+.review-stack-more:focus-visible { outline-offset: 1px; }
+/* The fit pass (fitHead): no sentence, then the secondary actions in ⋯, then all of them. */
+.review-stack-head[data-shed="quiet"] .review-stack-status,
+.review-stack-head[data-shed="menu"] .review-stack-status,
+.review-stack-head[data-shed="tight"] .review-stack-status,
+.review-stack-head[data-shed="menu"] .review-stack-acts > :not(.primary),
+.review-stack-head[data-shed="tight"] .review-stack-acts { display: none; }
+/* The list pane's width (STACK_SHED in review-rows.js): the count, then the tag's name, then the
+   long sentence go first. */
+@container review-list (max-width: 720px) { .review-stack-meta { display: none; } }
+@container review-list (max-width: 600px) {
+  .review-stack-tag { padding: 0; border-color: transparent; background: none; }
+  .review-stack-tag.native { background: none; }
+  .review-stack-tag .icon { display: inline-flex; }
+  .review-stack-tag-text { display: none; }
+}
+@container review-list (max-width: 520px) {
+  .review-stack-status .full { display: none; }
+  .review-stack-status .short { display: inline; }
+}
 .review-row.staged.stack-up::before { top: -1px; height: calc(50% + 1px); }
 .review-row.staged.stack-down::after { top: 50%; bottom: -1px; }
 .review-row.staged.stack-down { --row-inset: calc(var(--row-pad) + var(--row-dot) + var(--row-gap)); border-bottom-color: transparent; background-image: linear-gradient(var(--border), var(--border)); background-repeat: no-repeat; background-origin: border-box; background-position: right bottom; background-size: calc(100% - var(--row-inset)) 1px; }
