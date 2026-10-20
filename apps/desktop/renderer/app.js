@@ -1031,9 +1031,14 @@ function renderSidebar() {
     r.kind === 'branch' && worktreeOf(r.short) ? h('span.sb-wt', { title: `Checked out in worktree ${worktreeOf(r.short).name}` }, icon('worktree', 12)) : null,
   );
 
-  const worktreeItem = (w) => h('div.sb-item' + (w.current ? '.current' : '') + (w.missing ? '.missing' : ''), {
+  // A click selects the worktree (and its HEAD, on the Map); a double-click or ↵ switches to it. The second click
+  // reads e.detail, so it still counts when the first click rebuilt the sidebar.
+  const worktreeItem = (w) => h('div.sb-item.sb-worktree' + (w.current ? '.current' : '') + (w.missing ? '.missing' : '') + (sbWorktree === w.path ? '.selected' : ''), {
     title: w.path,
-    onclick: () => switchWorktree(w),
+    tabIndex: 0,
+    'data-path': w.path,
+    onclick: (e) => e.detail === 2 ? switchWorktree(w) : selectWorktreeItem(w),
+    onkeydown: (e) => { if (keymap.match('worktrees', e) === 'worktrees.switch') { e.preventDefault(); switchWorktree(w); } },
     oncontextmenu: (e) => { e.preventDefault(); worktreeMenu(e.clientX, e.clientY, w); },
   },
     icon('worktree', 14),
@@ -1670,6 +1675,19 @@ function createMapView(container) {
 function renderSidebarSelection() {
   if (!sidebarEl) return;
   sidebarEl.querySelectorAll('.sb-item.selected-ref').forEach((el) => el.classList.remove('selected-ref'));
+  if (sbWorktree && state.selected !== state.worktrees.find((w) => w.path === sbWorktree)?.head) selectWorktreeRow(null);
+}
+
+// The worktree row selected in the sidebar (by path). It lasts until a different commit is selected.
+let sbWorktree = null;
+function selectWorktreeRow(path) {
+  sbWorktree = path;
+  sidebarEl?.querySelectorAll('.sb-worktree').forEach((el) => el.classList.toggle('selected', el.dataset.path === path));
+}
+function selectWorktreeItem(w) {
+  if (state.view === 'map' && w.head && state.index.has(w.head)) jumpTo(w.head);
+  selectWorktreeRow(w.path);
+  sidebarEl?.querySelector(`.sb-worktree[data-path="${CSS.escape(w.path)}"]`)?.focus({ preventScroll: true });
 }
 
 function commitDetail(c) {

@@ -61,7 +61,11 @@ test('switch the window between worktrees, keeping the view', async ({ sandbox, 
   const app = await launch(repo);
 
   await app.view('commit');
-  await app.page.locator('.sb-section', { hasText: 'Worktrees' }).locator('.sb-item', { hasText: 'app-feature' }).click();
+  const row = app.page.locator('.sb-section', { hasText: 'Worktrees' }).locator('.sb-item', { hasText: 'app-feature' });
+  await row.click();
+  await expect(row).toHaveClass(/selected/);
+  await expect(app.page.locator('.sidebar .repo-name')).toHaveText('app');
+  await row.dblclick();
   await expect(app.page.locator('.sidebar .repo-name')).toHaveText('app-feature');
   await expect(app.page.locator('.content')).toHaveAttribute('data-view', 'commit');
   await expect(app.page.locator('.topbar .head-chip').first()).toHaveText('feature');
@@ -167,6 +171,7 @@ for (const theme of ['light', 'dark']) {
     sandbox.write(sandbox.path('app-agent-1'), 'notes.txt', 'wip\n');
     const app = await launch(repo, { theme });
     await app.selectRow('agent 1 work');
+    await app.page.locator('.sb-section', { hasText: 'Worktrees' }).locator('.sb-item', { hasText: 'app-agent-1' }).click();
     await shot(app, testInfo, `${theme}-worktrees-map`);
     await app.view('worktrees');
     await expect(app.page.locator('.wt-row', { hasText: 'app-agent-1' }).locator('.wt-changes')).toHaveText('1 changed');
