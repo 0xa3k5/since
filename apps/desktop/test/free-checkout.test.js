@@ -171,6 +171,6 @@ test('in-use sheet: dirty, clean, open in another window', async () => {
   assert.deepEqual(dirty, { kind: 'dirty', where: '~/…/wt-dirty', changes: '3 uncommitted changes', changed: 'Last changed 2 min ago', stash: 'Stash my 2 changes', actions: ['move', 'open'] });
   assert.equal(inUsePlan(wt, { blocker: null, changes: 1, changedAt: now - 11 * 60e3 }, 0, now).changed, null);
   assert.equal(inUsePlan(wt, { blocker: null, changes: 1, changedAt: now }, 0, now).stash, null);
-  assert.deepEqual(inUsePlan(wt, { blocker: null, changes: 0 }), { kind: 'clean', actions: ['free', 'open'] });
-  assert.deepEqual(inUsePlan(wt, { blocker: 'It’s open in another window.' }), { kind: 'blocked', why: 'It’s open in another window.', actions: ['open'] });
+  assert.deepEqual(inUsePlan(wt, { blocker: null, changes: 0 }), { kind: 'clean', where: '~/…/wt-dirty', actions: ['free', 'open'] });
+  assert.deepEqual(inUsePlan(wt, { blocker: 'It’s open in another window.' }), { kind: 'blocked', where: '~/…/wt-dirty', why: 'It’s open in another window.', actions: ['open'] });
 });

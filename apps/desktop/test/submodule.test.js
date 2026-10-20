@@ -164,7 +164,11 @@ test('a submodule with changes only inside it is marked inside in the status', a
   const { app } = await dirtySubmodule();
   const st = await git.getStatus(app);
   assert.deepEqual(st.unstaged, [{ path: 'lib', status: 'M', inside: true }]);
-  assert.equal(await git.submoduleChanges(app, 'lib'), 2);
+  const ch = await git.submoduleChanges(app, 'lib');
+  assert.equal(ch.count, 2);
+  assert.equal(ch.files.length, 2);
+  assert.ok(ch.files.every((f) => /^[MADRU?]$/.test(f.status) && f.path));
+  assert.match(ch.head.sha, /^[0-9a-f]{40}$/);
 });
 
 test('discarding a dirty submodule gitlink changes nothing and is not reported as done', async () => {
