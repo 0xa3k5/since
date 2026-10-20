@@ -63,13 +63,16 @@ export function pushAfterContinue(intent, { opState, branch } = {}) {
 }
 
 // ⌘Z / ⇧⌘Z while an operation is stopped: git can't move refs under it, so a toast names the stopped
-// operation and offers its conflicts, or aborting it (can't be undone, so that one confirms) and then
+// operation and offers its conflicts (or continuing it, when none are left), or aborting it (can't be undone, so that one confirms) and then
 // taking the step. `dir`: 'undo' | 'redo'; `op`: state.opState; `info`/`conflicts`: as for opSentence.
 export function stoppedStepToast(dir, op, info, conflicts = 0) {
   const name = { 'cherry-pick': 'cherry-pick', merge: 'merge', revert: 'revert' }[op] || 'rebase';
   return {
     message: `Can't ${dir} while this ${name} is stopped`,
     detail: opSentence(info, conflicts) || null,
-    actions: [{ id: 'open', label: 'Open conflicts' }, { id: 'abort', label: `Abort and ${dir}…` }],
+    actions: [conflicts ? { id: 'open', label: 'Open conflicts' } : { id: 'continue', label: `Continue ${name}` }, { id: 'abort', label: `Abort and ${dir}…` }],
   };
 }
+
+// The branch a stopped operation is on: HEAD's, else (detached mid-rebase) the one being rebased.
+export const stoppedBranch = (head, info) => head?.branch || info?.branch || null;

@@ -6,7 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
-import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast } from './resolve-text.js';
+import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -239,7 +239,7 @@ async function resolveOp(label, method, args, opts) {
 // it was on the way to. The toast stays until the next action (so does the one for ⌘Z while stopped).
 let pendingPush = null, stickyToast = null;
 function rememberPush(method, args) {
-  const branch = state.head?.branch;
+  const branch = stoppedBranch(state.head, state.opInfo);
   const upstream = state.refs.find((r) => r.kind === 'branch' && r.short === branch)?.upstream;
   const intent = pushIntent(method, args, branch, upstream);
   if (intent) pendingPush = { ...intent, root: state.repo?.root };
@@ -268,7 +268,7 @@ function stepWhileStopped(dir) {
   if (!op) return false;
   flashBanner();
   const t = stoppedStepToast(dir, op, state.opInfo, state.status.conflicts.length);
-  const run = { open: openConflicts, abort: () => abortThenStep(dir, op) };
+  const run = { open: openConflicts, continue: () => act(`Continue ${op}`, 'continueOp'), abort: () => abortThenStep(dir, op) };
   stickyToast = toast(t.message, { kind: 'info', detail: t.detail, timeout: 0, actions: t.actions.map((a, i) => ({ label: a.label, primary: i === 0, run: run[a.id] })) });
   return true;
 }

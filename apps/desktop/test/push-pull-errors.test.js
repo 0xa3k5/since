@@ -158,4 +158,14 @@ test('undo or redo while an operation is stopped names it and offers abort', asy
   assert.equal(r.actions[1].label, 'Abort and redo…');
   assert.equal(stoppedStepToast('undo', 'cherry-pick', null).message, "Can't undo while this cherry-pick is stopped");
   assert.equal(stoppedStepToast('undo', 'cherry-pick', null).detail, null);
+  assert.deepEqual(stoppedStepToast('undo', 'rebase', info, 0).actions[0], { id: 'continue', label: 'Continue rebase' });
+});
+
+test('a rebase-and-push stopped on a detached HEAD remembers the branch being rebased', async () => {
+  const { stoppedBranch, pushIntent } = await import('../renderer/resolve-text.js');
+  const info = { op: 'rebase', branch: 'feature/api', onto: 'origin/feature/api', step: 1, total: 1 };
+  assert.equal(stoppedBranch({ branch: null, oid: 'a'.repeat(40) }, info), 'feature/api');
+  assert.equal(stoppedBranch({ branch: 'main' }, { op: 'merge', branch: 'main' }), 'main');
+  assert.equal(stoppedBranch({ branch: null }, null), null);
+  assert.equal(pushIntent('pullAndPush', ['rebase'], stoppedBranch({ branch: null }, info), 'origin/feature/api').branch, 'feature/api');
 });
