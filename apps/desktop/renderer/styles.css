@@ -1293,6 +1293,16 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .resolve-sheet .dialog-body { gap: 10px; padding-top: 12px; }
 .resolve-sheet .dialog-foot { flex-wrap: wrap; row-gap: 8px; padding-top: 18px; }
 .resolve-sheet .sheet-cancel { margin-right: auto; }
+.dialog-foot .sheet-cancel { margin-right: auto; }
+/* A resolve sheet opened next to its trigger (AK-598): non-modal, nothing behind it dims. */
+.resolve-sheet.sheet-pop { position: fixed; z-index: 60; min-width: 380px; max-width: min(560px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; border: 1px solid var(--border); border-radius: 10px; transform: translateY(-4px); }
+.resolve-sheet.sheet-pop.up { transform: translateY(4px); }
+.resolve-sheet.sheet-pop.in { transform: none; opacity: 1; }
+.resolve-sheet.sheet-pop .dialog-head { padding: 14px 16px 2px; }
+.resolve-sheet.sheet-pop .dialog-body { padding: 10px 16px 2px; }
+.resolve-sheet.sheet-pop .dialog-foot { padding: 14px 16px 14px; }
+.sheet-confirm-note { margin-right: auto; align-self: center; color: var(--warn); font-size: 12.5px; }
+@media (prefers-reduced-motion: reduce) { .resolve-sheet.sheet-pop { transition: none; transform: none; } }
 .ref { font-family: var(--mono); font-size: 12px; color: var(--text); }
 .dialog-title .ref { font-size: 13.5px; }
 .sheet-rows { max-height: 146px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
@@ -1301,6 +1311,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .sheet-row-name { flex: 1; min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .sheet-row-value { flex: none; color: var(--text-3); }
 .sheet-row-value .warn { color: var(--warn); }
+.pr-merge .warn { color: var(--warn); }
 .sheet-row-name .muted { color: var(--text-3); }
 .sheet-row-path { margin-left: 12px; color: var(--text-3); }
 .sheet-strong { font-weight: 500; }
@@ -1430,6 +1441,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .toast > .icon { margin-top: 1px; }
 .toast.success > .icon { color: var(--green); }
 .toast.error > .icon { color: var(--red); }
+.toast.warn > .icon { color: var(--warn); }
 .toast-body { flex: 1; min-width: 0; }
 .toast-title { font-weight: var(--fw-strong); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
 .toast-detail { margin-top: 3px; font: 11.5px/1.5 var(--mono); color: var(--text-3); white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; user-select: text; }
@@ -1457,6 +1469,8 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .welcome { grid-column: 1 / -1; position: relative; display: flex; align-items: center; justify-content: center; height: 100vh; background: radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%), var(--bg); }
 .welcome-drag { position: absolute; inset: 0 0 auto 0; height: 44px; -webkit-app-region: drag; }
 .welcome-card { width: 480px; max-width: calc(100vw - 32px); text-align: center; }
+.welcome-card.not-repo h2 { margin: 0 0 14px; font-size: 15px; font-weight: var(--fw-strong); }
+.welcome-card.not-repo .welcome-actions { margin-top: 14px; }
 .welcome-card h1 { margin: 16px 0 4px; font-size: 26px; font-weight: var(--fw-strong); letter-spacing: -0.02em; }
 .logo { display: flex; justify-content: center; }
 .logo-mark { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--accent-text); background: var(--logo-bg); box-shadow: var(--logo-shadow); }

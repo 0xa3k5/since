@@ -286,3 +286,13 @@ test('remoteWhere: names the one remote, else "the remote"', async () => {
   assert.equal(remoteWhere(['origin/a', 'origin/b']), 'origin');
   assert.equal(remoteWhere(['origin/a', 'fork/b']), 'the remote');
 });
+
+test('the clean-up confirm names worktree-only items and leaves conflicts an abort removes out of the count', async () => {
+  const { cleanupWhat } = await import('../renderer/cleanup.js');
+  assert.equal(cleanupWhat([{ worktree: { path: '/w' } }]), '1 worktree');
+  assert.equal(cleanupWhat([{ branch: 'a' }, { branch: 'b' }]), '2 branches');
+  assert.equal(cleanupWhat([{ branch: 'a' }, { worktree: { path: '/w' } }]), '1 branch and 1 worktree');
+  const src = fs.readFileSync(path.join(__dirname, '../renderer/cleanup-view.js'), 'utf8');
+  assert.match(src, /dirty\(l\) - \(ops\[k\] \? conflicted\[k\] : 0\)/);
+  assert.match(src, /title: `Clean up \$\{cleanupWhat\(lanesToGo\)\}\?`/);
+});

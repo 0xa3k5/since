@@ -230,6 +230,20 @@ test('the branch open in this window can go when there is a branch to switch to 
   assert.equal(canRemove({ branch: 'g', worktree: { main: true } }, () => true), false);
 });
 
+test('menu items say what will happen to the branch open in this window (AK-598)', async () => {
+  const { removeLabel, mergeLabel } = await load();
+  const here = { branch: 'f', worktree: { current: true } };
+  const to = (b, base) => base || 'main';
+  assert.equal(removeLabel(here, to), 'Switch to main & Delete');
+  assert.equal(removeLabel({ ...here, changes: 3 }, to), 'Switch to main & Delete');
+  assert.equal(removeLabel(here, () => null), 'Delete Branch…');
+  assert.equal(removeLabel({ branch: 'g', changes: 2 }, to), 'Discard Branch…');
+  assert.equal(removeLabel({ branch: 'g' }), 'Delete Branch…');
+  assert.equal(mergeLabel(here, to, 'dev'), 'Switch to dev & Merge and Tidy…');
+  assert.equal(mergeLabel({ branch: 'g', worktree: { path: '/x' } }, to), 'Merge and Tidy…');
+  assert.equal(mergeLabel({ branch: 'main', isBase: true, worktree: { current: true } }, to), 'Merge and Tidy…');
+});
+
 test('actionWhy says why a row action doesn’t apply, null when it does (AK-582)', async () => {
   const { actionWhy } = await load();
   const f = lane('f');

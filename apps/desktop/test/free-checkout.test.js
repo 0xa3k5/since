@@ -174,3 +174,34 @@ test('in-use sheet: dirty, clean, open in another window', async () => {
   assert.deepEqual(inUsePlan(wt, { blocker: null, changes: 0 }), { kind: 'clean', where: '~/…/wt-dirty', actions: ['free', 'open'] });
   assert.deepEqual(inUsePlan(wt, { blocker: 'It’s open in another window.' }), { kind: 'blocked', where: '~/…/wt-dirty', why: 'It’s open in another window.', actions: ['open'] });
 });
+
+test('clean holder, my changes in the way: freeing refuses untouched; moving with my stash checks it out, one undo', async () => {
+  const { journal, dir, wt, here, there } = await repo();
+  fs.writeFileSync(path.join(wt, 'app.js'), 'feature\n');
+  await git.run(wt, ['commit', '-q', '-am', 'feature']);
+  fs.writeFileSync(path.join(dir, 'app.js'), 'mine\n');
+  await assert.rejects(journal.freeCheckout('Checkout feature', 'feature', wt), /overwritten/);
+  assert.equal(await here(), 'main');
+  assert.equal(await there(), 'feature');
+
+  await journal.moveCheckout('Checkout feature', 'feature', wt, { message: 'mine', untracked: true });
+  assert.equal(await here(), 'feature');
+  assert.equal(await there(), '');
+  assert.equal(read(dir, 'app.js'), 'feature\n');
+  assert.equal(await stashCount(dir), 1, 'my changes kept as a stash');
+
+  await journal.step('undo');
+  assert.equal(await here(), 'main');
+  assert.equal(await there(), 'feature');
+  assert.equal(read(dir, 'app.js'), 'mine\n');
+  assert.equal(await stashCount(dir), 0);
+});
+
+test('the clean-holder checkout stashes like a plain checkout; no leftover free label', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function freeCheckout('), src.indexOf('async function moveCheckout('));
+  assert.match(fn, /blockedCheckout\(/);
+  assert.match(fn, /act\(label, 'moveCheckout', \[branch, wt\.path, stash\]/);
+  assert.match(fn, /Took it from \$\{wt\.name\}\. \$\{changesText\(n\)\} stashed\./);
+  assert.doesNotMatch(src, /Free it & check out/);
+});

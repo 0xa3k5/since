@@ -126,3 +126,8 @@ export function summarize(lanes, remote = new Set(), { all = lanes, base = null 
 }
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// "2 branches", "1 worktree", "1 branch and 1 worktree": a lane without a branch is only a worktree.
+export function cleanupWhat(lanes) {
+  const b = lanes.filter((l) => l.branch).length;
+  return [b && plural(b, 'branch', 'branches'), lanes.length - b && plural(lanes.length - b, 'worktree')].filter(Boolean).join(' and ');
+}

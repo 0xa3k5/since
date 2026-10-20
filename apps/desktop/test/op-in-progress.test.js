@@ -226,3 +226,41 @@ test('resolved to HEAD’s version only: nothing to save, and it says so', async
   assert.equal(saved.sha, null);
   assert.equal(r.journal.undo.top.resolved, undefined);
 });
+
+test('merge and tidy that aborts a merge stopped here saves the resolved files, pinned (AK-601)', async () => {
+  const r = await repo();
+  await r.commit('b.js', 'base\n', 'b');
+  const wt = path.join(r.dir, '..', `${path.basename(r.dir)}-lane`);
+  await git.run(r.dir, ['worktree', 'add', '-q', '-b', 'lane', wt]);
+  await r.commit('c.js', 'lane\n', 'lane', wt);
+  await git.run(r.dir, ['checkout', '-q', '-b', 'feature']);
+  r.write('app.js', 'feature\n'); await git.run(r.dir, ['add', 'app.js']); await r.commit('b.js', 'feature\n', 'feature');
+  await git.run(r.dir, ['checkout', '-q', 'main']);
+  r.write('app.js', 'main\n'); await git.run(r.dir, ['add', 'app.js']); await r.commit('b.js', 'main\n', 'main');
+  await assert.rejects(git.run(r.dir, ['merge', '--no-edit', 'feature']));
+  r.write('app.js', 'resolved\n');
+  await git.run(r.dir, ['add', 'app.js']);
+
+  const res = await r.journal.runLane('Merge and tidy lane', 'mergeLane', (done) => git.mergeLane(r.dir, { branch: 'lane', base: 'main', message: 'Lane', abort: true }, done));
+  assert.equal(res.op, 'merge');
+  assert.deepEqual(res.saved.paths, ['app.js']);
+  assert.equal(r.journal.undo.top.resolved.sha, res.saved.sha, 'pinned with the step');
+  assert.equal(await git.getOperationState(r.journal.gitDir), null);
+  assert.equal(fs.readFileSync(path.join(r.dir, 'c.js'), 'utf8'), 'lane\n');
+});
+
+test('the banner’s Abort offers the saved files back, without an Undo (the abort is not a step)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const banner = src.slice(src.indexOf('function renderBanner('), src.indexOf('function renderBanner(') + 1500);
+  assert.match(banner, /act\(label, 'abortOp', \[\], \{ quiet: true, then: \(res\) => aborted\(label, res, \{ success: label, undoable: false \}\) \}\)/);
+  const fn = src.slice(src.indexOf('async function aborted('), src.indexOf('async function resolveOp('));
+  assert.match(fn, /opts\.undoable !== false && \{ label: 'Undo'/);
+  assert.match(fn, /Nothing to save\./);
+});
+
+test('every branch switch is a git method that gets the stopped-op toast (AK-577)', async () => {
+  const { SWITCHES } = await import('../renderer/resolve-text.js');
+  const { gitSchemas } = require('../ipc');
+  assert.ok(SWITCHES.has('checkout') && SWITCHES.has('moveCheckout'));
+  for (const m of SWITCHES) assert.ok(gitSchemas[m], `${m} is a git method`);
+});
