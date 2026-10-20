@@ -25,7 +25,7 @@ import { factsFor, peekFacts, peekEvidence } from './evidence-store.js';
 // Refreshes in place, keeping the selection. The conflict forecast runs after the list shows (git
 // merge-tree, main process) and re-sorts the list when it lands. With pull requests off the rows
 // come from local data alone, plus one line to turn them on: no `gh` calls.
-// Pull requests load once when a repo opens (prefetchReview, AK-382), then only when you press Reload (⇧R, the header button, ⌘K)
+// Pull requests load once when a repo opens (prefetchReview, AK-382), then only when you press Reload (⌘R, the header button, ⌘K)
 // or right after your own approve, close or merge. Opening Review, repo changes and window focus read local data only: no network.
 // The last PR load is kept in memory for the open repo (prCache), so coming back to Review shows it at once, with "Updated 4m ago" beside Reload.
 
@@ -668,7 +668,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   paneHost.addEventListener('focusin', () => renderHints());
   paneHost.addEventListener('focusout', () => setTimeout(() => { if (el.isConnected) renderHints(); }));
 
-  // Ready-to-merge PRs whose primary button is Merge: ⇧M merges them all after one confirmation.
+  // Ready-to-merge PRs whose primary button is Merge: Merge all ready (⌘K) merges them all after one confirmation.
   const readyPrs = () => (staged ? staged.stages.ready.filter((r) => r.pr && step(r) === 'merge').map((r) => r.pr) : []);
   // Reloads the inbox first so the confirmation doesn't list PRs whose checks or approval changed.
   async function mergeReady() {
@@ -778,7 +778,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     const rs = typing ? null : keymap.match('reader', e); // ←/→ step the list too (AK-381); in the filter they move the caret
     if (rs === 'reader.next' || rs === 'reader.prev') { move(rs === 'reader.next' ? 1 : -1); e.preventDefault(); e.stopPropagation(); return true; }
     const id = keymap.match('lanes', e);
-    if (!id || (typing && e.key.length === 1)) return false;
+    if (!id || (typing && e.key.length === 1 && id !== 'lanes.reload')) return false;
     const x = current();
     if (id === 'lanes.next') move(1);
     else if (id === 'lanes.prev') move(-1);
@@ -912,7 +912,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     render();
   }
   const fail = (e) => { loaded = true; render(); toast('Could not load Review', { kind: 'error', detail: e.message }); };
-  // Reload (button, ⇧R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub for its PRs
+  // Reload (button, ⌘R, ⌘K, the not-loaded line, Retry): the one way Review asks GitHub for its PRs
   // on its own (besides recheckStates, for merge states GitHub hadn't worked out yet).
   const reload = () => (reloading ? Promise.resolve() : fetchLanes({ prs: true }).catch(fail));
   // Keep the last PR load for the next visit to Review.

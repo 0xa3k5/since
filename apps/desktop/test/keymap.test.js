@@ -34,14 +34,13 @@ test('the window-wide keys do not collide with menu accelerators', async () => {
   for (const [k, id] of keysOf('global')) assert.ok(!menu.has(k), `${id} uses ${k}, which the menu gives to ${menu.get(k)}`);
 });
 
-test('every command has an id, label, known scope and parseable keys', async () => {
+test('every command has an id, label, known scope and parseable keys (or none: ⌘K and menu only)', async () => {
   const { COMMANDS, SCOPES, parse } = await load();
   const ids = new Set();
   for (const c of COMMANDS) {
     assert.ok(!ids.has(c.id), `duplicate id ${c.id}`);
     ids.add(c.id);
     assert.ok(c.label && SCOPES[c.scope], `${c.id}: missing label or unknown scope ${c.scope}`);
-    assert.ok(c.keys.length, `${c.id} has no keys`);
     for (const b of [...c.keys, ...[].concat(c.other ?? [])]) assert.doesNotThrow(() => parse(b), `${c.id}: ${b}`);
   }
 });
@@ -110,7 +109,10 @@ test('matches letters with Shift exactly, and other keys with or without it', as
 
 test('matches e.code bindings whatever character ⌥ or ⇧ types', async () => {
   const { match } = await load();
+  const { setOverrides } = await load();
+  setOverrides({ 'global.setup': ['Mod+Shift+Comma'] });
   assert.equal(match('global', ev('<', { code: 'Comma', metaKey: true, shiftKey: true })), 'global.setup');
+  setOverrides({});
   assert.equal(match('global', ev('«', { code: 'Backslash', metaKey: true, altKey: true })), 'global.detail');
   assert.equal(match('global', ev(',', { code: 'Comma', metaKey: true })), null);
 });
@@ -119,8 +121,9 @@ test('chords: G, then a view letter', async () => {
   const { match, chordStart } = await load();
   assert.equal(chordStart('menu', ev('g')), 'g');
   assert.equal(chordStart('menu', ev('m')), null);
-  assert.equal(match('menu', ev('c'), 'g'), 'view.commit');
-  assert.equal(match('menu', ev('h'), 'g'), 'view.snapshots');
+  assert.equal(match('menu', ev('r'), 'g'), 'view.reflog');
+  assert.equal(match('menu', ev('w'), 'g'), 'view.worktrees');
+  assert.equal(match('menu', ev('c'), 'g'), null, 'the ⌘-number views have no chord (AK-628)');
   assert.equal(match('menu', ev('x'), 'g'), null);
   assert.equal(match('menu', ev('c')), null);
 });
@@ -140,7 +143,8 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.deepEqual(keys('view.worktrees', { mac: true }), ['G', 'W']);
   assert.deepEqual(keys('commit.split', { mac: true }), ['⇧', 'S']);
   assert.deepEqual(keys('commit.drop', { mac: true }), ['⌫']);
-  assert.deepEqual(keys('global.setup', { mac: true }), ['⇧', '⌘', ',']);
+  assert.deepEqual(keys('global.setup', { mac: true }), []);
+  assert.equal(accelerator('view.config', true), undefined);
 });
 
 test('Mod+1…8 open the sidebar pages in their default order; the fold-out lists have chords (AK-491)', async () => {
@@ -148,8 +152,7 @@ test('Mod+1…8 open the sidebar pages in their default order; the fold-out list
   const { NAV_ITEMS, SECTION_PAGES } = await import('../renderer/sidebar.js');
   NAV_ITEMS.forEach((p, i) => assert.equal(defaults(`view.${p.view}`, true)[0], `Mod+${i + 1}`, `view.${p.view}`));
   for (const p of SECTION_PAGES) assert.ok(defaults(`view.${p.view}`, true).length, `${p.label} has a key`);
-  // Mod+9 stays Preferences → Repository (AK-458).
-  assert.equal(defaults('view.config', true)[0], 'Mod+9');
+  assert.deepEqual(defaults('view.config', true), [], 'Repository Settings is ⌘K and View menu only (AK-628)');
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {
@@ -225,9 +228,9 @@ test('conflicts: same scope, the always-on menu and global keys, and chord start
   assert.deepEqual(conflicts('commit.checkout', 'Mod+K', true), ['view.palette'], 'menu keys work in every view');
   assert.deepEqual(conflicts('commit.checkout', '/', true), ['global.search']);
   assert.deepEqual(conflicts('conflict.ours', 'd', true), [], 'other views don’t clash');
-  assert.ok(conflicts('commit.checkout', 'g', true).includes('view.commit'), 'G starts the view chords');
+  assert.ok(conflicts('commit.checkout', 'g', true).includes('view.reflog'), 'G starts the view chords');
   assert.deepEqual(conflicts('view.map', 'g d', true), [], 'a free chord');
-  assert.deepEqual(conflicts('repo.fetch', 'Mod+Alt+KeyO', true), ['file.repoSwitch'], 'key codes compare by key');
+  assert.deepEqual(conflicts('repo.fetch', 'Mod+Alt+KeyT', true), ['view.tags'], 'key codes compare by key');
 });
 
 test('refusal: reserved commands and keys, macOS keys, and menu keys without a modifier', async () => {
@@ -267,4 +270,19 @@ test('⌘B creates a branch anywhere, without taking the Map’s b or ⌘⇧B', 
   assert.notEqual(match('global', ev('B', { metaKey: true, shiftKey: true })), 'global.branch');
   assert.equal(match('map', ev('b')), 'commit.branch');
   assert.deepEqual(conflicts('global.branch', 'Mod+B', true), []);
+});
+
+// AK's pruned list (AK-560, AK-628): these keep their ⌘K entry, menu item and handler, but have no default keys.
+test('pruned commands have no default keys; the changed ones have their new keys', async () => {
+  const { COMMANDS, command, defaults } = await load();
+  const unbound = ['app.licence', 'file.repoSwitch', 'view.config', 'global.setup', 'global.prs', 'global.resetPanes',
+    'global.prHide', 'global.prRemote', 'commit.author', 'lanes.mergeReady', 'catchup.branch', 'cleanup.remote',
+    'prefs.moveUp', 'prefs.moveDown', 'prefs.unset'];
+  assert.deepEqual(COMMANDS.filter((c) => !c.keys.length).map((c) => c.id).sort(), [...unbound].sort());
+  for (const id of ['tour.squash', 'tour.rebase', 'tour.cherryPick']) assert.equal(command(id), undefined, id);
+  const now = {
+    'view.catchup': ['Mod+1'], 'view.submoduleList': ['Mod+8'], 'view.sidebar': ['Mod+S'], 'lanes.reload': ['Mod+R'],
+    'catchup.reload': ['Mod+R'], 'review.changes': ['q'], 'cleanup.all': ['Mod+a'], 'menu.next': ['ArrowDown'], 'menu.prev': ['ArrowUp'],
+  };
+  for (const [id, list] of Object.entries(now)) assert.deepEqual(defaults(id, true), list, id);
 });

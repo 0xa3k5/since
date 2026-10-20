@@ -23,7 +23,7 @@ import { authorsOf, messageAgent } from './review-rows.js';
 // the parts bottom first with read ticks, and each part opens its own reader.
 // The checkpoint lives in app data (main process) and only moves on Mark caught up, which Undo on
 // its toast puts back. Merged PRs and CI load once when a repo opens (prefetchCatchup, AK-382), then
-// only on Reload (⇧R) or after your own picks (since ⇧T; branch B, a menu with the default base first,
+// only on Reload (⌘R) or after your own picks (since ⇧T; the branch menu, a menu with the default base first,
 // then remote and local branches); opening the view, repo changes and window focus read
 // git alone. The last load is kept per repo (`cache`), so coming back shows it with "Updated 4m ago".
 // With PRs off it's git log alone.

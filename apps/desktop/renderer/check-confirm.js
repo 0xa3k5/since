@@ -1,7 +1,7 @@
 import { checkFailed, checkTally, duration } from './review-rows.js';
 
 // Merging with a failing check (AK-521): every merge path (Merge…, the row button and M, the
-// pane's Merge, ⇧M Merge all ready, Merge and tidy…) names the failing checks in its confirmation.
+// pane's Merge, Merge all ready, Merge and tidy…) names the failing checks in its confirmation.
 // It is a confirm, never a block: the button stays Merge and stays the default. Only when GitHub
 // itself blocks the merge (gate.soft) does the existing "Merge anyway" tick apply.
 
