@@ -5245,6 +5245,9 @@ async function closeRepo() {
   const name = state.repo?.name;
   cancelHistory();
   clearTimeout(sbHideTimer); // the sidebar's hover-close poll would hit the removed sidebar
+  // Review and Catch up stop their timers and focus reloads now; loads still running come back null.
+  catchupPage?.destroy(); catchupPage = null;
+  lanesPage?.destroy(); lanesPage = branchesPage = reviewPage = null;
   await api.app('close-repo');
   state.repo = null;
   sidebarEl = topbarEl = bannerEl = contentEl = null;

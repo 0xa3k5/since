@@ -91,6 +91,8 @@ class RepoSession {
     this.timer = null;
     this.busy = 0;
     this.graphChecked = false;
+    // Aborted when the repository closes: the loads still running stop their gh calls and return null.
+    this.closed = new AbortController();
     this.logs = new LogStreams(repo.root, { onEnd: (l) => { if (!l.fast && !l.opts.preview && !this.graphChecked) this.writeCommitGraph(); } });
     this.watch();
   }
@@ -141,6 +143,8 @@ class RepoSession {
   }
 
   dispose() {
+    this.closed.abort();
+    this.forecast?.abort();
     this.logs.dispose();
     clearTimeout(this.timer);
     for (const w of this.watchers) w.close();
@@ -651,13 +655,15 @@ handle('app:pr-remote', async (e, name) => {
   return prState(e);
 });
 handle('app:pr-list', okCall(async (e) => {
-  const root = session(e).repo.root;
+  const s = session(e);
+  const root = s.repo.root;
   // Checked before anything else, so nothing runs while it's off or hidden here.
   if (!(await prEnabled(root))) return null;
   const remotes = await prRemotes(root);
   // No GitHub remote: no PRs, quietly.
   if (!github.pickRemote(remotes)) return null;
-  return github.listPrs({ enabled: true, remotes });
+  const { signal } = s.closed;
+  return github.listPrs({ enabled: true, remotes, signal }).catch((err) => { if (signal.aborted) return null; throw err; });
 }));
 
 // Lanes overview: every local branch and worktree (git.lanes), with open PRs joined on by head
@@ -670,10 +676,11 @@ handle('app:lanes-list', async (e, opts) => {
   const base = opts?.base == null ? undefined : check.rev(opts.base, 'base');
   const withPrs = opts?.prs == null ? false : check.bool(opts.prs, 'prs');
   const withInbox = opts?.inbox == null ? false : check.bool(opts.inbox, 'inbox');
-  // The session from the start: a window that closes its repository while git or gh runs gets
-  // this answer (the page that asked is gone) instead of "No repository open in this window".
+  // Closing the repository cancels this load: its gh calls stop, nothing runs after them, and
+  // the page that asked (gone with the repository) gets null.
   const s = session(e);
   const root = s.repo.root;
+  const { signal } = s.closed;
   let listed = null;
   let prError = null;
   let inbox = null;
@@ -685,9 +692,9 @@ handle('app:lanes-list', async (e, opts) => {
       // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
       // lane badges; merged PRs only add the "shipped" check.
       const [l, i, m] = await Promise.allSettled([
-        github.listPrs({ enabled: true, remotes }),
-        withInbox ? github.inbox({ enabled: true, remotes }) : null,
-        github.mergedPrs({ enabled: true, remotes }),
+        github.listPrs({ enabled: true, remotes, signal }),
+        withInbox ? github.inbox({ enabled: true, remotes, signal }) : null,
+        github.mergedPrs({ enabled: true, remotes, signal }),
       ]);
       if (l.status === 'fulfilled') listed = l.value;
       else prError = serializeError(l.reason);
@@ -696,7 +703,9 @@ handle('app:lanes-list', async (e, opts) => {
       if (m.status === 'fulfilled') prHeads = m.value;
     }
   }
+  if (signal.aborted) return null;
   const { lanes, ...rest } = await git.lanes(root, { base, prHeads });
+  if (signal.aborted) return null;
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
   if (!withInbox) return { ...rest, lanes: joined, prError };
@@ -735,7 +744,9 @@ const tipOf = async (root) => {
   return r && { sha: r.baseSha, base: r.base, date: r.baseDate };
 };
 handle('app:catchup', async (e, opts) => {
-  const root = session(e).repo.root;
+  const s = session(e);
+  const root = s.repo.root;
+  const { signal } = s.closed; // closing the repository stops the gh calls (→ null)
   const { kind, tag, withPrs, base, isDefault, cp, since } = await catchupStore.catchupOptions(opts, {
     defaultRef: async () => (await git.laneBase(root))?.ref,
     checkpoint: () => catchupStore.checkpoint(catchupFile(), root),
@@ -750,7 +761,8 @@ handle('app:catchup', async (e, opts) => {
     if (github.pickRemote(remotes)) {
       const remote = remotes.find((r) => res.base.startsWith(`${r.name}/`));
       const branch = remote ? res.base.slice(remote.name.length + 1) : res.base;
-      const [m, c] = await Promise.allSettled([github.mergedPrs({ enabled: true, remotes }), github.baseCi({ enabled: true, remotes, branch })]);
+      const [m, c] = await Promise.allSettled([github.mergedPrs({ enabled: true, remotes, signal }), github.baseCi({ enabled: true, remotes, branch, signal })]);
+      if (signal.aborted) return null;
       if (m.status === 'fulfilled') merged = m.value; else prError = serializeError(m.reason);
       if (c.status === 'fulfilled') ci = c.value;
       // Merged stacks (AK-616): which merged PRs in range were parts of a GitHub stack. If that
@@ -758,7 +770,8 @@ handle('app:catchup', async (e, opts) => {
       const landed = new Set(res.commits.map((x) => x.sha));
       const numbers = (merged || []).filter((p) => p.merge && landed.has(p.merge)).map((p) => p.number);
       if (numbers.length) {
-        const facts = await github.mergedStacks({ enabled: true, remotes, numbers }).catch((err) => { console.warn('could not read merged stacks', err.message); return null; });
+        const facts = await github.mergedStacks({ enabled: true, remotes, numbers, signal }).catch((err) => { console.warn('could not read merged stacks', err.message); return null; });
+        if (signal.aborted) return null;
         merged = github.joinStacks(merged, facts);
       }
     }

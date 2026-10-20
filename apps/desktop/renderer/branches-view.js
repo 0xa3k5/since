@@ -273,7 +273,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   async function fetchLanes() {
     const t = loads.start(false);
     const res = await load({ prs: false });
-    if (!loads.lanes(t) || (loaded && !el.isConnected)) return;
+    if (!res || !loads.lanes(t) || (loaded && !el.isConnected)) return; // null: the repository closed
     base = res.base;
     lanes = sortLanes(withConflicts(keepPrs(res.lanes, prs()), conflicts));
     loaded = true;
@@ -290,7 +290,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
-  const fail = (e) => { loaded = true; panel.update(lanes, base); render(); if (el.isConnected) toast('Could not load branches', { kind: 'error', detail: e.message }); }; // a closed page's errors are old news
+  const fail = (e) => { loaded = true; panel.update(lanes, base); render(); toast('Could not load branches', { kind: 'error', detail: e.message }); };
 
   // Repo changes: debounced, local only; window focus recounts the other worktrees.
   function refresh() {

@@ -125,6 +125,22 @@ test('runCli keeps a UTF-8 character that is split across output chunks', async 
   assert.equal(await ai.runCli(p, [], 'x', { dirs: [dir, '/usr/bin', '/bin'] }), 'café\n');
 });
 
+test('runCli stops the CLI when its signal aborts, and never starts it once aborted', async () => {
+  const dir = tmp();
+  const mark = path.join(dir, 'ran');
+  const p = fakeCli(dir, 'gh', `touch "${mark}"; sleep 10`);
+  const ctrl = new AbortController();
+  const started = Date.now();
+  const run = ai.runCli(p, [], '', { dirs: [dir, '/usr/bin', '/bin'], signal: ctrl.signal });
+  setTimeout(() => ctrl.abort(), 200);
+  await assert.rejects(run, { name: 'AbortError' });
+  assert.ok(Date.now() - started < 5000);
+  fs.rmSync(mark, { force: true });
+  await assert.rejects(ai.runCli(p, [], '', { dirs: [dir, '/usr/bin', '/bin'], signal: ctrl.signal }), { name: 'AbortError' });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(fs.existsSync(mark), false);
+});
+
 test('PR draft prompt and split', () => {
   const ai = require('../ai');
   const p = ai.buildPrPrompt({ branch: 'feat/x', base: 'main', log: '- Add x\n', stat: ' a.js | 2 +\n', diff: '+x\n' });

@@ -84,6 +84,20 @@ test('listPrs: nothing runs while the toggle is off', async () => {
   assert.equal(calls.length, 0);
 });
 
+test('the Review and Catch up reads hand their signal to every gh call', async () => {
+  const { signal } = new AbortController();
+  const { calls, exec } = recorder((args) => (args[0] === 'api' && args.includes('user') ? 'kim' : '[]'));
+  // Its own host and repository, so the login and viewer this asks for stay out of the other tests' caches.
+  const opts = { enabled: true, remotes: [remote('origin', 'https://signal.example/acme/app')], dirs: [fakeGh()], exec, signal };
+  await github.listPrs(opts);
+  await github.mergedPrs(opts);
+  await github.inbox(opts);
+  await github.baseCi({ ...opts, branch: 'main' });
+  await github.mergedStacks({ ...opts, numbers: [1] }).catch(() => {});
+  assert.equal(calls.length, 7);
+  for (const c of calls) assert.equal(c.opts.signal, signal, c.args.join(' '));
+});
+
 test('listPrs: asks gh for this repository’s open PRs, without prompts', async () => {
   const dir = fakeGh();
   const { calls, exec } = recorder(JSON.stringify([PR()]));

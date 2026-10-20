@@ -63,17 +63,26 @@ test('recent.json: closing a repository removes it; others and the order stay', 
   }
 });
 
-test('closing a repository while Review or Branches loads shows no error toasts', () => {
+test('closing a repository cancels the Review, Branches and Catch up loads still running', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
-  // app:lanes-list looks the session up once, before git and gh run, never after an await.
   const main = read('main.js');
-  const start = main.indexOf("handle('app:lanes-list'");
-  const handler = main.slice(start, main.indexOf('\n});', start));
-  assert.equal(handler.match(/session\(e\)/g).length, 1);
-  assert.ok(handler.indexOf('session(e)') < handler.indexOf('await'));
-  // A page that is gone keeps its load errors to itself.
-  assert.match(read('renderer/lanes-view.js'), /if \(el\.isConnected\) toast\('Could not load Review'/);
-  assert.match(read('renderer/branches-view.js'), /if \(el\.isConnected\) toast\('Could not load branches'/);
+  const handler = (name) => { const start = main.indexOf(`handle('${name}'`); return main.slice(start, main.indexOf('\n}', start)); };
+  // The session's `closed` signal is aborted on dispose (close, reopen, window closed).
+  assert.match(main, /dispose\(\) \{\n\s+this\.closed\.abort\(\);/);
+  for (const name of ['app:lanes-list', 'app:catchup', 'app:pr-list']) {
+    const h = handler(name);
+    // One session lookup, before anything is awaited: no "No repository open in this window" later.
+    assert.equal(h.match(/session\(e\)/g).length, 1, name);
+    assert.ok(h.indexOf('session(e)') < h.indexOf('await'), name);
+    // Every gh call gets the signal; a cancelled load answers null instead of going on.
+    assert.equal(h.match(/github\.(listPrs|inbox|mergedPrs|baseCi|mergedStacks)\(/g).length, h.match(/github\.\w+\(\{[^}]*\bsignal\b/g).length, name);
+  }
+  assert.match(handler('app:lanes-list'), /if \(signal\.aborted\) return null;\n\s+const \{ lanes, \.\.\.rest \} = await git\.lanes/);
+  // The renderer stops Review and Catch up before it closes the repository.
+  const app = read('renderer/app.js');
+  const close = app.slice(app.indexOf('async function closeRepo'), app.indexOf("await api.app('close-repo')"));
+  assert.match(close, /lanesPage\?\.destroy\(\)/);
+  assert.match(close, /catchupPage\?\.destroy\(\)/);
 });
