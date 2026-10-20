@@ -78,6 +78,43 @@ test('Enter stages the selected lines, else the file', async ({ sandbox, launch 
   expect(sandbox.git(repo, 'diff', '--cached', '--', 'list.txt')).not.toContain('B');
 });
 
+test('multi-select files: ⇧-click, ⌘-click, Enter, ⌘A and Esc', async ({ sandbox, launch }) => {
+  const names = ['a', 'b', 'c', 'd', 'e'];
+  const repo = sandbox.linear('multi-select', names);
+  for (const n of names) sandbox.write(repo, `${n}.txt`, `${n}, edited\n`);
+  const app = await launch(repo);
+  await app.view('commit');
+  const row = (list, n) => app.page.locator(`.file-row[data-list="${list}"][data-path="${n}.txt"]`);
+  const selected = (list) => app.page.locator(`.file-row.selected[data-list="${list}"]`);
+  const cached = () => sandbox.git(repo, 'diff', '--cached', '--name-only');
+
+  await row('unstaged', 'a').click();
+  await row('unstaged', 'c').click({ modifiers: ['Shift'] });
+  await expect(selected('unstaged')).toHaveCount(3);
+  await row('unstaged', 'e').click({ modifiers: ['Meta'] });
+  await row('unstaged', 'b').click({ modifiers: ['Meta'] });
+  await expect(selected('unstaged')).toHaveCount(3);
+  await expect(selected('unstaged').nth(1)).toHaveAttribute('data-path', 'c.txt');
+  await app.page.keyboard.press('Enter');
+  await expect.poll(cached).toBe('a.txt\nc.txt\ne.txt');
+  await app.settle();
+
+  await row('staged', 'a').click();
+  await app.page.keyboard.press('Meta+a');
+  await expect(selected('staged')).toHaveCount(3);
+  await app.page.keyboard.press('Escape');
+  await expect(selected('staged')).toHaveCount(0);
+  await app.page.keyboard.press('Enter');
+  await expect.poll(cached).toBe('c.txt\ne.txt');
+  await app.settle();
+
+  await row('staged', 'c').click();
+  await app.page.keyboard.press('Meta+a');
+  await expect(selected('staged')).toHaveCount(2);
+  await app.page.keyboard.press('Enter');
+  await expect.poll(cached).toBe('');
+});
+
 test('reset hard from the command menu, then undo', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('reset', ['one', 'two']);
   sandbox.write(repo, 'one.txt', 'one, edited\n');
