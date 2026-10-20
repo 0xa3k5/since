@@ -3290,6 +3290,7 @@ function openLanes() {
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
+    onMarkReady: markPrReady,
     onGitTooOld: updateGit,
     gitWhy,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
@@ -3510,8 +3511,9 @@ function sendBackRow(row, ctx) {
   return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: prRemote(row.pr, ctx?.remote), call: (...a) => api.app(...a), git });
 }
 // Make chain a GitHub stack (⌘K, AK-556): the open PR chains on the inbox's bases; one that can be
-// linked opens the dialog (a pick list when there are several), else a toast says why not.
-async function makeChainStack() {
+// linked opens the dialog (a pick list when there are several), else a toast says why not. With
+// `number`, only the chain that PR is in (the selected stack, AK-609).
+async function makeChainStack(number = null) {
   const prs = lanesPage?.inboxPrs() || [];
   const remote = lanesPage?.inboxRemote();
   const branches = new Set(prs.map((p) => p.branch));
@@ -3523,7 +3525,7 @@ async function makeChainStack() {
     const res = await api.app('pr-chains', remote, base).catch((e) => ({ error: { message: e.message } }));
     if (res?.error) return toast('Couldn’t look for chains', { detail: res.error.message });
     extension ||= res.ok.extension;
-    for (const c of res.ok.chains) if (!c.native) found.push({ ...c, base });
+    for (const c of res.ok.chains) if (!c.native && (number == null || c.prs.includes(number))) found.push({ ...c, base });
   }
   const linkable = found.filter((c) => c.linkable);
   if (!linkable.length) return toast(found.length ? 'Can’t make it a GitHub stack' : 'No chain of pull requests to link', { detail: found[0]?.why || undefined });
@@ -3531,6 +3533,14 @@ async function makeChainStack() {
   const go = (c) => openStackLink({ chain: c, prs: by, base: c.base, remote, extension, call: (...a) => api.app(...a), onLinked: () => lanesPage?.reload() });
   if (linkable.length === 1) return go(linkable[0]);
   palette(() => linkable.map((c) => ({ group: 'Chains', label: `#${c.prs[0]} → #${c.prs[c.prs.length - 1]}`, detail: `${c.prs.length} pull requests onto ${c.base}`, icon: 'merge', run: () => go(c) })), { placeholder: 'Make which chain a GitHub stack…' });
+}
+
+// Mark a draft ready for review from a stack's head (AK-609); Review reloads to re-stage it.
+async function markPrReady(pr) {
+  const res = await prCall('pr-ready', pr, undefined, `Marking #${pr.number} ready for review…`);
+  if (res.error) return prError(`Couldn’t mark #${pr.number} ready`, res.error);
+  toast(`Marked #${pr.number} ready for review`, { kind: 'success' });
+  lanesPage?.reload();
 }
 
 function sendBackPr(number) {
@@ -4735,6 +4745,8 @@ function openPalette() {
     const stackSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stackSelection() : null;
     if (stackSel?.down) add('Review', `Select #${stackSel.down}, the pull request #${stackSel.number} is stacked on`, () => lanesPage.stackStep(-1), { icon: 'merge', kbd: keymap.keys('lanes.stackDown'), keywords: 'stack stacked base parent down previous pull request' });
     if (stackSel?.up) add('Review', `Select #${stackSel.up}, next up the stack`, () => lanesPage.stackStep(1), { icon: 'merge', kbd: keymap.keys('lanes.stackUp'), keywords: 'stack stacked child up next pull request' });
+    for (const a of (stackSel && lanesPage.stackActions()) || []) add('Review', a.label, a.run, { icon: 'merge', keywords: a.id === 'ready' ? 'stack draft ready for review mark ready' : 'stack merge stacked pull requests' });
+    if (stackSel && lanesPage.canPlan()) add('Review', `Make #${stackSel.number}’s stack a GitHub stack`, () => makeChainStack(stackSel.number), { icon: 'merge', keywords: 'gh stack link chain stacked pull requests series native' });
     const stuckSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.stuckSelection() : null;
     if (stuckSel) add('Review', `Fix prompt for ${stuckSel.pr ? `#${stuckSel.pr.number}` : stuckSel.title}…`, () => lanesPage.sendBack(stuckSel.pr?.number ?? null), { icon: 'copy', kbd: keymap.keys('lanes.sendBack'), keywords: 'fix prompt ai prompt copy prompt send back stuck agent conflict ci failing' });
     const paneSel = state.view === 'lanes' && lanesOpen() ? lanesPage?.paneSelection() : null;

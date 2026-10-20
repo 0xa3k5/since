@@ -895,7 +895,21 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
    down to the row below. The dot sits on top of it. Inside a stack, the divider starts under the title
    (AK-540), so the rail runs unbroken from the first dot to the last; the stack's last row keeps a full line. */
 .review-row.staged.stack-up, .review-row.staged.stack-down { position: relative; }
-.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: calc(var(--row-pad) + var(--row-dot) / 2 - 1px); width: 2px; background: var(--border-strong); pointer-events: none; }
+.review-row.staged.stack-up::before, .review-row.staged.stack-down::after { content: ''; position: absolute; left: calc(var(--row-pad) + var(--row-dot) / 2 - 0.75px); width: 1.5px; background: var(--rail, var(--border-strong)); pointer-events: none; }
+/* A status rail (AK-609): each part's stretch of the rail takes its own stage's colour. */
+.review-row.staged[data-stage="ready"] { --rail: color-mix(in srgb, var(--green) 60%, var(--border-strong)); }
+.review-row.staged[data-stage="stuck"] { --rail: color-mix(in srgb, var(--red) 60%, var(--border-strong)); }
+/* A stack's head (AK-609): one overline over its rows, lined up with their titles. Name · count and
+   status · text buttons. Not a row: never selected, no divider of its own. */
+.review-stack-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 10px 14px 3px calc(14px + 8px + 10px); font-size: 12px; color: var(--text-3); }
+.review-stack-name { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-weight: var(--fw-medium); }
+.review-stack-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.review-stack-head.stuck .review-stack-meta { color: var(--red); }
+.review-stack-acts { flex: none; display: inline-flex; gap: 12px; }
+.review-stack-act { padding: 0; border: 0; background: none; font: inherit; font-weight: var(--fw-medium); color: var(--text-2); cursor: pointer; border-radius: 3px; }
+.review-stack-act.primary { color: var(--accent-fg); }
+.review-stack-act:hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.review-stack-act:focus-visible { outline-offset: 2px; }
 .review-row.staged.stack-up::before { top: -1px; height: calc(50% + 1px); }
 .review-row.staged.stack-down::after { top: 50%; bottom: -1px; }
 .review-row.staged.stack-down { --row-inset: calc(var(--row-pad) + var(--row-dot) + var(--row-gap)); border-bottom-color: transparent; background-image: linear-gradient(var(--border), var(--border)); background-repeat: no-repeat; background-origin: border-box; background-position: right bottom; background-size: calc(100% - var(--row-inset)) 1px; }
