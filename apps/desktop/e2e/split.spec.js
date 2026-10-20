@@ -101,9 +101,11 @@ test('merge commits, and commits below a merge, cannot be split', async ({ sandb
   await expect(app.page.locator('.menu .menu-item', { hasText: 'Split Commit…' })).toBeDisabled();
   await app.page.keyboard.press('Escape');
 
+  // A commit below a merge on HEAD: the dead-ends guard (commit-guards.js) blocks the shortcut
+  // with a plain toast before the split sheet, so git's "merge commits between" check never runs.
   await app.selectRow('two changes');
   await app.page.keyboard.press('Shift+S');
-  await expect(app.page.locator('.toast.error', { hasText: 'Can’t split this commit' })).toContainText('merge commits between');
+  await expect(app.page.locator('.toast', { hasText: 'A merge commit is in the way' })).toBeVisible();
   await expect(app.page.locator('.crumb')).toHaveText('Map');
   expect(sandbox.sha(repo)).toBe(before);
 });
