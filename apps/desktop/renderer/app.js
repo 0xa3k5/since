@@ -6,7 +6,7 @@ import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
-import { opSentence } from './resolve-text.js';
+import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch } from './resolve-text.js';
 import * as keymap from './keymap.js';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { conflictEditor, CONFLICT_KEYS } from './conflict-view.js';
@@ -114,30 +114,39 @@ async function git(method, ...args) {
 }
 
 // Ref mutations git can refuse over uncommitted changes; act() then offers to stash and retry (stashAnd).
-const STASH_AND = new Set(['merge', 'pull', 'cherryPick', 'revert', 'setBranchTip']);
+const STASH_AND = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'setBranchTip']);
 
 // Git refuses these while a rebase, merge, cherry-pick or revert is stopped here; act() then offers
 // to continue it (or open its conflicts), or abort it and go on (abortAnd).
-const OP_BLOCKED = new Set(['merge', 'pull', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch']);
+const OP_BLOCKED = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch']);
 
 async function act(label, method, args = [], opts = {}) {
   const { busy, success, detail, undoable = true, quiet = false, then, actions } = opts;
   closeMenu();
+  closeStickyToast();
   if (state.opState && (OP_BLOCKED.has(method) || (method === 'mergeLane' && args[1] === state.head?.branch && !args[3]?.abort))) return resolveOp(label, method, args, opts);
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
     const res = await git(method, ...args, { __label: label });
     t?.close();
-    if (!quiet) {
+    // A continued "Rebase and push" offers the push instead of the generic toast.
+    const offer = method === 'continueOp' && pendingPush;
+    const done = () => {
+      if (quiet) return;
       const undoBtn = undoable ? { label: 'Undo', run: undo } : null;
       // A toast with a choice stays until it's dismissed or used.
       toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [...actions, undoBtn].filter(Boolean) } : { kind: 'success', detail, action: undoBtn });
-    }
+    };
+    if (!offer) done();
     await refreshAll();
+    if (offer && !offerPushAfterContinue()) done();
+    if (!state.opState) pendingPush = null;
     await then?.(res);
     return true;
   } catch (e) {
     t?.close();
+    const fixed = e.readOnly ? undefined : await offerFix(label, method, args, opts, e);
+    if (fixed !== undefined) return fixed;
     if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
       const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${label.split(' ')[0].toLowerCase()}` }] });
       if (v) return act(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
@@ -145,12 +154,42 @@ async function act(label, method, args = [], opts = {}) {
       await refreshAll();
       // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
       const n = state.opState ? state.status.conflicts.length : 0;
-      if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, { action: { label: 'Open conflicts', run: openConflicts } });
+      if (state.opState) rememberPush(method, args);
+      const skip = method === 'cherryPick' && state.opState === 'cherry-pick' ? { label: 'Skip', run: () => act('Skip cherry-pick', 'abortOp', [], { success: 'Skipped cherry-pick', undoable: false }) } : null;
+      if (n) toast(`${label} stopped on ${n} conflict${n > 1 ? 's' : ''}`, skip
+        ? { timeout: 0, actions: [{ label: 'Open conflicts', primary: true, run: openConflicts }, skip] }
+        : { action: { label: 'Open conflicts', run: openConflicts } });
       else toast(`${label} failed`, { kind: 'error', detail: e.message });
       return false;
     }
     await refreshAll();
     return false;
+  }
+}
+
+// A push, pull or cherry-pick git refused for a cause we know: offer the fix together with the
+// action, as one undo step. undefined: not one of those, act() reports it as before.
+async function offerFix(label, method, args, opts, err) {
+  const branch = state.head?.branch || '';
+  if (err.code === 'rejected' && method === 'push' && !args[0]?.force && !args[0]?.all) {
+    const d = await git('divergence', true).catch(() => null);
+    const v = await resolveSheet(d ? { title: `Push ${branch}`, ...divergeSheet(d, { push: true, age: ago }) } : {
+      title: `Push ${branch}`,
+      reason: `The remote has commits ${branch} doesn’t have. Force pushing drops them.`,
+      actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }, { id: 'force', label: 'Force push' }],
+    });
+    if (!v) return false;
+    if (v.id === 'force') return push(true);
+    return act(`Pull and push ${branch}`, 'pullAndPush', [v.id], { busy: `Pulling and pushing ${branch}…`, success: `Pulled and pushed ${branch}` });
+  }
+  if (err.code === 'diverged' && (method === 'pull' || method === 'pullAndPush') && !args[0]) {
+    const d = await git('divergence').catch(() => null);
+    const v = await resolveSheet(d ? { title: label, ...divergeSheet(d, { age: ago }) } : { title: label, reason: `${branch} and its upstream have both moved.`, actions: [{ id: 'rebase', label: 'Rebase' }, { id: 'merge', label: 'Merge' }] });
+    return v ? act(label, method, [v.id], opts) : false;
+  }
+  if (err.code === 'empty-pick' && method === 'cherryPick' && !args[1]) {
+    const v = await resolveSheet({ title: label, reason: `Its changes are already on ${branch || 'this branch'}.`, actions: [{ id: 'skip', label: 'Skip' }, { id: 'keep', label: 'Commit anyway' }] });
+    return v?.id === 'keep' ? act(label, method, [args[0], true], opts) : false;
   }
 }
 
@@ -192,8 +231,57 @@ async function resolveOp(label, method, args, opts) {
       : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
   }
   const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
-  if (ok && !state.opState) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
+  if (ok && !state.opState && !stickyToast) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: () => act(label, method, args, opts) }, { label: 'Undo', run: undo }] });
   return false;
+}
+
+// "Rebase and push" stopped on conflicts: once the operation is continued to the end, offer the push
+// it was on the way to. The toast stays until the next action (so does the one for ⌘Z while stopped).
+let pendingPush = null, stickyToast = null;
+function rememberPush(method, args) {
+  const branch = stoppedBranch(state.head, state.opInfo);
+  const upstream = state.refs.find((r) => r.kind === 'branch' && r.short === branch)?.upstream;
+  const intent = pushIntent(method, args, branch, upstream);
+  if (intent) pendingPush = { ...intent, root: state.repo?.root };
+}
+function closeStickyToast() { stickyToast?.close(); stickyToast = null; }
+function offerPushAfterContinue() {
+  if (pendingPush && pendingPush.root !== state.repo?.root) pendingPush = null;
+  const t = pushAfterContinue(pendingPush, { opState: state.opState, branch: state.head?.branch });
+  if (!state.opState) pendingPush = null;
+  if (!t) return false;
+  stickyToast = toast(t.message, { kind: 'success', timeout: 0, actions: [{ label: t.push, primary: true, run: () => push() }, { label: 'Undo', run: undo }] });
+  return true;
+}
+
+// ⌘Z / ⇧⌘Z while a rebase, merge, cherry-pick or revert is stopped: flash its banner and say so, with
+// its conflicts or aborting it (confirmed: can't be undone) and then taking the step. true: handled here.
+function flashBanner() {
+  const b = bannerEl?.querySelector('.banner');
+  if (!b) return;
+  b.classList.remove('flash');
+  void b.offsetWidth;
+  b.classList.add('flash');
+}
+function stepWhileStopped(dir) {
+  const op = state.opState;
+  if (!op) return false;
+  flashBanner();
+  const t = stoppedStepToast(dir, op, state.opInfo, state.status.conflicts.length);
+  const run = { open: openConflicts, continue: () => act(`Continue ${op}`, 'continueOp'), abort: () => abortThenStep(dir, op) };
+  stickyToast = toast(t.message, { kind: 'info', detail: t.detail, timeout: 0, actions: t.actions.map((a, i) => ({ label: a.label, primary: i === 0, run: run[a.id] })) });
+  return true;
+}
+async function abortThenStep(dir, op) {
+  if (!(await confirm(`Abort ${op}?`, "Aborting can't be undone.", { submit: 'Abort' }))) return;
+  try { await git('abortOp'); } catch (e) {
+    if (!e.readOnly) toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
+    await refreshAll();
+    return;
+  }
+  pendingPush = null;
+  await refreshAll();
+  await (dir === 'undo' ? undo : redo)();
 }
 
 async function quiet(method, ...args) {
@@ -206,6 +294,8 @@ async function quiet(method, ...args) {
 const stepOpts = (o) => (o?.stash ? { stash: true } : o?.discard ? { discard: true } : null);
 async function undo(opts) {
   opts = stepOpts(opts);
+  closeStickyToast();
+  if (!opts && stepWhileStopped('undo')) return;
   try {
     const label = await git('undo', ...(opts ? [opts] : []));
     toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
@@ -236,6 +326,8 @@ const baseName = (p) => p.split('/').pop();
 
 async function redo(opts) {
   opts = stepOpts(opts);
+  closeStickyToast();
+  if (!opts && stepWhileStopped('redo')) return;
   try {
     const label = await git('redo', ...(opts ? [opts] : []));
     toast(label ? `Redid “${label}”` : 'Nothing to redo');
@@ -1907,11 +1999,14 @@ async function inUseSheet(branch, wt) {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   const mine = switchChanges();
   const p = inUsePlan(wt, hold, mine);
-  const name = h('span', { title: wt.path }, wt.name);
+  const status = p.kind === 'dirty' ? p.changes : p.kind === 'clean' ? 'clean' : wt.missing ? 'missing' : p.why;
   const v = await resolveSheet({
     title: ['Check out ', ref(branch)],
-    reason: p.kind === 'blocked' ? ['Checked out in ', name, `. ${p.why}`] : p.kind === 'clean' ? ['Checked out in ', name, '.'] : [ref(branch), ' is in use by the worktree ', name, '.'],
-    detail: p.kind === 'dirty' ? [{ text: `${wt.name} · ${p.where} · ${p.changes}`, kind: 'warn' }, p.changed && { text: p.changed, kind: 'muted' }] : null,
+    reason: [ref(branch), ' is in use by the worktree ', h('span.sheet-strong', null, wt.name), '.'],
+    rows: [
+      [[wt.name, h('span.sheet-row-path', null, p.where)], h(status === 'clean' ? 'span' : 'span.warn', null, status)],
+      p.changed && [h('span.muted', null, p.changed), ''],
+    ].filter(Boolean),
     checkbox: p.stash ? { label: p.stash, checked: true } : null,
     actions: p.actions.map((id) => ({ free: { id, label: 'Free it & check out' }, move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
   });
@@ -2387,10 +2482,16 @@ function createCommitView(container) {
   }
 
   async function discardInSubmodule(p) {
-    const n = await git('submoduleChanges', p).catch(() => null);
+    const ch = await git('submoduleChanges', p).catch(() => null);
+    const n = ch?.count || 0;
+    const name = baseName(p);
+    const rows = ch ? ch.files.map((f) => [h('span.sheet-sha', null, f.status), f.path]) : [];
+    if (n > rows.length) rows.push([`+${n - rows.length} more`, '']);
+    if (ch?.head) rows.push([h('span.muted', null, `${ch.head.branch ? `on ${ch.head.branch}` : 'detached'} · ${ch.head.sha.slice(0, 7)}`), '']);
     const v = await resolveSheet({
-      title: `Discard changes in ${p}`,
-      reason: n ? `${n} uncommitted change${n === 1 ? '' : 's'} inside the submodule.` : null,
+      title: name === p ? `Discard changes in ${name}` : [`Discard changes in ${name} `, h('span.muted', null, p)],
+      reason: n ? `${n} uncommitted change${n === 1 ? '' : 's'} inside this submodule.` : null,
+      rows,
       actions: [{ id: 'stash', label: 'Stash in submodule' }, { id: 'discard', label: 'Discard in submodule', danger: true }],
     });
     if (!v) return;

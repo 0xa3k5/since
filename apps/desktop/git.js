@@ -40,6 +40,63 @@ function signingError(stderr) {
   return `Couldn't sign the commit. Unlock your GPG key, or add your SSH signing key to ssh-agent (ssh-add), then try again.${detail ? `\n${detail}` : ''}`;
 }
 
+// Push, pull and fetch failures we can offer a fix for, from git's output: 'rejected' (the remote
+// has commits this branch doesn't), 'diverged' (pull needs a rebase or merge) or 'auth' (message cut
+// to git's one line about it). Anything else keeps git's output.
+const AUTH_FAIL = /Authentication failed|could not read (?:Username|Password)|terminal prompts disabled|Permission denied \(publickey|Invalid username or (?:password|token)|The requested URL returned error: 40[13]/i;
+function remoteFailure(err) {
+  const text = `${err.stderr || ''}\n${err.message}`;
+  if (/\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/.test(text)) err.code = 'rejected';
+  else if (/divergent branches|Need to specify how to reconcile/i.test(text)) err.code = 'diverged';
+  else if (AUTH_FAIL.test(text)) {
+    err.code = 'auth';
+    err.message = text.split('\n').map((l) => l.replace(/^(?:remote: |fatal: |error: )+/, '').trim()).find((l) => AUTH_FAIL.test(l)) || err.message;
+  }
+  return err;
+}
+
+// Pull the current branch; `mode` 'rebase' or 'merge' settles diverged branches.
+const pull = (cwd, mode) => run(cwd, ['pull', '--no-edit', ...(mode === 'rebase' ? ['--rebase'] : mode === 'merge' ? ['--no-rebase'] : [])]);
+
+// The facts behind a diverged pull or a rejected push (AK-585): the commits only on the upstream
+// (`theirs`) and only here (`ours`), up to `max` of each with their counts; `conflicts`: files a merge
+// would conflict on ([] clean, null when merge-tree can't tell); `shared`: some of ours are on a
+// remote already, so rebasing them would rewrite pushed commits. null without an upstream. `fetch`:
+// fetch the upstream's remote first.
+async function divergence(cwd, { fetch = false, max = 5 } = {}) {
+  const up = (await run(cwd, ['rev-parse', '-q', '--verify', '--symbolic-full-name', '@{u}'], { allowCodes: [0, 1, 128] }).catch(() => '')).trim();
+  if (!up) return null;
+  // A rejected push: the remote has commits this clone hasn't fetched yet.
+  if (fetch) await run(cwd, ['fetch', '-q', up.split('/')[2]]).catch(() => {});
+  const branch = (await run(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowCodes: [0, 1] })).trim();
+  const [theirsN, oursN] = (await run(cwd, ['rev-list', '--left-right', '--count', `${up}...HEAD`])).trim().split(/\s+/).map(Number);
+  const list = async (range) => (await run(cwd, ['log', '-z', `-n${max}`, '--format=%H%x1f%s%x1f%an%x1f%ct', range, '--'])).split('\0').filter(Boolean)
+    .map((l) => { const [sha, subject, author, t] = l.replace(/^\n/, '').split('\x1f'); return { sha, subject, author, date: Number(t) * 1000 }; });
+  const [theirs, ours, unpushed] = await Promise.all([
+    list(`HEAD..${up}`), list(`${up}..HEAD`),
+    run(cwd, ['rev-list', '--count', `${up}..HEAD`, '--not', '--remotes']).then((o) => Number(o.trim()), () => oursN),
+  ]);
+  let conflicts = null;
+  if (theirsN && oursN && await canForecast(cwd)) {
+    const [a, b] = (await run(cwd, ['rev-parse', 'HEAD', up])).trim().split('\n');
+    conflicts = await mergeConflicts(cwd, a, b);
+  }
+  return { branch, upstream: up.replace(/^refs\/remotes\//, ''), theirs, theirsCount: theirsN, ours, oursCount: oursN, conflicts, shared: unpushed < oursN };
+}
+
+// Cherry-pick one commit. One whose changes are already here stops git half-way; leave nothing
+// in progress and say so ('empty-pick'). `keepEmpty` commits it anyway.
+async function cherryPick(cwd, sha, keepEmpty) {
+  if (keepEmpty) return run(cwd, ['cherry-pick', '--allow-empty', '--keep-redundant-commits', sha]);
+  try {
+    return await run(cwd, ['cherry-pick', sha]);
+  } catch (err) {
+    if (!/is now empty|nothing to commit/.test(`${err.stderr || ''}\n${err.message}`) || (await getStatus(cwd)).conflicts?.length) throw err;
+    await run(cwd, ['cherry-pick', '--abort']).catch(() => {});
+    throw new GitError('Its changes are already on this branch.', { code: 'empty-pick' });
+  }
+}
+
 function run(cwd, args, { input, env, allowCodes = [0], maxBuffer = 512 * 1024 * 1024, encoding = 'utf8' } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -603,9 +660,13 @@ async function restoreDiscardedSubmodule(cwd, p, sha) {
 }
 
 // How many files have uncommitted changes in submodule `p`.
-async function submoduleChanges(cwd, p) {
+// The uncommitted changes inside submodule `p`: { count, files: [{ status, path }] (first `max`),
+// head: { sha, branch } }, for the Discard sheet.
+async function submoduleChanges(cwd, p, max = 5) {
   const out = await run(path.join(cwd, p), ['status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']);
-  return out.split('\0').filter(Boolean).length;
+  const lines = out.split('\0').filter(Boolean);
+  const files = lines.slice(0, max).map((l) => ({ status: l.startsWith('??') ? '?' : (l[0] !== ' ' ? l[0] : l[1]), path: l.slice(3) }));
+  return { count: lines.length, files, head: await submoduleHead(cwd, p) };
 }
 
 const sameHead = (a, b) => (a?.sha || null) === (b?.sha || null) && (a?.branch || null) === (b?.branch || null);
@@ -3042,7 +3103,7 @@ module.exports = {
   saveResolved, restoreResolved, resolvedPaths,
   clearBaseSquashCache: () => baseSquash.clear(),
   landed,
-  GitError, run, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
+  GitError, run, remoteFailure, pull, divergence, cherryPick, openRepo, initRepo, cloneRepo, getRefs, getLog, parseCoAuthors, streamLog, getLogDetails, hasCommitGraph, writeCommitGraph, getCommit, commitFileDiff, commitDiffs, compareDiff, branchReview,
   getStatus, getOperationState, getOperationInfo, worktreeOp, workingDiff, parseLfsPointer, parseLfsPatterns, getLfs, markLfs, parseGitmodules, getSubmodules, updateSubmodules, stashSubmodule, popSubmoduleStash, discardSubmodule, restoreDiscardedSubmodule, submoduleChanges, submoduleHead, restoreSubmodules, parseDiff, buildPartialPatch, applyPatch,
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
