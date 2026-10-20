@@ -1352,8 +1352,29 @@ handle('app:open', async (e, dir) => {
     }
     return { ok: await bindRepo(win, dir) };
   } catch (err) {
+    if (err.code === 'not-repo') return { notRepo: await notRepo(e.sender.id, dir) };
     return { error: serializeError(err) };
   }
+});
+
+// The last folder each window was asked to open that isn't a repository: the only folder
+// app:init-here will run `git init` in.
+const notRepoDirs = new Map();
+async function notRepo(id, dir) {
+  notRepoDirs.set(id, dir);
+  const repos = await git.findRepos(dir);
+  return { dir, name: path.basename(dir), repos: repos.map((r) => ({ root: r.root, name: r.name, commonDir: r.commonDir, main: r.main })) };
+}
+
+handle('app:init-here', async (e, dir) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  try {
+    check.absDir(dir);
+    if (notRepoDirs.get(e.sender.id) !== dir) throw new Error('That folder wasn’t offered for a new repository.');
+    notRepoDirs.delete(e.sender.id);
+    await git.initRepo(dir);
+    return { ok: await bindRepo(win, dir) };
+  } catch (err) { return { error: serializeError(err) }; }
 });
 
 handle('app:init', async (e) => {
