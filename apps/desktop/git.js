@@ -1749,7 +1749,9 @@ async function conflictStages(cwd, p) {
 
 // A side that deleted the file has no stage; choosing it removes the file.
 async function chooseSide(cwd, p, side) {
-  if (!(await conflictStages(cwd, p))[side === 'ours' ? 2 : 3]) {
+  const stages = await conflictStages(cwd, p);
+  if (!Object.keys(stages).length) throw new GitError(`${p} has no conflict to resolve.`);
+  if (!stages[side === 'ours' ? 2 : 3]) {
     await run(cwd, ['rm', '-q', '-f', '--', p], { env: W_ENV });
     return;
   }
@@ -1759,7 +1761,7 @@ async function chooseSide(cwd, p, side) {
 
 // Built-in conflict editor. The editor works on the conflict markers in the working
 // file, so every operation that leaves them (merge, rebase, cherry-pick, revert, stash
-// apply) works the same. Binary, missing or very large files can only take a whole side.
+// apply) works the same. Binary, missing, very large or non-UTF-8 files can only take a whole side.
 const CONFLICT_TEXT_MAX = 2 * 1024 * 1024;
 async function getConflict(cwd, p) {
   const stages = await conflictStages(cwd, p);
@@ -1769,7 +1771,10 @@ async function getConflict(cwd, p) {
   const data = await fs.promises.readFile(path.join(cwd, p));
   if (data.subarray(0, 8000).includes(0)) return { path: p, ...sides, kind: 'binary', text: null };
   if (data.length > CONFLICT_TEXT_MAX) return { path: p, ...sides, kind: 'large', text: null };
-  return { path: p, ...sides, kind: 'text', text: data.toString('utf8') };
+  const text = data.toString('utf8');
+  // Not UTF-8 (Latin-1, Shift-JIS…): editing would re-encode it, so it takes a whole side.
+  if (!Buffer.from(text, 'utf8').equals(data)) return { path: p, ...sides, kind: 'encoding', text: null };
+  return { path: p, ...sides, kind: 'text', text };
 }
 
 // Writes the edited result and stages it, which marks the path resolved.

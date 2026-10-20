@@ -60,3 +60,6 @@ export function composeResult(segs, choices = []) {
 }
 
 export const hasMarkers = (text) => parseConflicts(text).some((s) => s.type === 'conflict');
+
+// A textarea turns \r\n into \n; put CRLF back when the conflicted file used it.
+export const keepLineEndings = (source, text) => (source?.includes('\r\n') && !text.includes('\r') ? text.replace(/\n/g, '\r\n') : text);
