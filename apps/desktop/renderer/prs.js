@@ -61,7 +61,7 @@ export function prActionRemote(pr, prs, fallback = null) {
   return pr?.remote || fallback || prs?.data?.remote?.name || prs?.remote?.name || null;
 }
 
-export const NO_GITHUB_REMOTE = { code: 'no-remote', message: 'This repository has no GitHub remote. Add one (for example origin pointing at github.com), then try again.' };
+export const NO_GITHUB_REMOTE = { code: 'no-remote', message: 'This repository has no GitHub remote.' };
 
 // Runs a pull request action through `call` (api.app) with the resolved remote. Without one it
 // doesn't call at all and returns a readable error instead of the IPC guard's.
@@ -69,4 +69,13 @@ export async function prActionCall(call, channel, pr, opts, { prs = null, remote
   const name = prActionRemote(pr, prs, remote);
   if (!name) return { error: NO_GITHUB_REMOTE };
   return call(channel, name, pr.number, opts).catch((e) => ({ error: { message: e.message } }));
+}
+
+// Why you can't approve a pull request (AK-577), or null. `viewer` is the PR list's { login, write }
+// (github.js viewerFacts); without it nothing is greyed and GitHub has the last word.
+export function approveWhy(pr, viewer) {
+  if (!pr || !viewer?.login) return null;
+  if (pr.author && pr.author.toLowerCase() === viewer.login.toLowerCase()) return 'Your own pull request';
+  if (viewer.write === false) return 'Needs write access';
+  return null;
 }

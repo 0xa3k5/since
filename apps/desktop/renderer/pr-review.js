@@ -3,6 +3,8 @@
 // so the diff is a local git diff against the base's remote-tracking branch, and the per-file
 // ticks work as they do for a lane, keyed `pr:<number>`.
 
+import { approveWhy } from './prs.js';
+
 // The page's actions, with their key ids (keymap.js `review` scope). Approve, request changes,
 // merge and close happen on GitHub and can't be undone; checking out is a journaled lane.
 export const PR_ACTIONS = [
@@ -65,8 +67,9 @@ export const PANE_ACTIONS = [
 // primary step (review-rows.js primaryAction): merge when it's ready, approve when your review is
 // asked for. A PR gets them all; a local branch (PR features off, or no PR) gets merge and tidy
 // plus open; the base branch only open. Returns { actions: [{ ...PANE_ACTIONS entry, label }], primary }.
-export function paneActions(row, step) {
+export function paneActions(row, step, { viewer = null } = {}) {
   const { pr, lane } = row;
+  const noApprove = approveWhy(pr, viewer);
   const branch = Boolean(lane?.branch && !lane.isBase);
   const label = (a) => {
     if (a.id === 'merge' && !pr) return 'Merge and tidy…';
@@ -76,10 +79,12 @@ export function paneActions(row, step) {
   };
   const ids = pr ? ['merge', 'approve', 'close', 'checkout', ...(pr.url ? ['github'] : [])]
     : [...(branch ? ['merge'] : []), ...(lane ? ['checkout'] : [])];
-  const actions = PANE_ACTIONS.filter((a) => ids.includes(a.id)).map((a) => ({ ...a, label: label(a), remote: Boolean(a.remote && pr) }));
+  const actions = PANE_ACTIONS.filter((a) => ids.includes(a.id)).map((a) => ({ ...a, label: label(a), remote: Boolean(a.remote && pr),
+    // Greyed with its reason (AK-577): clicking or its key says why instead of GitHub's error.
+    ...(a.id === 'approve' && noApprove ? { gated: true, note: noApprove } : {}) }));
   let primary = null;
   if (step === 'merge' && ids.includes('merge')) primary = 'merge';
-  else if (step === 'review' && pr) primary = 'approve';
+  else if (step === 'review' && pr && !noApprove) primary = 'approve';
   else if (step === 'sendBack') primary = 'sendBack';
   else if (pr && !lane) primary = 'checkout';
   return { actions, primary };

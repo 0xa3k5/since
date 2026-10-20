@@ -88,13 +88,33 @@ test('listPrs: asks gh for this repository’s open PRs, without prompts', async
   const dir = fakeGh();
   const { calls, exec } = recorder(JSON.stringify([PR()]));
   const res = await github.listPrs({ enabled: true, remotes: [remote('fork', 'https://github.com/kim/app'), ORIGIN], dirs: [dir], exec });
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2); // the PRs, then who you are (unreadable here: no viewer)
+  assert.equal(res.viewer, null);
   assert.equal(calls[0].bin, path.join(dir, 'gh'));
   assert.deepEqual(calls[0].args, ['pr', 'list', '--repo', 'github.com/acme/app', '--state', 'open', '--limit', '100', '--json', github.PR_FIELDS.join(',')]);
   assert.equal(calls[0].opts.env.GH_PROMPT_DISABLED, '1');
   assert.equal(res.remote.name, 'origin');
   assert.deepEqual(res.owners, { fork: 'kim', origin: 'acme' });
   assert.equal(res.prs[0].number, 12);
+});
+
+test('listPrs: who you are on the repository, once per session; a failed lookup greys nothing (AK-577)', async () => {
+  const me = (perm) => JSON.stringify({ data: { viewer: { login: 'ana' }, repository: { viewerPermission: perm } } });
+  const { calls, exec } = recorder((args) => (args[0] === 'api' ? me('READ') : JSON.stringify([PR()])));
+  const remotes = [remote('origin', 'git@github.com:viewer-co/app.git')];
+  const res = await github.listPrs({ enabled: true, remotes, dirs: [fakeGh()], exec });
+  assert.deepEqual(res.viewer, { login: 'ana', write: false });
+  assert.deepEqual(calls[1].args.slice(0, 4), ['api', '--hostname', 'github.com', 'graphql']);
+  assert.ok(calls[1].args.includes('owner=viewer-co') && calls[1].args.includes('name=app'));
+  await github.listPrs({ enabled: true, remotes, dirs: [fakeGh()], exec });
+  assert.equal(calls.length, 3); // remembered: only the PR list again
+  assert.deepEqual(github.parseViewer(me('MAINTAIN')), { login: 'ana', write: true });
+  assert.equal(github.parseViewer('nope'), null);
+  assert.equal(github.parseViewer(JSON.stringify({ data: { viewer: { login: 'a b' }, repository: { viewerPermission: 'WRITE' } } })), null);
+  const failing = async (bin, args) => { if (args[0] === 'api') throw new Error('HTTP 403'); return JSON.stringify([PR()]); };
+  const off = await github.listPrs({ enabled: true, remotes: [remote('origin', 'git@github.com:viewer-co/other.git')], dirs: [fakeGh()], exec: failing });
+  assert.equal(off.viewer, null);
+  assert.equal(off.prs.length, 1);
 });
 
 test('listPrs / detect: missing gh, logged out and other errors', async () => {
@@ -645,4 +665,12 @@ test('markReady and rerunFailed: gh arguments, Actions runs only (AK-550)', asyn
   assert.deepEqual(res, { number: 7, runs: ['9'] });
   assert.deepEqual(r.calls[1].args, ['run', 'rerun', '9', '--repo', 'github.com/acme/app', '--failed']);
   for (const fn of ['planFacts', 'markReady', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
+});
+
+test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your own (AK-577)', async () => {
+  const { approveWhy } = await import('../renderer/prs.js');
+  const [lane] = github.joinLanes([{ name: 'f', branch: 'f' }], { owners: {}, prs: [{ number: 4, title: 'Mine', branch: 'f', author: '0xa3k5' }] });
+  assert.equal(lane.pr.author, '0xa3k5');
+  assert.equal(approveWhy(lane.pr, { login: '0xA3K5', write: true }), 'Your own pull request');
+  assert.equal(approveWhy(lane.pr, { login: 'someone', write: true }), null);
 });

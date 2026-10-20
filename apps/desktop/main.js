@@ -607,6 +607,17 @@ handle('app:pr-detect', okCall(async (e) => {
   const s = sessions.get(e.sender.id);
   return github.detect({ remotes: s ? await prRemotes(s.repo.root) : null });
 }));
+// gh is logged out (AK-588): Terminal opens running `gh auth login` for this repo's GitHub host
+// (github.com without a repo). No arguments from the renderer: the host comes from the remote.
+handle('app:gh-login', okCall(async (e) => {
+  const s = sessions.get(e.sender.id);
+  const remote = s ? github.pickRemote(await prRemotes(s.repo.root)) : null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-'));
+  const file = path.join(dir, 'gh-login.command');
+  fs.writeFileSync(file, github.loginScript(remote ? remote.host : 'github.com'), { mode: 0o700 });
+  spawn('open', ['-a', 'Terminal', file], { detached: true });
+  return true;
+}));
 handle('app:pr-enable', async (e, on) => {
   const v = check.bool(on, 'pull requests on');
   await prSettings();
@@ -678,7 +689,7 @@ handle('app:lanes-list', async (e, opts) => {
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
   if (!withInbox) return { ...rest, lanes: joined, prError };
-  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, inbox, inboxError };
+  return { ...rest, lanes: joined, prError, prs: listed?.prs || null, remote: listed?.remote.name || null, viewer: listed?.viewer || null, inbox, inboxError };
 });
 
 // Conflict forecast for the lanes app:lanes-list last returned in this window (git-only, no

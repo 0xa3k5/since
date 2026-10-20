@@ -15,7 +15,7 @@
 //
 // AK-556: a stack row is tagged Chain or GitHub stack. In Pick, a chain that can be linked offers
 // Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
-import { h, icon, kbd, toast, contextMenu, tipFor } from './ui.js';
+import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from './ui.js';
 import * as keymap from './keymap.js';
 import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, stackName, cleanTitle } from './merge-plan.js';
 import { buildPrompt } from './send-back.js';
@@ -604,9 +604,10 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
       const arg = step.stack
         ? { baseSha, method, cleanup, stack: prs.map((x) => ({ number: x, snap: plan.snapshots[x] })) }
         : { baseSha, method, cleanup, snap: plan.snapshots[n] };
-      const res = baseSha
-        ? await call('merge-plan-merge', remote, base, n, arg).catch((e) => ({ error: { message: e.message } }))
-        : { ok: { stop: `couldn’t confirm where ${base} is after the last merge` } };
+      const merge = () => call('merge-plan-merge', remote, base, n, arg).catch((e) => ({ error: { message: e.message } }));
+      let res = baseSha ? await merge() : { ok: { stop: `couldn’t confirm where ${base} is after the last merge` } };
+      // No gh-stack extension (AK-588): install it, then merge the same stack.
+      if (res?.error?.code === 'gh-no-stack' && (await installStack())) res = await merge();
       if (res?.error || res.ok.stop) {
         status.set(key, { text: res.error ? 'Not merged' : 'Not merged: stopped', kind: 'warn' });
         stopReason = res.error ? `${step.stack ? `The stack #${prs[0]} → #${n}` : `#${n}`} failed: ${res.error.message}` : res.ok.stop;
@@ -629,6 +630,15 @@ export function openMergePlan({ ready, others = [], known = [], base, remote, me
     if (phase === 'merging') { phase = 'done'; toast(`Merged ${merged} in order`, { kind: 'success' }); }
     render();
     primary.focus();
+  }
+
+  async function installStack() {
+    const v = await resolveSheet({ title: 'Merge the stack', reason: 'GitHub CLI’s stack extension isn’t installed.', actions: [{ id: 'install', label: 'Install and merge' }] });
+    if (!v) return false;
+    const res = await call('pr-stack-install', remote).catch((e) => ({ error: { message: e.message } }));
+    if (res?.error) { toast('Couldn’t install gh-stack', { kind: 'error', detail: res.error.message }); return false; }
+    extension = true;
+    return true;
   }
 
   function next() {
