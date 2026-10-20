@@ -225,6 +225,7 @@ test('resolved to HEAD’s version only: nothing to save, and it says so', async
   const { saved } = await r.journal.abortAnd('Branch x', 'createBranch', () => git.run(r.dir, ['branch', 'x']));
   assert.equal(saved.sha, null);
   assert.equal(r.journal.undo.top.resolved, undefined);
+});
 
 test('merge and tidy that aborts a merge stopped here saves the resolved files, pinned (AK-601)', async () => {
   const r = await repo();
@@ -246,4 +247,13 @@ test('merge and tidy that aborts a merge stopped here saves the resolved files, 
   assert.equal(r.journal.undo.top.resolved.sha, res.saved.sha, 'pinned with the step');
   assert.equal(await git.getOperationState(r.journal.gitDir), null);
   assert.equal(fs.readFileSync(path.join(r.dir, 'c.js'), 'utf8'), 'lane\n');
+});
+
+test('the banner’s Abort offers the saved files back, without an Undo (the abort is not a step)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const banner = src.slice(src.indexOf('function renderBanner('), src.indexOf('function renderBanner(') + 1500);
+  assert.match(banner, /act\(label, 'abortOp', \[\], \{ quiet: true, then: \(res\) => aborted\(label, res, \{ success: label, undoable: false \}\) \}\)/);
+  const fn = src.slice(src.indexOf('async function aborted('), src.indexOf('async function resolveOp('));
+  assert.match(fn, /opts\.undoable !== false && \{ label: 'Undo'/);
+  assert.match(fn, /Nothing to save\./);
 });

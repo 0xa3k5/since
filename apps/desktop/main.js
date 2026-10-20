@@ -234,7 +234,10 @@ const reads = {
   worktreeOpInfo: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
     if (wt.missing) return null;
-    return git.getOperationInfo(wt.path, (await git.run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+    const info = await git.getOperationInfo(wt.path, (await git.run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
+    // Conflicted files go with the abort, so they aren't changes to stash (cleanup).
+    if (info) info.conflicts = (await git.run(wt.path, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean).length;
+    return info;
   },
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };

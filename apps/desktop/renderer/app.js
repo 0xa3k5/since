@@ -256,7 +256,7 @@ async function aborted(label, res, opts) {
     const n = saved.paths.length;
     toast(`Aborted the ${op}`, {
       kind: 'success', detail: `${n} resolved file${n > 1 ? 's' : ''} saved.`, timeout: 0,
-      actions: [{ label: 'Restore', primary: true, run: () => act('Restore resolved files', 'restoreResolved', [saved.sha], { success: `Restored ${n} resolved file${n > 1 ? 's' : ''}` }) }, { label: 'Undo', run: undo }],
+      actions: [{ label: 'Restore', primary: true, run: () => act('Restore resolved files', 'restoreResolved', [saved.sha], { success: `Restored ${n} resolved file${n > 1 ? 's' : ''}` }) }, opts.undoable !== false && { label: 'Undo', run: undo }].filter(Boolean),
     });
   } else if (!opts.quiet) {
     toast(opts.success || label, { kind: 'success', action: opts.undoable === false ? null : { label: 'Undo', run: undo } });
@@ -346,7 +346,7 @@ async function abortThenStep(dir, op) {
   await refreshAll();
   await (dir === 'undo' ? undo : redo)();
   // Resolved files it saved: offered back, as after abortAnd.
-  if (res?.saved) await aborted(`Abort ${op}`, res, { quiet: true });
+  if (res?.saved) await aborted(`Abort ${op}`, res, { quiet: true, undoable: false });
 }
 
 async function quiet(method, ...args) {
@@ -1354,7 +1354,7 @@ function renderBanner() {
     h('span', null, state.opInfo ? opSentence(state.opInfo, n) : h('b', null, `${name} in progress`)),
     h('span.spacer'),
     state.view !== 'commit' ? h('button.btn.subtle', { onclick: () => setView('commit') }, 'Resolve') : null,
-    h('button.btn.subtle', { onclick: () => act(`Abort ${name.toLowerCase()}`, 'abortOp', [], { undoable: false }) }, 'Abort'),
+    h('button.btn.subtle', { onclick: () => { const label = `Abort ${name.toLowerCase()}`; act(label, 'abortOp', [], { quiet: true, then: (res) => aborted(label, res, { success: label, undoable: false }) }); } }, 'Abort'),
     h('button.btn.primary', { disabled: n > 0, onclick: () => act(`Continue ${name.toLowerCase()}`, 'continueOp') }, 'Continue'),
   ));
 }
@@ -2089,7 +2089,7 @@ async function checkout(branch) {
   closeMenu();
   if (wt) {
     const v = await inUseSheet(branch, wt);
-    if (v?.id === 'free') return act(label, 'freeCheckout', [branch, wt.path], { success: `Checked out ${branch}`, detail: `Took it from ${wt.name}, which is now detached.`, actions: [{ label: `Open ${wt.name}`, run: () => (wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path)) }] });
+    if (v?.id === 'free') return freeCheckout(label, branch, wt);
     if (v?.id === 'move') return moveCheckout(label, branch, wt, v.stash);
     return false;
   }
@@ -2129,11 +2129,32 @@ async function inUseSheet(branch, wt) {
       p.changed && [h('span.muted', null, p.changed), ''],
     ].filter(Boolean),
     checkbox: p.stash ? { label: p.stash, checked: true } : null,
-    actions: p.actions.map((id) => ({ free: { id, label: 'Free it & check out' }, move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
+    actions: p.actions.filter((id) => id !== 'free').map((id) => ({ move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
   });
   if (v?.id === 'open') wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path);
   if (v?.id === 'move') return { id: 'move', stash: v.checked ? { message: stashMessage(state.head.branch, branch), untracked } : null };
   return v?.id === 'free' ? v : null;
+}
+
+// Check out `branch` from clean worktree `wt`, leaving it detached (one undo step). Changes here in
+// the way are stashed first, as a plain checkout does.
+async function freeCheckout(label, branch, wt) {
+  try {
+    await git('freeCheckout', branch, wt.path, { __label: label });
+  } catch (e) {
+    if (!e.readOnly && blockedCheckout(`${e.stderr || ''}\n${e.message}`)) {
+      const n = switchChanges();
+      const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
+      const stash = { message: stashMessage(state.head.branch, branch), untracked };
+      return act(label, 'moveCheckout', [branch, wt.path, stash], { success: `Checked out ${branch}`, detail: `Took it from ${wt.name}. ${changesText(n)} stashed.`, actions: [showStashAction(stash.message)] });
+    }
+    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    await refreshAll();
+    return false;
+  }
+  toast(`Checked out ${branch}`, { kind: 'success', detail: `Took it from ${wt.name}, which is now detached.`, timeout: 0, actions: [{ label: 'Undo', run: undo }, { label: `Open ${wt.name}`, run: () => (wt.elsewhere ? api.app('open-window', wt.path) : openRepo(wt.path)) }] });
+  await refreshAll();
+  return true;
 }
 
 // Check out `branch` from worktree `wt` and bring its changes here (one undo step). A conflict
@@ -3337,7 +3358,7 @@ function openBranches() {
     only: cleanupOnly,
     cleanup: {
       run: (items, label) => git('cleanupLanes', items, { __label: label }),
-      stoppedOps: (items) => Promise.all(items.map((i) => (i.worktree ? git('worktreeOp', i.worktree).catch(() => null) : null))),
+      stoppedOps: (items) => Promise.all(items.map((i) => (i.worktree ? git('worktreeOpInfo', i.worktree).then((x) => (x ? { op: x.op, conflicts: x.conflicts || 0 } : null), () => null) : null))),
       runRemote: (names) => git('deleteRemoteBranches', names),
       days: cleanupPrefs().days,
       onDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),

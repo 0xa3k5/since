@@ -675,7 +675,7 @@ class Journal {
       } finally {
         const wt = done.worktree;
         const worktree = wt && { op: 'remove', path: wt.path, branch: wt.branch, head: wt.head };
-        const resolved = done.saved ? { sha: done.saved.sha } : null;
+        const resolved = done.saved?.sha ? { sha: done.saved.sha } : null;
         await this.finish({ id, label, method, before, worktree, resolved }).catch((err) => console.warn('journal failed', err.message));
       }
     });
