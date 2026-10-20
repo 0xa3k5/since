@@ -3529,7 +3529,10 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
   const ab = abort ? [{ abort: true }] : [];
   const away = plan.worktree && state.worktrees.find((w) => w.path === plan.worktree.path);
-  if (away?.elsewhere && !handed) return openElsewhere(`Merge and tidy ${lane.name}`, away);
+  // Open in another window: that window is closed as part of the tidy, stated in the merge dialog.
+  let draft = false;
+  try { draft = Boolean(away?.elsewhere && localStorage.getItem('draft:' + away.path)?.trim()); } catch { /* ignore */ }
+  const closing = away?.elsewhere ? `Closes the window showing ${away.name} first.${draft ? ' Its commit message in progress is lost.' : ''}` : null;
   const close = away?.elsewhere ? [{ close: true }] : [];
   const lopt = ab.length || close.length ? [{ ...ab[0], ...close[0] }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
@@ -3576,6 +3579,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     description: h('div.pr-merge', null,
       h('div', null, here),
       moving ? h('div', null, moving) : null,
+      closing && !kept ? h('div', null, closing) : null,
       checkFailEl(laneChecks),
       plan.mergeBlocker && n ? h('div.pr-blocked', null, `Can’t merge here: ${plan.mergeBlocker}`) : null),
     submit: kept ? 'Merge' : 'Merge and tidy',
@@ -3692,8 +3696,7 @@ async function deleteLane(lane) {
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
   const lost = n ? ` with ${n} uncommitted file${n > 1 ? 's' : ''}` : '';
   const op = lane.worktree && await git('worktreeOpInfo', lane.worktree.path).catch(() => null);
-  if (op && !(await resolveSheet({ title: `${verb} ${laneTitle(lane)}?`, reason: opSentence(op), actions: [{ id: 'abort', label: 'Abort and remove' }] }))) return;
-  if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: verb }))) return;
+  if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `${op ? `${opSentence(op)} Aborting it can’t be undone. ` : ''}Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: op ? `Abort and ${verb.toLowerCase()}` : verb }))) return;
   act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[{ ...cleanupItem(lane), ...(op ? { abort: true } : {}) }]], {
     busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,
     then: (res) => { if (res?.failed?.length) toast(`Couldn’t remove all of ${lane.name}`, { kind: 'error', detail: res.failed.map((f) => `${f.name}: ${f.message}`).join('\n') }); },
@@ -3758,7 +3761,7 @@ async function removeWorktree(w, opts) {
 async function removeWorktreeNow(w, { handed = false } = {}) {
   const at = menuAnchor();
   if (w.locked && !w.main && !w.missing) {
-    if (!(await resolveSheet({ title: `Remove worktree “${w.name}”?`, reason: 'It’s locked.', actions: [{ id: 'unlock', label: 'Unlock and remove' }] }))) return;
+    if (!(await askAt(at, `“${w.name}” is locked.`, 'Unlock and remove'))) return;
     if (!(await act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false, quiet: true }))) return;
     return removeWorktreeNow({ ...w, locked: false }, { handed });
   }
