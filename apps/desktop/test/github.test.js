@@ -666,3 +666,11 @@ test('markReady and rerunFailed: gh arguments, Actions runs only (AK-550)', asyn
   assert.deepEqual(r.calls[1].args, ['run', 'rerun', '9', '--repo', 'github.com/acme/app', '--failed']);
   for (const fn of ['planFacts', 'markReady', 'rerunFailed']) await assert.rejects(github[fn]({ enabled: false, remotes: [ORIGIN], number: 7, dirs: [fakeGh()], exec }), { code: 'gh-off' }, fn);
 });
+
+test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your own (AK-577)', async () => {
+  const { approveWhy } = await import('../renderer/prs.js');
+  const [lane] = github.joinLanes([{ name: 'f', branch: 'f' }], { owners: {}, prs: [{ number: 4, title: 'Mine', branch: 'f', author: '0xa3k5' }] });
+  assert.equal(lane.pr.author, '0xa3k5');
+  assert.equal(approveWhy(lane.pr, { login: '0xA3K5', write: true }), 'Your own pull request');
+  assert.equal(approveWhy(lane.pr, { login: 'someone', write: true }), null);
+});

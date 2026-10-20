@@ -220,8 +220,12 @@ function parseViewer(out) {
 async function viewerFacts(bin, remote, { dirs, exec }) {
   const key = `${remote.host}/${remote.owner}/${remote.repo}`;
   if (viewers.has(key)) return viewers.get(key);
-  const out = await run(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${VIEWER_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }).catch(() => null);
+  const out = await run(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${VIEWER_QUERY}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }).catch((err) => {
+    console.warn('could not read your GitHub login and permission', err.message);
+    return null;
+  });
   const v = out == null ? null : parseViewer(out);
+  if (out != null && !v) console.warn('could not read your GitHub login and permission from', out.slice(0, 200));
   if (v) viewers.set(key, v);
   return v;
 }
@@ -1016,7 +1020,7 @@ function joinLanes(lanes = [], listed = null) {
     const head = slash > 0 ? l.upstream.slice(slash + 1) : l.branch;
     const owner = slash > 0 ? owners[l.upstream.slice(0, slash)] : null;
     const p = head && !l.isBase ? prs.find((x) => x.branch === head && (!owner || !x.headOwner || x.headOwner.toLowerCase() === owner.toLowerCase())) : null;
-    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, state: 'open', draft: p.draft, checks: p.checks, ...(p.failing?.length ? { failing: p.failing } : {}), review: p.review, url: p.url } : null };
+    return { ...l, ...(p && p.title ? { title: p.title } : {}), pr: p ? { number: p.number, title: p.title, ...(p.author ? { author: p.author } : {}), state: 'open', draft: p.draft, checks: p.checks, ...(p.failing?.length ? { failing: p.failing } : {}), review: p.review, url: p.url } : null };
   });
 }
 

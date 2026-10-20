@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
 import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
@@ -3723,14 +3723,21 @@ async function addWorktree({ base = null, branch = '' } = {}) {
 // ⌘Z brings it all back. Asks first, on the menu item, only when that window holds work undo
 // can't bring back. When this window shows it, the main worktree's window (or this one, switched
 // there) removes it. `handed`: another window asked already and handed it over.
-async function removeWorktree(w, { handed = false } = {}) {
+async function removeWorktree(w, opts) {
+  // Any failure says so (AK-577): never a silent no-op.
+  try { await removeWorktreeNow(w, opts); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: e.message }); }
+}
+async function removeWorktreeNow(w, { handed = false } = {}) {
   const at = menuAnchor();
   if (w.locked && !w.main && !w.missing) {
     if (!(await resolveSheet({ title: `Remove worktree “${w.name}”?`, reason: 'It’s locked.', actions: [{ id: 'unlock', label: 'Unlock and remove' }] }))) return;
     if (!(await act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false, quiet: true }))) return;
-    return removeWorktree({ ...w, locked: false }, { handed });
+    return removeWorktreeNow({ ...w, locked: false }, { handed });
   }
-  const main = state.worktrees.find((x) => x.main);
+  // Plan on a fresh read: the row can be older than the windows (one opened or closed since it was drawn).
+  const list = await git('worktrees').catch(() => state.worktrees);
+  w = list.find((x) => x.path === w.path) || w;
+  const main = list.find((x) => x.main);
   const facts = w.missing || w.main || w.locked ? {} : await git('removalFacts', w.path).catch(() => ({}));
   let draft = false;
   try { draft = !!localStorage.getItem('draft:' + w.path)?.trim(); } catch { /* ignore */ }
@@ -4303,6 +4310,7 @@ const ghErrorDetail = (err) => (err.code === 'gh-auth' ? 'GitHub CLI isn’t log
 const prError = (title, err) => toast(title, { kind: 'error', detail: ghErrorDetail(err), action: ghFixAction(err) });
 
 // Who you are on GitHub for Approve's reason (AK-577): the caller's (Review's), else the PR list's.
+const OWN_PR = /can ?not approve your own pull request/i;
 const prViewer = (viewer) => viewer || state.prs?.data?.viewer || null;
 const approvePr = (given, onDone, viewer) => withPr(given, 'Approve', async (pr) => {
   const why = approveWhy(pr, prViewer(viewer));
@@ -4315,6 +4323,8 @@ const approvePr = (given, onDone, viewer) => withPr(given, 'Approve', async (pr)
   });
   if (!v) return;
   const res = await prCall('pr-approve', pr, { body: v.body }, `Approving #${pr.number}…`);
+  // GitHub's word when the reason above wasn't known (AK-577): said the same way, never gh's text.
+  if (res.error && OWN_PR.test(res.error.message)) return toast(`Can’t approve #${pr.number}`, { detail: 'Your own pull request' });
   if (res.error) return prError(`Couldn’t approve #${pr.number}`, res.error);
   toast(`Approved #${pr.number}`, { kind: 'success' });
   onDone?.();

@@ -74,7 +74,7 @@ test('switch the window between worktrees, keeping the view', async ({ sandbox, 
   await expect(app.page.locator('.topbar .head-chip').first()).toHaveText('main');
 });
 
-test('remove is blocked while dirty, asks first, and undo brings it back', async ({ sandbox, launch }) => {
+test('remove a dirty worktree: its changes are stashed, undo brings both back', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('app', ['one']);
   const wt = sandbox.path('app-feature');
   sandbox.git(repo, 'worktree', 'add', '-q', '-b', 'feature', wt);
@@ -86,28 +86,51 @@ test('remove is blocked while dirty, asks first, and undo brings it back', async
 
   await row.click();
   await app.page.keyboard.press('Backspace');
-  await app.toast('Can’t remove “app-feature”', 'error');
-  await expect(app.page.locator('.toast.error')).toContainText('1 uncommitted change');
-  expect(worktrees(sandbox, repo)).toEqual(['app', 'app-feature']);
-
-  // Other worktrees' folders aren't watched; counts refresh on focus or when the view opens.
-  fs.rmSync(path.join(wt, 'wip.txt'));
-  await app.view('map');
-  await app.view('worktrees');
-  await expect(row.locator('.wt-changes')).toHaveText('Clean');
-  await app.contextMenu(row, 'Remove Worktree…');
   await app.toast('Removed app-feature');
   expect(worktrees(sandbox, repo)).toEqual(['app']);
   expect(fs.existsSync(wt)).toBe(false);
+  expect(sandbox.git(repo, 'stash', 'list')).toContain('app-feature before removing it');
   await expect(app.page.locator('.wt-row')).toHaveCount(1);
 
   await app.undo('Remove worktree app-feature');
   expect(worktrees(sandbox, repo)).toEqual(['app', 'app-feature']);
   expect(sandbox.git(wt, 'symbolic-ref', '--short', 'HEAD')).toBe('feature');
+  expect(fs.readFileSync(path.join(wt, 'wip.txt'), 'utf8')).toBe('wip\n');
   await expect(app.page.locator('.wt-row')).toHaveCount(2);
 });
 
-test('lock with a reason blocks removal until unlocked', async ({ sandbox, launch }) => {
+// AK-577: removing a worktree that's open in another window closes that window, stashes its changes
+// and removes it, from the other window's list and from its own window (handed to the main window).
+for (const from of ['main', 'own']) {
+  test(`remove a dirty worktree open in another window, from the ${from} window`, async ({ sandbox, launch }) => {
+    const repo = sandbox.linear('app', ['one']);
+    const wt = sandbox.path('app-dirty');
+    sandbox.git(repo, 'worktree', 'add', '-q', '-b', 'dirty', wt);
+    sandbox.write(wt, 'wip.txt', 'wip\n');
+    const app = await launch(repo);
+    await app.view('worktrees');
+    const row = app.page.locator('.wt-row', { hasText: 'app-dirty' });
+    const opened = app.app.waitForEvent('window');
+    await app.contextMenu(row, 'Open in New Window');
+    const other = await opened;
+    await expect(other.locator('.sidebar .repo-name')).toHaveText('app-dirty');
+    const closed = other.waitForEvent('close');
+    if (from === 'main') {
+      await app.page.bringToFront();
+      await app.contextMenu(row, 'Remove Worktree…');
+    } else {
+      const own = new app.constructor(app.app, other, sandbox);
+      await own.view('worktrees');
+      await own.contextMenu(other.locator('.wt-row', { hasText: 'app-dirty' }), 'Remove Worktree…');
+    }
+    await closed;
+    await app.toast('Removed app-dirty');
+    expect(worktrees(sandbox, repo)).toEqual(['app']);
+    expect(sandbox.git(repo, 'stash', 'list')).toContain('app-dirty before removing it');
+  });
+}
+
+test('lock with a reason: remove asks to unlock first', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('app', ['one']);
   sandbox.git(repo, 'worktree', 'add', '-q', '-b', 'feature', sandbox.path('app-feature'));
   const app = await launch(repo);
@@ -120,9 +143,12 @@ test('lock with a reason blocks removal until unlocked', async ({ sandbox, launc
   expect(sandbox.git(repo, 'worktree', 'list', '--porcelain')).toContain('locked agent running');
   await expect(row.locator('.badge', { hasText: 'Locked' })).toBeVisible();
 
+  // Remove asks to unlock first; Escape keeps it.
   await row.click();
   await app.page.keyboard.press('Backspace');
-  await app.toast('“app-feature” is locked', 'error');
+  await expect(app.page.getByText(/(It’s|“app-feature” is) locked\./)).toBeVisible();
+  await app.page.keyboard.press('Escape');
+  expect(worktrees(sandbox, repo)).toEqual(['app', 'app-feature']);
 
   await row.click();
   await app.page.keyboard.press('l');
