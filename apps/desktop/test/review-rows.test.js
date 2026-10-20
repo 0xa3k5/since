@@ -757,6 +757,33 @@ test('stackStatus: how far the stack merges, what holds it back, its rail and it
   assert.equal(stackStatus([row(4, 'inProgress', { checks: 'pending' })]).text, '#4 checks running');
 });
 
+test('stackStatus: a short form that names only the blocker', async () => {
+  const { stackStatus } = await load();
+  const row = (n, stage, o = {}) => ({ stage, pr: pr(n, o) });
+  assert.equal(stackStatus([row(11, 'ready'), row(12, 'inProgress', { draft: true, checks: 'failure' })]).short, '#12 draft');
+  assert.equal(stackStatus([row(15, 'stuck', { checks: 'failure', url: 'https://x/15' })]).short, '#15 checks failing');
+  assert.equal(stackStatus([row(18, 'stuck', { mergeable: 'CONFLICTING', mergeState: 'dirty' })]).short, '#18 conflicts');
+  assert.equal(stackStatus([row(4, 'ready'), row(5, 'ready')]).short, 'Ready to merge');
+});
+
+test('stackShed: the head sheds count, tag, sentence, then secondary and main actions as the list narrows', async () => {
+  const { stackShed, STACK_SHED } = await load();
+  // A head's full-size parts: #14 → #16 · 3 PRs into main · GitHub stack · bar · sentence · Merge #14 → #15 · Mark #16 ready · View failure.
+  const need = { pad: 46, inset: 16, numbers: 62, count: 90, tag: 80, tagIcon: 12, bar: 48, sentence: 64, main: 100, secondary: [96, 76], more: 22 };
+  const at = (w) => stackShed(w, need);
+  assert.deepEqual(at(900), { count: true, tag: 'name', sentence: 'full', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(700), { count: false, tag: 'name', sentence: 'full', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(580), { count: false, tag: 'icon', sentence: 'full', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(520), { count: false, tag: 'icon', sentence: 'none', secondary: 'inline', main: 'inline' });
+  assert.deepEqual(at(400), { count: false, tag: 'icon', sentence: 'none', secondary: 'menu', main: 'inline' });
+  assert.deepEqual(at(260), { count: false, tag: 'icon', sentence: 'none', secondary: 'menu', main: 'menu' });
+  // Fewer actions keep the short sentence at the same width.
+  assert.deepEqual(stackShed(500, { ...need, secondary: [] }), { count: false, tag: 'icon', sentence: 'short', secondary: 'inline', main: 'inline' });
+  // The container queries in styles.css use the same widths.
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '../renderer/styles.css'), 'utf8');
+  for (const w of Object.values(STACK_SHED)) assert.match(css, new RegExp(`@container review-list \\(max-width: ${w}px\\) \\{[^@]*review-stack`));
+});
+
 test('stackApproval: someone else’s parts, greyed without write access, never your own stack', async () => {
   const { stackApproval } = await load();
   const prs = [pr(4, { author: 'ana' }), pr(5, { author: 'ana', review: 'approved' }), pr(6, { author: 'ana' })];

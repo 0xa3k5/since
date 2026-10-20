@@ -253,34 +253,73 @@ export function stackStatus(rows = [], { base = null } = {}) {
   while (k < rows.length && rows[k].stage === 'ready') k++;
   const through = rows.slice(0, k).map((r) => r.pr.number);
   const held = rows[k] || null;
-  if (!held) return { through, held, text: 'Ready to merge', stage: 'ready', tone: 'ready', fix: null };
-  const { why, tone, fixes } = partWhy(held, { base });
+  if (!held) return { through, held, text: 'Ready to merge', short: 'Ready to merge', stage: 'ready', tone: 'ready', fix: null };
+  const { why, brief, tone, fixes } = partWhy(held, { base });
   const text = `${k ? `Mergeable through #${through[k - 1]} · ` : ''}#${held.pr.number} ${why}`;
-  return { through, held, text, why, stage: held.stage || 'inProgress', tone, fix: fixes[0] || null, fixes };
+  return { through, held, text, short: `#${held.pr.number} ${brief}`, why, stage: held.stage || 'inProgress', tone, fix: fixes[0] || null, fixes };
 }
 
 // What holds one part of a stack back (AK-611), every blocker, draft first:
-// → { why: "is a draft, checks failing", tone: 'failing' | 'conflicts' | null, fixes: [{ id, label, row }] }.
+// → { why: "is a draft, checks failing", brief: the first blocker in a word or two ("draft"),
+//     tone: 'failing' | 'conflicts' | null, fixes: [{ id, label, row }] }.
 // A draft's failing checks are named but never colour it; a ready part's why is "ready to merge".
 export function partWhy(row, { base = null } = {}) {
   const pr = row.pr || {};
-  if (row.stage === 'ready') return { why: 'ready to merge', tone: null, fixes: [] };
+  if (row.stage === 'ready') return { why: 'ready to merge', brief: 'ready', tone: null, fixes: [] };
   const out = [];
+  const short = [];
   const fixes = [];
-  if (pr.draft) { out.push('is a draft'); fixes.push({ id: 'ready', label: `Mark #${pr.number} ready`, row }); }
+  if (pr.draft) { out.push('is a draft'); short.push('draft'); fixes.push({ id: 'ready', label: `Mark #${pr.number} ready`, row }); }
   const conflicts = conflicted(row);
   if (conflicts) {
     out.push(`conflicts with ${pr.base || base || 'its base'}`);
+    short.push('conflicts');
     if (row.lane?.branch && !row.lane.isBase && base) fixes.push({ id: 'rebase', label: 'Rebase', row });
   }
   if (pr.checks === 'failure' && (pr.draft || checksBlock(pr))) {
     out.push('checks failing');
+    short.push('checks failing');
     if (pr.url) fixes.push({ id: 'checks', label: 'View failure', row });
   }
   if (pr.review === 'changes') out.push('changes requested');
   if (!out.length) out.push(pr.checks === 'pending' ? 'checks running' : 'waiting for review');
   const tone = checksBlock(pr) ? 'failing' : conflicts ? 'conflicts' : null;
-  return { why: out.join(', '), tone, fixes };
+  return { why: out.join(', '), brief: short[0] || out[0], tone, fixes };
+}
+
+// A stack head's line as the list narrows (AK-611): one line at every width, never scrolled. The
+// numbers and the bar always stay; the rest goes in this order: 1. the PR count, 2. the tag's name
+// (its icon stays), 3. the sentence, shortened to the blocker, then hidden, 4. the secondary actions,
+// into ⋯, 5. the main action, into ⋯. Steps 1–3a are the list pane's container queries at these
+// widths (styles.css, review-list); the rest depends on how wide a stack's actions are, so a fit
+// pass measures each head (stackFit).
+export const STACK_SHED = { count: 720, tag: 600, short: 520 };
+export const stackTier = (width) => ({ count: width > STACK_SHED.count, tag: width > STACK_SHED.tag ? 'name' : 'icon', sentence: width > STACK_SHED.short ? 'full' : 'short' });
+// The fit pass's level for a head `room` px wide: '' (all shown), 'quiet' (no sentence), 'menu'
+// (secondary actions in ⋯) or 'tight' (every action in ⋯). base: padding plus what never sheds;
+// sentence: its narrowest before it hides; main, secondary: the actions' widths; more: ⋯'s.
+const SHED_LEVELS = ['', 'quiet', 'menu', 'tight'];
+export function stackFit(room, { base = 0, sentence = 0, main = 0, secondary = [], more = 22, gap = 8, actGap = 12 } = {}) {
+  const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+  for (const lv of SHED_LEVELS) {
+    const inline = (lv === 'tight' ? [] : lv === 'menu' ? [main] : [main, ...secondary]).filter((w) => w > 0);
+    const menu = (lv === 'menu' && secondary.length) || (lv === 'tight' && (main > 0 || secondary.length));
+    const end = menu ? [...inline, more] : inline;
+    const total = base + (lv === '' && sentence ? gap + sentence : 0) + (end.length ? gap + sum(end) + actGap * (end.length - 1) : 0);
+    if (total <= room + 0.5) return lv;
+  }
+  return 'tight';
+}
+// Both together for a list `width` px wide, from a head's full-size parts (need: { pad, inset,
+// numbers, count, tag, tagIcon, bar, sentence, main, secondary, more, gap }).
+// → { count, tag: 'name' | 'icon', sentence: 'full' | 'short' | 'none', secondary, main: 'inline' | 'menu' }.
+export function stackShed(width, need = {}) {
+  const t = stackTier(width);
+  const gap = need.gap ?? 8;
+  const kept = [need.numbers, t.count ? need.count : 0, t.tag === 'name' ? need.tag : need.tagIcon, need.bar].filter((w) => w > 0);
+  const base = (need.pad || 0) + kept.reduce((a, b) => a + b, 0) + gap * (kept.length - 1);
+  const lv = stackFit(width - (need.inset || 0), { ...need, base, gap });
+  return { ...t, sentence: lv ? 'none' : t.sentence, secondary: lv === 'menu' || lv === 'tight' ? 'menu' : 'inline', main: lv === 'tight' ? 'menu' : 'inline' };
 }
 
 // Approve all on a stack (AK-611): the parts you can approve and why the button is greyed.
