@@ -2253,6 +2253,13 @@ async function checkoutSelected(c, at) {
     toast('Checkout failed', { kind: 'error', detail: e?.message || String(e) });
   }
 }
+// ⌘B: the selected commit in the Map, HEAD everywhere else.
+function branchHere() {
+  const sha = state.view === 'map' && state.selected && state.index.has(state.selected) ? state.selected : state.head.oid;
+  if (!sha) return toast('No commits yet');
+  createBranch(sha);
+}
+
 async function createBranch(sha) {
   const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch', required: true }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
   if (!v || !v.name.trim()) return;
@@ -3912,7 +3919,7 @@ function branchSwitcher() {
       return { group: 'Branches', label: r.short, icon: 'branch', detail: cur ? 'current' : wt ? `in worktree ${wt.name}` : r.upstream || '', keywords: r.upstream || '', run: () => cur ? null : checkout(r.short) };
     }),
     ...remotes.map((r) => ({ group: 'Remote branches', label: r.short, icon: 'cloud', detail: 'check out as local branch', run: () => act(`Checkout ${r.short}`, 'checkoutTracking', [r.short]) })),
-    { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('commit.branch'), run: () => createBranch(state.head.oid) },
+    { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('global.branch'), run: () => createBranch(state.head.oid) },
   ], { placeholder: 'Switch to branch…' });
 }
 
@@ -4708,7 +4715,7 @@ function openPalette() {
     const shownStash = state.view === 'stashes' && state.stashes.find((x) => x.ref === stashShown);
     if (shownStash) add('Repository', `Apply ${shownStash.ref}`, () => applyStash(shownStash), { icon: 'stash', kbd: keymap.keys('stashes.apply'), detail: shownStash.message, keywords: 'stash apply unstash restore changes' });
     if (snap) add('Repository', `Restore before “${snap.label}”…`, () => restoreSnapshot(snap), { icon: 'restore', kbd: keymap.keys('snapshots.restore'), keywords: 'snapshot undo history timeline jump back restore' });
-    add('Repository', 'Create branch at HEAD…', () => state.head.oid && createBranch(state.head.oid), { icon: 'branch' });
+    if (state.head.oid) add('Repository', 'Create branch at HEAD…', () => createBranch(state.head.oid), { icon: 'branch', kbd: keymap.keys('global.branch'), keywords: 'new branch create' });
     add('Repository', 'Reset hard to HEAD…', resetHard, { icon: 'trash' });
     add('Repository', 'Git LFS files…', openLfs, { icon: 'cloud', kbd: keymap.keys('repo.lfs'), detail: state.lfs?.used ? (state.lfs.installed ? null : 'git-lfs missing') : 'not used', keywords: 'lfs large file storage pointer download' });
     add('Repository', state.head.branch ? `Review branch ${state.head.branch}…` : 'Review branch…', () => openReview(), { icon: 'check', kbd: keymap.keys('repo.review'), keywords: 'review reviewed tick pull request diff base merge-base branch files progress' });
@@ -5462,6 +5469,7 @@ window.addEventListener('keydown', (e) => {
     // Not while File History, Quick View or Split covers the Snapshots view: their keys would reach the hidden list.
     if (state.view === 'snapshots' && !state.fileHistory && !state.quick && !state.split && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
+  if (state.repo && id === 'global.branch') { e.preventDefault(); branchHere(); return; }
   if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.resetPanes') { e.preventDefault(); resetPanes(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
