@@ -33,7 +33,7 @@ let lastTab = 'active';
 // badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab` opens on that
 // tab; `only` (a laneKey) opens Finished with just that branch ticked. `cleanup` holds Clean up's
 // own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo).
-export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup }) {
+export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup, gitWhy = () => null }) {
   let lanes = [];
   let byTab = branchTabs([]);
   let shown = [];
@@ -218,7 +218,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('branches.open'), run: () => onOpen(l) },
       { label: 'Review Branch', icon: 'check', kbd: keymap.keys('branches.review'), disabled: !can('review', l), why: why('review', l), run: () => run('review', l) },
-      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('branches.merge'), disabled: !can('merge', l), why: why('merge', l), run: () => run('merge', l) },
+      { label: 'Merge and Tidy…', icon: 'merge', kbd: keymap.keys('branches.merge'), disabled: !can('merge', l), why: why('merge', l) || gitWhy('mergeHere'), gated: can('merge', l) && Boolean(gitWhy('mergeHere')), run: () => run('merge', l) },
       { label: 'Rebase onto Base', icon: 'rebase', kbd: keymap.keys('branches.rebase'), disabled: !can('rebase', l), why: why('rebase', l), run: () => run('rebase', l) },
       ...(l.pr?.url ? [{ label: 'Open Checks', icon: 'external', kbd: keymap.keys('branches.checks'), run: () => run('checks', l) }] : []),
       ...(isFinished(l) ? [{ label: 'Clean Up…', icon: 'trash', kbd: keymap.keys('branches.cleanup'), run: () => run('cleanup', l) }] : []),

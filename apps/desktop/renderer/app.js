@@ -39,6 +39,7 @@ import { AUTOSTASH_DEFAULT, blockedCheckout, blockedByChanges, stashMessage, aut
 import { setupView } from './setup-view.js';
 import { shortcutsWindow } from './shortcuts-view.js';
 import { prefsWindow } from './prefs-view.js';
+import { GIT_NEEDS, GIT_FEATURES, gitMeets, mergeHereBlock } from './git-version.js';
 import { prefRows, prRemoteChoice, openPrefsCommand } from './prefs.js';
 import { SETUP_PREF, needsSetup, setupValues } from './setup.js';
 import { markdown } from './markdown.js';
@@ -145,6 +146,8 @@ async function act(label, method, args = [], opts = {}) {
     return true;
   } catch (e) {
     t?.close();
+    // An old git refused `stash push --staged`: Update git, then stash.
+    if (method === 'stashSave' && args[2]?.staged && 'git-version' === e.code) return updateGit('stashStaged', () => act(label, method, args, opts));
     const fixed = e.readOnly ? undefined : await offerFix(label, method, args, opts, e);
     if (fixed !== undefined) return fixed;
     if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
@@ -165,6 +168,44 @@ async function act(label, method, args = [], opts = {}) {
     await refreshAll();
     return false;
   }
+}
+
+// Git version gates (AK-586). `state.gitInfo`: { path, version } of the git in use.
+api.app('git-info').then((r) => { state.gitInfo = r?.ok || null; }, () => {});
+// Another window chose a git: every window's reasons follow it.
+api.on('git', (info) => { state.gitInfo = info || null; });
+const gitTooOld = (feature) => Boolean(state.gitInfo && !gitMeets(state.gitInfo.version, GIT_NEEDS[feature]));
+const gitWhy = (feature) => (gitTooOld(feature) ? `Needs git ${GIT_NEEDS[feature]}` : null);
+// The Update git sheet: the git in use and Use another git…; `then` carries on once the git is new enough.
+async function updateGit(feature, then) {
+  const need = GIT_NEEDS[feature];
+  const cur = await api.app('git-info').catch(() => null);
+  if (cur?.ok) state.gitInfo = cur.ok;
+  const info = state.gitInfo;
+  const v = await resolveSheet({
+    title: `${GIT_FEATURES[feature]} needs git ${need} or later`,
+    reason: info ? `In use: git ${info.version} at ${info.path}` : 'No git found.',
+    actions: [{ id: 'choose', label: 'Use another git…' }],
+  });
+  if (!v) return false;
+  const res = await api.app('git-choose');
+  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
+  if (!res.ok) return false;
+  if (need && !gitMeets(res.ok.version, need)) return updateGit(feature, then);
+  return useGit('chosen', then);
+}
+// ⌘K Choose git… / Use system git: no feature to gate on, any git that runs will do.
+const chooseGit = async () => {
+  const res = await api.app('git-choose');
+  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
+  if (res.ok) return useGit('chosen');
+};
+async function useGit(which, then) {
+  const res = await api.app('git-use', which);
+  if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
+  state.gitInfo = res.ok;
+  toast(`Using git ${res.ok.version}`, { detail: res.ok.path });
+  return then?.();
 }
 
 // A push, pull or cherry-pick git refused for a cause we know: offer the fix together with the
@@ -2411,7 +2452,7 @@ function createCommitView(container) {
         h('button.btn.ghost.tiny', { onclick: () => quiet('stageFiles', unstaged.map((f) => f.path)) }, 'Stage all'),
       ] : null),
       section('Staged', staged, 'staged', staged.length ? [
-        h('button.btn.ghost.tiny', { title: tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
+        h('button.btn.ghost.tiny' + (gitTooOld('stashStaged') ? '.gated' : ''), { title: gitWhy('stashStaged') || tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
       ] : null),
     ].filter(Boolean));
@@ -2741,6 +2782,7 @@ async function dropStash(s) {
 async function stashSave({ staged = false, paths = null, untracked = false } = {}) {
   const what = staged ? 'staged changes' : paths ? (paths.length === 1 ? baseName(paths[0]) : `${paths.length} files`) : 'changes';
   if (staged && !state.status?.staged?.length) return toast('Nothing staged to stash');
+  if (staged && gitTooOld('stashStaged')) return updateGit('stashStaged', () => stashSave({ staged }));
   const fields = [{ name: 'msg', label: 'Message', placeholder: 'WIP' }];
   if (!staged && !untracked) fields.push({ name: 'u', type: 'checkbox', label: 'Include untracked files', value: true });
   const v = await dialog({ title: `Stash ${what}`, submit: 'Stash', fields });
@@ -3152,6 +3194,8 @@ function openLanes() {
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
+    onGitTooOld: updateGit,
+    gitWhy,
     onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
     onBranches: (tab) => showBranches(tab),
     onReview: (lane, base) => openReview(lane, base),
@@ -3216,6 +3260,7 @@ function openBranches() {
     onMerge: mergeLane,
     onAction: laneAction,
     canSwitch: canSwitchFrom,
+    gitWhy,
     onNewWorktree: () => addWorktree(),
     onCount: setFinishedCount,
     paneWidth: () => loadPref('reviewPane', {}).width || null,
@@ -3422,12 +3467,15 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const lopt = ab.length || close.length ? [{ ...ab[0], ...close[0] }] : [];
   const pr = state.prs?.active && lane.pr && prRemote(lane.pr) ? lane.pr : null;
   const n = plan.commits.length;
+  const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
+  // Too old a git: offer another one first, then carry on from here.
+  if (block?.kind === 'git-version') return updateGit('mergeHere', () => mergeLane(lane, base, onDone, { handed }));
   // The base is checked out in another worktree: that worktree's window opens and merges there.
   if (plan.mergeBlocker && !pr && n && plan.baseWorktree && !handed) {
     try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
-    return toast(`Merging in ${plan.baseWorktree.name}`);
+    return toast(`Continue in ${plan.baseWorktree.name}`);
   }
-  if (plan.mergeBlocker && !pr && n) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.mergeBlocker });
+  if (block) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: block.detail });
   // Checked out here: switch away first (stashing if asked), then merge and tidy, as one undo step;
   // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).
   let move = null;
@@ -4385,6 +4433,8 @@ function openPalette() {
     add('View', 'Reorder sidebar sections…', () => openPrefs('sidebar'), { icon: 'sidebar', kbd: keymap.keys('app.settings'), keywords: 'sidebar section order move show hide preferences' });
     add('Navigation', 'Open History & recovery', () => setView('snapshots'), { icon: 'history', kbd: keymap.keys('view.snapshots'), keywords: 'snapshots undo timeline restore recover lost' });
     add('Navigation', 'Open Reflog (History & recovery)', () => setView('reflog'), { icon: 'reflog', kbd: keymap.keys('view.reflog'), keywords: 'reflog recover lost commits' });
+    add('App', 'Choose git…', chooseGit, { icon: 'terminal', detail: state.gitInfo ? `git ${state.gitInfo.version}` : null, keywords: 'git version path binary homebrew xcode' });
+    add('App', 'Use system git', () => useGit('system'), { icon: 'terminal', keywords: 'git version path binary default xcode' });
     add('Repository', 'Fetch all remotes', fetchAll, { icon: 'fetch', kbd: keymap.keys('repo.fetch') });
     add('Repository', 'Pull current branch', pull, { icon: 'pull', kbd: keymap.keys('repo.pull') });
     add('Repository', 'Push current branch', () => push(false), { icon: 'push', kbd: keymap.keys('repo.push') });
@@ -4418,7 +4468,7 @@ function openPalette() {
     if (state.head?.branch && loadPref('autostashes', { list: [] }).list.some((x) => x.root === state.repo?.root && x.branch === state.head.branch)) {
       add('Repository', `Apply auto-stash for ${state.head.branch}`, async () => { const o = await pendingAutostash(state.head.branch); if (o) applyAutostash(o, true); else toast('That auto-stash is gone'); }, { icon: 'stash', keywords: 'autostash auto stash pop apply drop' });
     }
-    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index' });
+    add('Repository', 'Stash staged changes…', () => stashSave({ staged: true }), { icon: 'stash', kbd: keymap.keys('repo.stashStaged'), keywords: 'partial stash index', detail: gitWhy('stashStaged') });
     add('Repository', state.history.undo.length ? undoTitle() : 'Undo last operation', undo, { icon: 'undo', kbd: keymap.keys('edit.undo') });
     add('Repository', redoTitle(), redo, { icon: 'redo', kbd: keymap.keys('edit.redo') });
     if (nav.canBack) add('View', 'Back', goBack, { icon: 'chevronLeft', kbd: keymap.keys('view.back'), keywords: 'previous history return navigate' });
@@ -4481,7 +4531,7 @@ function openPalette() {
     add('View', state.show.tags ? 'Hide tags' : 'Show tags', () => toggleShow('tags'), { icon: 'tag' });
     add('View', state.show.remotes ? 'Hide remote branches' : 'Show remote branches', () => toggleShow('remotes'), { icon: 'cloud' });
     const laneSel = state.review?.source?.branch ? { lane: state.review.source, base: state.review.base } : state.view === 'lanes' ? lanesPage?.selected() : null;
-    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'squash merge tidy cleanup remove worktree delete branch land' });
+    if (laneSel?.lane.branch && !laneSel.lane.isBase) add('Repository', `Merge and tidy ${laneSel.lane.name}…`, () => mergeLane(laneSel.lane, laneSel.base), { icon: 'merge', kbd: keymap.keys(state.review ? 'review.merge' : 'lanes.merge'), keywords: 'squash merge tidy cleanup remove worktree delete branch land', detail: gitWhy('mergeHere') });
     if (laneSel && !state.review) {
       const l = laneSel.lane;
       const t = laneTitle(l);
@@ -4493,7 +4543,7 @@ function openPalette() {
       if (l.done) add('Repository', `Clean up ${t}…`, () => startCleanup(l), { icon: 'trash', kbd: keymap.keys('lanes.cleanup'), keywords: 'branch merged shipped tidy remove' });
     }
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canReload()) add('Review', 'Reload pull requests', () => lanesPage.reload(), { icon: 'restore', kbd: keymap.keys('lanes.reload'), keywords: 'refresh fetch github pull requests prs review requests update gh' });
-    if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue' });
+    if (state.view === 'lanes' && lanesOpen() && (lanesPage?.canPlan() || lanesPage?.planGated())) add('Review', 'Plan merge…', () => lanesPage.mergePlan(), { icon: 'merge', kbd: keymap.keys('lanes.mergePlan'), keywords: 'merge plan order ready conflict free squash queue', detail: lanesPage.planGated() ? `Needs git ${GIT_NEEDS.mergePlan}` : null });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) for (const t of lanesPage.mergeTargets?.() || []) add('Review', `Merge plan into ${t.name}`, () => lanesPage.mergePlan(null, { target: t.name }), { icon: 'merge', keywords: `merge plan into branch target base ${t.name}` });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) for (const [m, name] of [['squash', 'squash'], ['merge', 'merge commits'], ['rebase', 'rebase']]) add('Review', `Merge plan: ${name}`, () => lanesPage.mergePlan(m), { icon: 'merge', keywords: `merge plan order ready method ${m} ${name}` });
     if (state.view === 'lanes' && lanesOpen() && lanesPage?.canPlan()) add('Review', 'Make chain a GitHub stack', () => makeChainStack(), { icon: 'merge', keywords: 'gh stack link chain stacked pull requests series native' });
@@ -4541,7 +4591,7 @@ function openPalette() {
         const can = (id) => branchesPage.can(id);
         add('Branches', `Show ${n} in the Map`, () => branchesPage.run('open'), { icon: 'map', kbd: keymap.keys('branches.open'), keywords: 'branch open worktree switch map' });
         if (can('review')) add('Branches', `Review ${n}`, () => branchesPage.run('review'), { icon: 'check', kbd: keymap.keys('branches.review'), keywords: 'branch review diff changes' });
-        if (can('merge')) add('Branches', `Merge and tidy ${n}…`, () => branchesPage.run('merge'), { icon: 'merge', kbd: keymap.keys('branches.merge'), keywords: 'branch squash merge tidy land' });
+        if (can('merge')) add('Branches', `Merge and tidy ${n}…`, () => branchesPage.run('merge'), { icon: 'merge', kbd: keymap.keys('branches.merge'), keywords: 'branch squash merge tidy land', detail: gitWhy('mergeHere') });
         if (can('rebase')) add('Branches', `Rebase ${n} onto ${sel.base}`, () => branchesPage.run('rebase'), { icon: 'rebase', kbd: keymap.keys('branches.rebase'), keywords: 'branch rebase update base conflicts' });
         if (can('checks')) add('Branches', `Open checks of ${n}`, () => branchesPage.run('checks'), { icon: 'external', kbd: keymap.keys('branches.checks'), keywords: 'branch ci checks pull request github' });
         if (can('delete')) add('Branches', `${sel.lane.changes ? 'Discard' : 'Delete'} ${n}…`, () => branchesPage.run('delete'), { icon: 'trash', kbd: keymap.keys('branches.delete'), keywords: 'branch delete remove worktree undo' });
