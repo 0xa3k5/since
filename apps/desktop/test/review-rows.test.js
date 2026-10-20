@@ -437,6 +437,12 @@ test('mergeStateStatus: each state stages the way GitHub would let it merge', as
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }, 'stuck'), 'stuck');
   assert.equal(await s({ mergeState: 'unknown', ...READY }), 'ready');
   assert.equal(await s({ mergeState: 'unknown', checks: 'success' }), 'inProgress');
+  // Still unknown, failing checks alone aren't stuck: GitHub may merge past them (AK-625, #286 showed
+  // Stuck until a reload got unstable). Conflicts still are.
+  assert.equal(await s({ mergeState: 'unknown', checks: 'failure' }), 'inProgress');
+  assert.equal(await s({ mergeState: 'unknown', checks: 'failure', mergeable: false }), 'stuck');
+  assert.equal(await s({ mergeState: 'unknown', checks: 'failure' }, 'stuck'), 'stuck');
+  assert.equal(await s({ mergeState: null, checks: 'failure' }), 'stuck'); // an older gh: no word at all
 });
 
 test('stageMemory: the sidebar dot keeps a PR\'s last stage while GitHub is checking it (AK-388)', async () => {
@@ -445,8 +451,8 @@ test('stageMemory: the sidebar dot keeps a PR\'s last stage while GitHub is chec
   const checking = { mergeState: 'unknown', checks: 'failure' };
   assert.equal(dot(pr(1, { mergeState: 'unstable', checks: 'failure' })), 'ready');
   assert.equal(dot(pr(1, checking)), 'ready');
-  assert.equal(dot(pr(2, checking)), 'stuck'); // no stage yet: the older rules
-  assert.equal(stageMemory()(pr(1, checking)), 'stuck'); // a new repository starts empty
+  assert.equal(dot(pr(2, checking)), 'inProgress'); // no stage yet: the older rules, minus the checks (AK-625)
+  assert.equal(stageMemory()(pr(1, checking)), 'inProgress'); // a new repository starts empty
   assert.equal(dot(pr(1, { mergeState: 'dirty', mergeable: false, checks: 'success' })), 'stuck');
   assert.equal(dot(pr(1, checking)), 'stuck');
 });
@@ -458,6 +464,10 @@ test('mergeStateStatus: tags, primary action and reason follow the state', async
   assert.deepEqual(texts({ mergeState: 'behind', checks: 'success' }), ['CI passed', 'Behind main']);
   assert.deepEqual(texts({ mergeState: 'dirty', checks: 'success' }), ['CI passed', 'Conflicts']);
   assert.ok(rowBadges({ pr: pr(1, { mergeState: 'unknown' }), conflicts: [] }).some((b) => b.text === 'Checking' && b.spin));
+  // Unknown with failing checks: In progress, so Open is the button, not Fix prompt (AK-625).
+  const checking = reviewRows({ prs: [pr(1, { mergeState: 'unknown', checks: 'failure' })], prsOn: true, now: NOW }).all[0];
+  assert.equal(checking.stage, 'inProgress');
+  assert.equal(primaryAction(checking, { base: 'main' }), 'open');
   // A stale local forecast against the base doesn't override GitHub's clean.
   const forecast = new Map([['b:b1', [{ with: 'main', base: true, files: ['a'] }]]]);
   const run = (o) => reviewRows({ lanes: [lane('b1', { pr: { number: 1 } })], prs: [pr(1, o)], forecast, prsOn: true, now: NOW }).all[0];

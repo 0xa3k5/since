@@ -114,6 +114,14 @@ function reviewRequests(list) {
   return out.slice(0, 50);
 }
 
+// GitHub's own conflict check: true, false, or null while GitHub is still working it out. Its merge
+// box state (AK-321), lower case: clean, unstable, behind, blocked, dirty, draft, has_hooks, or
+// unknown while GitHub works it out; null when gh didn't send it.
+const mergeFacts = (p) => ({
+  mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
+  mergeState: MERGE_STATES.has(p.mergeStateStatus) ? p.mergeStateStatus.toLowerCase() : null,
+});
+
 function normalizePr(p) {
   if (!p || typeof p !== 'object' || !Number.isSafeInteger(p.number) || p.number <= 0) return null;
   const url = text(p.url, 2048);
@@ -136,11 +144,7 @@ function normalizePr(p) {
     bot: p.author?.is_bot === true,
     url: url.startsWith('https://') ? url : null,
     updatedAt: text(p.updatedAt, 64),
-    // GitHub's own conflict check: true, false, or null while GitHub is still working it out.
-    mergeable: p.mergeable === 'MERGEABLE' ? true : p.mergeable === 'CONFLICTING' ? false : null,
-    // GitHub's merge box state (AK-321), lower case: clean, unstable, behind, blocked, dirty, draft,
-    // has_hooks, or unknown while GitHub works it out; null when gh didn't send it.
-    mergeState: MERGE_STATES.has(p.mergeStateStatus) ? p.mergeStateStatus.toLowerCase() : null,
+    ...mergeFacts(p),
     reviews: reviewVerdicts(p.latestReviews),
     reviewRequests: reviewRequests(p.reviewRequests),
     size: { additions: count(p.additions), deletions: count(p.deletions), files: count(p.changedFiles) },
@@ -286,6 +290,32 @@ async function mergedStacks({ enabled, remotes, numbers, dirs = searchDirs(), ex
   const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${ns.map((n) => `p${n}:pullRequest(number:${n}){${MERGED_STACK_FIELDS}}`).join(' ')}}}`;
   return parseMergedStacks(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${query}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }), ns);
 }
+// Review's re-check (AK-625): GitHub works out a PR's merge state lazily, so a PR list can say
+// unknown for some. This asks again for those only: one GraphQL call per MERGE_STATE_BATCH PRs,
+// one after another, small enough to stay inside GitHub's time limit on busy repositories. A batch
+// that fails is skipped. The numbers are checked integers.
+// → [{ number, mergeable, mergeState }] (normalizePr's values) for the PRs GitHub answered.
+const MERGE_STATE_BATCH = 20;
+function parseMergeStates(out, numbers) {
+  const repo = parseJson(out).data?.repository || {};
+  return numbers.map((n) => repo[`p${n}`]).filter((p) => p && typeof p === 'object' && numbers.includes(p.number))
+    .map((p) => ({ number: p.number, ...mergeFacts(p) }));
+}
+async function mergeStates({ enabled, remotes, numbers, dirs = searchDirs(), exec } = {}) {
+  const { bin, remote } = target({ enabled, remotes, dirs });
+  if (!Array.isArray(numbers)) return [];
+  const ns = [...new Set(numbers.map((n) => Number(prNumber(n))))].slice(0, LIMIT);
+  const out = [];
+  for (let i = 0; i < ns.length; i += MERGE_STATE_BATCH) {
+    const batch = ns.slice(i, i + MERGE_STATE_BATCH);
+    const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${batch.map((n) => `p${n}:pullRequest(number:${n}){number mergeable mergeStateStatus}`).join(' ')}}}`;
+    try {
+      out.push(...parseMergeStates(await ghRun(bin, ['api', '--hostname', remote.host, 'graphql', '-f', `query=${query}`, '-f', `owner=${remote.owner}`, '-f', `name=${remote.repo}`], { dirs, exec }), batch));
+    } catch { /* skipped: those PRs keep their stage until the next Reload */ }
+  }
+  return out;
+}
+
 // The merged list with each PR's stack and size from mergedStacks (facts null: as it was).
 const joinStacks = (merged, facts) => (facts ? merged.map((p) => {
   const f = facts.get(p.number);
@@ -1086,4 +1116,4 @@ function prPushPlan({ branch, upRemote, upRef, track, remotes, target }) {
   return { dest, head, push, pushArgs };
 }
 
-module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, mergedStacks, parseMergedStacks, joinStacks, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, readyArgs, markReady, markDraft, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
+module.exports = { parseViewer, loginScript, baseCi, parseBaseCi, failingChecks, checkCounts, reviewVerdicts, reviewRequests, botLogin, inbox, mergedPrs, parseMerged, mergedStacks, parseMergedStacks, mergeStates, parseMergeStates, MERGE_STATE_BATCH, joinStacks, parseNumbers, joinLanes, PR_FIELDS, LIMIT, INSTALL_URL, parseRemote, prCandidates, pickRemote, prPushPlan, remoteOwners, checksState, normalizePr, parsePrs, detect, listPrs, MERGE_METHODS, parseMergeInfo, mergeGate, mergeInfo, PLAN_QUERY, parsePlanFacts, planFacts, readyArgs, markReady, markDraft, rerunFailed, approvePr, requestChangesPr, mergePr, headMoved, mergedCommit, repoMergeMethods, openPrBranches, parseStackFacts, stackFacts, stackExtension, installStackExtension, linkArgs, linkStack, retargetPr, mergeStack, closePr, updatePrBranch, parseFailedRuns, failedRunIds, tailLog, failedLog, checkList, annotatedRuns, parseAnnotations, findMedia, parseThreads, buildEvidence, evidence, authToken, EVIDENCE_FIELDS, commentPr, VIEW_FIELDS, branchName, parsePrHead, viewPr, fetchPrHead, prUpstream, parseDefaultBranch, defaultBranch, prDraft, parseCommits, branchArg, parseCreated, createPr, normalize, chosenRemote, setChosenRemote, isEnabled, isHidden, setEnabled, setHidden, ghInstalled, ghStatus };
