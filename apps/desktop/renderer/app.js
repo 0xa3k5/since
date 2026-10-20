@@ -968,7 +968,7 @@ function withProfile(p) {
   return prof ? { ...p, open: () => api.app('external', prof.url) } : p;
 }
 
-// ⇧A: the selected commit's author on GitHub.
+// View Author on GitHub (⌘K, the context menu): the selected commit's author.
 function openAuthor(c) {
   const p = authorProfile(c.email, originRemote()?.web);
   if (p) api.app('external', p.url);
@@ -4057,7 +4057,7 @@ async function loadPrs() {
   showPrs();
 }
 // Review's and Catch up's pull requests load when a repo opens (AK-382) and after each Fetch (AK-401), with
-// pull requests on, and on Reload (⇧R): not on view changes or window focus. The same loads Reload runs, shared, so
+// pull requests on, and on Reload (⌘R): not on view changes or window focus. The same loads Reload runs, shared, so
 // an open Review or Catch up shows "Reloading…" and then the PRs; a closed one finds them in its cache.
 function prefetchOnOpen() {
   const root = state.repo?.root;
@@ -4948,7 +4948,7 @@ async function openHosting() {
 // The welcome tour; ⌘Z / ⇧⌘Z drive it while no repository is open.
 let tour = null;
 
-// "Choose your defaults" (setup.js): first launch shows it in the tour's place; ⌘⇧, or ⌘K reopens
+// "Choose your defaults" (setup.js): first launch shows it in the tour's place; ⌘K reopens
 // it. Switches write the same saved choices as ⌘K and the View menu, and apply at once.
 const setupState = () => setupValues({ show: state.show, autoUpdate: update.auto });
 async function setupFeature(id, on) {
@@ -5335,7 +5335,7 @@ api.on('command', (cmd, ...args) => {
   // With the shortcuts window open, the menu's ⌘/ closes it and ⌘F goes to its search.
   if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
   if (shortcuts && cmd === 'search') return shortcuts.find();
-  // With Preferences open, ⌘, closes it, ⌘9 jumps to Repository and ⌘F goes to its search.
+  // With Preferences open, ⌘, closes it, Repository Settings… jumps to Repository and ⌘F goes to its search.
   if (prefs && cmd === 'preferences') return openPrefsCommand(args[0]) === 'show' ? prefs.show(args[0]) : prefs.close();
   if (prefs && cmd === 'search') return prefs.find();
   if (document.querySelector('.overlay') && !['undo', 'redo', 'handoff'].includes(cmd)) return;
@@ -5470,15 +5470,15 @@ window.addEventListener('keydown', (e) => {
     if (inside) sidebarEl.querySelector('.sb-toggle')?.focus();
     return;
   }
-  // ⌘⌥O: switch to a recent repository (also a File menu item, which handles it on macOS)
+  // Switch Repository… when the user gives it keys (also a File menu item, which handles it on macOS)
   if (keymap.match('menu', e) === 'file.repoSwitch') { e.preventDefault(); commands.repoSwitch(); return; }
-  // ⌘S toggles the sidebar from the View menu; its other keys (⌘\) have no menu accelerator, so handle them here
+  // ⌘S toggles the sidebar from the View menu; any other keys the user adds have no menu accelerator, so handle them here
   if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
-  // ⌘⇧, (Ctrl+Shift+, off macOS): choose defaults. Plain ⌘, stays the menu's Settings… (Config)
+  // Choose defaults, when the user gives it keys. Plain ⌘, stays the menu's Settings… (Config)
   if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }
   if (id === 'global.close' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
-  // "G then X" navigation: the view chords in the keymap ("g c" → view.commit)
+  // "G then X" navigation: the view chords in the keymap ("g r" → view.reflog)
   if (!isEditable(document.activeElement) && !e.metaKey && !e.ctrlKey && state.repo) {
     if (gPending) {
       const v = keymap.match('menu', e, gPending)?.replace('view.', '');

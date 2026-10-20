@@ -74,7 +74,7 @@ export function prefRows(s) {
 }
 
 // A `preferences` menu command while Preferences is open: ⌘, (no section) closes it,
-// a sectioned one (View → Repository Settings…, ⌘9) jumps to that section.
+// a sectioned one (View → Repository Settings…) jumps to that section.
 export const openPrefsCommand = (section) => (section ? 'show' : 'close');
 
 // Which remote this repository's PR features use (AK-461). With two or more GitHub remotes it's a choice:
