@@ -1666,6 +1666,7 @@ const stashDrop = (cwd, ref) => run(cwd, ['stash', 'drop', ref], { env: W_ENV })
 
 // Resolved files of a stopped merge, rebase, cherry-pick or revert (AK-584): staged, no longer
 // unmerged and changed from HEAD; limited to the conflicts git listed in MERGE_MSG when it did.
+// Listed conflicts resolved to HEAD's version only: { sha: null, paths: [], unchanged: n }.
 // Saved as a stash-shaped commit (parents HEAD and an index commit, both with those files over
 // HEAD) so it can be applied with `git stash apply <sha>` later. Returns { sha, paths } or null.
 async function saveResolved(cwd, gitDir) {
@@ -1677,12 +1678,16 @@ async function saveResolved(cwd, gitDir) {
   let msg = '';
   try { msg = fs.readFileSync(path.join(gitDir, 'MERGE_MSG'), 'utf8'); } catch {}
   const at = msg.split('\n').findIndex((l) => /^\S\s*Conflicts:\s*$/.test(l));
+  const listed = new Set();
   if (at !== -1) {
-    const listed = new Set();
     for (const l of msg.split('\n').slice(at + 1)) { const m = /^\S\t(.+)$/.exec(l); if (!m) break; listed.add(m[1]); }
     paths = paths.filter((p) => listed.has(p));
   }
-  if (!paths.length) return null;
+  if (!paths.length) {
+    // Resolved to what HEAD has (all ours): nothing to save, but say so ({ sha: null, unchanged }).
+    const unchanged = [...listed].filter((p) => !unmerged.has(p)).length;
+    return unchanged ? { sha: null, paths: [], unchanged } : null;
+  }
   const staged = new Map();
   for (const rec of z(await run(cwd, ['ls-files', '-s', '-z', '--', ...paths], { env: W_ENV }))) {
     const tab = rec.indexOf('\t');

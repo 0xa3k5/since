@@ -193,3 +193,36 @@ test('abortAnd saves only the resolved files, pinned; restoreResolved puts them 
   await r.journal.step('undo');
   assert.equal(fs.readFileSync(path.join(r.dir, 'app.js'), 'utf8'), 'main\n', 'restoring is undoable');
 });
+
+test('aborting a stopped rebase is not a step: the next undo takes the step before it, on the branch', async () => {
+  const r = await repo();
+  await git.run(r.dir, ['checkout', '-q', '-b', 'feature']);
+  await r.commit('app.js', 'feature\n', 'feature');
+  await git.run(r.dir, ['checkout', '-q', 'main']);
+  await r.commit('app.js', 'main\n', 'main');
+  await git.run(r.dir, ['checkout', '-q', 'feature']);
+  await r.journal.record('Branch kept', 'createBranch', () => git.run(r.dir, ['branch', 'kept']));
+  await assert.rejects(r.journal.record('Rebase feature', 'rebase', () => git.run(r.dir, ['rebase', 'main'])));
+  assert.equal(r.journal.undo.length, 2);
+  const abort = async () => { const op = await git.getOperationState(r.journal.gitDir); await git.run(r.dir, [op, '--abort']); return { op }; };
+  assert.deepEqual(await r.journal.abortOp(abort), { op: 'rebase' });
+  assert.equal(r.journal.undo.length, 1, 'the stopped rebase is dropped, the abort adds nothing');
+  await r.journal.step('undo');
+  assert.equal(await r.has('kept'), false, 'undo took the step before the rebase');
+  assert.equal((await git.run(r.dir, ['symbolic-ref', '--short', 'HEAD'])).trim(), 'feature');
+});
+
+test('resolved to HEAD’s version only: nothing to save, and it says so', async () => {
+  const r = await repo();
+  await git.run(r.dir, ['checkout', '-q', '-b', 'feature']);
+  await r.commit('app.js', 'feature\n', 'feature');
+  await git.run(r.dir, ['checkout', '-q', 'main']);
+  await r.commit('app.js', 'main\n', 'main');
+  await assert.rejects(git.run(r.dir, ['merge', '--no-edit', 'feature']));
+  await git.run(r.dir, ['checkout', '--ours', '--', 'app.js']);
+  await git.run(r.dir, ['add', 'app.js']);
+  assert.deepEqual(await git.saveResolved(r.dir, r.journal.gitDir), { sha: null, paths: [], unchanged: 1 });
+  const { saved } = await r.journal.abortAnd('Branch x', 'createBranch', () => git.run(r.dir, ['branch', 'x']));
+  assert.equal(saved.sha, null);
+  assert.equal(r.journal.undo.top.resolved, undefined);
+});

@@ -161,7 +161,9 @@ const abortAnd = (op, verb) => (op === verb ? `Abort and ${verb}` : `Abort ${op}
 // After abortAnd: when resolved files were saved, say so and offer them back until the next action.
 async function aborted(label, res, opts) {
   const { op, saved } = res || {};
-  if (saved && op) {
+  if (saved && op && !saved.sha) {
+    toast(`Aborted the ${op}`, { kind: 'success', detail: `${saved.unchanged} resolved file${saved.unchanged > 1 ? 's match' : ' matches'} HEAD. Nothing to save.` });
+  } else if (saved && op) {
     const n = saved.paths.length;
     toast(`Aborted the ${op}`, {
       kind: 'success', detail: `${n} resolved file${n > 1 ? 's' : ''} saved.`, timeout: 0,

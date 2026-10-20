@@ -585,10 +585,41 @@ class Journal {
     return this.lock(async () => {
       const op = await git.getOperationState(this.gitDir);
       const saved = op ? await git.saveResolved(this.root, this.gitDir) : null;
-      if (op) await git.run(this.root, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
-      const result = await this.recordNow(label, method, fn, { resolved: saved ? { sha: saved.sha } : null });
+      if (op) {
+        await git.run(this.root, [op, '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } });
+        await this.dropAborted();
+      }
+      const result = await this.recordNow(label, method, fn, { resolved: saved?.sha ? { sha: saved.sha } : null });
       return { result, op, saved };
     });
+  }
+
+  // Abort the operation stopped here (`fn`) without making the abort a step (AK-577): it put HEAD
+  // back, so the steps that started the stopped sequence are dropped and the next ⌘Z undoes the
+  // step before them, never landing on a detached HEAD.
+  abortOp(fn) {
+    return this.lock(async () => {
+      const res = await fn();
+      await this.dropAborted();
+      return res;
+    });
+  }
+
+  // After an abort: drop the step that stopped on a detached HEAD and any taken while it was
+  // stopped, when the repository is back exactly where that step started.
+  async dropAborted() {
+    const hot = this.undo.hot;
+    let i = hot.length - 1;
+    while (i >= 0 && !hot[i].before.head && !hot[i].after.head) i--;
+    const start = hot[i];
+    if (!start || !start.before.head || start.after.head) return;
+    if (hot.slice(i).some((e) => e.work || e.stash || e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.moved || e.remote)) return;
+    const now = await git.captureRefState(this.root).catch(() => null);
+    if (!now || !same(start.before, now)) return;
+    hot.splice(i);
+    const loaded = this.unarchive(this.undo);
+    if (this.persist()) this.removePages(loaded);
+    await this.prunePins().catch(() => {});
   }
 
   // Put back the files abortAnd saved (git.restoreResolved), as an undoable work step.

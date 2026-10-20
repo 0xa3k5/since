@@ -396,6 +396,8 @@ handle('git', async (e, method, ...args) => {
     }
     s.busy++;
     try {
+      // Aborting isn't a step of its own: the stopped sequence it ends is dropped (Journal.abortOp).
+      if (method === 'abortOp') return { ok: await s.journal.abortOp(() => refMutations.abortOp(s)) };
       if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
