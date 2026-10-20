@@ -1883,7 +1883,6 @@ async function autostashCheckout(branch, blocked) {
   if (plan.ask) {
     const v = await dialog({
       title: `Stash your current changes before checking out ${branch}?`,
-      description: 'Your changes would be overwritten by this checkout. GitLanes offers them back when you return to this branch.',
       submit: 'Stash and switch',
       fields: [
         { name: 'msg', label: 'Message', value: message },

@@ -190,3 +190,9 @@ test('ipc: stashAnd checks the inner method and its arguments', () => {
   assert.throws(() => checkGit('stashAnd', ['merge', 'feature']));
   assert.deepEqual(checkGit('undo', [{ stash: true }]).args, [{ stash: true }]);
 });
+
+test('the stash-before-checkout dialog has no explanatory line', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../renderer/app.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function autostashCheckout('), src.indexOf('async function autostashCheckout(') + 1200);
+  assert.doesNotMatch(fn, /description:/);
+});
