@@ -33,7 +33,7 @@ import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.js';
 import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
 import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
-import { authorProfile } from './profile.js';
+import { authorProfile, loginProfile } from './profile.js';
 import { SUBMODULE_STATES } from './submodule.js';
 import { tourView } from './tour-view.js';
 import { AUTOSTASH_DEFAULT, blockedCheckout, blockedByChanges, stashMessage, autostashPlan, returnOffer, stashRefBySha } from './autostash.js';
@@ -4802,6 +4802,8 @@ function openPalette() {
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show media of ${t}`, () => lanesPage.media(), { icon: 'image', kbd: keymap.keys('review.media'), keywords: 'media gallery images videos screenshots recordings pictures thumbnails' });
       if (paneSel.row.pr && paneSel.ctx.prsOn) add('Review', `Show checks and reviews of ${t}`, () => lanesPage.evidence(), { icon: 'checks', kbd: keymap.keys('review.evidence'), keywords: 'evidence checks ci annotations media screenshots images videos reviews open threads log failed' });
       if (paneSel.row.pr) add('Review', `Check out ${t} here`, () => (checkoutHereMode(paneSel.row) === 'pr' ? checkoutPr(paneSel.row.pr) : openLane(paneSel.row.lane)), { icon: 'checkout', kbd: keymap.keys('lanes.checkoutHere'), keywords: 'review pane pull request checkout switch branch this window local' });
+      const authorP = paneSel.row.pr && !paneSel.row.pr.bot && /^https:\/\/github\.com\//.test(paneSel.row.pr.url || '') ? loginProfile(paneSel.row.pr.author) : null;
+      if (authorP) add('Review', `Open ${t}’s author on GitHub`, () => api.app('external', authorP.url), { icon: 'external', keywords: `author profile person github ${paneSel.row.pr.author}` });
       // Stuck fixes (AK-359) that ⌘K doesn't list above: rebase, checks and send back are there for a lane.
       for (const a of fixActions(paneSel.row, paneSel.ctx).filter((x) => x.id === 'showConflicts' || x.id === 'updateBranch' || (x.id === 'checks' && !paneSel.row.lane))) {
         const label = a.id === 'checks' ? 'Open failing checks of' : a.id === 'updateBranch' ? 'Update branch of' : 'Show conflicts in';

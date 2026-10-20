@@ -7,6 +7,7 @@ import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } fro
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
 import * as keymap from './keymap.js';
+import { loginProfile } from './profile.js';
 
 // Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with
 // Catch up (reader.js, AK-381): the selected row's head (‹ N of M ›, #number and title, CI and review
@@ -133,11 +134,16 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
     }, icon('more', 15)) : null;
     // Who made it (AK-390): the person, + the agent when its lane looks agent-made, or the bot alone.
     const authors = rowAuthors(row, { agents: ctx.agents });
+    // A PR's author on GitHub opens their profile (AK-627); agents and bots stay plain.
+    const authorProfile = (a) => {
+      const p = !a.agent && a.key === pr?.author && /^https:\/\/github\.com\//.test(pr?.url || '') ? loginProfile(a.key) : null;
+      return p ? { ...p, open: () => call('external', p.url) } : null;
+    };
     const num = pr ? `#${pr.number}` : icon(lane?.worktree ? 'worktree' : 'branch', 14);
     const top = readerHead({
       num, title: row.title, nav: ctx.nav || null,
       badges: badges.filter((b) => b !== draft).map((b) => h('span.badge.review-badge' + (b.kind ? `.${b.kind}` : ''), { title: b.title }, b.spin ? h('span.badge-spinner', { 'aria-hidden': 'true' }) : null, b.text)),
-      authors,
+      authors, authorProfile,
       branch: pr ? pr.branch : row.branch || null, base: pr ? pr.base : null,
       meta: [
         size && !facts ? h('span.stat.small', { title: `${size.files} file${size.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${size.additions}`), ' ', h('span.del', null, `−${size.deletions}`), ` · ${size.files} file${size.files === 1 ? '' : 's'}`) : null,
