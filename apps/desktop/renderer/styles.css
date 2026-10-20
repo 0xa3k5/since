@@ -1231,6 +1231,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
+.review-pane-actions .pane-more.always { display: inline-flex; }
 @container review-pane (max-width: 720px) {
   .btn.pane-shrink { width: 32px; padding: 0; justify-content: center; }
   .pane-shrink .btn-label, .pane-shrink .kbd-group { display: none; }
