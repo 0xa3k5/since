@@ -857,6 +857,25 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-bridge { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; padding: 10px 14px; border: 1px dashed var(--border-strong); border-radius: 10px; font-size: 12px; color: var(--text-2); }
 .catchup-bridge strong { color: var(--text); font-weight: var(--fw-strong); }
 .catchup-merged { display: inline-flex; align-items: center; gap: 4px; color: var(--merged); font-weight: var(--fw-medium); }
+/* A merged stack (AK-616): one timeline row, its parts on a 1.5px rail when expanded; its reader lists the parts. */
+.catchup-row.stack-row .catchup-num { white-space: nowrap; }
+.catchup-row.stack-row .catchup-title { color: var(--text-3); }
+.stack-chev { display: inline-flex; align-items: center; justify-content: center; width: 16px; color: var(--text-3); transition: transform 0.12s; }
+.stack-row[aria-expanded="true"] .stack-chev { transform: rotate(90deg); }
+.catchup-row.stack-part { margin-left: 14px; padding-left: 12px; border-radius: 0 var(--radius) var(--radius) 0; box-shadow: inset 1.5px 0 0 var(--green); }
+.catchup-parts { min-width: 0; padding: 0 12px 24px; }
+.stack-ov-head { display: flex; gap: 8px; align-items: center; padding: 12px 10px 4px; font-size: 12px; color: var(--text-3); }
+.stack-ov { display: grid; gap: 2px; padding: 4px 0; }
+.stack-ov-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius); color: var(--text-2); }
+.stack-ov-row:hover { background: var(--bg-hover); }
+.stack-ov-row input { margin: 0; accent-color: var(--accent); }
+.stack-ov-open { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-width: 0; height: 100%; padding: 0; font: inherit; text-align: left; color: inherit; background: none; border: 0; border-radius: var(--radius); }
+.stack-ov-open:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.stack-ov-open .n { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.stack-ov-open .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.stack-ov-open .s { font: 11.5px var(--mono); color: var(--text-4); }
+.stack-ov-row.seen .t { color: var(--text-3); }
+@media (prefers-reduced-motion: reduce) { .stack-chev { transition: none; } }
 .catchup-files { min-width: 0; padding-bottom: 24px; }
 .catchup-files > .loading-state, .catchup-files > .empty { padding: 24px 22px; }
 .catchup-empty { display: grid; justify-items: center; gap: 8px; padding: 64px 16px 24px; text-align: center; }
