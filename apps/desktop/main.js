@@ -272,9 +272,13 @@ const refMutations = {
     if (!op) return;
     return r(s, ['-c', 'core.editor=true', op, '--continue'], { env: { GIT_EDITOR: 'true' } });
   },
+  // Files already resolved are saved first (git.saveResolved), for Restore: returns { op, saved }.
   abortOp: async (s) => {
     const op = await git.getOperationState(s.repo.gitDir);
-    if (op) return r(s, [op, '--abort']);
+    if (!op) return;
+    const saved = await git.saveResolved(s.repo.root, s.repo.gitDir).catch(() => null);
+    await r(s, [op, '--abort']);
+    return { op, saved };
   },
 };
 

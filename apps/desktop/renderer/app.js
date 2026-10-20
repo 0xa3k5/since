@@ -277,7 +277,10 @@ async function resolveOp(label, method, args, opts) {
   const abort = async () => {
     if (!(await confirm(`${abortLabel}?`, why, { submit: abortLabel }))) return false;
     return method === 'mergeLane'
-      ? act(label, method, [...args.slice(0, 3), { abort: true }], opts)
+      ? act(label, method, [...args.slice(0, 3), { abort: true }], { ...opts, then: async (res) => {
+        if (res?.saved) await aborted(label, res, { quiet: true });
+        await opts.then?.(res);
+      } })
       : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
   };
   toast(`${label} is waiting`, { kind: 'warn', detail: why, actions: [
@@ -333,7 +336,8 @@ function stepWhileStopped(dir) {
 }
 async function abortThenStep(dir, op) {
   if (!(await confirm(`Abort ${op}?`, "Aborting can't be undone.", { submit: 'Abort' }))) return;
-  try { await git('abortOp'); } catch (e) {
+  let res;
+  try { res = await git('abortOp'); } catch (e) {
     if (!e.readOnly) toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return;
@@ -341,6 +345,8 @@ async function abortThenStep(dir, op) {
   pendingPush = null;
   await refreshAll();
   await (dir === 'undo' ? undo : redo)();
+  // Resolved files it saved: offered back, as after abortAnd.
+  if (res?.saved) await aborted(`Abort ${op}`, res, { quiet: true });
 }
 
 async function quiet(method, ...args) {
@@ -2261,11 +2267,6 @@ async function switchAndDelete(r, base = null) {
     actions: stash ? [showStashAction(stash.message)] : null,
   });
 }
-// A worktree open in another window can't be changed from this one: offer to bring that window forward.
-async function openElsewhere(title, w) {
-  const v = await resolveSheet({ title, reason: `“${w.name}” is open in another window.`, actions: [{ id: 'open', label: 'Bring that window forward' }] });
-  if (v) api.app('open-window', w.path);
-}
 // "Show stash" on a toast: opens Stashes with the stash saved as `message` selected.
 const showStashAction = (message) => ({ label: 'Show stash', run: async () => {
   stashFocus = (await git('stashes').catch(() => [])).find((x) => x.message.endsWith(message))?.ref ?? null;
@@ -3335,7 +3336,8 @@ function openBranches() {
     tab: branchesTab,
     only: cleanupOnly,
     cleanup: {
-      run: async (items, label) => git('cleanupLanes', await abortStopped(items, label), { __label: label }),
+      run: (items, label) => git('cleanupLanes', items, { __label: label }),
+      stoppedOps: (items) => Promise.all(items.map((i) => (i.worktree ? git('worktreeOp', i.worktree).catch(() => null) : null))),
       runRemote: (names) => git('deleteRemoteBranches', names),
       days: cleanupPrefs().days,
       onDays: (days) => savePref('cleanup', { ...cleanupPrefs(), days }),
@@ -3661,7 +3663,11 @@ async function rebaseLane(lane, base) {
   if (w && !w.current) {
     const wt = state.worktrees.find((x) => x.path === w.path);
     if (!wt) return;
-    if (wt.elsewhere) return openElsewhere(label, wt);
+    // Open in another window: that window rebases it (handoff, as Merge and tidy does).
+    if (wt.elsewhere) {
+      try { await api.app('handoff', { kind: 'rebaseLane', dir: wt.path, branch: lane.branch, base }); } catch (e) { return toast(`Can’t rebase ${lane.branch}`, { kind: 'error', detail: e.message }); }
+      return toast(`Rebasing in ${wt.name}`);
+    }
     await switchWorktree(wt);
     if (state.repo?.root !== w.path) return; // open in another window, or it failed to open
     return act(label, 'rebaseOnto', [base], { busy: 'Rebasing…' });
@@ -3669,21 +3675,6 @@ async function rebaseLane(lane, base) {
   if (w?.current) return act(label, 'rebaseOnto', [base], { busy: 'Rebasing…' });
   if (!(await confirm(`${label}?`, `This window checks out ${lane.branch} to rebase it${state.head.branch ? `, leaving ${state.head.branch}` : ''}. ${MOD}Z undoes both.`, { submit: 'Rebase' }))) return;
   act(label, 'rebaseBranch', [base, lane.branch], { busy: 'Rebasing…' });
-}
-
-// Clean up: worktrees with a rebase, merge, cherry-pick or revert stopped in them get it aborted,
-// or are skipped (kept, listed as failed) when the sheet is dismissed.
-async function abortStopped(items, label) {
-  const ops = await Promise.all(items.map((i) => (i.worktree ? git('worktreeOp', i.worktree).catch(() => null) : null)));
-  const n = ops.filter(Boolean).length;
-  if (!n) return items;
-  const first = ops.findIndex(Boolean);
-  const v = await resolveSheet({
-    title: label,
-    reason: n === 1 ? `“${baseName(items[first].worktree)}” has a ${ops[first]} in progress.` : `${n} worktrees have an operation in progress.`,
-    actions: [{ id: 'abort', label: 'Abort and clean up' }, { id: 'skip', label: n === 1 ? 'Skip it' : 'Skip them' }],
-  });
-  return v?.id === 'abort' ? items.map((i, k) => (ops[k] ? { ...i, abort: true } : i)) : items;
 }
 
 // Delete a lane (Lanes: conflicts → Delete, stalled → Discard): its worktree and branch, one undo
@@ -3820,6 +3811,10 @@ async function takeHandoff() {
     return w ? removeWorktree(w, { handed: true }) : toast('That worktree is already gone');
   }
   if (h.kind === 'mergeLane') return mergeLane({ name: h.branch, branch: h.branch }, h.base, null, { handed: true });
+  if (h.kind === 'rebaseLane') {
+    if (state.head.branch !== h.branch) return toast(`${h.branch} is no longer checked out here`);
+    return act(`Rebase ${h.branch} onto ${h.base}`, 'rebaseOnto', [h.base], { busy: 'Rebasing…' });
+  }
 }
 
 async function toggleLock(w) {

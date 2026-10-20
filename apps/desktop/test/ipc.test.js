@@ -304,3 +304,10 @@ test('remote names and URLs are checked before git sees them', () => {
   rejects(() => check.checkGit('setRemoteUrl', ['origin', '--upload-pack=x']), /must not start/);
   rejects(() => check.checkGit('renameRemote', ['origin', '../x']));
 });
+
+test('handoff: rebaseLane needs a branch and a base (AK-601)', () => {
+  assert.equal(check.handoff({ kind: 'rebaseLane', dir: '/tmp/wt', branch: 'feature', base: 'main' }).kind, 'rebaseLane');
+  assert.throws(() => check.handoff({ kind: 'rebaseLane', dir: '/tmp/wt', branch: 'feature' }));
+  assert.throws(() => check.handoff({ kind: 'rebaseLane', dir: '/tmp/wt', branch: '--upload-pack=x', base: 'main' }));
+  assert.throws(() => check.handoff({ kind: 'rebase', dir: '/tmp/wt', branch: 'feature', base: 'main' }));
+});

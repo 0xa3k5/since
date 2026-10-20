@@ -17,12 +17,13 @@ const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 const SHOWN = 50; // rows a card lists before "+ N more"
 const lower = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
 
-// run(items, label) and runRemote(names) call git; days: the "untouched for N days" card, set in
+// run(items, label) and runRemote(names) call git; stoppedOps(items): per item, the operation stopped
+// in its worktree ('rebase', …) or null, listed in the confirmation with an abort tick; days: the "untouched for N days" card, set in
 // the action bar (onDays(n) saves it);
 // onProgress(fn) subscribes to progress and returns an unsubscribe; onDone() refreshes the app (and
 // with it the lanes); onUndo() undoes the last step; onBack() leaves the tab.
 // The panel doesn't load: Branches hands it the lanes (update(lanes, base)).
-export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack }) {
+export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack }) {
   let lanes = [];
   let groups = [];
   let items = []; // the keyboard's stops: { kind: 'group', id } or { kind: 'lane', key }
@@ -191,13 +192,17 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     const s = summarize(lanesToGo, remoteSet, { all: lanes, base });
     const remoteNames = s.remotes;
     const gone = new Set(remoteNames), where = remoteWhere(remoteNames);
+    const picked = lanesToGo.map(cleanupItem);
+    const ops = await stoppedOps(picked).catch(() => []);
+    const stopped = ops.filter(Boolean);
     // One row per branch with only what changes for it; the warning and its tick only when
     // something can't come back (GitHub branches). Uncommitted changes are stashed, or discarded
     // (undo still has them).
-    const rows = lanesToGo.map((l) => {
+    const rows = lanesToGo.map((l, k) => {
       const n = dirty(l);
       return h('div.cleanup-confirm-row', null,
         h('span.cleanup-confirm-name', { title: l.name }, l.name),
+        ops[k] ? h('span.cleanup-confirm-tag.warn', null, `${ops[k]} stopped`) : null,
         n ? h('span.cleanup-confirm-tag.warn', null, `${n} uncommitted`) : null,
         l.worktree ? h('span.cleanup-confirm-tag', null, 'worktree') : null,
         remoteSet.has(laneKey(l)) && gone.has(remoteOf(l, base)) ? h('span.cleanup-confirm-tag', null, remoteOf(l, base).split('/')[0]) : null);
@@ -209,6 +214,8 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
       content.push(h('p.cleanup-confirm-warn', null, 'This can’t be undone.'));
       fields.push({ name: 'sure', type: 'checkbox', label: `Delete ${lose.join(' and ')}, for good` });
     }
+    // Unticked, those worktrees are kept and listed as failed.
+    if (stopped.length) fields.push({ name: 'abort', type: 'checkbox', label: `Abort the stopped ${stopped.length === 1 ? stopped[0] : 'operations'} (can’t be undone)`, value: true });
     if (s.dirty.length) fields.push({ name: 'stash', type: 'checkbox', label: `Stash the uncommitted changes in ${plural(s.dirty.length, 'worktree')}`, value: true });
     const v = await dialog({ title: `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}?`, content, fields, submit: 'Clean up', destructive: true, gate: lose.length ? 'sure' : undefined });
     if (!v) return;
@@ -220,7 +227,7 @@ export function cleanupPanel({ run, runRemote, days = 30, onDays = () => {}, onP
     let res = null;
     let error = null;
     try {
-      res = await run(lanesToGo.map(cleanupItem).map((i) => (v.stash ? { ...i, stash: true } : i)), `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}`);
+      res = await run(picked.map((i, k) => ({ ...i, ...(v.stash ? { stash: true } : {}), ...(ops[k] && v.abort ? { abort: true } : {}) })), `Clean up ${plural(lanesToGo.length, 'branch', 'branches')}`);
       if (remoteNames.length) {
         progress.lastChild.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on ${where}…`;
         const r = await runRemote(remoteNames).catch((err) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));

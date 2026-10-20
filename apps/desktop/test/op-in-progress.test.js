@@ -225,4 +225,25 @@ test('resolved to HEAD’s version only: nothing to save, and it says so', async
   const { saved } = await r.journal.abortAnd('Branch x', 'createBranch', () => git.run(r.dir, ['branch', 'x']));
   assert.equal(saved.sha, null);
   assert.equal(r.journal.undo.top.resolved, undefined);
+
+test('merge and tidy that aborts a merge stopped here saves the resolved files, pinned (AK-601)', async () => {
+  const r = await repo();
+  await r.commit('b.js', 'base\n', 'b');
+  const wt = path.join(r.dir, '..', `${path.basename(r.dir)}-lane`);
+  await git.run(r.dir, ['worktree', 'add', '-q', '-b', 'lane', wt]);
+  await r.commit('c.js', 'lane\n', 'lane', wt);
+  await git.run(r.dir, ['checkout', '-q', '-b', 'feature']);
+  r.write('app.js', 'feature\n'); await git.run(r.dir, ['add', 'app.js']); await r.commit('b.js', 'feature\n', 'feature');
+  await git.run(r.dir, ['checkout', '-q', 'main']);
+  r.write('app.js', 'main\n'); await git.run(r.dir, ['add', 'app.js']); await r.commit('b.js', 'main\n', 'main');
+  await assert.rejects(git.run(r.dir, ['merge', '--no-edit', 'feature']));
+  r.write('app.js', 'resolved\n');
+  await git.run(r.dir, ['add', 'app.js']);
+
+  const res = await r.journal.runLane('Merge and tidy lane', 'mergeLane', (done) => git.mergeLane(r.dir, { branch: 'lane', base: 'main', message: 'Lane', abort: true }, done));
+  assert.equal(res.op, 'merge');
+  assert.deepEqual(res.saved.paths, ['app.js']);
+  assert.equal(r.journal.undo.top.resolved.sha, res.saved.sha, 'pinned with the step');
+  assert.equal(await git.getOperationState(r.journal.gitDir), null);
+  assert.equal(fs.readFileSync(path.join(r.dir, 'c.js'), 'utf8'), 'lane\n');
 });
