@@ -230,6 +230,21 @@ export function sharedLoad() {
   };
 }
 
+// Review's last local list per repo (AK-639), in `storage` (localStorage): the next visit, or the next
+// launch, paints it at once while the fresh one loads. Local data only; PRs have their own load.
+// savedLanes → { base, lanes } or null; a list from another format version reads as none.
+const SAVED_V = 1;
+const savedKey = (repo) => `lanes:${repo}`;
+export function savedLanes(storage, repo) {
+  try {
+    const x = JSON.parse(storage.getItem(savedKey(repo)));
+    return x?.v === SAVED_V && Array.isArray(x.lanes) ? { base: x.base ?? null, lanes: x.lanes } : null;
+  } catch { return null; }
+}
+export function saveLanes(storage, repo, { base, lanes }) {
+  try { storage.setItem(savedKey(repo), JSON.stringify({ v: SAVED_V, base, lanes })); } catch { /* full or unavailable */ }
+}
+
 // `promise`, or a rejection with `message` after `ms`.
 export function withTimeout(promise, ms, message = 'Timed out') {
   let timer;

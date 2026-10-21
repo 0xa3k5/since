@@ -260,3 +260,18 @@ test('actionWhy says why a row action doesn’t apply, null when it does (AK-582
   assert.equal(actionWhy('cleanup', f, { finished: true }), null);
   assert.equal(actionWhy('open', main), null);
 });
+
+test('Review keeps its last local list per repo for the next visit (AK-639)', async () => {
+  const { savedLanes, saveLanes } = await load();
+  const m = new Map();
+  const storage = { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) };
+  assert.equal(savedLanes(storage, '/r'), null, 'nothing saved yet');
+  saveLanes(storage, '/r', { base: 'main', lanes: [lane('feat')], prError: null });
+  assert.deepEqual(savedLanes(storage, '/r'), { base: 'main', lanes: [lane('feat')] });
+  assert.equal(savedLanes(storage, '/other'), null, 'another repo has its own');
+  m.set('lanes:/r', '{not json');
+  assert.equal(savedLanes(storage, '/r'), null);
+  m.set('lanes:/r', JSON.stringify({ v: 0, base: 'main', lanes: [] }));
+  assert.equal(savedLanes(storage, '/r'), null, 'another format version reads as none');
+  assert.doesNotThrow(() => saveLanes({ setItem: () => { throw new Error('QuotaExceededError'); } }, '/r', { base: 'main', lanes: [] }));
+});
