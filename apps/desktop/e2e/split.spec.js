@@ -33,7 +33,7 @@ async function split(app, { open }) {
 
 for (const [name, open] of [
   ['with ⇧S', async (app) => { await app.selectRow('two changes'); await app.page.keyboard.press('Shift+S'); }],
-  ['from the context menu', async (app) => { await app.contextMenu(app.row('two changes'), 'Split Commit…'); }],
+  ['from the context menu', async (app) => { await app.contextMenu(app.row('two changes'), ['Rewrite', 'Split…']); }],
   ['from the command menu', async (app) => { await app.selectRow('two changes'); await app.palette('Split selected commit…'); }],
 ]) {
   test(`split a commit ${name}, then undo and redo`, async ({ sandbox, launch }) => {
@@ -98,7 +98,9 @@ test('merge commits, and commits below a merge, cannot be split', async ({ sandb
   const app = await launch(repo);
 
   await app.row("Merge branch 'side'").click({ button: 'right' });
-  await expect(app.page.locator('.menu .menu-item', { hasText: 'Split Commit…' })).toBeDisabled();
+  await app.page.locator('.menu .menu-item', { hasText: 'Rewrite' }).click();
+  await expect(app.page.locator('.menu .menu-item', { hasText: 'Split…' })).toBeDisabled();
+  await app.page.keyboard.press('Escape');
   await app.page.keyboard.press('Escape');
 
   // A commit below a merge on HEAD: the dead-ends guard (commit-guards.js) blocks the shortcut

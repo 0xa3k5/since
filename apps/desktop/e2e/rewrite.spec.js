@@ -53,7 +53,7 @@ test('fixup with parent from the context menu', async ({ sandbox, launch }) => {
   await rewriteAndUndo({ sandbox, launch }, {
     label: 'Fixup with parent',
     expected: ['four', 'two', 'one'],
-    run: async (app) => { await app.contextMenu(app.row('three'), 'Fixup with Parent'); },
+    run: async (app) => { await app.contextMenu(app.row('three'), ['Rewrite', 'Fixup into Parent']); },
   });
 });
 
@@ -69,7 +69,7 @@ test('swap with parent from the context menu', async ({ sandbox, launch }) => {
   await rewriteAndUndo({ sandbox, launch }, {
     label: 'Swap with parent',
     expected: ['four', 'two', 'three', 'one'],
-    run: async (app) => { await app.contextMenu(app.row('three'), 'Swap with Parent'); },
+    run: async (app) => { await app.contextMenu(app.row('three'), ['Rewrite', 'Swap with Parent']); },
   });
 });
 

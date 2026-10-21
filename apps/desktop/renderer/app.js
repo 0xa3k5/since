@@ -2027,37 +2027,56 @@ async function commitMenu(x, y, c) {
     { label: 'Quick View', icon: 'eye', kbd: keymap.keys('map.quick'), run: () => openQuick(c.sha) },
     { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), ...off('commit.diffHead'), run: () => diffWithHead(c) },
     '-',
-    ...(locals.length
+    ...menuGroup('Checkout', 'checkout', locals.length
       ? locals.map((b) => (worktreeOf(b.short)
         ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => switchWorktree(worktreeOf(b.short)) }
         : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, why: b.short === state.head.branch ? 'Current branch' : null, run: () => checkout(b.short) }))
       : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: keymap.keys('commit.checkout'), disabled: isHead && state.head.detached, why: isHead && state.head.detached ? 'Checked out' : null, run: () => checkoutCommit(c) }]),
-    { label: 'Create Branch…', icon: 'branch', kbd: keymap.keys('commit.branch'), run: () => createBranch(c.sha) },
-    { label: 'Create Tag…', icon: 'tag', kbd: keymap.keys('commit.tag'), run: () => createTag(c.sha) },
-    { label: 'New Worktree Here…', icon: 'worktree', kbd: keymap.keys('commit.worktree'), run: () => addWorktree({ base: c.sha }) },
-    state.head.branch && !isHead ? { label: `Move “${state.head.branch}” here`, icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
-    ...locals.map((b) => deleteBranchItem(b)),
+    ...menuGroup('Create', 'plus', [
+      { label: 'Branch…', inline: 'Create Branch…', icon: 'branch', kbd: keymap.keys('commit.branch'), run: () => createBranch(c.sha) },
+      { label: 'Tag…', inline: 'Create Tag…', icon: 'tag', kbd: keymap.keys('commit.tag'), run: () => createTag(c.sha) },
+      { label: 'Worktree…', inline: 'New Worktree Here…', icon: 'worktree', kbd: keymap.keys('commit.worktree'), run: () => addWorktree({ base: c.sha }) },
+    ]),
+    ...menuGroup('Branch', 'branch', [
+      state.head.branch && !isHead ? { label: 'Move Current Branch Here', icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
+      ...locals.map((b) => deleteBranchItem(b)),
+    ]),
     '-',
-    { section: state.head.branch ? `Into ${state.head.branch}` : 'Into HEAD' },
-    { label: 'Merge into Current', icon: 'merge', kbd: keymap.keys('commit.merge'), ...off('commit.merge'), run: () => mergeCommit(c) },
-    { label: 'Rebase Current onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), ...off('commit.rebase'), run: () => rebaseOnto(c) },
-    { label: 'Cherry-pick onto Current', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), ...off('commit.cherryPick'), run: () => cherryPick(c) },
-    { label: 'Revert', icon: 'revert', kbd: keymap.keys('commit.revert'), run: () => revertCommit(c) },
+    ...menuGroup(state.head.branch ? 'Current Branch' : 'HEAD', 'merge', [
+      { label: 'Merge', icon: 'merge', kbd: keymap.keys('commit.merge'), ...off('commit.merge'), run: () => mergeCommit(c) },
+      { label: 'Rebase onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), ...off('commit.rebase'), run: () => rebaseOnto(c) },
+      { label: 'Cherry-pick', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), ...off('commit.cherryPick'), run: () => cherryPick(c) },
+      { label: 'Revert', icon: 'revert', kbd: keymap.keys('commit.revert'), run: () => revertCommit(c) },
+    ]),
+    ...menuGroup('Rewrite', 'edit', [
+      rewriteItem(targets, 'reword', 'Edit Message…', { icon: 'edit', kbd: keymap.keys('commit.edit'), ...off('commit.edit') }, (b) => editMessage(c, b)),
+      rewriteItem(targets, 'squash', 'Squash into Parent', { icon: 'squash', kbd: keymap.keys('commit.squash'), ...off('commit.squash') }, (b) => rewriteOp('squash', c, b)),
+      rewriteItem(targets, 'fixup', 'Fixup into Parent', { icon: 'squash', kbd: keymap.keys('commit.fixup'), ...off('commit.fixup') }, (b) => rewriteOp('fixup', c, b)),
+      rewriteItem(targets, 'swapParent', 'Swap with Parent', { icon: 'swap', ...off('swapParent') }, (b) => rewriteOp('swapParent', c, b)),
+      rewriteItem(targets, 'split', 'Split…', { icon: 'split', kbd: keymap.keys('commit.split'), ...off('commit.split') }, (b) => openSplit(c, b)),
+      '-',
+      rewriteItem(targets, 'drop', 'Delete', { icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, ...off('commit.drop') }, (b) => rewriteOp('drop', c, b)),
+    ]),
     '-',
-    { section: 'Rewrite' },
-    rewriteItem(targets, 'reword', 'Edit Message…', { icon: 'edit', kbd: keymap.keys('commit.edit'), ...off('commit.edit') }, (b) => editMessage(c, b)),
-    rewriteItem(targets, 'squash', 'Squash with Parent', { icon: 'squash', kbd: keymap.keys('commit.squash'), ...off('commit.squash') }, (b) => rewriteOp('squash', c, b)),
-    rewriteItem(targets, 'fixup', 'Fixup with Parent', { icon: 'squash', kbd: keymap.keys('commit.fixup'), ...off('commit.fixup') }, (b) => rewriteOp('fixup', c, b)),
-    rewriteItem(targets, 'swapParent', 'Swap with Parent', { icon: 'swap', ...off('swapParent') }, (b) => rewriteOp('swapParent', c, b)),
-    rewriteItem(targets, 'split', 'Split Commit…', { icon: 'split', kbd: keymap.keys('commit.split'), ...off('commit.split') }, (b) => openSplit(c, b)),
-    rewriteItem(targets, 'drop', 'Delete Commit', { icon: 'trash', kbd: keymap.keys('commit.drop'), danger: true, ...off('commit.drop') }, (b) => rewriteOp('drop', c, b)),
-    '-',
-    { label: 'Copy SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
-    remote?.web ? { label: 'Copy Link to Commit', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
-    { label: 'Copy Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
-    authorProfile(c.email, remote?.web) ? { label: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => openAuthor(c) } : null,
-    remote?.web ? { label: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
+    ...menuGroup('Copy', 'copy', [
+      { label: 'SHA', icon: 'copy', kbd: keymap.keys('map.copySha'), run: () => copy(c.sha, 'Copied SHA') },
+      remote?.web ? { label: 'Link', icon: 'copy', kbd: keymap.keys('map.copyLink'), run: () => copyCommitLink(c.sha) } : null,
+      { label: 'Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
+    ]),
+    ...menuGroup('Open in Browser', 'external', [
+      authorProfile(c.email, remote?.web) ? { label: 'Author', inline: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => openAuthor(c) } : null,
+      remote?.web ? { label: 'Commit', inline: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
+    ]),
   ]);
+}
+
+// A submenu row for a group of menu items (AK-629): nothing when the group is empty, the item
+// itself (under its `inline` label, when the short one needs the group's context) when there's only one.
+function menuGroup(label, icon, items) {
+  const real = items.filter((it) => it && typeof it === 'object' && !it.section);
+  if (!real.length) return [];
+  if (real.length === 1) return [{ ...real[0], label: real[0].inline || real[0].label }];
+  return [{ label, icon, submenu: items }];
 }
 
 // Delete a branch label: the one checked out here through the switch-and-delete sheet.

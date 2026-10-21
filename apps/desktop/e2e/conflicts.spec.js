@@ -8,8 +8,8 @@ const { test, expect } = require('./fixtures');
 
 async function startConflict(app, op) {
   // Local branches have no sidebar row since AK-491, so start from feature's tip in the Map.
-  const item = op === 'merge' ? 'Merge into Current' : 'Rebase Current onto This';
-  await app.contextMenu(app.row('feature change'), item);
+  const item = op === 'merge' ? 'Merge' : 'Rebase onto This';
+  await app.contextMenu(app.row('feature change'), ['Current Branch', item]);
   await app.toast(op === 'merge' ? 'Merge feature stopped on 1 conflict' : /^Rebase onto [0-9a-f]{7} stopped on 1 conflict/, 'info');
   const banner = app.page.locator('.banner');
   await expect(banner).toContainText(op === 'merge' ? MERGE_STOPPED : 'Rebasing main onto feature is stopped at 1 of 1: main change.');
