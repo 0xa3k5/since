@@ -2043,7 +2043,7 @@ async function commitMenu(x, y, c) {
       ...locals.map((b) => deleteBranchItem(b)),
     ]),
     '-',
-    ...menuGroup('Current Branch', 'merge', [
+    ...menuGroup(state.head.branch ? 'Current Branch' : 'HEAD', 'merge', [
       { label: 'Merge', icon: 'merge', kbd: keymap.keys('commit.merge'), ...off('commit.merge'), run: () => mergeCommit(c) },
       { label: 'Rebase onto This', icon: 'rebase', kbd: keymap.keys('commit.rebase'), ...off('commit.rebase'), run: () => rebaseOnto(c) },
       { label: 'Cherry-pick', icon: 'cherry', kbd: keymap.keys('commit.cherryPick'), ...off('commit.cherryPick'), run: () => cherryPick(c) },
