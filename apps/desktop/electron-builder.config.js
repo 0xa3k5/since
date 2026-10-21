@@ -46,7 +46,7 @@ module.exports = {
   productName: 'GitLanes',
   copyright: 'Copyright © 2026 GitLanes',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'change-facts.js', 'pr-media.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'change-facts.js', 'pr-media.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
   // The store profile is baked into the packaged package.json; the packaged app ignores GITLANES_STORE
   // at run time. Production unless the build asks for the test store (GITLANES_STORE=sandbox).
   // The version, when overridden, names the artifacts and is what the updater compares against the feed.

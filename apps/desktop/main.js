@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, protocol, session: electronSession } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, protocol, screen, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -16,6 +16,7 @@ const pkg = require('./package.json');
 const check = require('./ipc');
 const catchupStore = require('./catchup-store');
 const recentStore = require('./recent-store');
+const windowState = require('./window-state');
 const ai = require('./ai');
 const github = require('./github');
 const changeFacts = require('./change-facts');
@@ -36,6 +37,7 @@ function addRecent(repo) {
 }
 // macOS keeps its own Open Recent list, which Electron can only clear as a whole; it is left as is.
 const removeRecent = (root) => recentStore.removeRecent(recentFile(), root);
+const windowStateFile = () => path.join(app.getPath('userData'), 'window-state.json');
 
 // ---------------------------------------------------------------------------
 // Theme: System / Light / Dark. nativeTheme.themeSource drives both native UI
@@ -1521,11 +1523,14 @@ handle('app:open-submodule', async (e, p) => {
 // ---------------------------------------------------------------------------
 // Windows & menu
 
-function createWindow(repoDir) {
+// `restore`: the launch window, which takes the size and place of the window closed last (AK-633).
+function createWindow(repoDir, restore = false) {
   const colors = windowColors();
+  const last = restore ? windowState.fitState(windowState.readState(windowStateFile()), screen.getAllDisplays().map((d) => d.workArea)) : null;
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
+    ...last?.bounds,
     minWidth: 900,
     minHeight: 560,
     show: false,
@@ -1553,13 +1558,29 @@ function createWindow(repoDir) {
   const view = !app.isPackaged && process.env.GITLANES_START_VIEW === 'map' ? { view: 'map' } : {};
   const query = { ...(repoDir ? { repo: repoDir } : {}), ...view };
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { if (last?.maximized) win.maximize(); win.show(); });
+  win.on('close', () => windowState.saveState(windowStateFile(), {
+    bounds: win.getNormalBounds(), maximized: win.isMaximized(), repo: sessions.get(win.webContents.id)?.repo.root || null,
+  }));
   // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
   win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') win.webContents.send('command', 'back'); else if (cmd === 'browser-forward') win.webContents.send('command', 'forward'); });
   win.on('swipe', (e, dir) => { if (dir === 'left' || dir === 'right') win.webContents.send('command', dir === 'left' ? 'back' : 'forward'); });
   const id = win.webContents.id;
   win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); handoffs.delete(id); buildMenu(); notifyWindows(); });
   return win;
+}
+
+// With no folder to open (launch, or the Dock icon with no windows left), reopen the repository of the window
+// closed last while it is still a recent repository, else show the welcome screen (AK-633). Calls made while one
+// is under way share it; a folder dropped on the Dock icon may have opened a window meanwhile.
+let openingLast = null;
+function openLastWindow() {
+  openingLast ||= (async () => {
+    const state = windowState.readState(windowStateFile());
+    const root = await recentStore.lastRepo(recentFile(), git.openRepo, state ? state.repo : undefined);
+    if (!BrowserWindow.getAllWindows().length) createWindow(root || undefined, true);
+  })().finally(() => { openingLast = null; });
+  return openingLast;
 }
 
 // Menu accelerators come from the keymap (renderer/keymap.js), the one list of every shortcut.
@@ -1833,8 +1854,8 @@ app.whenReady().then(() => {
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // pnpm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran pnpm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
-  createWindow(repoPath && fs.existsSync(repoPath) ? repoPath : undefined);
-  app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
+  if (repoPath && fs.existsSync(repoPath)) createWindow(repoPath, true); else openLastWindow();
+  app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) openLastWindow(); });
   // Validate the licence at launch, then about daily while running (on focus and hourly ticks);
   // offline is fine, the cached validation carries on.
   licensing.refresh().catch((e) => console.warn('licence check failed', e.message));
