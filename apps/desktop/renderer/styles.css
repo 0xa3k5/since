@@ -286,6 +286,8 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
 .sb-gone { font-size: 11px; color: var(--warn); }
 .sb-wt { display: inline-flex; }
 .sb-item.missing .sb-label { color: var(--text-4); text-decoration: line-through; }
+.sb-item.selected { background: var(--bg-selected); color: var(--text); }
+.sb-item.selected .icon { color: var(--accent-fg); }
 .sb-foot { display: flex; gap: 4px; padding: 8px 0 10px; border-top: 1px solid var(--border); }
 .sb-action { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: var(--radius); color: var(--text-2); font-size: 12px; font-weight: var(--fw-medium); }
 .sb-action .icon { color: var(--text-3); }
@@ -1491,6 +1493,12 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .tooltip { position: fixed; z-index: 70; max-width: 280px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elevated); box-shadow: var(--shadow-sm); color: var(--text); font-size: 11.5px; line-height: 1.4; white-space: pre-line; pointer-events: none; }
 .menu { position: fixed; z-index: 60; min-width: 230px; padding: 4px; background: var(--bg-elevated); border-radius: 9px; box-shadow: var(--shadow); animation: pop .1s ease-out; }
 @keyframes pop { from { opacity: 0; transform: scale(.98); } }
+/* A nested submenu (ui.js contextMenu, AK-602) opens beside its row, which keeps a chevron. */
+.menu.submenu { animation-duration: .08s; }
+@media (prefers-reduced-motion: reduce) { .menu { animation: none; } }
+.menu-chev { display: flex; margin-right: -2px; color: var(--text-4); }
+.menu-chev .icon { color: inherit; }
+.menu-item.open .menu-chev, .menu-item.active .menu-chev { color: var(--text-2); }
 /* Popover (ui.js data-pop, AK-535): who is in an avatar group, one row each. */
 .popover { position: fixed; z-index: 70; width: 288px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); box-shadow: var(--shadow); color: var(--text); font-size: 12px; line-height: 1.35; animation: pop-in 120ms ease-out; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-2px); } }

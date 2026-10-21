@@ -105,6 +105,9 @@ function randomHistory(n, seed) {
 
 const rowsOf = (g, n) => Array.from({ length: n }, (_, i) => g.row(i));
 
+// Every layout in this file also checks that only the trunk takes lane 0 while it is held.
+test.before(async () => { (await import('../renderer/graph.js')).debugChecks.trunk = true; });
+
 test('incremental layout matches the one-shot layout', async () => {
   const { createGraph, layout } = await import('../renderer/graph.js');
   for (const seed of [1, 2, 3, 4, 5]) {
@@ -433,7 +436,7 @@ test('random histories: trunk in lane 0, streamed, truncated and forked', async 
     }
     assert.deepEqual(rowsOf(inc, commits.length), want, `seed ${seed} streamed`);
     assert.equal(inc.maxLanes, g.maxLanes);
-    // Forks keep HEAD and reuse the prefix; a fork for another HEAD lays out from scratch.
+    // Forks keep HEAD and reuse the prefix.
     for (const m of [0, 255, 256, 257, 900]) {
       const sub = commits.slice(0, m);
       const f = g.fork(sub, m);
@@ -441,15 +444,37 @@ test('random histories: trunk in lane 0, streamed, truncated and forked', async 
       f.sync();
       assert.deepEqual(rowsOf(f, commits.length), want, `seed ${seed} fork at ${m}`);
     }
-    const other = commits[Math.floor(rand() * 600)].sha;
-    const sub = commits.slice(0, 400);
-    const f = g.fork(sub, 400, other);
-    assert.equal(f.length, 400);
-    sub.push(...commits.slice(400));
-    f.sync();
-    assert.deepEqual(rowsOf(f, commits.length), rowsOf(layout(commits, other), commits.length), `seed ${seed} fork to new HEAD`);
+    // A fork for another HEAD (near the top, deep down, unborn) matches a fresh layout.
+    for (const other of [commits[Math.floor(rand() * 600)].sha, commits[1000 + Math.floor(rand() * 400)].sha, null]) {
+      const sub = commits.slice(0, 1200);
+      const f = g.fork(sub, 1200, other);
+      assert.equal(f.length, 1200);
+      sub.push(...commits.slice(1200));
+      f.sync();
+      const fresh = layout(commits, other);
+      assert.deepEqual(rowsOf(f, commits.length), rowsOf(fresh, commits.length), `seed ${seed} fork to HEAD ${other}`);
+      assert.equal(f.maxLanes, fresh.maxLanes, `seed ${seed} fork to HEAD ${other}: width`);
+    }
     g.truncate(700);
     assert.deepEqual(rowsOf(g, 700), rowsOf(layout(commits.slice(0, 700), head), 700), `seed ${seed} truncate`);
+  }
+});
+
+test('a HEAD move deep in history reuses the rows above both HEADs', async () => {
+  const { layout } = await import('../renderer/graph.js');
+  const commits = randomHistory(3000, 51);
+  const at = (i) => commits[i].sha;
+  const touches = (c, s) => c.sha === s || c.parents.includes(s);
+  const firstTouch = (a, b) => commits.findIndex((c) => touches(c, a) || touches(c, b));
+  const g = layout(commits, at(2000));
+  for (const [i, j] of [[2000, 2600], [2000, 1900], [2000, 5]]) {
+    const head = at(j);
+    const d = firstTouch(at(i), head);
+    const f = g.fork(commits, commits.length, head);
+    assert.deepEqual(rowsOf(f, commits.length), rowsOf(layout(commits, head), commits.length), `HEAD ${i} -> ${j}`);
+    // Checkpoints above the first row that meets either HEAD come from the old graph.
+    const shared = f._arrays().checkpoints.filter((cp, b) => cp.lanes === g._arrays().checkpoints[b].lanes).length;
+    assert.equal(shared, Math.floor(d / 256) + 1, `HEAD ${i} -> ${j}: reused checkpoints`);
   }
 });
 

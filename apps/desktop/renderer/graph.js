@@ -45,6 +45,10 @@ const laneOf = (st, sha) => {
   return p === undefined ? -1 : typeof p === 'number' ? p : p[0];
 };
 
+// Debug check that only the trunk takes lane 0 while it is held. Off by default (it runs on
+// every row); the unit tests turn it on.
+export const debugChecks = { trunk: false };
+
 // Lay out one commit, advancing `st`. With `full`, also returns the lines through the row.
 function step(st, c, full) {
   const { lanes, laneColor } = st;
@@ -116,6 +120,10 @@ function step(st, c, full) {
   while (lanes.length && (lanes[lanes.length - 1] === null || lanes[lanes.length - 1] === undefined)) lanes.pop();
   if (lanes.length > st.maxLanes) st.maxLanes = lanes.length;
   if (col + 1 > st.maxLanes) st.maxLanes = col + 1;
+  if (debugChecks.trunk) {
+    if (first === 1 && col === 0 && !onTrunk) throw new Error(`graph: ${c.sha} took lane 0, held for the trunk`);
+    if (st.trunk !== null && lanes[0] != null && lanes[0] !== st.trunk) throw new Error(`graph: ${lanes[0]} waits in lane 0, held for ${st.trunk}`);
+  }
   return full ? { col, color, top, pass, bottom, merge: c.parents.length > 1 } : { col, color };
 }
 
@@ -128,9 +136,22 @@ const BLOCK = 256;
 const RUN = 32;
 const CACHED_RUNS = 64;
 
+// Rows before the first one that meets HEAD `a` or `b` (as the commit or as a parent) lay out the
+// same for both: until then the only difference is which commit the trunk is waiting for.
+function sharedRows(commits, m, a, b) {
+  if (a === null || b === null) return 0; // without a HEAD, lane 0 is open from the first row
+  for (let i = 0; i < m; i++) {
+    const c = commits[i];
+    if (c.sha === a || c.sha === b || c.parents.includes(a) || c.parents.includes(b)) return i;
+  }
+  return m;
+}
+
 // Incremental graph over `commits` (an array the caller appends to). Call sync() after appending.
 // `head` is HEAD's sha (null when unborn); its first-parent chain is laid out in lane 0.
-export function createGraph(commits, head = null, from = null, upTo = 0) {
+// With `from`, the first `upTo` rows replace a graph over the same commits, reusing its layout of
+// the first `keep` of them.
+export function createGraph(commits, head = null, from = null, upTo = 0, keep = upTo) {
   head ||= null;
   let n = 0;
   let cols = new Int32Array(1024);
@@ -171,14 +192,17 @@ export function createGraph(commits, head = null, from = null, upTo = 0) {
   };
 
   if (from) {
-    n = Math.min(upTo, from.length);
-    const b = Math.floor(n / BLOCK);
-    grow(Math.max(n, 1024));
+    const end = Math.min(upTo, from.length);
+    const b = Math.floor(Math.min(keep, end) / BLOCK);
+    grow(Math.max(end, 1024));
     const src = from._arrays();
     cols.set(src.cols.subarray(0, b * BLOCK));
     colors.set(src.colors.subarray(0, b * BLOCK));
     checkpoints = src.checkpoints.slice(0, b + 1); // checkpoints are never mutated, so sharing is safe
-    rewind(n);
+    if (from.head !== head) checkpoints = checkpoints.map((cp) => ({ ...cp, trunk: head }));
+    st = restore(checkpoints[b]);
+    n = b * BLOCK;
+    advance(end);
   }
 
   const g = {
@@ -210,10 +234,10 @@ export function createGraph(commits, head = null, from = null, upTo = 0) {
       return rows[i - start];
     },
     // A new graph over `other` (whose first `m` commits match ours), reusing our layout of them.
-    // The layout of every row depends on HEAD, so a graph for another HEAD starts from scratch.
+    // For another HEAD, only the rows before the first one that meets either HEAD are reused.
     fork(other, m, newHead = head) {
       newHead ||= null;
-      return newHead === head ? createGraph(other, head, g, m) : createGraph(other, newHead).sync();
+      return createGraph(other, newHead, g, m, newHead === head ? m : sharedRows(other, m, head, newHead));
     },
     _arrays: () => ({ cols, colors, checkpoints }),
   };
