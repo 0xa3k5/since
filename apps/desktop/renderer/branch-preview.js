@@ -71,8 +71,7 @@ export function branchPreview({ lane: l, key, base = null, git = null, cache = n
         l.ahead === 0 ? h('div.review-none', null, 'Nothing here that isn’t on the base.')
           : h('div.branch-preview-commit', null, icon('commit', 13), h('span.lanes-name', { title: l.title || '' }, l.title || l.name), l.activity ? h('span.review-row-age', { title: fullDate(l.activity / 1000) }, timeAgo(l.activity / 1000)) : null),
         l.ahead > 1 ? h('div.review-none', null, `and ${plural(l.ahead - 1, 'older commit')}: R reviews them all`) : null),
-      l.isBase ? h('div.review-none', null, 'This is the base branch.') : section('Changed files', files)),
-    h('div.branch-preview-hint', null, `↵ ${l.worktree && !l.worktree.current ? 'switches to its worktree' : 'shows it in the Map'} · R reviews the branch`));
+      l.isBase ? h('div.review-none', null, 'This is the base branch.') : section('Changed files', files)));
   el.lane = l;
   if (!l.isBase && git && (l.branch || l.head)) {
     const id = `${laneKey(l)}@${l.head || ''}@${base || ''}`;

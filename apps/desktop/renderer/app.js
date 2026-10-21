@@ -1919,7 +1919,6 @@ function splitView({ sha, branch }) {
       h('div.diff-head', null, statusBadge(statusOf(d)), h('span.mono', null, d.path), h('span.spacer'),
         h('button.btn.subtle.small', { onclick: () => toggleFile(d) }, fileState(d) === 'all' ? 'Deselect file' : 'Select file', kbd(...keymap.keys('split.toggleFile')))),
       h('div.diff-scroll', null, renderDiff(d, { selectable: true, selection: sel, onSelect, hunkActions, full, onShowAll: () => { full = true; renderFile(); } })),
-      h('div.diff-hint', null, 'Selected lines go into the first commit, everything else into the second · Click lines to select · Shift-click for ranges · Drag to select several'),
     );
   }
 
@@ -2773,7 +2772,6 @@ function createCommitView(container) {
         h('button.icon-btn', { title: 'Open file', onclick: () => api.app('open-file', file.path) }, icon('external', 14)),
       ),
       h('div.diff-scroll', null, renderDiff(d, { selectable: list !== 'conflicts', selection: sel, onSelect: updateBar, hunkActions, full: state.cv.full, onShowAll: () => { state.cv.full = true; renderDiffPane(); } })),
-      list !== 'conflicts' ? h('div.diff-hint', null, 'Click lines to select · Shift-click for ranges · Drag to select several') : null,
     ].filter(Boolean));
     updateBar();
   }
@@ -2828,7 +2826,7 @@ function createCommitView(container) {
 
   if (uv) {
     lists.append(uv.index);
-    diffPane.append(uv.page, h('div.diff-hint', null, 'Tick a box to stage it · ↑↓ move · ⇧↑↓ select lines · ↵ stage or unstage · Esc clear'));
+    diffPane.append(uv.page);
   }
   const refresh = uv ? () => { uv.load(state.status); updateCommitBtn(); } : () => { renderLists(); renderDiffPane(); };
   refresh();
@@ -3292,7 +3290,6 @@ function worktreesView() {
         h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
     list,
     ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${keyText('repo.worktreeAdd')}, or press ${keyText('commit.worktree')} on a commit in the Map.`)] : []),
-    h('div.diff-hint.wt-hint', null, '↵ Switch · ', MOD, '↵ New window · L Lock · ⌫ Remove · N New'),
   );
   el.addEventListener('keydown', (e) => {
     const w = state.worktrees[idx];

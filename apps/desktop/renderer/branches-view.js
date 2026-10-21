@@ -53,7 +53,6 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   const count = h('span.muted.lanes-count');
   const sub = h('p.muted');
   const tabBar = h('div.review-tabs', { role: 'tablist', 'aria-label': 'Branch lists' });
-  const hint = h('div.review-hints');
   const newBtn = onNewWorktree ? h('button.btn.ghost.small', { onclick: () => onNewWorktree(), 'data-tip': tipFor('New worktree…', 'repo.worktreeAdd') }, icon('plus', 14), 'New worktree…', kbd(...keymap.keys('repo.worktreeAdd'))) : null;
   const head = h('div.review-top', null,
     h('div.page-head.review-head', null,
@@ -68,7 +67,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   const handle = h('div.review-split-handle', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize' });
   const panel = cleanupPanel({ ...cleanup, onBack: () => setTab('active') });
   if (only) { tab = 'finished'; panel.only(only); }
-  const el = h('div.review-split.split.branches', { tabIndex: 0 }, head, left, handle, paneHost, panel.el, hint);
+  const el = h('div.review-split.split.branches', { tabIndex: 0 }, head, left, handle, paneHost, panel.el);
   const w = paneWidth();
   if (w) el.style.setProperty('--pane-w', `${w}px`);
   handle.addEventListener('pointerdown', (e) => {
@@ -130,7 +129,6 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     renderHead();
     empty.textContent = !loaded ? 'Loading…' : shown.length ? '' : q ? 'Nothing matches.' : emptyText();
     empty.hidden = !empty.textContent;
-    renderHints();
     syncPane();
   }
 
@@ -151,17 +149,6 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
         'data-tip': tipFor(t.label, t.keyId), onclick: () => setTab(t.id),
       }, t.label, loaded ? h('span.review-tab-n' + (t.id === 'conflict' && n ? '.warn' : ''), null, String(n)) : null);
     }));
-  }
-
-  function renderHints() {
-    const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
-    const id = (x) => keymap.keys(x);
-    if (tab === 'finished') {
-      return hint.replaceChildren(k([...id('cleanup.prev'), ...id('cleanup.next')], 'Move'), k(id('cleanup.toggle'), 'Tick'), k(id('cleanup.expand'), 'Open'), k(id('cleanup.all'), 'Tick all safe'),
-        k(id('cleanup.run'), 'Clean up'), k(['1–5'], 'Tabs'), k(keymap.keys('view.palette'), 'All commands', '.all'));
-    }
-    hint.replaceChildren(k([...id('branches.prev'), ...id('branches.next')], 'Move'), k(id('branches.open'), 'Show in Map'), k(id('branches.review'), 'Review'),
-      k(id('branches.merge'), 'Merge and tidy'), k(id('branches.delete'), 'Delete'), k(['1–5'], 'Tabs'), k(keymap.keys('view.palette'), 'All commands', '.all'));
   }
 
   // The pane shows the selected branch.
