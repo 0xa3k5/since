@@ -101,12 +101,11 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   const mini = miniHeader(reader);
   const cols = h('div.catchup-cols', null, list, reader);
   if (paneHandle) cols.append(paneHandle(() => cols));
-  const hint = h('div.review-hints');
   el.append(
     h('div.page-head.review-head', null,
       h('div.review-head-row.catchup-headrow', null, h('h1.catchup-sentence', null, lead, ' on ', branchBtn, ' ', sinceBtn), h('span.spacer'), actions, reloadBtn),
       sub),
-    strip, cols, msg, hint);
+    strip, cols, msg);
 
   const btn = (label, keyId, onclick, cls = 'button.btn.subtle') => h(cls, { 'data-tip': tipFor(label, keyId), onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...keymap.keys(keyId)));
   // The timeline's days, a merged stack as one item per day (AK-616).
@@ -159,7 +158,6 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     cols.hidden = true;
     msg.hidden = false;
     msg.replaceChildren(...children.filter(Boolean));
-    renderHints();
   }
 
   function render() {
@@ -213,21 +211,8 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       res.truncated ? h('div.muted.small.catchup-note', null, `Showing the newest ${entries.length}.`) : null,
       bridge()].filter(Boolean));
     list.querySelector('.catchup-row.active')?.scrollIntoView({ block: 'nearest' });
-    renderHints();
     syncReader();
   }
-
-  // The key bar: the reader's keys while focus is in it, the timeline's otherwise.
-  function renderHints() {
-    const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
-    const id = (x) => keymap.keys(x);
-    const rows = reader.contains(document.activeElement)
-      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('catchup.viewed'), 'Viewed'), k(id('reader.back'), 'Back to the timeline')]
-      : [k([...id('catchup.prev'), ...id('catchup.next')], 'Move'), k(id('catchup.open'), 'Read'), k(id('catchup.caughtUp'), 'Mark caught up'), k(id('catchup.since'), 'Since…'), k(id('catchup.reload'), 'Reload')];
-    hint.replaceChildren(...rows, k(id('view.palette'), 'All commands', '.all'));
-  }
-  reader.addEventListener('focusin', () => renderHints());
-  reader.addEventListener('focusout', () => setTimeout(() => { if (el.isConnected) renderHints(); }));
 
   function row(e, part = false) {
     const active = e.id === selId;

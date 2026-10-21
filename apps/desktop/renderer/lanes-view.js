@@ -104,7 +104,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   const title = h('h1', null, 'Review');
   const lede = h('p.muted');
   const tabBar = h('div.review-tabs', { role: 'tablist', 'aria-label': 'Review lists' });
-  const hint = h('div.review-hints');
   const reloadKeys = () => keymap.keys('lanes.reload');
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
   const reloadBtn = h('button.btn.ghost.small.review-reload', { onclick: () => reload(), 'data-tip': `${tipFor('Reload pull requests', 'lanes.reload')}\nAsk GitHub for the latest pull requests and review requests`, 'aria-label': 'Reload pull requests' });
@@ -124,9 +123,8 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   );
   const paneHost = h('div.review-pane-host');
   const handle = h('div.review-split-handle', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize' });
-  // The head is the grid's first row and the key bar its last, both across the window; the list and
-  // the pane share the row between them.
-  const el = h('div.review-split', { tabIndex: 0 }, head, left, handle, paneHost, hint);
+  // The head is the grid's first row, across the window; the list and the pane share the row below.
+  const el = h('div.review-split', { tabIndex: 0 }, head, left, handle, paneHost);
   let paneObj = null;
   let paneTimer = 0;
   let settled = null; // the row the pane last showed, for Back and Forward
@@ -650,23 +648,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       : loaded && prsUnloaded && !(q && !shown.length) ? ['Pull requests aren’t loaded. ', h('button.btn.ghost.small', { onclick: () => reload() }, 'Reload', kbd(...reloadKeys()))]
         : [!loaded ? '' : prsLoading ? 'Loading pull requests…' : q && !shown.length ? 'Nothing matches.' : '']));
     empty.hidden = !empty.textContent;
-    renderHints();
   }
-
-  // The key bar: a few keys with short labels (everything else is in ⌘K); the reader's own while
-  // focus is in the pane.
-  function renderHints() {
-    const k = (keys, label, cls = '') => h('span.review-hint' + cls, null, kbd(...keys), label);
-    const id = (x) => keymap.keys(x);
-    const reading = paneHost.contains(document.activeElement) && paneObj;
-    hint.replaceChildren(...(reading
-      ? [k([...id('reader.down'), ...id('reader.up')], 'Scroll'), k(keymap.keys('reader.pageDown', { index: 1 }) || id('reader.pageDown'), 'Page'), k([...id('reader.prev'), ...id('reader.next')], 'Previous / next'), k([...id('reader.prevFile'), ...id('reader.nextFile')], 'Files'), k(id('review.tick'), 'Reviewed'), k(id('reader.back'), 'Back to the list')]
-      : [k([...id('lanes.prev'), ...id('lanes.next')], 'Move'), k(id('lanes.open'), 'Read'), k(id('lanes.merge'), 'Merge'), k(['1–5'], 'Tabs'),
-        !pane && readyPrs().length > 1 ? k(['⇧', 'M'], 'Merge all ready') : null].filter(Boolean)),
-    k(keymap.keys('view.palette'), 'All commands', '.all'));
-  }
-  paneHost.addEventListener('focusin', () => renderHints());
-  paneHost.addEventListener('focusout', () => setTimeout(() => { if (el.isConnected) renderHints(); }));
 
   // Ready-to-merge PRs whose primary button is Merge: Merge all ready (⌘K) merges them all after one confirmation.
   const readyPrs = () => (staged ? staged.stages.ready.filter((r) => r.pr && step(r) === 'merge').map((r) => r.pr) : []);

@@ -605,7 +605,6 @@ kbd.inline { flex: none; }
 .diff-head .title { font-weight: var(--fw-strong); }
 .diff-head .mono { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-scroll { flex: 1; overflow: auto; min-height: 0; }
-.diff-hint { flex: none; padding: 6px 14px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-4); }
 .diff-file { border-bottom: 1px solid var(--border); }
 .diff-file-head { position: sticky; top: 0; z-index: 1; padding: 8px 14px; background: var(--bg-content); border-bottom: 1px solid var(--border); }
 .diff { font: 12px/20px var(--mono); min-width: max-content; padding-bottom: 8px; }
@@ -1180,10 +1179,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Review split view (lanes-view.js + review-pane.js): the list on the left, the selected row's review on the right */
 /* Review (AK-373): the head across the view, then the list and the pane, then the key bar. */
-.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; outline: 0; }
+.review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; outline: 0; }
 .review-split > .review-top { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
 .review-split > .lanes, .review-split > .review-split-handle, .review-split > .review-pane-host { grid-row: 2; }
-.review-split > .review-hints { grid-column: 1 / -1; grid-row: 3; }
 .review-top > .page-head { margin: 0; padding: 20px 24px 12px; }
 .review-top > .review-tabs { margin: 0; padding: 0 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .review-top > .review-tabs::-webkit-scrollbar { display: none; }
@@ -1323,7 +1321,6 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .branch-preview-commit .icon { flex: none; color: var(--text-3); }
 .branch-preview-commit .lanes-name { flex: 1; min-width: 0; }
 .branch-preview-files .file-row { cursor: default; }
-.branch-preview-hint { padding: 8px 20px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-4); }
 .review-pane-sep { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--border); }
 .review-verdict { display: inline-flex; align-items: center; gap: 3px; }
 .review-verdict.approved { color: var(--green); }
@@ -1341,12 +1338,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
   .review-reviewers-short { display: inline-flex; }
 }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
-.wt-hint { border-top: 0; padding: 4px 32px 24px; }
 /* Review's key bar: a few boxed keys with short labels, then the way to every command. */
-.review-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); white-space: nowrap; }
-.review-hint { display: inline-flex; align-items: center; gap: 6px; }
-.review-hint .kbd-group { margin-left: 0; }
-.review-hint.all { margin-left: auto; color: var(--text-4); }
 
 .empty { padding: 32px; color: var(--text-3); text-align: center; }
 .empty.big { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 64px 24px; height: 100%; }
