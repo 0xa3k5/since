@@ -79,7 +79,6 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
       pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key)))), draftChip) : null),
     listEl,
-    embedded ? null : h('div.diff-hint', null, pr ? 'V Reviewed · D Changed only · A Approve · C Request changes · M Merge · X Close · ↵ Check out · Esc Back' : `V Reviewed · D Changed only${onMerge ? ' · M Merge and tidy' : ''} · ↑/↓ Move · Esc Back`),
   );
   const top = header ? h('div.review-pane-top', null, header, h('div.review-progress-line', null, meta, deltaBtn)) : null;
   const main = h('div.quick-main', null, loading('Loading the branch…'));
