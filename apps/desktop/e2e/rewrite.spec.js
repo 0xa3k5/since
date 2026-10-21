@@ -53,7 +53,7 @@ test('fixup with parent from the context menu', async ({ sandbox, launch }) => {
   await rewriteAndUndo({ sandbox, launch }, {
     label: 'Fixup with parent',
     expected: ['four', 'two', 'one'],
-    run: async (app) => { await app.contextMenu(app.row('three'), ['Rewrite', 'Fixup with Parent']); },
+    run: async (app) => { await app.contextMenu(app.row('three'), ['Rewrite', 'Fixup into Parent']); },
   });
 });
 
