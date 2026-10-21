@@ -140,18 +140,12 @@ export function conflictEditor(info, ctx) {
     return h('div.cf-body', null, segs.map((s, si) => (s.type === 'conflict' ? blockEl(s, bi++) : textEl(s, segs[si - 1], segs[si + 1]))));
   }
 
-  function hint() {
-    if (info.kind !== 'text') return null;
-    return h('div.diff-hint', null, st.editing ? `Edit the result, then ${resolveKbd.join('')} to save and mark resolved · E or Esc to go back`
-      : `${CONFLICT_KEYS.next.join('')} / ${CONFLICT_KEYS.prev.join('')} next / previous · O ours · T theirs · B both · ⌫ reset · E edit result · ${resolveKbd.join('')} mark resolved · click lines to pick them`);
-  }
-
   function render(focusCur = false) {
     const top = scroll.scrollTop;
     textarea = null;
     scroll.replaceChildren(body());
     scroll.scrollTop = top;
-    el.replaceChildren(...[head(), scroll, hint()].filter(Boolean));
+    el.replaceChildren(head(), scroll);
     if (focusCur) scroll.querySelector('.cf-block.cur')?.scrollIntoView({ block: 'nearest' });
   }
   render(true);
