@@ -128,9 +128,10 @@ class AppDriver {
     return row;
   }
 
+  // `item`: a label, or a path through submenus (['Rewrite', 'Split Commit…']).
   async contextMenu(locator, item) {
     await locator.click({ button: 'right' });
-    await this.page.locator('.menu .menu-item', { hasText: item }).click();
+    for (const label of [].concat(item)) await this.page.locator('.menu .menu-item', { hasText: label }).last().click();
   }
 
   async view(name) {
