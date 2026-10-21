@@ -106,6 +106,50 @@ class Sandbox {
     return dest;
   }
 
+  // A GitHub repository without the network (AK-277): the remote is git@github.com:<owner>/<name>.git,
+  // but git's ssh (core.sshCommand) is a script that runs the command on a bare repository here,
+  // and a fake `gh` (fake-gh.js) answers from a JSON state file. Each PR is a branch in the bare repository with
+  // refs/pull/<n>/head; `local: true` also makes it a local branch in the clone. Pass `env` to
+  // launch() so the app finds the fake `gh` first on PATH. → { repo, bare, env, calls(), pr(n) }.
+  github({ owner = 'acme', name = 'widgets', viewer = 'e2e-reviewer', requireReview = true, prs = [] } = {}) {
+    const url = `git@github.com:${owner}/${name}.git`;
+    const bin = this.path('bin');
+    fs.mkdirSync(bin);
+    // git's "simple" ssh variant runs `<cmd> git@github.com "git-upload-pack '<owner>/<name>.git'"`.
+    const ssh = path.join(bin, 'fake-ssh');
+    fs.writeFileSync(ssh, `#!/bin/sh\nfor c; do :; done\ncd "${this.path('github.com')}" && exec sh -c "git \${c#git-}"\n`, { mode: 0o755 });
+    this.git(this.dir, 'config', '--global', 'core.sshCommand', ssh);
+    this.git(this.dir, 'config', '--global', 'ssh.variant', 'simple');
+    const seed = this.linear('github-seed', ['first', 'second']);
+    for (const p of prs) {
+      this.git(seed, 'checkout', '-q', '-b', p.branch, 'main');
+      this.commit(seed, p.title, p.files);
+      this.git(seed, 'checkout', '-q', 'main');
+    }
+    const bare = this.path('github.com', owner, `${name}.git`);
+    this.git(this.dir, 'clone', '-q', '--bare', seed, bare);
+    fs.rmSync(seed, { recursive: true, force: true });
+    for (const p of prs) this.git(bare, 'update-ref', `refs/pull/${p.number}/head`, `refs/heads/${p.branch}`);
+    const repo = this.clone(url, name);
+    for (const p of prs.filter((x) => x.local)) this.git(repo, 'branch', '-q', '--track', p.branch, `origin/${p.branch}`);
+
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "${path.join(__dirname, 'fake-gh.js')}" "$@"\n`, { mode: 0o755 });
+    const file = this.path('gh-state.json');
+    const log = this.path('gh-calls.log');
+    fs.writeFileSync(log, '');
+    const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    fs.writeFileSync(file, JSON.stringify({
+      host: 'github.com', owner, name, viewer, requireReview, bare, log,
+      prs: prs.map((p) => ({ number: p.number, title: p.title, body: p.body || '', headRefName: p.branch, baseRefName: 'main', author: p.author || 'agent-bot', state: 'OPEN', reviews: [], updatedAt: at })),
+    }, null, 2));
+    return {
+      repo, bare,
+      env: { PATH: `${bin}${path.delimiter}${process.env.PATH}`, GITLANES_FAKE_GH: file },
+      calls: () => fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
+      pr: (n) => JSON.parse(fs.readFileSync(file, 'utf8')).prs.find((p) => p.number === n),
+    };
+  }
+
   log(repo, ref = 'HEAD') { return this.git(repo, 'log', '--format=%s', ref).split('\n').filter(Boolean); }
   sha(repo, ref = 'HEAD') { return this.git(repo, 'rev-parse', ref); }
 }
@@ -225,13 +269,14 @@ const test = base.extend({
     fs.rmSync(dir, { recursive: true, force: true });
   },
 
-  // launch(repoPath?, { theme?, env? }) starts the app with its own userData, optionally opening a repository.
+  // launch(repoPath?, { theme?, env?, settings? }) starts the app with its own userData, optionally opening a
+  // repository. `settings` goes into settings.json (e.g. { github: { on: true } } turns pull requests on).
   launch: async ({ sandbox }, use, testInfo) => {
     const apps = [];
-    await use(async (repo, { theme, env } = {}) => {
+    await use(async (repo, { theme, env, settings } = {}) => {
       const userData = sandbox.path(`userdata-${apps.length}`);
       fs.mkdirSync(userData);
-      if (theme) fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ theme }));
+      if (theme || settings) fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ ...settings, ...(theme ? { theme } : {}) }));
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
