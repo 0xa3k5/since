@@ -25,6 +25,9 @@ const prMedia = require('./pr-media');
 const isMac = process.platform === 'darwin';
 const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
 const sessions = new Map(); // webContents.id -> RepoSession
+// Bumped on every repository change any window sees (watcher events, our own git commands): a lanes
+// run started before it is never shared with a later caller (git.sharedLanes).
+let repoGen = 0;
 
 // ---------------------------------------------------------------------------
 // Recent repositories
@@ -128,6 +131,7 @@ class RepoSession {
   }
 
   schedule() {
+    repoGen++;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       if (this.busy) return this.schedule(); // wait until our own git command finishes
@@ -683,31 +687,34 @@ handle('app:lanes-list', async (e, opts) => {
   const s = session(e);
   const root = s.repo.root;
   const { signal } = s.closed;
-  let listed = null;
-  let prError = null;
-  let inbox = null;
-  let inboxError = null;
-  let prHeads = [];
-  if (withPrs && (await prEnabled(root))) {
+  // The local lanes don't wait for `gh` (AK-639): both run at once, and every caller that asks while a
+  // run is in flight shares it (git.sharedLanes). Merged PRs add the "shipped" check after (prShipped).
+  const gh = async () => {
+    const out = { listed: null, prError: null, inbox: null, inboxError: null, prHeads: [] };
+    if (!(await prEnabled(root))) return out;
     const remotes = await prRemotes(root);
-    if (github.pickRemote(remotes)) {
-      // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
-      // lane badges; merged PRs only add the "shipped" check.
-      const [l, i, m] = await Promise.allSettled([
-        github.listPrs({ enabled: true, remotes, signal }),
-        withInbox ? github.inbox({ enabled: true, remotes, signal }) : null,
-        github.mergedPrs({ enabled: true, remotes, signal }),
-      ]);
-      if (l.status === 'fulfilled') listed = l.value;
-      else prError = serializeError(l.reason);
-      if (i.status === 'fulfilled') inbox = i.value;
-      else if (!prError) inboxError = serializeError(i.reason);
-      if (m.status === 'fulfilled') prHeads = m.value;
-    }
-  }
+    if (!github.pickRemote(remotes)) return out;
+    // A failed inbox or merged-PR lookup (token scope, Enterprise) keeps the PR list and the
+    // lane badges; merged PRs only add the "shipped" check.
+    const [l, i, m] = await Promise.allSettled([
+      github.listPrs({ enabled: true, remotes, signal }),
+      withInbox ? github.inbox({ enabled: true, remotes, signal }) : null,
+      github.mergedPrs({ enabled: true, remotes, signal }),
+    ]);
+    if (l.status === 'fulfilled') out.listed = l.value;
+    else out.prError = serializeError(l.reason);
+    if (i.status === 'fulfilled') out.inbox = i.value;
+    else if (!out.prError) out.inboxError = serializeError(i.reason);
+    if (m.status === 'fulfilled') out.prHeads = m.value;
+    return out;
+  };
+  const [res, { listed, prError, inbox, inboxError, prHeads }] = await Promise.all([
+    git.sharedLanes(root, { base, gen: repoGen }),
+    withPrs ? gh() : { listed: null, prError: null, inbox: null, inboxError: null, prHeads: [] },
+  ]);
   if (signal.aborted) return null;
-  const { lanes, ...rest } = await git.lanes(root, { base, prHeads });
-  if (signal.aborted) return null;
+  const rest = { base: res.base, baseRef: res.baseRef, baseSha: res.baseSha };
+  const lanes = git.prShipped(res, prHeads);
   s.lanes = { root, baseSha: rest.baseSha, lanes };
   const joined = github.joinLanes(lanes, listed);
   if (!withInbox) return { ...rest, lanes: joined, prError };
