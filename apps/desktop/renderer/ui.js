@@ -408,6 +408,13 @@ function placeSheet(el, anchor) {
 
 // --- Context menu ---------------------------------------------------------------
 let openMenu = null;
+// The button just clicked (by pointer, ↵ or Space) until the next press: the trigger of a menu
+// opened from it.
+let pressed = null;
+if (typeof document !== 'undefined') {
+  for (const ev of ['mousedown', 'keydown', 'contextmenu']) document.addEventListener(ev, () => { pressed = null; }, true);
+  document.addEventListener('click', (e) => { pressed = e.target.closest?.('button, [role="button"]') || null; }, true);
+}
 // Where the last chosen menu item was, so a question about it can open on the same spot.
 let anchor = null;
 export const menuAnchor = () => anchor;
@@ -415,7 +422,11 @@ export const menuAnchor = () => anchor;
 // An item with `submenu` (items) opens them in a menu beside it: on hover, click, → or Enter; ← or
 // Esc closes it again. While the pointer heads for an open submenu across other rows, the switch
 // waits a moment so a diagonal move doesn't close it.
-export function contextMenu(x, y, items, { focus = -1 } = {}) {
+// `trigger`: the button it opens from (by default the one just clicked or pressed). Clicking or
+// pressing it again closes the menu: pressing it doesn't count as a click outside, so the click
+// that follows closes the menu rather than reopening it.
+export function contextMenu(x, y, items, { focus = -1, trigger = pressed } = {}) {
+  if (trigger && openMenu?.trigger === trigger) return closeMenu();
   closeMenu();
   const levels = []; // open menus, root first: { el, actionable, idx, owner }
   let cur = 0; // the level the keys move through
@@ -527,11 +538,13 @@ export function contextMenu(x, y, items, { focus = -1 } = {}) {
     else if (id === 'menu.choose' && it) { stop(); it.click(); }
   };
   const inside = (t) => levels.some((l) => l.el.contains(t));
-  const onDown = (e) => { if (!inside(e.target)) closeMenu(); };
+  const onDown = (e) => { if (!inside(e.target) && !(e.button === 0 && trigger?.contains(e.target))) closeMenu(); };
   window.addEventListener('keydown', onKey, true);
   setTimeout(() => window.addEventListener('mousedown', onDown, true));
   window.addEventListener('blur', closeMenu);
-  openMenu = { close: () => { clearTimeout(hoverT); closeFrom(0); }, cleanup: () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onDown, true); window.removeEventListener('blur', closeMenu); } };
+  const owns = trigger?.hasAttribute('aria-haspopup');
+  if (owns) trigger.setAttribute('aria-expanded', 'true');
+  openMenu = { trigger, close: () => { clearTimeout(hoverT); closeFrom(0); if (owns) trigger.setAttribute('aria-expanded', 'false'); }, cleanup: () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onDown, true); window.removeEventListener('blur', closeMenu); } };
 }
 export function closeMenu() {
   if (!openMenu) return;
@@ -652,7 +665,8 @@ if (typeof document !== 'undefined') {
     const t = e.target.closest?.('[data-pop]');
     if (!t || e.target !== t) return;
     const id = keymap.match('dialog', e);
-    if (id === 'menu.choose' || id === 'menu.next') { e.preventDefault(); e.stopPropagation(); openPopover(t, { held: true, focus: true }); }
+    if (id === 'menu.choose' && pop?.target === t && pop.held) { e.preventDefault(); e.stopPropagation(); closePopover(); }
+    else if (id === 'menu.choose' || id === 'menu.next') { e.preventDefault(); e.stopPropagation(); openPopover(t, { held: true, focus: true }); }
     else if (id === 'dialog.cancel' && pop?.target === t) { e.preventDefault(); e.stopPropagation(); closePopover(); }
   }, true);
   document.addEventListener('focusout', (e) => {
@@ -674,6 +688,13 @@ export function fuzzy(q, s) {
   return j === q.length ? score : 0;
 }
 
+let closeOpenPalette = null;
+// Closes the open palette, if any (its key toggles it). True when one was open.
+export function closePalette() {
+  if (!closeOpenPalette) return false;
+  closeOpenPalette();
+  return true;
+}
 export function palette(getItems, { placeholder = 'Type a command or search…', onDismiss } = {}) {
   if ($('.palette-overlay:not(.closing)')) return null;
   const prev = document.activeElement;
@@ -709,7 +730,7 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
     list.querySelectorAll('.palette-item')[idx]?.scrollIntoView({ block: 'nearest' });
   }
   function choose(i) { const it = results[i]; close(Boolean(it)); if (it) setTimeout(() => it.run(), 0); }
-  function close(picked) { overlay.classList.remove('in'); overlay.classList.add('closing'); setTimeout(() => overlay.remove(), 100); prev?.focus?.(); if (!picked) onDismiss?.(); }
+  function close(picked) { closeOpenPalette = null; overlay.classList.remove('in'); overlay.classList.add('closing'); setTimeout(() => overlay.remove(), 100); prev?.focus?.(); if (!picked) onDismiss?.(); }
   input.addEventListener('input', () => { idx = 0; render(); });
   input.addEventListener('keydown', (e) => {
     const id = keymap.match('dialog', e);
@@ -719,6 +740,7 @@ export function palette(getItems, { placeholder = 'Type a command or search…',
     else if (id === 'dialog.cancel') { e.preventDefault(); e.stopPropagation(); close(); }
   });
   document.body.append(overlay);
+  closeOpenPalette = () => close();
   render();
   requestAnimationFrame(() => overlay.classList.add('in'));
   input.focus();

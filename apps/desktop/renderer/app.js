@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, closePalette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
 import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
@@ -1068,7 +1068,7 @@ function renderSidebar() {
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
       h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
-      h('button.repo-switch', { onclick: (e) => repoMenu(e.currentTarget) },
+      h('button.repo-switch', { 'aria-haspopup': 'menu', onclick: (e) => repoMenu(e.currentTarget) },
         h('span.repo-icon', null, state.repo.name.slice(0, 1).toUpperCase()),
         h('span.repo-name', null, state.repo.name),
         icon('chevronDown', 12)),
@@ -4706,7 +4706,7 @@ async function removeFromRecent() {
 
 // Opens at once; the recent repositories are added when the app:recent IPC answers.
 function openPalette() {
-  if (!state.repo) return;
+  if (!state.repo || closePalette()) return;
   let recent = [];
   const pal = palette(() => {
     const items = [];
@@ -4963,7 +4963,7 @@ async function repoMenu(anchor) {
     { label: 'Open in Hosting Service', icon: 'external', run: openHosting },
     '-',
     { label: 'Close Repository', icon: 'x', run: closeRepo },
-  ]);
+  ], { trigger: anchor });
 }
 
 async function resetHard() {
