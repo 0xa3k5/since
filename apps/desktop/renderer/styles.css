@@ -808,7 +808,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-detail > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-detail.warn { display: block; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Catch up (catchup-view.js): the big number and actions across the top, then the timeline by day (with the
-   line to Review) on the left and the reader on the right (AK-372), the key bar. */
+   line to Review) on the left and the reader on the right (AK-372). */
 .page.catchup { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; outline: 0; }
 .catchup-sub { font-size: 13px; }
 /* The branch picker reads like the "since your checkpoint ▾" picker: a quiet text button, no border (AK-390). */
@@ -1178,7 +1178,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-tick.on { background: var(--accent); border-color: var(--accent); }
 .review-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Review split view (lanes-view.js + review-pane.js): the list on the left, the selected row's review on the right */
-/* Review (AK-373): the head across the view, then the list and the pane, then the key bar. */
+/* Review (AK-373): the head across the view, then the list and the pane. */
 .review-split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; outline: 0; }
 .review-split > .review-top { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
 .review-split > .lanes, .review-split > .review-split-handle, .review-split > .review-pane-host { grid-row: 2; }
@@ -1338,7 +1338,6 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
   .review-reviewers-short { display: inline-flex; }
 }
 .wt-actions { display: flex; align-items: center; gap: 4px; flex: none; min-width: 96px; justify-content: flex-end; }
-/* Review's key bar: a few boxed keys with short labels, then the way to every command. */
 
 .empty { padding: 32px; color: var(--text-3); text-align: center; }
 .empty.big { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 64px 24px; height: 100%; }
