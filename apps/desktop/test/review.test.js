@@ -91,6 +91,18 @@ test('branchReview lists the branchâ€™s commits newest first, without the baseâ€
   assert.equal(r2.commitCount, 4);
 });
 
+test('branchReview gives each commit its author email and Co-authored-by co-authors', async () => {
+  const dir = await repo();
+  await g(dir, ['checkout', '-q', '-b', 'feature']);
+  await commit(dir, 'f1.txt', '1\n', 'solo');
+  await commit(dir, 'f2.txt', '2\n', 'pair\n\nbody\n\nCo-authored-by: Ada <ada@example.com>\nCo-authored-by: Test <T@example.com>\nCo-authored-by: Ada again <ADA@example.com>');
+  const r = await git.branchReview(dir, 'feature');
+  assert.deepEqual(r.commits.map((c) => [c.subject, c.email, c.coAuthors]), [
+    ['pair', 't@example.com', [{ name: 'Ada', email: 'ada@example.com' }]],
+    ['solo', 't@example.com', []],
+  ]);
+});
+
 test('branchReview lists at most 200 commits and counts them all', async () => {
   const dir = await repo();
   const from = await blobOf(dir, 'main');
