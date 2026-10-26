@@ -1483,13 +1483,42 @@ handle('app:open-window', async (e, dir) => {
   const win = windowFor(target);
   if (win) win.focus(); else createWindow(target);
 });
- = { ...check.handoff(payload) };
+
+// Hand a step to the window showing another worktree of this repository (AK-581), opening one if
+// none does: remove a worktree from there, or merge and tidy into the base checked out there. The
+// window takes it (app:take-handoff) when the command arrives, or once a new window has opened.
+const handoffs = new Map(); // webContents.id -> handoff
+handle('app:handoff', async (e, payload) => {
+  const s = session(e);
+  const h = { ...check.handoff(payload) };
   const list = await git.getWorktrees(s.repo.root);
   h.dir = check.knownWorktree(list, h.dir, git.samePath);
   if (h.path) h.path = check.knownWorktree(list, h.path, git.samePath);
-  let win :take-handoff', (e) => {
+  let win = windowFor(h.dir);
+  if (win === s.win) throw new Error('That worktree is open in this window.');
+  if (!win) win = createWindow(h.dir);
+  handoffs.set(win.webContents.id, h);
+  win.focus();
+  win.webContents.send('command', 'handoff');
+});
+handle('app:take-handoff', (e) => {
   const h = handoffs.get(e.sender.id) || null;
-  handoffs.delete
+  handoffs.delete(e.sender.id);
+  return h;
+});
+
+// Open a checked-out submodule of this window's repository as its own repository.
+handle('app:open-submodule', async (e, p) => {
+  const s = session(e);
+  const sub = (await git.getSubmodules(s.repo.root)).find((x) => x.path === check.repoPath(p, 'submodule'));
+  if (!sub) throw new Error('Not a submodule of this repository');
+  if (!sub.head) throw new Error('That submodule isn’t checked out yet. Update it first.');
+  const target = path.join(s.repo.root, sub.path);
+  const win = windowFor(target);
+  if (win) win.focus(); else createWindow(target);
+});
+
+// ---------------------------------------------------------------------------
 // Windows & menu
 
 function createWindow(repoDir) {
