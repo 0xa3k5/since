@@ -1,6 +1,5 @@
 ---
-import AppShot from './AppShot.astro';
-import sendBack from '../../assets/app/send-back-dark.png';
+import FixPromptPreview from './previews/FixPromptPreview.astro';
 import { PRODUCT_NAME } from '../../config';
 ---
 <section class="s wrap rule fs" id="unblock" data-name="Fix prompt" aria-labelledby="u-h">
@@ -13,6 +12,6 @@ import { PRODUCT_NAME } from '../../config';
         <li>Or post it as a PR comment, for agents that watch their PRs</li>
       </ul>
     </div>
-    <AppShot src={sendBack} alt="The Fix prompt sheet for a stuck pull request: why it is stuck and the prompt to copy for its agent" />
+    <FixPromptPreview />
   </div>
 </section>

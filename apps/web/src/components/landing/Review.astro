@@ -1,6 +1,5 @@
 ---
-import AppShot from './AppShot.astro';
-import pr from '../../assets/app/review-pr-dark.png';
+import ReviewPreview from './previews/ReviewPreview.astro';
 ---
 <section class="s wrap rule fs" id="review" data-name="Review" aria-labelledby="rv-h">
   <div class="feat">
@@ -13,6 +12,6 @@ import pr from '../../assets/app/review-pr-dark.png';
         <li>Approve <kbd>A</kbd>, request changes <kbd>C</kbd>, merge <kbd>M</kbd></li>
       </ul>
     </div>
-    <AppShot src={pr} alt="A pull request open next to the Review list: its files, some ticked as reviewed, and the diff" />
+    <ReviewPreview />
   </div>
 </section>

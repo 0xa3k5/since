@@ -1,0 +1,15 @@
+---
+import Stage from './Stage.astro';
+const prs = [[216, 'Medium weights in the sidebar'], [217, 'Collapse the day headers'], [218, 'Show reviewers on pull requests']];
+---
+<Stage label="Merge plan: three ready pull requests in order, merged one after another">
+  <div class="pv-mp">
+    <div class="pv-mp-head"><b>Merge plan</b><span>3 PRs into main</span></div>
+    <div>
+      {prs.map(([n, title], i) => (
+        <div class="pv-mp-row"><span class="pv-mp-n">{i + 1}</span><span class="pv-box"></span><span class="pv-mp-pr">#{n}</span><span class="pv-mp-title">{title}</span><span class="pv-mp-st"><span class="was">Ready</span><span class="now">Merged</span></span></div>
+      ))}
+    </div>
+    <div class="pv-mp-foot"><span class="pv-btn primary">Merge 3</span></div>
+  </div>
+</Stage>
