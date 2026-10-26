@@ -577,7 +577,7 @@ process.exit(1);
   // --- Launch (Review is the start view), 1440×900, dark.
   const app = await launch(repo, { theme: 'dark', env: { GITLANES_START_VIEW: '', PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
   const { page } = app;
-  await app.app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setContentSize(1440, 900); w.center(); });
+  await app.app.evaluate(({ BaseWindow }) => { const w = BaseWindow.getAllWindows()[0]; w.setContentSize(1440, 900); w.center(); });
   // The catch-up checkpoint: caught up three and a half days ago, then reload so Review picks it up.
   await page.evaluate((cp) => window.gitlanes.app('catchup-mark', cp), { sha: checkpoint, base: 'origin/main', date: checkpointAt, source: 'mark' });
   // Refresh pull requests first: the sidebar keeps them in its cache, and refreshing after the reload

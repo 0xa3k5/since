@@ -38,6 +38,20 @@ test('launch reopens the repository the window closed last showed, and the welco
   assert.equal(await recent.lastRepo(file, git.openRepo, a), null);
 });
 
+test('launch reopens the last window’s tabs that are still recent repositories, in order (AK-634)', async () => {
+  const dir = tmp();
+  const file = path.join(dir, 'recent.json');
+  const a = init(path.join(dir, 'a'));
+  const b = init(path.join(dir, 'b'));
+  const c = init(path.join(dir, 'c'));
+  for (const r of [a, b, c]) recent.addRecent(file, { root: r, name: path.basename(r) });
+  assert.deepEqual(await recent.lastTabs(file, git.openRepo, [b, a, c]), [b, a, c]);
+  recent.removeRecent(file, a);
+  assert.deepEqual(await recent.lastTabs(file, git.openRepo, [b, a, c, b]), [b, c]);
+  assert.deepEqual(await recent.lastTabs(file, git.openRepo, []), [], 'the welcome screen');
+  assert.deepEqual(await recent.lastTabs(file, git.openRepo), [c], 'nothing saved: the newest recent one');
+});
+
 test('launch shows the welcome screen when the last repository is gone or no longer a repository', async () => {
   const dir = tmp();
   const file = path.join(dir, 'recent.json');
