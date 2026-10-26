@@ -11,7 +11,7 @@ import Footer from '../components/Footer.astro';
 export type Props = SeoProps;
 ---
 <!doctype html>
-<!-- The theme follows the system, like the app. -->
+<!-- The theme follows the system, like the app, unless a theme is picked in the footer (ThemeSwitch). -->
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -20,6 +20,16 @@ export type Props = SeoProps;
     <!-- Match --bg in each theme's tokens; a meta tag can't read a CSS variable. -->
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf7f4">
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#080707">
+    <script is:inline>
+      // Apply a picked theme before first paint, so the page doesn't flash the system one.
+      try {
+        const t = localStorage.getItem('theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.dataset.theme = t;
+          for (const m of document.querySelectorAll('meta[name="theme-color"]')) m.content = t === 'light' ? '#faf7f4' : '#080707';
+        }
+      } catch {}
+    </script>
     <link rel="preload" href="/fonts/outfit-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
