@@ -12,8 +12,14 @@ const { checkGit } = require('../ipc');
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 
+// CI runners have no global identity, so every repo the tests commit or stash in gets its own.
+async function identity(dir) {
+  for (const a of [['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']]) await git.run(dir, a);
+}
+
 async function init(dir) {
-  for (const a of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']]) await git.run(dir, a);
+  await git.run(dir, ['init', '-q', '-b', 'main']);
+  await identity(dir);
 }
 
 async function repo() {
@@ -161,6 +167,7 @@ test('submodule with local changes: refused with code dirty-submodule, then stas
   await git.run(r.dir, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', lib, 'vendor/lib']);
   await git.run(r.dir, ['commit', '-q', '-m', 'add lib']);
   const sub = path.join(r.dir, 'vendor/lib');
+  await identity(sub);
   // Recorded at v2, checked out at v1 with an edit: out of date and modified.
   fs.writeFileSync(path.join(sub, 'lib.js'), 'v2\n');
   await git.run(sub, ['commit', '-q', '-am', 'v2']);
