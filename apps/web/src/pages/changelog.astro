@@ -9,11 +9,12 @@ import AppleGlyph from '../components/AppleGlyph.astro';
 import Base from '../layouts/Base.astro';
 import '../components/landing/landing.css';
 
-const shots = import.meta.glob<{ default: ImageMetadata }>('../assets/app/*-dark.png', { eager: true });
+const shots = import.meta.glob<{ default: ImageMetadata }>('../assets/app/*-{dark,light}.png', { eager: true });
+// The dark capture is required; its light twin is used when there is one.
 const shot = (name: string, id: string) => {
-  const s = shots[`../assets/app/${name}-dark.png`];
-  if (!s) throw new Error(`releases/${id}: no capture named "${name}" in src/assets/app (expected ${name}-dark.png)`);
-  return s.default;
+  const dark = shots[`../assets/app/${name}-dark.png`];
+  if (!dark) throw new Error(`releases/${id}: no capture named "${name}" in src/assets/app (expected ${name}-dark.png)`);
+  return { dark: dark.default, light: shots[`../assets/app/${name}-light.png`]?.default };
 };
 
 const KIND_LABEL = { added: 'Added', improved: 'Improved', fixed: 'Fixed' } as const;
@@ -60,7 +61,7 @@ const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
         <div class="cl-lead">
           <h3>{r.headline} <span class="soft">{r.soft}</span></h3>
           <div class="cl-sum"><r.Content /></div>
-          {r.src && <AppShot src={r.src} alt={r.imageAlt ?? `${PRODUCT_NAME} ${r.label}`} class="cl-shot" />}
+          {r.src && <AppShot {...r.src} alt={r.imageAlt ?? `${PRODUCT_NAME} ${r.label}`} class="cl-shot" />}
           {r.highlights.length > 0 && (
             <ul class="cl-hl" role="list">
               {r.highlights.map((h) => <li><b>{h.title}</b><span>{h.text}</span></li>)}

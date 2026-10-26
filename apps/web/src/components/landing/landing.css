@@ -35,7 +35,7 @@ section.s { padding-block: 150px; }
 
 /* ---------------------------------------------------------------- App frames (real captures in AppShot) */
 .app { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; font-size: 13px; color: var(--text-2); }
-/* Real app captures (AppShot): the dark-theme window fills the frame edge to edge. */
+/* Real app captures (AppShot): the window fills the frame edge to edge. */
 .app-shot { margin: 0; line-height: 0; }
 .app-shot img { display: block; width: 100%; height: auto; }
 .app-shot.fade-out { padding-bottom: 0; border-bottom: 0; }
@@ -65,7 +65,6 @@ section.s { padding-block: 150px; }
 .lanes { display: block; width: 100%; max-width: 1240px; margin: 80px auto 0; overflow: visible; font-family: var(--font); }
 .lanes .ln { fill: none; stroke-width: 2.5; stroke-linecap: round; }
 .lanes .main { stroke: var(--text-4); }
-.lanes .back { fill: none; stroke: var(--text-4); stroke-width: 1.5; stroke-dasharray: 2 6; stroke-linecap: round; }
 .lanes .lbl { font-size: 13px; fill: var(--text-2); }
 .lanes .sub { font: 11.5px var(--mono); fill: var(--text-4); }
 .lanes .band-t { font: 500 14px var(--display); fill: var(--text); }
@@ -102,15 +101,15 @@ section.s { padding-block: 150px; }
 #catch-up .copy h2 { margin: 0 auto; max-width: 20ch; }
 #catch-up .copy p { margin: 20px auto 0; max-width: 42rem; color: var(--text-3); text-wrap: balance; }
 
-/* 2-4 · Review, Fix prompt, Merge: the top layout. Title on the left, text and list on the right,
+/* 2-4 · Review, Merge: the top layout. Title on the left, text and list on the right,
    the product full width below (Merge keeps its facts row under the product). Nothing sticks. */
-#review h2, #unblock h2 { font-size: clamp(32px, 3.8vw, 48px); }
-#review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 56px; }
-#review .copy, #unblock .copy, #merge .copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 72px; align-items: start; text-align: left; }
-#review .copy > h2, #unblock .copy > h2, #merge .copy > h2 { grid-column: 1; grid-row: 1 / span 2; max-width: 14ch; margin: 0; }
-#review .copy > p, #unblock .copy > p, #merge .copy > p { grid-column: 2; margin: 6px 0 0; max-width: none; }
-#review .copy > ul, #unblock .copy > ul { grid-column: 2; }
-#unblock .copy p, #merge .copy p { color: var(--text-3); }
+#review h2 { font-size: clamp(32px, 3.8vw, 48px); }
+#review .feat, #merge .feat { grid-template-columns: 1fr; gap: 56px; }
+#review .copy, #merge .copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 72px; align-items: start; text-align: left; }
+#review .copy > h2, #merge .copy > h2 { grid-column: 1; grid-row: 1 / span 2; max-width: 14ch; margin: 0; }
+#review .copy > p, #merge .copy > p { grid-column: 2; margin: 6px 0 0; max-width: none; }
+#review .copy > ul { grid-column: 2; }
+#merge .copy p { color: var(--text-3); }
 #merge .facts3 { max-width: none; }
 
 /* ---------------------------------------------------------------- Still a Git client: tabs */
@@ -213,12 +212,12 @@ section.s { padding-block: 150px; }
 @media (max-width: 860px) {
   section.s, .problem { padding-block: 100px; }
   .hero { padding-top: 72px; }
-  .feat, #review .feat, #unblock .feat, #merge .feat { grid-template-columns: 1fr; gap: 40px; }
-  #review .copy, #unblock .copy, #merge .copy { grid-template-columns: 1fr; }
-  #review .copy > h2, #unblock .copy > h2, #merge .copy > h2,
-  #review .copy > p, #unblock .copy > p, #merge .copy > p,
-  #review .copy > ul, #unblock .copy > ul { grid-column: 1; grid-row: auto; }
-  #review .copy > p, #unblock .copy > p, #merge .copy > p { margin-top: 20px; }
+  .feat, #review .feat, #merge .feat { grid-template-columns: 1fr; gap: 40px; }
+  #review .copy, #merge .copy { grid-template-columns: 1fr; }
+  #review .copy > h2, #merge .copy > h2,
+  #review .copy > p, #merge .copy > p,
+  #review .copy > ul { grid-column: 1; grid-row: auto; }
+  #review .copy > p, #merge .copy > p { margin-top: 20px; }
   .fit-facts, .facts3 { grid-template-columns: 1fr; }
   .fit-facts div + div, .facts3 > div + div { padding-left: 0; border-left: 0; }
   .tabbar { grid-template-columns: 1fr 1fr; }

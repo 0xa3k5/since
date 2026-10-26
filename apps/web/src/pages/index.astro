@@ -6,7 +6,6 @@ import Problem from '../components/landing/Problem.astro';
 import Lanes from '../components/landing/Lanes.astro';
 import CatchUp from '../components/landing/CatchUp.astro';
 import Review from '../components/landing/Review.astro';
-import SendBack from '../components/landing/SendBack.astro';
 import MergePlan from '../components/landing/MergePlan.astro';
 import GitClientTabs from '../components/landing/GitClientTabs.astro';
 import Keyboard from '../components/landing/Keyboard.astro';
@@ -18,7 +17,7 @@ import { PRODUCT_NAME } from '../config';
 import '../components/landing/landing.css';
 
 const title = `${PRODUCT_NAME}: a keyboard-first Git client for Mac`;
-const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, get a fix prompt for what's stuck, and merge the rest in order. Free, open-source and local-first Mac app.`;
+const description = `${PRODUCT_NAME} is the Git client for the agentic era. See what your agents landed, review the whole change and merge the rest in order. Free, open-source and local-first Mac app.`;
 ---
 <Base title={title} description={description} ogImage="/og/home.png">
   <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
@@ -28,7 +27,6 @@ const description = `${PRODUCT_NAME} is the Git client for the agentic era. See 
     <Lanes />
     <CatchUp />
     <Review />
-    <SendBack />
     <MergePlan />
     <GitClientTabs />
     <Keyboard />

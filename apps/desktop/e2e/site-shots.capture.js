@@ -269,7 +269,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({ variant = 'p
 
 // ---------------------------------------------------------------------------------------------
 
-test('landing page app shots (dark)', async ({ sandbox, launch }) => {
+test('landing page app shots (dark, and light where the site swaps)', async ({ sandbox, launch }) => {
   test.setTimeout(240_000);
   fs.mkdirSync(OUT, { recursive: true });
 
@@ -600,6 +600,13 @@ process.exit(1);
     const main = await page.evaluate(() => (document.querySelector('.overlay') || document.querySelector('.content')).innerText);
     console.log(`\n== ${name}\n${main.replace(/\n{2,}/g, '\n').slice(0, 2500)}`);
   };
+  // The site shows the hero and the Git client tabs in the visitor's theme: shoot those dark, then light.
+  const twin = async (name) => {
+    await shot(`${name}-dark`);
+    await app.palette('Theme: Light');
+    await shot(`${name}-light`);
+    await app.palette('Theme: Dark');
+  };
   const split = page.locator('.review-split');
 
   // 1. Review: Stuck and Ready to merge.
@@ -704,7 +711,7 @@ process.exit(1);
   }
 
   await expect(page.locator('.review-pane .review-file').first()).toBeVisible();
-  await shot('review-dark');
+  await twin('review');
 
   // 2. Catch up (AK-365): Reload joins the merged PRs on; the reader beside the list shows the first PR's diff.
   await app.view('catchup');
@@ -728,23 +735,7 @@ process.exit(1);
   await expect(pane.locator('.review-file[data-path$="/UsageChart.tsx"]')).toContainText('ResponsiveContainer');
   await shot('review-pr-dark');
 
-  // 4. Send back the conflicting PR.
-  const row228 = page.locator('.lanes-row[data-key="pr:228"]');
-  await row228.click({ position: { x: 8, y: 8 } });
-  await expect(row228).toHaveClass(/active/);
-  // The local conflict forecast names the files once it has run; until then the sheet only has GitHub's word.
-  const sheet = page.locator('.dialog.sendback');
-  await expect(async () => {
-    if (await sheet.count()) { await page.keyboard.press('Escape'); await expect(sheet).toHaveCount(0); }
-    await split.focus();
-    await page.keyboard.press('p');
-    await expect(sheet.locator('.sendback-prompt')).toHaveValue(/retry\.ts/, { timeout: 1500 });
-  }).toPass({ timeout: 30_000 });
-  await shot('send-back-dark');
-  await page.keyboard.press('Escape');
-  await expect(sheet).toHaveCount(0);
-
-  // 5. Merge plan for the ready PRs. For this shot only, GitHub says #233 is behind a base that must
+  // 4. Merge plan for the ready PRs. For this shot only, GitHub says #233 is behind a base that must
   // be up to date, so the sheet names a blocker (the fake `gh` rereads its data on every call).
   const planData = JSON.parse(fs.readFileSync(path.join(bin, 'gh-data.json'), 'utf8'));
   planData.open.find((x) => x.number === 233).mergeStateStatus = 'BEHIND';
@@ -758,22 +749,22 @@ process.exit(1);
   await page.keyboard.press('Escape');
   await expect(plan).toHaveCount(0);
 
-  // 6. Clean up.
+  // 5. Clean up.
   await page.keyboard.press('Meta+Alt+Backspace');
   const cleanup = page.locator('.cleanup-panel');
   await expect(cleanup.locator('.cleanup-item').first()).toBeVisible({ timeout: 20_000 });
   await shot('cleanup-dark');
   await page.keyboard.press('Escape');
 
-  // 7. Map.
+  // 6. Map.
   await app.view('map');
   await expect(app.row('Merge branch \'release/2.3\'')).toHaveCount(1);
   await expect(app.row('fix(billing): add jitter to the retry backoff (ORB-142) (#225)')).toHaveCount(1);
   await app.row('fix(billing): add jitter to the retry backoff (ORB-142) (#225)').click();
   expect((await app.row('fix(billing): add jitter to the retry backoff (ORB-142) (#225)').boundingBox()).y).toBeLessThan(300);
-  await shot('map-dark');
+  await twin('map');
 
-  // 8. Commit: staged and unstaged changes, a diff open.
+  // 7. Commit: staged and unstaged changes, a diff open.
   write({
     'packages/billing/src/receipts.ts': sub("template: retried ? 'receipt-after-retry' : 'receipt',", "template: retried ? 'receipt-after-retry' : 'receipt',\n    replyTo: 'billing@acme.dev',"),
     'apps/web/src/pages/Billing.tsx': sub('<PageHeader title="Billing" description="Your plan, this month’s usage and past invoices" />', '<PageHeader\n        title="Billing"\n        description="Your plan, this month’s usage and past invoices"\n        actions={<Button variant="ghost" onClick={() => api.portal(workspaceId)}>Manage payment method</Button>}\n      />'),
@@ -785,18 +776,18 @@ process.exit(1);
   await page.locator('textarea.composer-input[placeholder="Commit message"]').fill('feat(billing): prorate plan changes mid-cycle (ORB-181)\n\nCredit the unused part of the period and reply-to billing on receipts.');
   await page.locator('.cv-section .file-row', { hasText: 'Billing.tsx' }).click();
   await expect(page.locator('.diff-scroll')).toContainText('Manage payment method');
-  await shot('commit-dark');
+  await twin('commit');
 
-  // 9. The conflict editor: merging the hard-declines branch into main stops on retry.ts.
+  // 8. The conflict editor: merging the hard-declines branch into main stops on retry.ts.
   await page.locator('textarea.composer-input[placeholder="Commit message"]').fill('');
   g(['reset', '-q', '--hard']);
   g(['clean', '-qfd']);
   g(['merge', 'agent/orb-176-hard-declines'], { ok: [1] });
-  await expect(page.locator('.banner')).toContainText('Merge in progress', { timeout: 15_000 });
+  await expect(page.locator('.banner')).toContainText('is stopped on 1 conflict', { timeout: 15_000 });
   await app.view('commit');
   await page.locator('.cv-section', { hasText: 'Conflicts' }).locator('.file-row', { hasText: 'retry.ts' }).click();
   await expect(page.locator('.cf-block').first()).toBeVisible();
-  await shot('conflict-dark');
+  await twin('conflict');
 });
 
 // A w×h PNG (base64): a soft two-colour diagonal with a few bars, standing in for a PR screenshot.

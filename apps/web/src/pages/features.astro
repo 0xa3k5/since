@@ -8,14 +8,21 @@ import Kbd from '../components/content/Kbd.astro';
 import AppleGlyph from '../components/AppleGlyph.astro';
 import '../components/landing/landing.css';
 
-// The site is dark only, so each feature shows one dark capture (the light ones stay for the docs pages).
+// Each feature shows its capture in the site's theme.
 import map from '../assets/features/map-dark.webp';
+import mapLight from '../assets/features/map-light.webp';
 import quick from '../assets/features/quick-dark.webp';
+import quickLight from '../assets/features/quick-light.webp';
 import rewrite from '../assets/features/rewrite-dark.webp';
+import rewriteLight from '../assets/features/rewrite-light.webp';
 import undo from '../assets/features/undo-dark.webp';
+import undoLight from '../assets/features/undo-light.webp';
 import commit from '../assets/features/commit-dark.webp';
+import commitLight from '../assets/features/commit-light.webp';
 import palette from '../assets/features/palette-dark.webp';
+import paletteLight from '../assets/features/palette-light.webp';
 import stashes from '../assets/features/stashes-dark.webp';
+import stashesLight from '../assets/features/stashes-light.webp';
 
 const sections = [
   {
@@ -29,7 +36,7 @@ const sections = [
       ['Search subjects, authors, refs and SHAs', ['⌘', 'F'], ['/']],
       ['Jump to HEAD', ['H']],
     ],
-    shot: [map, 'The map: a commit graph with branch, tag and remote labels, and the detail panel for the selected commit'],
+    shot: [map, mapLight, 'The map: a commit graph with branch, tag and remote labels, and the detail panel for the selected commit'],
   },
   {
     id: 'quick-view',
@@ -41,7 +48,7 @@ const sections = [
       ['Next or previous file', ['↓'], ['↑']],
       ['Back to the map', ['Esc']],
     ],
-    shot: [quick, 'Quick View: the file list of a commit next to its diff'],
+    shot: [quick, quickLight, 'Quick View: the file list of a commit next to its diff'],
   },
   {
     id: 'edit-history',
@@ -56,7 +63,7 @@ const sections = [
       ['Rebase onto, merge, cherry-pick, revert', ['R'], ['M'], ['P'], ['V']],
       ['Create a branch or tag here', ['B'], ['T']],
     ],
-    shot: [rewrite, 'The commit menu, listing each action with its single-key shortcut'],
+    shot: [rewrite, rewriteLight, 'The commit menu, listing each action with its single-key shortcut'],
   },
   {
     id: 'undo',
@@ -69,7 +76,7 @@ const sections = [
       ['See every step and preview a restore', ['⌘', '4']],
     ],
     foot: 'There is no limit on how far back you can go. Pushes change a remote, so they can’t be undone locally; Since asks before a force push.',
-    shot: [undo, 'After a fixup, a toast offers Undo and the toolbar undo button is active'],
+    shot: [undo, undoLight, 'After a fixup, a toast offers Undo and the toolbar undo button is active'],
   },
   {
     id: 'staging',
@@ -82,7 +89,7 @@ const sections = [
       ['Commit', ['⌘', '↵']],
     ],
     foot: 'Discarding files, hunks or lines is undoable too.',
-    shot: [commit, 'The Commit view with three lines selected in a diff and a Stage lines button'],
+    shot: [commit, commitLight, 'The Commit view with three lines selected in a diff and a Stage lines button'],
   },
   {
     id: 'palette',
@@ -93,7 +100,7 @@ const sections = [
       ['Open the command menu', ['⌘', 'K']],
     ],
     link: ['/shortcuts', 'See every keyboard shortcut'],
-    shot: [palette, 'The command menu filtered to push commands, with their shortcuts'],
+    shot: [palette, paletteLight, 'The command menu filtered to push commands, with their shortcuts'],
   },
 ];
 
@@ -144,7 +151,7 @@ const tiles = [
             {s.foot && <p class="foot">{s.foot}</p>}
             {s.link && <p class="foot"><a href={s.link[0]}>{s.link[1]} →</a></p>}
           </div>
-          <div class="halo"><AppShot src={s.shot[0] as ImageMetadata} alt={s.shot[1] as string} eager={i === 0} class={i === 0 ? 'fade-out' : ''} /></div>
+          <div class="halo"><AppShot dark={s.shot[0] as ImageMetadata} light={s.shot[1] as ImageMetadata} alt={s.shot[2] as string} eager={i === 0} class={i === 0 ? 'fade-out' : ''} /></div>
           {i === 0 && (
             <div class="facts3 facts4">
               {s.points.map(([label, ...groups]) => (
@@ -169,7 +176,7 @@ const tiles = [
           </article>
         ))}
       </div>
-      <div class="rest-shot halo"><AppShot src={stashes} class="fade-out" alt="The Stashes view with two saved stashes" /></div>
+      <div class="rest-shot halo"><AppShot dark={stashes} light={stashesLight} class="fade-out" alt="The Stashes view with two saved stashes" /></div>
       <p class="more-links"><a href="/changelog">See what has shipped</a> · <a href="/shortcuts">All keyboard shortcuts</a></p>
     </section>
 
@@ -184,7 +191,7 @@ const tiles = [
 </Base>
 
 <style>
-  /* Features page: the landing page's rhythm (landing.css), with one dark capture per feature. */
+  /* Features page: the landing page's rhythm (landing.css), with one capture per feature in the site's theme. */
   .fp .hero { padding-bottom: 110px; }
   .kicker { margin: 0 auto 18px; font-size: 15px; color: var(--text-3); }
   .jump { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 34px; }
