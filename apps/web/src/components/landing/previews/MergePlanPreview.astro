@@ -1,15 +1,16 @@
 ---
 import Stage from './Stage.astro';
-const prs = [[216, 'Medium weights in the sidebar'], [217, 'Collapse the day headers'], [218, 'Show reviewers on pull requests']];
 ---
-<Stage label="Merge plan: three ready pull requests in order, merged one after another">
+<Stage label="Merge plan: three ready pull requests in order, merged one after another, with why #216 goes first and a warning that #219 will conflict after these merge">
   <div class="pv-mp">
     <div class="pv-mp-head"><b>Merge plan</b><span>3 PRs into main</span></div>
     <div>
-      {prs.map(([n, title], i) => (
-        <div class="pv-mp-row"><span class="pv-mp-n">{i + 1}</span><span class="pv-box"></span><span class="pv-mp-pr">#{n}</span><span class="pv-mp-title">{title}</span><span class="pv-mp-st"><span class="was">Ready</span><span class="now">Merged</span></span></div>
-      ))}
+      <div class="pv-mp-row"><span class="pv-mp-n">1</span><span class="pv-box"></span><span class="pv-mp-pr">#216</span><span class="pv-mp-title">Medium weights in the sidebar</span><span class="pv-mp-st"><span class="was">Ready</span><span class="now">Merged</span></span></div>
+      <div class="pv-mp-row r2"><span class="pv-mp-n">2</span><span class="pv-box"></span><span class="pv-mp-pr">#217</span><span class="pv-mp-title">Collapse the day headers</span><span class="pv-mp-st"><span class="was">Ready</span><span class="now">Merged</span></span></div>
+      <div class="pv-mp-note">#217 before #216 would conflict in sidebar.css</div>
+      <div class="pv-mp-row r3"><span class="pv-mp-n">3</span><span class="pv-box"></span><span class="pv-mp-pr">#218</span><span class="pv-mp-title">Show reviewers on pull requests</span><span class="pv-mp-st"><span class="was">Ready</span><span class="now">Merged</span></span></div>
     </div>
+    <div class="pv-mp-warn"><span aria-hidden="true">⚠</span><span><b>#219</b> will conflict in review.js after these merge</span></div>
     <div class="pv-mp-foot"><span class="pv-btn primary">Merge 3</span></div>
   </div>
 </Stage>

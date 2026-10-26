@@ -6,14 +6,14 @@ import { PRODUCT_NAME } from '../../config';
   <div class="feat">
     <div class="copy">
       <h2 id="c-h">See what happened <span class="soft">since you last looked.</span></h2>
-      <p>{PRODUCT_NAME} remembers the commit you last marked, not a clock. It shows everything that reached main after it, grouped by issue or by area, so twenty PRs read as four pieces of work.</p>
+      <p>{PRODUCT_NAME} keeps a checkpoint, a commit, not a clock. It lists everything merged on your base after it, day by day, with a reader beside it that shows who made each change, its description and every file. Move the checkpoint with Mark since, and <kbd>⌘Z</kbd> puts it back.</p>
     </div>
     <SincePreview />
     <div class="facts3 facts4">
-      <div><h4>Counts at a glance</h4><p>Merged, stuck and ready, plus main's CI with GitHub connected.</p></div>
-      <div><h4>Any starting point</h4><p>Your last checkpoint, yesterday, last week or a tag.</p></div>
-      <div><h4>One PR at a time</h4><p>Walk through what landed with <kbd>⇧↵</kbd>.</p></div>
-      <div><h4>Agent work, marked</h4><p>Agent-made branches get a badge. <kbd>A</kbd> shows only them.</p></div>
+      <div><h4>Any starting point</h4><p>Your checkpoint, yesterday, last week or a tag, on any branch. <kbd>⇧T</kbd></p></div>
+      <div><h4>Read it like a review</h4><p>Tick files with <kbd>V</kbd> and they fold. <kbd>,</kbd> <kbd>.</kbd> between files, <kbd>←</kbd> <kbd>→</kbd> between PRs.</p></div>
+      <div><h4>Stacks as one row</h4><p>A merged stack is one item. Open it to read the parts, bottom first.</p></div>
+      <div><h4>Who made it</h4><p>The author, plus the agent its commit trailers name.</p></div>
     </div>
   </div>
 </section>
