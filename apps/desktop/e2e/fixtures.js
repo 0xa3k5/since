@@ -280,9 +280,8 @@ const test = base.extend({
       if (theme || settings) fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ ...settings, ...(theme ? { theme } : {}) }));
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
-        // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
         // Specs start on the Map (repositories open on Review otherwise); pass env SINCE_START_VIEW: '' for Review.
-        env: { ...sandbox.env, SINCE_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), SINCE_START_VIEW: 'map', ...env },
+        env: { ...sandbox.env, SINCE_START_VIEW: 'map', ...env },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });

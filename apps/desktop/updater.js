@@ -7,7 +7,7 @@
 // bundle is signed by the same Developer ID as the running app, and swaps it in on restart (or next quit).
 //
 // Apart from git itself, the feed request and the download are the app's only network traffic. They carry
-// no identifiers and no analytics. Updates are free for life, so nothing here looks at the licence.
+// no identifiers and no analytics.
 // Loaded lazily so the pure helpers below also run under plain Node (unit tests, scripts/update-feed.js).
 let app, autoUpdater, session;
 

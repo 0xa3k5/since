@@ -22,7 +22,7 @@ export const PREF_SECTIONS = [
 ];
 
 // `s` is the snapshot the app passes in:
-//   { autoUpdate, licence, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
+//   { autoUpdate, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
 //     agentLanes, unified }, sidebarExpanded, sections: [{ id, label, icon, hidden }] (refs-tree order), prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
 //   remotes: [{ name, url, label }] }
 export function prefRows(s) {
@@ -31,7 +31,6 @@ export function prefRows(s) {
   const rows = [
     { section: 'general', id: 'autoUpdate', kind: 'switch', value: s.autoUpdate !== false, label: 'Check for updates automatically', detail: 'At launch and once a day. Updates install when you restart.', keywords: 'update upgrade version' },
     { section: 'general', id: 'checkUpdates', kind: 'action', value: 'Check now', label: 'Check for updates', keywords: 'update upgrade version' },
-    ...(s.licence ? [{ section: 'general', id: 'licence', kind: 'action', value: s.licence.licensed ? 'Licence…' : 'Enter key…', label: 'Licence', detail: s.licence.detail || null, keywords: 'license key trial buy' }] : []),
     { section: 'general', id: 'setup', kind: 'action', value: 'Open…', label: 'Choose your defaults', detail: 'The first-launch checklist of what Since turns on.', keywords: 'setup welcome first run' },
 
     { section: 'git', id: 'autostashAsk', kind: 'switch', value: s.autostash?.ask !== false, label: 'Ask before auto-stashing on checkout', detail: 'Off: Since stashes your changes, switches, and offers them back when you return.', keywords: 'autostash auto stash checkout switch' },

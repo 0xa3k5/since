@@ -25,9 +25,8 @@ pnpm is required; npm, yarn and bun installs are blocked. Enable it with `corepa
 `pnpm dist` builds `Since.app` and one DMG each for Apple silicon (`arm64`) and Intel (`x64`)
 into `apps/desktop/dist/`. It needs macOS.
 
-- **Licence store:** the build bakes in the `production` Polar store and fails until its values in
-  `apps/desktop/licence/config.js` are filled in. For a test build use `SINCE_STORE=sandbox pnpm dist`;
-  the app then says "sandbox store" in its licence window. CI does this for everything except final release tags.
+- **Update channel:** the build bakes in the `release` channel, which reads the GitHub Releases feed.
+  `SINCE_CHANNEL=beta pnpm dist` bakes the beta channel, which reads the beta bucket instead.
 
 - **Without a Developer ID certificate** (the default today) you get `Since-<version>-<arch>-unsigned.dmg`.
   The app is ad-hoc signed so it launches on Apple silicon. Gatekeeper still blocks it on other Macs
@@ -57,7 +56,7 @@ Pull requests that touch packaging, and manual runs, do an unsigned dry run and 
 
 ### Releasing a beta from your Mac
 
-Betas have no licence or trial (`SINCE_STORE=beta`) and are published to the `gitlanes-beta` Cloudflare R2 bucket.
+Betas are built on the beta update channel (`SINCE_CHANNEL=beta`) and are published to the `gitlanes-beta` Cloudflare R2 bucket.
 They are built locally, not by GitHub Actions: pushing a `v*-beta.*` tag does **not** start `release.yml`.
 
 One-time setup, in the login keychain (nothing goes into env files or the repo):

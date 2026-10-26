@@ -3,7 +3,6 @@ import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
-import { openLicence, licenceChip, trialLine, buy, LICENCE_KBD } from './licence.js';
 import { isRowControl, rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
@@ -95,7 +94,7 @@ const state = {
   collapsed: loadPref('collapsed', {}),
   sections: loadPref('sidebarSections', {}), // which refs-tree sections show, in what order (Preferences → Sidebar)
   theme: 'system',
-  licence: null,
+  channel: null,
   prs: null, // pull requests from GitHub (see loadPrs); null until known
 };
 
@@ -111,7 +110,6 @@ state.panes = loadSizes(loadPref('panes', {}));
 
 async function git(method, ...args) {
   const r = await api.git(method, ...args);
-  if (r.error?.code === 'READ_ONLY') { openLicence({ blocked: true }); const e = new Error(r.error.message); e.readOnly = true; throw e; }
   if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; e.code = r.error.code; e.moved = r.error.moved; throw e; }
   return r.ok;
 }
@@ -151,12 +149,12 @@ async function act(label, method, args = [], opts = {}) {
     t?.close();
     // An old git refused `stash push --staged`: Update git, then stash.
     if (method === 'stashSave' && args[2]?.staged && 'git-version' === e.code) return updateGit('stashStaged', () => act(label, method, args, opts));
-    const fixed = e.readOnly ? undefined : await offerFix(label, method, args, opts, e);
+    const fixed = await offerFix(label, method, args, opts, e);
     if (fixed !== undefined) return fixed;
-    if (STASH_AND.has(method) && !e.readOnly && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
+    if (STASH_AND.has(method) && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
       const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${label.split(' ')[0].toLowerCase()}` }] });
       if (v) return act(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
-    } else if (!e.readOnly) {
+    } else {
       await refreshAll();
       // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
       const n = state.opState ? state.status.conflicts.length : 0;
@@ -347,7 +345,7 @@ async function abortThenStep(dir, op) {
 async function abortThen(op, step) {
   let res;
   try { res = await git('abortOp'); } catch (e) {
-    if (!e.readOnly) toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
+    toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return false;
   }
@@ -359,7 +357,7 @@ async function abortThen(op, step) {
 }
 
 async function quiet(method, ...args) {
-  try { await git(method, ...args); } catch (e) { if (!e.readOnly) toast('Git error', { kind: 'error', detail: e.message }); }
+  try { await git(method, ...args); } catch (e) { toast('Git error', { kind: 'error', detail: e.message }); }
   await refreshStatus();
 }
 
@@ -379,7 +377,7 @@ async function undo(opts) {
     if (await offerSkipStep('undo', e)) return;
     if (!opts?.force && await offerMovedStep('undo', e, opts)) return;
     if (!opts?.stash && !opts?.discard && await offerStashStep('undo', e, opts)) return;
-    if (!e.readOnly) toast('Undo failed', { kind: 'error', detail: e.message });
+    toast('Undo failed', { kind: 'error', detail: e.message });
   }
   await refreshAll();
 }
@@ -408,7 +406,7 @@ async function offerStashStep(dir, err, opts) {
   } catch (e) {
     // Branches moved since too: the moved-since sheet still asks (keeping the stash step).
     if (await offerSkipStep(dir, e) || await offerMovedStep(dir, e, { ...opts, stash: true })) return true;
-    if (!e.readOnly) toast(`${dir === 'undo' ? 'Undo' : 'Redo'} failed`, { kind: 'error', detail: e.message });
+    toast(`${dir === 'undo' ? 'Undo' : 'Redo'} failed`, { kind: 'error', detail: e.message });
   }
   await refreshAll();
   return true;
@@ -460,7 +458,7 @@ async function redo(opts) {
     if (await offerSkipStep('redo', e)) return;
     if (!opts?.force && await offerMovedStep('redo', e, opts)) return;
     if (!opts?.stash && !opts?.discard && await offerStashStep('redo', e, opts)) return;
-    if (!e.readOnly) toast('Redo failed', { kind: 'error', detail: e.message });
+    toast('Redo failed', { kind: 'error', detail: e.message });
   }
   await refreshAll();
 }
@@ -1212,8 +1210,7 @@ function renderTopbar() {
   if (state.view === 'commit') {
     right.append(h('button.btn.subtle', { onclick: () => stashSave() }, icon('stash', 14), 'Stash'));
   }
-  const chip = licenceChip(state.licence, () => openLicence());
-  if (chip) right.append(chip);
+  if (state.channel === 'beta') right.append(h('span.channel-chip', { title: 'Beta build' }, 'Beta'));
   right.append(
     h('button.icon-btn', { title: tip(undoTitle(), 'edit.undo'), disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: tip(redoTitle(), 'edit.redo'), disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
@@ -2167,9 +2164,9 @@ async function checkout(branch) {
     await git('checkout', branch, { __label: label });
   } catch (e) {
     // Only when local changes are in the way: offer to stash them and switch.
-    const blocked = !e.readOnly && blockedCheckout(`${e.stderr || ''}\n${e.message}`);
+    const blocked = blockedCheckout(`${e.stderr || ''}\n${e.message}`);
     if (blocked) return autostashCheckout(branch, blocked);
-    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    toast(`${label} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return false;
   }
@@ -2212,13 +2209,13 @@ async function freeCheckout(label, branch, wt) {
   try {
     await git('freeCheckout', branch, wt.path, { __label: label });
   } catch (e) {
-    if (!e.readOnly && blockedCheckout(`${e.stderr || ''}\n${e.message}`)) {
+    if (blockedCheckout(`${e.stderr || ''}\n${e.message}`)) {
       const n = switchChanges();
       const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
       const stash = { message: stashMessage(state.head.branch, branch), untracked };
       return act(label, 'moveCheckout', [branch, wt.path, stash], { success: `Checked out ${branch}`, detail: `Took it from ${wt.name}. ${changesText(n)} stashed.`, actions: [showStashAction(stash.message)] });
     }
-    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    toast(`${label} failed`, { kind: 'error', detail: e.message });
     await refreshAll();
     return false;
   }
@@ -2235,7 +2232,7 @@ async function moveCheckout(label, branch, wt, stash) {
     if (res?.conflicts) toast(`Switched to ${branch}. The changes from “${wt.name}” conflict here.`, { kind: 'error', detail: 'Their stash is kept.', action: { label: 'Undo', run: undo } });
     else toast(`Checked out ${branch}`, { kind: 'success', detail: `Moved the changes from ${wt.name}.${stash ? ' Yours are stashed.' : ''}`, actions: [{ label: 'Undo', run: undo }, stash && showStashAction(stash.message)].filter(Boolean) });
   } catch (e) {
-    if (!e.readOnly) toast(`${label} failed`, { kind: 'error', detail: e.message });
+    toast(`${label} failed`, { kind: 'error', detail: e.message });
   }
   await refreshAll();
   return true;
@@ -3075,7 +3072,7 @@ async function setIdentity(name, email, current) {
     toast(`This repository now commits as ${email}`, { kind: 'success' });
     return true;
   } catch (e) {
-    if (!e.readOnly) toast('Couldn’t set the commit identity', { kind: 'error', detail: e.message });
+    toast('Couldn’t set the commit identity', { kind: 'error', detail: e.message });
     return false;
   } finally {
     refreshAux();
@@ -4957,8 +4954,6 @@ function openPalette() {
     }
     add('App', 'Close repository', closeRepo, { icon: 'x' });
     add('App', 'Remove from recent…', removeFromRecent, { icon: 'x', keywords: 'recent repository forget clear' });
-    if (state.licence?.mode !== 'beta') add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
-    if (state.licence?.mode !== 'licensed' && state.licence?.mode !== 'beta') add('App', 'Buy Since', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
     add('App', 'Export shortcuts…', exportShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom save file json' });
@@ -5109,7 +5104,6 @@ async function resetShortcuts() {
 let prefs = null;
 const prefState = () => ({
   autoUpdate: update.auto,
-  licence: state.licence && state.licence.mode !== 'beta' ? { licensed: state.licence.mode === 'licensed', detail: trialLine(state.licence) } : null,
   autostash: loadPref('autostash', AUTOSTASH_DEFAULT),
   ai: aiLabel(),
   theme: state.theme,
@@ -5147,7 +5141,6 @@ async function prefAct(row, value) {
   if (row.kind === 'config') return configAct(row.value, value);
   if (id === 'autoUpdate') { const s = await api.app('set-auto-update', value); update = { ...update, auto: s.auto }; }
   else if (id === 'checkUpdates') await api.app('check-updates');
-  else if (id === 'licence') leavePrefs(() => openLicence());
   else if (id === 'setup') leavePrefs(openSetup);
   else if (id === 'autostashAsk' || id === 'autostashUntracked') {
     const a = loadPref('autostash', AUTOSTASH_DEFAULT);
@@ -5204,7 +5197,6 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
       h('h1', null, 'Since'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
-      trialLine(state.licence) ? h('button.licence-line', { onclick: () => openLicence() }, icon('key', 12), trialLine(state.licence), kbd(...LICENCE_KBD)) : null,
       h('div.welcome-actions', null,
         h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(...keymap.keys('file.open'))),
         h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(...keymap.keys('file.clone'))),
@@ -5396,8 +5388,6 @@ const commands = {
   prMerge: () => state.repo && mergePrCmd(),
   prClose: () => state.repo && closePrCmd(),
   prChanges: () => state.repo && requestChangesPr(),
-  licence: () => openLicence(),
-  buy,
   shortcuts: () => openShortcuts(),
   handoff: () => takeHandoff(),
 };
@@ -5508,7 +5498,7 @@ async function openMergetool(paths) {
     const { remaining } = await git('mergetool', paths);
     toast(remaining.length ? `${remaining.length} conflicted file${remaining.length === 1 ? '' : 's'} left` : 'Conflicts resolved', { detail: remaining.slice(0, 3).join('\n') || null });
   } catch (e) {
-    if (!e.readOnly) toast('Mergetool failed', { kind: 'error', detail: e.message });
+    toast('Mergetool failed', { kind: 'error', detail: e.message });
   } finally {
     mergetoolOpen = false;
     await refreshStatus();
@@ -5595,13 +5585,7 @@ api.on('theme', (mode, { announce } = {}) => {
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mapView?.refresh());
 
 // ---------------------------------------------------------------------------
-// Trial & licence. The main process owns the state and refuses changes once the app is read-only.
-
-api.on('licence', (s) => {
-  state.licence = s;
-  if (state.repo) renderTopbar(); else if (!document.querySelector('.overlay')) renderShell();
-});
-
+// Updates
 // here we tell the user and offer the restart. Results of a manual check show in the window that asked.
 
 let update = { status: 'idle' };
@@ -5654,7 +5638,7 @@ api.on('tabs', showTabs);
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
-  state.licence = await api.app('licence');
+  state.channel = await api.app('channel');
   keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));

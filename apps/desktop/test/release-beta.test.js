@@ -134,5 +134,5 @@ test('buildEnv drops CSC_IDENTITY_AUTO_DISCOVERY and stray signing variables, ke
   assert.equal('CSC_IDENTITY_AUTO_DISCOVERY' in env, false);
   assert.equal('CSC_LINK' in env, false);
   assert.equal('APPLE_ID' in env, false);
-  assert.deepEqual([env.PATH, env.SINCE_STORE, env.APPLE_KEYCHAIN_PROFILE], ['/bin', 'beta', 'gitlanes-notary']);
+  assert.deepEqual([env.PATH, env.SINCE_CHANNEL, env.APPLE_KEYCHAIN_PROFILE], ['/bin', 'beta', 'gitlanes-notary']);
 });

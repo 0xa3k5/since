@@ -27,25 +27,25 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'channel.js', 'preload.js', 'renderer/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
 
-test('packaging bakes production by default and refuses an unfilled or mock store', () => {
+test('packaging bakes the release channel by default and refuses an unknown one', () => {
   delete require.cache[require.resolve('../electron-builder.config.js')];
-  const saved = process.env.SINCE_STORE;
+  const saved = process.env.SINCE_CHANNEL;
   try {
-    for (const [store, baked] of [[undefined, 'production'], ['sandbox', 'sandbox'], ['mock', 'mock']]) {
-      if (store) process.env.SINCE_STORE = store; else delete process.env.SINCE_STORE;
+    for (const [channel, baked] of [[undefined, 'release'], ['beta', 'beta'], ['sandbox', 'sandbox']]) {
+      if (channel) process.env.SINCE_CHANNEL = channel; else delete process.env.SINCE_CHANNEL;
       delete require.cache[require.resolve('../electron-builder.config.js')];
       const c = require('../electron-builder.config.js');
-      assert.strictEqual(c.extraMetadata.since.store, baked);
-      if (baked === 'sandbox') c.beforePack();
-      else assert.throws(() => c.beforePack());
+      assert.strictEqual(c.extraMetadata.since.channel, baked);
+      if (baked === 'sandbox') assert.throws(() => c.beforePack(), /SINCE_CHANNEL=sandbox/);
+      else c.beforePack();
     }
   } finally {
-    if (saved === undefined) delete process.env.SINCE_STORE; else process.env.SINCE_STORE = saved;
+    if (saved === undefined) delete process.env.SINCE_CHANNEL; else process.env.SINCE_CHANNEL = saved;
     delete require.cache[require.resolve('../electron-builder.config.js')];
   }
 });
@@ -64,7 +64,7 @@ test('packaging bakes SINCE_VERSION and refuses anything that is not package.jso
     assert.strictEqual(load(`${base}-beta.2`).extraMetadata.version, `${base}-beta.2`);
     assert.strictEqual(load(`${base}-rc.1`).extraMetadata.version, `${base}-rc.1`);
     assert.strictEqual(load(base).extraMetadata.version, base);
-    assert.strictEqual(load(base).extraMetadata.since.store, 'production', 'the store is still baked next to it');
+    assert.strictEqual(load(base).extraMetadata.since.channel, 'release', 'the channel is still baked next to it');
     assert.throws(() => load(`-- -c.extraMetadata.version=${base}-beta.2`), /SINCE_VERSION=.* is not a version/);
     assert.throws(() => load('beta.2'), /is not a version/);
     assert.throws(() => load(`v${base}-beta.2`), /is not a version/);
@@ -94,14 +94,14 @@ test('every module the main process requires is packaged', () => {
   visit('main.js');
   visit('preload.js');
   const packaged = (file) => config.files.some((f) => f === file || (f.endsWith('/**') && file.startsWith(f.slice(0, -2))));
-  assert.ok(seen.has('ipc.js') && seen.has('licence/index.js'));
+  assert.ok(seen.has('ipc.js') && seen.has('channel.js'));
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
 });
 
-test('the main process opens no connections of its own, apart from updates and licences', () => {
-  // git and gh make their own requests; Since only spawns them. Only updater.js and the licence
-  // store may request anything, and they're listed in docs/security.md.
-  const files = [...config.files.filter((f) => f.endsWith('.js')), ...fs.readdirSync(path.join(root, 'licence')).filter((f) => f.endsWith('.js')).map((f) => `licence/${f}`)];
+test('the main process opens no connections of its own, apart from updates', () => {
+  // git and gh make their own requests; Since only spawns them. Only updater.js may request
+  // anything, and it's listed in docs/security.md.
+  const files = config.files.filter((f) => f.endsWith('.js'));
   const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
   for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);
   for (const file of ['git.js', 'ai.js', 'github.js', 'ipc.js', 'journal.js']) {

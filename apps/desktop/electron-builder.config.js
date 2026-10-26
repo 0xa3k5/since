@@ -11,7 +11,7 @@
 // release-beta.js and release.yml set it through the environment: a `pnpm dist -- -c.…` argument
 // crosses two `pnpm run` layers and some pnpm versions hand electron-builder a literal `--` (AK-571).
 const { execFileSync } = require('node:child_process');
-const { releaseProfile } = require('./licence/config');
+const { releaseChannel } = require('./channel');
 
 // CI passes unset secrets as empty strings, which electron-builder would treat as a certificate path.
 for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
@@ -26,7 +26,7 @@ function hasDeveloperId() {
   } catch { return false; }
 }
 
-const STORE = process.env.SINCE_STORE || 'production';
+const CHANNEL = process.env.SINCE_CHANNEL || 'release';
 
 /** The version to bake from SINCE_VERSION, or '' to keep package.json's. Only `base` itself or a pre-release of it. */
 function versionOverride(value, base) {
@@ -46,13 +46,13 @@ module.exports = {
   productName: 'Since',
   copyright: 'Copyright © 2026 Since',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'licence/**', 'preload.js', 'renderer/**', 'package.json'],
-  // The store profile is baked into the packaged package.json; the packaged app ignores SINCE_STORE
-  // at run time. Production unless the build asks for the test store (SINCE_STORE=sandbox).
+  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'channel.js', 'preload.js', 'renderer/**', 'package.json'],
+  // The update channel is baked into the packaged package.json; the packaged app ignores SINCE_CHANNEL
+  // at run time. Release unless the build asks for the beta feed (SINCE_CHANNEL=beta).
   // The version, when overridden, names the artifacts and is what the updater compares against the feed.
-  extraMetadata: { since: { store: STORE }, ...(VERSION ? { version: VERSION } : {}) },
-  // Fail closed: refuse to package mock, unknown or unfilled profiles.
-  beforePack: () => { releaseProfile(STORE); },
+  extraMetadata: { since: { channel: CHANNEL }, ...(VERSION ? { version: VERSION } : {}) },
+  // Fail closed: refuse to package an unknown channel.
+  beforePack: () => { releaseChannel(CHANNEL); },
   asar: true,
   // In CI a provided certificate must actually be used; never fall back to an unsigned release.
   forceCodeSigning: Boolean(process.env.CSC_LINK),
