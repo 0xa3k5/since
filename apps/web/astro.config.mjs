@@ -8,7 +8,7 @@ import { SHOW_PRICING, SITE_URL } from './src/config.ts';
  * only while SHOW_PRICING is true, so the beta build has no /pricing, /licence or licence docs at all.
  */
 const commercePages = () => ({
-  name: 'gitlanes-commerce-pages',
+  name: 'since-commerce-pages',
   hooks: {
     /** @param {{ injectRoute: (r: { pattern: string; entrypoint: string }) => void }} opts */
     'astro:config:setup': ({ injectRoute }) => {

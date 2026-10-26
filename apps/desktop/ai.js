@@ -1,5 +1,5 @@
 'use strict';
-// Opt-in AI commit messages. GitLanes has no model and no server of its own: the staged diff
+// Opt-in AI commit messages. Since has no model and no server of its own: the staged diff
 // goes to a tool the user already runs (Claude Code or the Codex CLI) or to a model on this Mac
 // (Ollama). It's off until the user picks a provider, and main.js refuses to send anything to a
 // provider until the user has seen the exact text that goes out and agreed to it.
@@ -107,7 +107,7 @@ function runCli(bin, args, input, { dirs = searchDirs(), timeout = TIMEOUT, env 
     const cancelled = () => Object.assign(new Error(`${path.basename(bin)} was cancelled`), { name: 'AbortError' });
     if (signal?.aborted) return reject(cancelled());
     // An empty folder, so the CLI never reads or edits the repository on its own.
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-ai-'));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'since-ai-'));
     const done = (fn, v) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* best effort */ } fn(v); };
     // PATH includes the usual install folders: npm-installed CLIs start with `env node`.
     // Own process group, so a timeout stops the CLI and anything it started.

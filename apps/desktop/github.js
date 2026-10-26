@@ -1,5 +1,5 @@
 'use strict';
-// Read-only pull request status through the user's own GitHub CLI (`gh`). GitLanes never sees a
+// Read-only pull request status through the user's own GitHub CLI (`gh`). Since never sees a
 // token and makes no request itself: the network call happens inside `gh`, the same way it
 // happens inside `git fetch`, and only when the user fetches or refreshes pull requests. Off until
 // the user turns it on for a repository (settings.json `github.repos`).
@@ -549,7 +549,7 @@ async function requestChangesPr({ enabled, remotes, number, body, dirs = searchD
 }
 
 // `--repo` keeps `gh` away from any local checkout: it deletes only the remote branch, and the
-// local side (fetch --prune, deleting the local branch) goes through GitLanes' journal.
+// local side (fetch --prune, deleting the local branch) goes through Since' journal.
 // `matchHead` (Merge plan, AK-291): GitHub refuses the merge if the branch moved past that commit.
 async function mergePr({ enabled, remotes, number, method = 'squash', deleteBranch = false, admin = false, matchHead = null, dirs = searchDirs(), exec } = {}) {
   const { bin, repo } = target({ enabled, remotes, dirs });
@@ -630,7 +630,7 @@ function linkArgs({ host, owner, repo }, base, numbers) {
 
 // Link a chain as a GitHub stack, all or nothing (AK-555): every PR is checked first
 // (merge-plan.js linkBlocker) and nothing is linked if one fails. `gh stack link` is one command, but
-// GitLanes can't promise GitHub applies it atomically: if it fails, GitHub is asked again and the
+// Since can't promise GitHub applies it atomically: if it fails, GitHub is asked again and the
 // first PR that didn't make it into the stack is reported. → { linked: true, stack } |
 // { failed: { number, reason } }.
 async function linkStack({ enabled, remotes, base, numbers, dirs = searchDirs(), exec } = {}) {
@@ -954,7 +954,7 @@ function parsePrHead(out, number) {
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head.sha)) throw coded(`Pull request #${number} has no head commit.`, 'gh-failed');
   head.local = branchName(head);
   if (!head.branch || !validBranch(head.local)) {
-    throw coded(`Pull request #${number} has a branch name GitLanes can’t use: “${head.branch}”.`, 'gh-failed');
+    throw coded(`Pull request #${number} has a branch name Since can’t use: “${head.branch}”.`, 'gh-failed');
   }
   return head;
 }

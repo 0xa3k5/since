@@ -1,4 +1,4 @@
-/* Shared styles for /guides/*. Colours come only from @gitlanes/tokens. */
+/* Shared styles for /guides/*. Colours come only from @gitsince/tokens. */
 
 .page { padding-top: 40px; }
 .page > section, .page > .prose, .page > .in-app, .page > .related { margin-top: 56px; }
@@ -36,7 +36,7 @@
 .callout { margin: 20px 0; padding: 12px 16px; border-left: 3px solid var(--warn); background: var(--bg-hover); border-radius: 0 var(--radius) var(--radius) 0; }
 .callout p { margin: 4px 0; }
 
-/* "In GitLanes" box: the one orange-accented region on a guide */
+/* "In Since" box: the one orange-accented region on a guide */
 .in-app {
   max-width: 760px; padding: 28px 28px 24px;
   border: 1px solid var(--border); border-top: 3px solid var(--accent);

@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-sign-')));
+const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-sign-')));
 // No agent: keys load from disk, so a passphrase-protected key cannot be unlocked.
 delete process.env.SSH_AUTH_SOCK;
 // Never prompt for the passphrase on the terminal running the tests: ssh-keygen opens /dev/tty otherwise.
@@ -41,7 +41,7 @@ async function commit(dir, file, content, msg) {
 const sigs = async (dir, range = 'HEAD') => (await git.run(dir, ['log', '--format=%G? %s', range])).trim().split('\n');
 const allGood = async (dir, range) => { for (const l of await sigs(dir, range)) assert.match(l, /^G /, `unsigned or unverified: ${l}`); };
 
-// Runs every commit-creating path GitLanes has, then checks each resulting commit verifies.
+// Runs every commit-creating path Since has, then checks each resulting commit verifies.
 async function exerciseAll(dir) {
   const a = await commit(dir, 'a.txt', 'a\n', 'A');
   const b = await commit(dir, 'b.txt', 'b\n', 'B');

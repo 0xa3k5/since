@@ -18,7 +18,7 @@ const ISO = { GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
 const run = (dir, args, env) => git.run(dir, args, { env: { ...ISO, ...env } });
 
 async function repo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-lfs-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-lfs-')));
   await git.run(dir, ['init', '-q', '-b', 'main']);
   await git.run(dir, ['config', 'user.name', 'Test']);
   await git.run(dir, ['config', 'user.email', 't@example.com']);

@@ -72,17 +72,17 @@ test('video(): streams with Range passed through, never cached; unknown ids are 
   const { calls, fetchImpl } = fakeFetch(() => ({ status: 206, body: 'abc', headers: { 'content-type': 'video/mp4', 'content-range': 'bytes 0-2/10', 'set-cookie': 'x=1' } }));
   const media = createMedia({ token: async () => 'gho_secret', fetchImpl });
   const [v] = media.register([{ url: 'https://github.com/user-attachments/assets/vid', kind: 'video' }], 'github.com');
-  const req = new Request(`gitlanes-media://video/${v.id}`, { headers: { range: 'bytes=0-2' } });
+  const req = new Request(`since-media://video/${v.id}`, { headers: { range: 'bytes=0-2' } });
   const res = await media.video(req);
   assert.equal(res.status, 206);
   assert.equal(await res.text(), 'abc');
   assert.equal(res.headers.get('content-range'), 'bytes 0-2/10');
   assert.equal(res.headers.get('set-cookie'), null);
   assert.deepEqual([calls[0].range, calls[0].auth], ['bytes=0-2', 'Bearer gho_secret']);
-  await media.video(new Request(`gitlanes-media://video/${v.id}`));
+  await media.video(new Request(`since-media://video/${v.id}`));
   assert.equal(calls.length, 2, 'fetched again: nothing kept');
   assert.equal(media.stats().images, 0);
-  assert.equal((await media.video(new Request(`gitlanes-media://video/${'0'.repeat(32)}`))).status, 404);
+  assert.equal((await media.video(new Request(`since-media://video/${'0'.repeat(32)}`))).status, 404);
   await assert.rejects(media.image(v.id), /Unknown image/);
 });
 

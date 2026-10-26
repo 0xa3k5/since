@@ -8,7 +8,7 @@ const git = require('../git');
 const check = require('../ipc');
 
 async function repo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-fh-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-fh-')));
   await git.run(dir, ['init', '-q', '-b', 'main']);
   await git.run(dir, ['config', 'user.name', 'Test']);
   await git.run(dir, ['config', 'user.email', 't@example.com']);

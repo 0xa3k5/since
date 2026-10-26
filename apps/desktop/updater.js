@@ -42,12 +42,12 @@ function compareVersions(a, b) {
 
 const feedName = (arch) => `update-mac-${arch}.json`;
 const feedUrl = (base, arch) => `${String(base).replace(/\/+$/, '')}/${feedName(arch)}`;
-const zipName = (version, arch) => `GitLanes-${version}-${arch}-mac.zip`;
+const zipName = (version, arch) => `Since-${version}-${arch}-mac.zip`;
 
 function buildFeed({ version, url, notes = '', pubDate = new Date().toISOString() }) {
   return {
     currentRelease: version,
-    releases: [{ version, updateTo: { version, name: `GitLanes ${version}`, pub_date: pubDate, notes, url } }],
+    releases: [{ version, updateTo: { version, name: `Since ${version}`, pub_date: pubDate, notes, url } }],
   };
 }
 
@@ -77,7 +77,7 @@ let onChange = () => {};
 let lastCheck = 0;
 let signed = null;
 
-// The running bundle (GitLanes.app/Contents/MacOS/GitLanes -> GitLanes.app) has a real signature.
+// The running bundle (Since.app/Contents/MacOS/Since -> Since.app) has a real signature.
 function checkSigned() {
   signed ??= new Promise((resolve) => {
     const bundle = require('node:path').resolve(process.execPath, '../../..');
@@ -99,7 +99,7 @@ const auto = () => config?.auto?.() !== false;
 
 // The private session the feed is fetched in. main.js locks every session down to local files;
 // this one may also reach the feed's host (feedOrigins), over https.
-const PARTITION = 'gitlanes-updates';
+const PARTITION = 'since-updates';
 // GitHub answers release downloads with a redirect to its asset hosts.
 const GITHUB_ASSET_HOSTS = ['https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com'];
 function feedOrigins(url) {
@@ -118,7 +118,7 @@ function init(opts) {
   config = { ...opts, url: feedUrl(opts.feed, arch()) };
   onChange = opts.onChange || onChange;
   // Squirrel only works on a signed, packaged Mac app (signature checked on the first update found). Dev builds can still check (to test the UI)
-  // when GITLANES_UPDATE_FEED is set, and show "available" instead of installing.
+  // when SINCE_UPDATE_FEED is set, and show "available" instead of installing.
   config.canInstall = app.isPackaged && process.platform === 'darwin';
   if (!app.isPackaged && !opts.devFeed) return set({ status: 'disabled' });
   if (opts.devFeed) config.url = feedUrl(opts.devFeed, arch());
@@ -155,7 +155,7 @@ async function check({ manual = false } = {}) {
     const feed = readFeed(await res.json());
     if (compareVersions(feed.version, app.getVersion()) <= 0) return set({ status: 'idle', manual });
     if (!config.canInstall) return set({ status: 'available', version: feed.version, manual });
-    if (!(await checkSigned())) return set({ status: 'available', version: feed.version, manual, error: 'This copy of GitLanes isn’t signed.' });
+    if (!(await checkSigned())) return set({ status: 'available', version: feed.version, manual, error: 'This copy of Since isn’t signed.' });
     set({ status: 'downloading', version: feed.version, manual });
     autoUpdater.setFeedURL({ url: config.url, serverType: 'json' });
     autoUpdater.checkForUpdates();

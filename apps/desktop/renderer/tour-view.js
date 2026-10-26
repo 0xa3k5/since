@@ -141,7 +141,7 @@ export function tourView({ mod }) {
   });
 
   const el = h('section.tour', { 'aria-labelledby': 'tour-title' },
-    h('div.tour-eyebrow', null, 'Get to know GitLanes'),
+    h('div.tour-eyebrow', null, 'Get to know Since'),
     title,
     tabs,
     stage,

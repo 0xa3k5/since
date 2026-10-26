@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const git = require('../git');
 
-const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 const cfg = [['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']];
 
 async function oldGit(version = '2.30.1') {

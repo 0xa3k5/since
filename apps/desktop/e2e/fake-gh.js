@@ -1,7 +1,7 @@
 'use strict';
 // A stand-in for GitHub CLI in the e2e suite (AK-277). Sandbox.github() puts a `gh` on PATH that
-// runs this file. It answers the calls GitLanes makes from a JSON state file
-// ($GITLANES_FAKE_GH) and keeps the PRs' branches in a bare repository that stands in for
+// runs this file. It answers the calls Since makes from a JSON state file
+// ($SINCE_FAKE_GH) and keeps the PRs' branches in a bare repository that stands in for
 // github.com. Approving and merging change the state; a squash merge really lands on the base
 // branch of the bare repository, so the app's fetch afterwards sees it. Every call is appended to
 // the state's `log` file (one JSON array of args per line). Anything it doesn't know fails the way
@@ -10,7 +10,7 @@
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
-const file = process.env.GITLANES_FAKE_GH;
+const file = process.env.SINCE_FAKE_GH;
 const args = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(file, 'utf8'));
 fs.appendFileSync(state.log, `${JSON.stringify(args)}\n`);

@@ -94,7 +94,7 @@ async function show({ row, base, prsOn, remote, call, git }) {
     if (!(await refill())) area.value = appendLog(area.value, log); // kept the edits: the log goes at the end
   }
   async function post() {
-    if (!(await confirm(`Post the prompt on #${pr.number}?`, 'It’s added as a comment on GitHub, where everyone with access sees it. This can’t be undone from GitLanes.', { submit: 'Post comment', destructive: false }))) return;
+    if (!(await confirm(`Post the prompt on #${pr.number}?`, 'It’s added as a comment on GitHub, where everyone with access sees it. This can’t be undone from Since.', { submit: 'Post comment', destructive: false }))) return;
     postBtn.disabled = true;
     const res = await call('pr-comment', remote, pr.number, { body: area.value }).catch((e) => ({ error: { message: e.message } }));
     postBtn.disabled = false;

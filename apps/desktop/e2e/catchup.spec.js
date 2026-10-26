@@ -5,7 +5,7 @@
 
 const { test, expect } = require('./fixtures');
 
-test('catch-up: since a tag, timeline, walk through, mark caught up', async ({ sandbox, launch }, testInfo) => {
+test('catch-up: since a tag, timeline, walk through, mark since', async ({ sandbox, launch }, testInfo) => {
   const repo = sandbox.init('catchup');
   sandbox.commit(repo, 'start', { 'README.md': 'start\n' });
   sandbox.git(repo, 'tag', 'v0.1');
@@ -20,7 +20,7 @@ test('catch-up: since a tag, timeline, walk through, mark caught up', async ({ s
   await expect(view.locator('h1')).toHaveText('Nothing new on main ▾ since your checkpoint ▾');
 
   // Since… → the tag.
-  await expect(view.locator('.catchup-empty h2')).toHaveText('You’re caught up.');
+  await expect(view.locator('.catchup-empty h2')).toHaveText('You’re up to date.');
   await view.press('Shift+T');
   await page.locator('.menu').getByRole('button', { name: 'Tag v0.1' }).click();
   await expect(view.locator('.catchup-since')).toContainText('since tag v0.1');
@@ -57,8 +57,8 @@ test('catch-up: since a tag, timeline, walk through, mark caught up', async ({ s
   // Mark caught up: the checkpoint moves to the tip, nothing is new; Undo puts it back.
   await view.focus();
   await view.press('Shift+C');
-  const t = await app.toast('Caught up to');
-  await expect(view.locator('.catchup-empty h2')).toHaveText('You’re caught up.');
+  const t = await app.toast('Checkpoint moved to');
+  await expect(view.locator('.catchup-empty h2')).toHaveText('You’re up to date.');
   await expect(page.locator('.sb-nav [data-view="catchup"] .nav-badge')).toHaveText('');
   for (const theme of ['light', 'dark']) {
     await app.palette(`Theme: ${theme === 'light' ? 'Light' : 'Dark'}`);
@@ -70,7 +70,7 @@ test('catch-up: since a tag, timeline, walk through, mark caught up', async ({ s
 
   // Caught up again: ⇧C is a no-op with a toast.
   await view.press('Shift+C');
-  await app.toast('Caught up to');
+  await app.toast('Checkpoint moved to');
   await view.press('Shift+C');
-  await app.toast('Already caught up');
+  await app.toast('Nothing new on');
 });

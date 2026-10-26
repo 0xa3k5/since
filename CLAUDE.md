@@ -1,6 +1,6 @@
-# GitLanes
+# Since
 
-GitLanes is a fast, keyboard-first Git client for macOS: Electron, a buildless renderer (plain JS,
+Since is a fast, keyboard-first Git client for macOS: Electron, a buildless renderer (plain JS,
 no frameworks), and the system `git`. The main screen is a live commit graph you operate on
 directly, with undo/redo for every ref change. Positioning: supervise and land agent work.
 

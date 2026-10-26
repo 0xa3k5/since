@@ -2,7 +2,7 @@ import { h, icon, contextMenu } from './ui.js';
 import * as keymap from './keymap.js';
 import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
 
-// The Preferences window (⌘,, GitLanes → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,
+// The Preferences window (⌘,, Since → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,
 // the sidebar jumps to a section. Type to search; ↑↓ move, ↵ toggles a switch or runs a button, ← → change a
 // choice, ⌘↓ / ⌘↑ jump to the next or previous section, ⌘F returns to the
 // search, Esc clears the search and then closes.

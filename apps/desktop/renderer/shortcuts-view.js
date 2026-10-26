@@ -202,4 +202,4 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
   return { close, find, refresh: render };
 }
 
-const api = (channel, ...args) => window.gitlanes.app(channel, ...args).catch(() => {});
+const api = (channel, ...args) => window.since.app(channel, ...args).catch(() => {});

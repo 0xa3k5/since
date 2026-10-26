@@ -702,13 +702,13 @@ async function popSubmoduleStash(cwd, p, sha) {
 }
 
 // Discard every uncommitted change in submodule `p`, untracked files too. They are kept as a
-// stash commit pinned under refs/gitlanes/discarded in the submodule (not in its stash list), so
+// stash commit pinned under refs/since/discarded in the submodule (not in its stash list), so
 // undo can bring them back. Returns that commit's sha, or null when there was nothing to discard.
 async function discardSubmodule(cwd, p) {
   const sha = await stashSubmodule(cwd, p, `Discarded changes in ${p}`);
   if (!sha) return null;
   const abs = path.join(cwd, p);
-  await run(abs, ['update-ref', `refs/gitlanes/discarded/${sha}`, sha], { env: W_ENV });
+  await run(abs, ['update-ref', `refs/since/discarded/${sha}`, sha], { env: W_ENV });
   await run(abs, ['stash', 'drop', '-q', 'stash@{0}'], { env: W_ENV });
   return sha;
 }
@@ -1208,7 +1208,7 @@ async function saveRemote(cwd, name) {
 async function restoreSavedRemote(cwd, { config, refs }) {
   for (const [k, v] of config) await run(cwd, ['config', '--local', ...(k.startsWith('branch.') ? ['--replace-all'] : ['--add']), k, v]);
   const lines = refs.filter(([, , sym]) => !sym).map(([n, o]) => `create ${n} ${o}`);
-  if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo remove remote'], { input: lines.join('\n') + '\n' });
+  if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'since: undo remove remote'], { input: lines.join('\n') + '\n' });
   for (const [n, , sym] of refs) if (sym) await run(cwd, ['symbolic-ref', n, sym]).catch(() => {});
 }
 
@@ -1297,7 +1297,7 @@ async function rewrite(cwd, op, sha, extra = {}) {
   // A merge commit at HEAD can't be replayed by a rebase: reword it in place.
   if (op === 'reword' && (await run(cwd, ['rev-parse', 'HEAD'])).trim() === sha
     && (await run(cwd, ['rev-list', '--parents', '-n', '1', sha])).trim().split(' ').length > 2) {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-'));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-'));
     try {
       fs.writeFileSync(path.join(tmp, 'msg'), extra.message);
       await run(cwd, ['commit', '--amend', '--only', '--allow-empty', '--no-verify', '-q', '-F', path.join(tmp, 'msg')], { env: { GIT_OPTIONAL_LOCKS: '1' } });
@@ -1309,7 +1309,7 @@ async function rewrite(cwd, op, sha, extra = {}) {
   const { parents, base, list } = await rewriteRange(cwd, op, sha);
   // A split builds its two commits up front; the rebase picks them in place of the original.
   const halves = op === 'split' ? await splitCommits(cwd, sha, parents[0] || null, extra) : null;
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-'));
   const todo = [];
   for (let i = 0; i < list.length; i++) {
     const c = list[i];
@@ -1358,7 +1358,7 @@ async function rewrite(cwd, op, sha, extra = {}) {
 async function splitCommits(cwd, sha, parent, { files = {}, messages = [] }) {
   const msgs = messages.map((m) => String(m || '').trim());
   if (msgs.length !== 2 || !msgs[0] || !msgs[1]) throw new GitError('Both commits need a message.');
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-split-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-split-'));
   try {
     return await buildSplit(cwd, sha, parent, files, msgs, { GIT_INDEX_FILE: path.join(tmp, 'index') });
   } finally {
@@ -1459,7 +1459,7 @@ async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = 
   const lines = [];
   for (const [n, o] of Object.entries(state.refs)) if (current.refs[n] !== o) lines.push(`update ${n} ${o}`);
   for (const n of Object.keys(current.refs)) if (!(n in state.refs)) lines.push(`delete ${n}`);
-  if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'gitlanes: undo'], { input: lines.join('\n') + '\n', env });
+  if (lines.length) await run(cwd, ['update-ref', '--stdin', '-m', 'since: undo'], { input: lines.join('\n') + '\n', env });
   // A deleted branch takes its `[branch "x"]` config (upstream) with it, as `git branch -D` does.
   for (const n of Object.keys(current.refs)) {
     if (!(n in state.refs) && n.startsWith('refs/heads/')) await run(cwd, ['config', '--remove-section', `branch.${n.slice(11)}`], { env }).catch(() => {});
@@ -1480,7 +1480,7 @@ async function restoreRefState(cwd, state, { soft = false, refsOnly = false } = 
 // they run, so undo and redo can put either state back byte for byte.
 
 const W_ENV = { GIT_OPTIONAL_LOCKS: '1', GIT_LITERAL_PATHSPECS: '1' };
-const UNDO_REFS = 'refs/gitlanes/undo';
+const UNDO_REFS = 'refs/since/undo';
 
 function chunk(list, n = 500) {
   const out = [];
@@ -1597,7 +1597,7 @@ async function stashPaths(cwd, ref) {
 const stashPushPaths = async (cwd, message, untracked, { paths } = {}) => (paths?.length ? paths : dirtyPaths(cwd));
 
 // ---------------------------------------------------------------------------
-// Pins: refs under refs/gitlanes/ that keep the undo journal's objects
+// Pins: refs under refs/since/ that keep the undo journal's objects
 // reachable, so `git gc` never collects them. Blobs are gathered in one tree
 // (a tree ref stays out of `git log --all`); commits and tags get a ref each.
 
@@ -1642,6 +1642,18 @@ async function moveUndoPins(cwd, ns, keys) {
   if (lines.length) await run(cwd, ['update-ref', '--stdin'], { input: lines.join('\n') + '\n', env: W_ENV });
 }
 
+// Pins from before the rename to Since lived under refs/gitlanes/: move them all (every worktree's
+// journal) under refs/since/, in one transaction.
+async function moveOldPins(cwd) {
+  const out = await run(cwd, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/gitlanes/']);
+  const lines = [];
+  for (const line of out.split('\n').filter(Boolean)) {
+    const [oid, ref] = line.split(' ');
+    lines.push(`update refs/since/${ref.slice('refs/gitlanes/'.length)} ${oid}`, `delete ${ref} ${oid}`);
+  }
+  if (lines.length) await run(cwd, ['update-ref', '--stdin'], { input: lines.join('\n') + '\n', env: W_ENV });
+}
+
 // ---------------------------------------------------------------------------
 // Stash list edits used to undo and redo a dropped stash.
 
@@ -1657,7 +1669,7 @@ async function restoreStash(cwd, { sha, message, index }) {
   if (list.some((x) => x.sha === sha)) return;
   const above = list.slice(0, index);
   // Entries lifted off the top are pinned first, so a failure part-way loses nothing.
-  const lift = 'refs/gitlanes/stash-lift';
+  const lift = 'refs/since/stash-lift';
   await pinObjects(cwd, lift, { objects: above.map((x) => x.sha) });
   for (let i = 0; i < above.length; i++) await run(cwd, ['stash', 'drop', '-q', 'stash@{0}'], { env: W_ENV });
   for (const e of [{ sha, message }, ...above.reverse()]) await run(cwd, ['stash', 'store', '-q', '-m', e.message, e.sha], { env: W_ENV });
@@ -1717,7 +1729,7 @@ async function stashLines(cwd, file, selected, message) {
   if ((await run(cwd, ['diff', '--cached', '--name-only', '--', ...paths], { env: W_ENV })).trim()) {
     throw new GitError(`${file.path} has staged changes. Unstage them first, or stash the whole file.`);
   }
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-stash-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-stash-'));
   try {
     const env = { ...W_ENV, GIT_INDEX_FILE: path.join(tmp, 'index') };
     await run(cwd, ['read-tree', head], { env });
@@ -1819,7 +1831,7 @@ async function saveResolved(cwd, gitDir) {
     const [mode, oid] = rec.slice(0, tab).split(' ');
     staged.set(rec.slice(tab + 1), `${mode} ${oid}`);
   }
-  const indexFile = path.join(gitDir, `gitlanes-resolved-${process.pid}.index`);
+  const indexFile = path.join(gitDir, `since-resolved-${process.pid}.index`);
   const env = { ...W_ENV, GIT_INDEX_FILE: indexFile };
   try {
     await run(cwd, ['read-tree', head], { env });
@@ -1951,7 +1963,7 @@ async function removeWorktree(cwd, dir, { stash = false, abort = false, changes 
     if (op) wt = await findWorktree(cwd, dir);
   }
   let sha = null, saved = null;
-  if (stash && await worktreeChanges(wt.path)) sha = await stashWorktree(wt.path, `GitLanes: ${wt.name} before removing it`);
+  if (stash && await worktreeChanges(wt.path)) sha = await stashWorktree(wt.path, `Since: ${wt.name} before removing it`);
   else if (changes) saved = await saveWorktree(wt, changes === 'stash');
   try {
     await checkRemovable(wt);
@@ -2293,7 +2305,7 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true, abort 
       else if (op) throw opInProgress(`A ${op} is in progress.`, op);
       await run(cwd, ['reset', '--keep', commit], { env: { GIT_OPTIONAL_LOCKS: '1' } });
     } else {
-      await run(cwd, ['update-ref', '-m', `gitlanes: merge ${branch}`, `refs/heads/${plan.base}`, commit, plan.baseSha]);
+      await run(cwd, ['update-ref', '-m', `since: merge ${branch}`, `refs/heads/${plan.base}`, commit, plan.baseSha]);
     }
     done.commit = commit;
   }
@@ -2959,8 +2971,8 @@ async function forecastConflicts(cwd, lanes, { baseSha, signal, now = Date.now()
 // date are fixed, so the same merge always gives the same commit. → { files, commit }: commit when
 // it merges clean, else null with the conflicting files ([] when git refuses, e.g. unrelated histories).
 const SIM_ENV = {
-  GIT_AUTHOR_NAME: 'GitLanes', GIT_AUTHOR_EMAIL: 'merge-plan@gitlanes.invalid', GIT_AUTHOR_DATE: '1700000000 +0000',
-  GIT_COMMITTER_NAME: 'GitLanes', GIT_COMMITTER_EMAIL: 'merge-plan@gitlanes.invalid', GIT_COMMITTER_DATE: '1700000000 +0000',
+  GIT_AUTHOR_NAME: 'Since', GIT_AUTHOR_EMAIL: 'merge-plan@since.invalid', GIT_AUTHOR_DATE: '1700000000 +0000',
+  GIT_COMMITTER_NAME: 'Since', GIT_COMMITTER_EMAIL: 'merge-plan@since.invalid', GIT_COMMITTER_DATE: '1700000000 +0000',
 };
 async function simulateSquash(cwd, tip, head) {
   let out;
@@ -2968,7 +2980,7 @@ async function simulateSquash(cwd, tip, head) {
   const [tree, ...rest] = out.split('\0');
   const files = [...new Set(rest.filter(Boolean))].sort();
   if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { files, commit: null };
-  const commit = (await run(cwd, ['commit-tree', tree, '-p', tip, '-m', 'GitLanes merge plan'], { env: SIM_ENV })).trim();
+  const commit = (await run(cwd, ['commit-tree', tree, '-p', tip, '-m', 'Since merge plan'], { env: SIM_ENV })).trim();
   return { files: [], commit };
 }
 
@@ -2995,7 +3007,7 @@ async function simulateRebase(cwd, tip, head) {
     const [tree, ...rest] = out.split('\0');
     const files = [...new Set(rest.filter(Boolean))].sort();
     if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { files, commit: null };
-    cur = (await run(cwd, ['commit-tree', tree, '-p', cur, '-m', 'GitLanes merge plan'], { env: SIM_ENV })).trim();
+    cur = (await run(cwd, ['commit-tree', tree, '-p', cur, '-m', 'Since merge plan'], { env: SIM_ENV })).trim();
   }
   return { files: [], commit: cur };
 }
@@ -3118,7 +3130,7 @@ function conflictHunks(text) {
 
 // ---------------------------------------------------------------------------
 // External diff & merge tools (git difftool / mergetool), using the user's diff.tool and
-// merge.tool. GitLanes has no terminal, so terminal-only tools (vimdiff, emerge) are refused.
+// merge.tool. Since has no terminal, so terminal-only tools (vimdiff, emerge) are refused.
 
 const TERMINAL_TOOLS = /^(n?vimdiff\d?|emerge)$/;
 
@@ -3132,7 +3144,7 @@ async function getExternalTools(cwd) {
 function checkTool(name, kind) {
   const key = kind === 'diff' ? 'diff.tool' : 'merge.tool';
   if (!name) throw new GitError(`No ${kind} tool set. Set ${key} in your git config (e.g. git config --global ${key} opendiff), then try again.`);
-  if (TERMINAL_TOOLS.test(name)) throw new GitError(`${name} runs in a terminal, so GitLanes can't open it. Set ${key} to a graphical tool.`);
+  if (TERMINAL_TOOLS.test(name)) throw new GitError(`${name} runs in a terminal, so Since can't open it. Set ${key} to a graphical tool.`);
   return name;
 }
 
@@ -3249,7 +3261,7 @@ module.exports = {
   combinedDiff, setStaged, changePaths,
   getStashes, getReflog, getConfig, getIdentity, getRemotes, remoteWebUrl, remoteLabel, changeRemote, revertRemote, saveRemote, rewriteRange, rewrite, captureRefState, restoreRefState,
   snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths,
-  pinUndo, pruneUndoPins, moveUndoPins, dropStashCommit, restoreStash,
+  pinUndo, pruneUndoPins, moveUndoPins, moveOldPins, dropStashCommit, restoreStash,
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   rewriteRange, commitBranches, samePath, getWorktrees, findWorktree, worktreeChanges, freeBlocker, worktreeHold, removalFacts, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, stashWorktree, popStash, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
