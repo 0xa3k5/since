@@ -2439,20 +2439,24 @@ async function landed(cwd, { base, since = {}, limit = 300 } = {}) {
   return { base: b.name, baseSha: b.sha, baseDate: Number(baseDate.trim()) * 1000, from, date, fallback, commits: commits.slice(0, limit), truncated, tags: tags.split('\n').filter(Boolean) };
 }
 
-// Shipped checks on top of `merged`, for lanes with commits ahead of base, cheapest first: a merged
-// PR's head (by SHA: task branches are often named differently from the PR branch), the branch's
-// issue key or its newest subject on a squash-merged base commit, then the net patch. Sets l.done ({ reason,
-// pr?, key? }), l.prTitle, and l.netEmpty (tip tree = merge-base tree: nothing to ship, never done).
-// The key matches "(AK-12)" anywhere or "AK-12:" leading a base subject.
-// Batched: one merge-base per lane, one log, one diff-tree, one patch-id, then merge-tree only for
-// lanes still open.
-async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, commits = new Map() }) {
-  if (!b || !lanes.length) return;
-  const heads = new Map((prHeads || []).filter((p) => p && /^[0-9a-f]{40}$/.test(p.sha)).map((p) => [p.sha, p]));
-  // A merged PR's head below the tip only ships the lane when everything on top of it is
-  // bookkeeping: baselines and merges from base. A branch stacked on a merged PR, or new commits
-  // after the merge, still have work to ship.
-  const prBelow = (l) => (l.commits || []).filter((c) => c !== l.head && heads.has(c)).map((c) => heads.get(c)).find((p) => {
+// Merge-bases and `merge-tree --write-tree` results only depend on the commits: kept per repo by SHA,
+// so a refresh only asks git about lanes whose tip or base moved (AK-639). Cleared when full.
+const SHA_MEMO_MAX = 5000;
+const shaMemo = new Map();
+function memoBySha(key, fn) {
+  if (shaMemo.has(key)) return Promise.resolve(shaMemo.get(key));
+  return fn().then((v) => {
+    if (shaMemo.size >= SHA_MEMO_MAX) shaMemo.clear();
+    shaMemo.set(key, v);
+    return v;
+  });
+}
+
+// A merged PR's head below the tip only ships the lane when everything on top of it is
+// bookkeeping: baselines and merges from base. A branch stacked on a merged PR, or new commits
+// after the merge, still have work to ship.
+function prBelow(head, laneCommits, heads, commits) {
+  return laneCommits.filter((c) => c !== head && heads.has(c)).map((c) => heads.get(c)).find((p) => {
     const under = new Set();
     const stack = [p.sha];
     while (stack.length) {
@@ -2462,11 +2466,41 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, co
       under.add(sha);
       stack.push(...c.parents);
     }
-    return l.commits.every((sha) => {
+    return laneCommits.every((sha) => {
       const c = commits.get(sha);
       return under.has(sha) || !c || BASELINE.test(c.subject) || (c.parents.length > 1 && c.parents.slice(1).every((x) => !commits.has(x)));
     });
   });
+}
+
+// What prShipped needs of a lanes() lane that a merged PR can ship (ahead of base, not the base,
+// some net change, own work): result lane → { head, commits, all }.
+const prFacts = new WeakMap();
+
+// The merged-PR "shipped" check, after lanes() so the local list never waits on `gh` (AK-639). A
+// lane whose tip is a merged PR's head (by SHA: task branches are often named differently from the
+// PR branch), or that holds one under only bookkeeping, is done by that PR, whatever else matched.
+// `prHeads` ([{ sha, number, title }], merged PRs from github.mergedPrs, only while pull requests
+// are on). Returns the lanes, the changed ones copied: the result may be shared (sharedLanes).
+function prShipped(res, prHeads) {
+  const heads = new Map((prHeads || []).filter((p) => p && /^[0-9a-f]{40}$/.test(p.sha)).map((p) => [p.sha, p]));
+  if (!heads.size) return res.lanes;
+  return res.lanes.map((l) => {
+    const f = prFacts.get(l);
+    const pr = f && (heads.get(f.head) || prBelow(f.head, f.commits, heads, f.all));
+    return pr ? { ...l, done: { reason: 'pr', pr: pr.number }, title: pr.title || l.title } : l;
+  });
+}
+
+// Shipped checks on top of `merged`, for lanes with commits ahead of base, cheapest first: the
+// branch's issue key or its newest subject on a squash-merged base commit, then the net patch
+// (merged PRs: prShipped, after this). Sets l.done ({ reason, key?, sha?, pr? }), l.prCheck (prShipped
+// applies), and l.netEmpty (tip tree = merge-base tree: nothing to ship, never done).
+// The key matches "(AK-12)" anywhere or "AK-12:" leading a base subject.
+// Batched: one merge-base per lane (none for a lane whose single fork point is it, or with only
+// bookkeeping), one log, one diff-tree, one patch-id, then merge-tree only for lanes still open.
+async function shipped(cwd, b, lanes, { baseIds, baseRows, baseTree }) {
+  if (!b || !lanes.length) return;
   // Key and subject matches only count on base commits newer than the lane's merge-base (the
   // base log is newest first), so a subject the lane forked from never marks it shipped.
   const rowAt = new Map(baseRows.map((r, i) => [r.sha, i]));
@@ -2481,7 +2515,10 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, co
     }
     return since.get(mb);
   };
-  const mbs = await mapLimit(lanes, 8, (l) => run(cwd, ['merge-base', l.head, b.sha], { allowCodes: [0, 1] }).then((o) => o.trim() || null, () => null));
+  // A complete lane's one boundary commit is its merge-base: every path from the tip to base leaves
+  // the lane there. A lane with only bookkeeping never needs one (no done, no net-patch).
+  const mbs = await mapLimit(lanes, 8, (l) => (l.noWork ? null : l.forkPoint || memoBySha(`${cwd}\0mb\0${l.head}\0${b.sha}`,
+    () => run(cwd, ['merge-base', l.head, b.sha], { allowCodes: [0, 1] }).then((o) => o.trim() || null)).catch(() => null)));
   const uniq = [...new Set(mbs.filter(Boolean))];
   const mbTrees = new Map();
   if (uniq.length) {
@@ -2493,13 +2530,12 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, co
     l.mergeBase = mbs[i];
     l.netEmpty = l.mergeBase != null && mbTrees.get(l.mergeBase) === l.tree;
     if (l.netEmpty || l.noWork) return;
-    const pr = heads.get(l.head) || prBelow(l);
+    l.prCheck = true;
     // The key in the branch name, else the one leading its newest subject ("AK-48: …").
     const key = branchKey(l.branch) || (/^([a-z][a-z0-9]{0,9}-\d+):/i.exec(l.subject || '')?.[1] || '').toUpperCase() || null;
     const subject = plainSubject(l.subject);
     const base = newer(l.mergeBase);
-    if (pr) { l.done = { reason: 'pr', pr: pr.number }; l.prTitle = pr.title || null; }
-    else if (l.merged) return;
+    if (l.merged) return;
     else if (key && (base.keys.includes(`(${key})`) || base.keys.includes(`\n${key}:`))) {
       const row = base.rows.find((r) => { const s = r.subject.toUpperCase(); return s.includes(`(${key})`) || s.startsWith(`${key}:`); });
       l.done = { reason: 'key', key, ...squashOf(row) };
@@ -2518,8 +2554,9 @@ async function shipped(cwd, b, lanes, { prHeads, baseIds, baseRows, baseTree, co
   });
   if (!rest.length || !baseTree || !(await canForecast(cwd))) return;
   await mapLimit(rest, 8, async (l) => {
-    const out = await run(cwd, ['merge-tree', '--write-tree', '--no-messages', b.sha, l.head], { allowCodes: [0, 1] }).catch(() => '');
-    if (out.split('\n')[0].trim() === baseTree) l.done = { reason: 'net-patch' };
+    const tree = await memoBySha(`${cwd}\0mt\0${b.sha}\0${l.head}`, () => run(cwd, ['merge-tree', '--write-tree', '--no-messages', b.sha, l.head], { allowCodes: [0, 1] }).then((o) => o.split('\n')[0].trim()))
+      .catch(() => '');
+    if (tree === baseTree) l.done = { reason: 'net-patch' };
   });
 }
 
@@ -2633,10 +2670,14 @@ function dirtyMtime(dir, paths) {
 }
 
 // `aheadBehind: false` forces the rev-list fallback git before 2.41 uses (for tests).
-// `prHeads` ([{ sha, number, title }], merged PRs from github.mergedPrs, only while pull requests
-// are on) lets a lane count as shipped when a merged PR's head is its tip or one of its commits.
+// `prHeads` (see prShipped) lets a lane count as shipped when a merged PR's head is its tip or one
+// of its commits; app:lanes-list applies prShipped itself, so `gh` and git run side by side.
 async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
   const [b, worktrees] = await Promise.all([laneBase(cwd, base), getWorktrees(cwd)]);
+  const gone = (w) => w.missing || !fs.existsSync(w.path);
+  // Each worktree's uncommitted files (one `git status` each): started now, beside the ref work
+  // below, not after it (AK-639).
+  const dirtyAt = new Map(worktrees.filter((w) => (w.branch || w.head) && !gone(w)).map((w) => [w.path, dirtyPaths(w.path).catch(() => [])]));
   const fast = b && aheadBehind !== false && await hasAheadBehind(cwd);
   const fields = ['%(refname)', '%(objectname)', '%(tree)', '%(committerdate:unix)', '%(upstream:short)', '%(upstream:track)', ...(fast ? [`%(ahead-behind:${b.sha})`] : [])];
   const refs = await run(cwd, ['for-each-ref', `--format=${fields.join('%00')}`, 'refs/heads']);
@@ -2740,21 +2781,21 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
       }
     }
   }
-  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { prHeads, baseIds, baseRows, baseTree, commits });
+  await shipped(cwd, b, ahead.filter((l) => !l.isBase), { baseIds, baseRows, baseTree });
 
   const result = await Promise.all(list.map(async (l) => {
     const merged = l.merged;
     const w = l.wt;
-    const prunable = w ? w.missing || !fs.existsSync(w.path) : false;
+    const prunable = w ? gone(w) : false;
     let changes = null;
     let activity = l.date || 0;
     if (w && !prunable) {
-      const dirty = [...new Set(await dirtyPaths(w.path).catch(() => []))];
+      const dirty = [...new Set(await (dirtyAt.get(w.path) || dirtyPaths(w.path).catch(() => [])))];
       changes = dirty.length;
       activity = Math.max(activity, dirtyMtime(w.path, dirty));
     }
     const trailers = (l.commits || []).flatMap((c) => commits.get(c)?.trailers || []);
-    return {
+    const out = {
       name: l.name,
       branch: l.branch,
       head: l.head,
@@ -2776,15 +2817,34 @@ async function lanes(cwd, { base, aheadBehind, prHeads = [] } = {}) {
       done: l.netEmpty || l.noWork ? null : l.done || (merged ? { reason: 'merged' } : null),
       // The PR title (github.joinLanes, or the merged PR that shipped it), else the newest commit
       // subject of the lane's own work, else the branch name.
-      title: l.prTitle || l.subject || l.name,
+      title: l.subject || l.name,
       nothingAhead: l.ahead === 0,
       // Only agent bookkeeping commits ahead (baseline, swept-up scratch files): no forecast.
       noWork: Boolean(l.noWork),
       agent: agentGuess(l.branch, trailers),
     };
+    if (l.prCheck) prFacts.set(out, { head: l.head, commits: l.commits, all: commits });
+    return out;
   }));
   result.sort((x, y) => (y.activity || 0) - (x.activity || 0));
-  return { base: b ? b.name : null, baseRef: b ? b.ref : null, baseSha: b ? b.sha : null, lanes: result };
+  const res = { base: b ? b.name : null, baseRef: b ? b.ref : null, baseSha: b ? b.sha : null, lanes: result };
+  return prHeads.length ? { ...res, lanes: prShipped(res, prHeads) } : res;
+}
+
+// One lanes() per repository and base at a time (AK-639): Review, its counts and the badges all ask
+// when a repo opens. A caller joins the run in flight unless the repository changed since it started
+// (`gen`: main.js bumps it on every watcher event and after its own git commands); then it starts a
+// fresh one. The result is shared: callers copy before changing it (prShipped does).
+const lanesRuns = new Map(); // cwd \0 base → { gen, promise }
+function sharedLanes(cwd, { base, gen = 0 } = {}) {
+  const key = `${cwd}\0${base || ''}`;
+  const hit = lanesRuns.get(key);
+  if (hit && hit.gen === gen) return hit.promise;
+  const run = { gen, promise: lanes(cwd, { base }) };
+  lanesRuns.set(key, run);
+  const done = () => { if (lanesRuns.get(key) === run) lanesRuns.delete(key); };
+  run.promise.then(done, done);
+  return run.promise;
 }
 
 // Send back (renderer/send-back.js): for each conflicting file, the commits on `base` since `head`
@@ -3176,7 +3236,7 @@ module.exports = {
   discardFiles, discardLines, stashPush, stashLines, resetHard, chooseSide, getConflict, resolveConflict, stashApply, stashDrop,
   rewriteRange, commitBranches, samePath, getWorktrees, findWorktree, worktreeChanges, freeBlocker, worktreeHold, removalFacts, baseTouches, defaultWorktreePath, addWorktree, removeWorktree, mergeLanePlan, mergeLane,
   restoreWorktree, stashWorktree, popStash, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches,
-  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, rebaseStack, forecastLanes, forecastConflicts,
+  AGENT_HINTS, parseTrailers, agentGuess, branchKey, plainSubject, shortPath, laneBase, lanes, sharedLanes, prShipped, patchIds, canForecast, mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, stackLinear, rebaseStack, forecastLanes, forecastConflicts,
   _forecastCache: forecastCache, mergeTreeSupported, _setForecastGate: (ok) => { mergeTreeOk = ok == null ? null : Promise.resolve(ok); },
   getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool,
   fileHistory, parseFileHistory, trackedFiles, blame, parseBlame,

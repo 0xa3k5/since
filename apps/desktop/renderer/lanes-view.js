@@ -1,5 +1,5 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
+import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, savedLanes, saveLanes, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
@@ -849,6 +849,7 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
       const next = prsOn() ? (prs ? res.lanes : keepPrs(res.lanes, [...seedLanes, ...lanes])) : res.lanes;
       lanes = sortLanes(withConflicts(next, conflicts));
       seedLanes = [];
+      if (!withPrs) saveLanes(localStorage, repo, res);
     } else {
       lanes = sortLanes(withConflicts(takePrs(lanes, res.lanes), conflicts)); // a newer local refresh has the lanes
       seedLanes = res.lanes; // and that refresh puts these PRs on branches `lanes` doesn't have yet (AK-315)
@@ -914,6 +915,9 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
   // "Updated 4m ago" keeps up while Review is open; stops once the page is gone.
   const tick = setInterval(() => { if (el.isConnected) renderReload(); else clearInterval(tick); }, AGO_TICK);
 
+  // The last local list (AK-639) shows at once, under "Loading…", until the fresh one replaces it.
+  const saved = repo ? savedLanes(localStorage, repo) : null;
+  if (saved) { base = saved.base; lanes = sortLanes(withConflicts(prsOn() ? keepPrs(saved.lanes, seedLanes) : saved.lanes, conflicts)); }
   render();
   // The load from opening the repo is still running: show "Reloading…" and its PRs when they land (no second `gh` call).
   // Before the local load, so that one is the newest lanes and the list shows at once (loadGuard).
@@ -992,7 +996,8 @@ export async function prefetchReview({ repo, load, prsOn }) {
   const res = await loadPrs(repo, load).catch(() => null);
   if (!res?.prs || openRepo !== repo || !prsOn()) return;
   prCache = { repo, inbox: { prs: res.prs, remote: res.remote, ...(res.inbox || {}) }, prs: (res.lanes || []).filter(hadPr), loadedAt: Date.now() };
-  if (lastCounts?.repo === repo) lastCounts = null; // Catch up's line counts from these PRs
+  // Catch up's line and the badge count from these PRs and the lanes that came with them: no second local load (AK-639).
+  lastCounts = countsOf(repo, res.lanes || [], prCache, true);
 }
 
 const hadPr = (l) => l.pr || l.done?.reason === 'pr';
@@ -1011,8 +1016,11 @@ export async function reviewCounts({ repo, load, prsOn }) {
   if (lastCounts?.repo === repo) return lastCounts;
   const res = await load({ prs: false });
   if (!res) return null; // the repository closed
+  saveLanes(globalThis.localStorage, repo, res); // Review's first paint next time (AK-639); no storage in tests
   const cached = prsOn() && prCache?.repo === repo ? prCache : null;
-  const lanes = cached ? keepPrs(res.lanes, cached.prs) : res.lanes;
-  const { stages } = reviewRows({ lanes, prs: cached?.inbox.prs || [], reviewRequested: cached?.inbox.requested || [], forecast: null, prsOn: prsOn(), now: Date.now(), previous: null });
+  return countsOf(repo, cached ? keepPrs(res.lanes, cached.prs) : res.lanes, cached, prsOn());
+}
+function countsOf(repo, lanes, cached, on) {
+  const { stages } = reviewRows({ lanes, prs: cached?.inbox.prs || [], reviewRequested: cached?.inbox.requested || [], forecast: null, prsOn: on, now: Date.now(), previous: null });
   return { repo, stuck: stages.stuck.length, ready: stages.ready.length, needs: needsYou(stages) };
 }
