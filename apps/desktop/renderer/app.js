@@ -52,7 +52,7 @@ import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approve
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const api = window.gitlanes;
+const api = window.since;
 const ROW_H = 32;
 const isMac = navigator.platform.startsWith('Mac');
 const MOD = isMac ? '⌘' : 'Ctrl';
@@ -424,7 +424,7 @@ async function offerSkipStep(dir, err) {
     ['stash', [step.stash.message, h('span.muted', null, ` · saved ${clock(step.stash.time || step.time)}`)]],
     ['step', `${step.label} · ${clock(step.time)}`],
   ] : null;
-  const v = await resolveSheet({ title, reason: 'The stash this step made was applied or dropped outside GitLanes.', rows, actions: [{ id: 'skip', label: 'Skip this step' }] });
+  const v = await resolveSheet({ title, reason: 'The stash this step made was applied or dropped outside Since.', rows, actions: [{ id: 'skip', label: 'Skip this step' }] });
   if (!v) return false;
   await (dir === 'undo' ? undo : redo)({ skip: true });
   return true;
@@ -890,7 +890,7 @@ const goForward = () => navStep('forward');
 // The built-in conflict editor on screen in Commit view, if any.
 let conflictEd = null;
 // Marks a drag of Commit view file rows, so drops from anywhere else are ignored.
-const CV_DRAG_TYPE = 'application/x-gitlanes-files';
+const CV_DRAG_TYPE = 'application/x-since-files';
 
 function renderShell() {
   root.replaceChildren();
@@ -912,7 +912,7 @@ function renderShell() {
 }
 
 // The view a newly opened repository starts on: Review. Development builds can ask for the Map
-// (GITLANES_START_VIEW=map, main.js), which the end-to-end tests do.
+// (SINCE_START_VIEW=map, main.js), which the end-to-end tests do.
 let startView = 'lanes';
 
 // The pages at the top of the sidebar (keys 1–8, sidebar.js). Catch up, Review, Map and Commit always show.
@@ -3781,7 +3781,7 @@ function laneAction(id, lane, base) {
 // opens the conflict editor as usual; ⌘Z undoes the rebase.
 async function rebaseLane(lane, base) {
   if (!state.repo || !lane?.branch || lane.isBase) return;
-  if (!base) return toast('No base branch', { detail: 'GitLanes couldn’t tell which branch this one is based on.' });
+  if (!base) return toast('No base branch', { detail: 'Since couldn’t tell which branch this one is based on.' });
   const w = lane.worktree;
   if (w?.prunable) return toast(`${laneTitle(lane)}’s worktree folder is missing`, { kind: 'error', detail: 'Clean it up or prune it first.' });
   const label = `Rebase ${lane.branch} onto ${base}`;
@@ -3905,7 +3905,7 @@ async function removeWorktreeNow(w, { handed = false } = {}) {
     if (state.repo?.root !== main.path) return toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: `${main.name} didn’t open in this window.` });
     plan = plan.then;
   }
-  const stash = plan.stash ? `GitLanes: ${w.name} before removing it` : null;
+  const stash = plan.stash ? `Since: ${w.name} before removing it` : null;
   act(`Remove worktree ${w.name}`, 'removeWorktree', [w.path, { close: plan.close, stash: plan.stash, abort: plan.abort }], {
     busy: 'Removing worktree…',
     success: `Removed ${w.name}`,
@@ -3945,7 +3945,7 @@ async function takeHandoff() {
 async function toggleLock(w) {
   if (w.main) return toast('The main worktree can’t be locked');
   if (w.locked) return act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false });
-  const v = await dialog({ title: `Lock worktree “${w.name}”?`, description: 'A locked worktree can’t be removed or pruned, by GitLanes or by git, until it is unlocked.', submit: 'Lock', fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'On an external drive' }] });
+  const v = await dialog({ title: `Lock worktree “${w.name}”?`, description: 'A locked worktree can’t be removed or pruned, by Since or by git, until it is unlocked.', submit: 'Lock', fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'On an external drive' }] });
   if (v) act(`Lock ${w.name}`, 'lockWorktree', [w.path, v.reason.trim() || null], { undoable: false });
 }
 
@@ -4073,8 +4073,8 @@ async function writeMessageWithAi() {
       const ok = await dialog({
         title: `Send your staged changes to ${label}?`,
         description: state.ai.provider === 'ollama'
-          ? 'GitLanes sends exactly this text to Ollama on this Mac. It doesn’t leave your Mac unless your Ollama does.'
-          : `GitLanes passes exactly this text to your ${label} command, which sends it to that tool’s AI service under your own account. GitLanes has no server of its own. You’re asked once per provider.`,
+          ? 'Since sends exactly this text to Ollama on this Mac. It doesn’t leave your Mac unless your Ollama does.'
+          : `Since passes exactly this text to your ${label} command, which sends it to that tool’s AI service under your own account. Since has no server of its own. You’re asked once per provider.`,
         fields: [{ name: 'text', multiline: true, rows: 14, value: preview.ok.prompt, readonly: true }],
         submit: 'Send', wide: true,
       });
@@ -4162,7 +4162,7 @@ async function openPr(pr) {
       prop('Review', pr.draft ? 'Draft' : REVIEW_LABELS[pr.review] || 'No review yet'),
       prop('Checks', CHECK_LABELS[pr.checks] || 'No checks'),
       Number.isFinite(updated) ? prop('Updated', ago(updated / 1000)) : null,
-      state.prs.stale ? h('div.pr-stale-note', null, 'Not refreshed: this is the last result GitLanes got.') : null,
+      state.prs.stale ? h('div.pr-stale-note', null, 'Not refreshed: this is the last result Since got.') : null,
     ),
     submit: 'Open on GitHub',
   });
@@ -4338,7 +4338,7 @@ async function setupPrs({ ask = true } = {}) {
     if (!ok) return;
   }
   if (st.gh === 'missing') {
-    const install = await dialog({ title: 'Install GitHub CLI', description: 'GitLanes reads pull requests through GitHub’s own `gh` command, so it never handles your token. Install it, run `gh auth login` once, then turn pull requests on again.', submit: 'Open cli.github.com' });
+    const install = await dialog({ title: 'Install GitHub CLI', description: 'Since reads pull requests through GitHub’s own `gh` command, so it never handles your token. Install it, run `gh auth login` once, then turn pull requests on again.', submit: 'Open cli.github.com' });
     if (install) api.app('external', st.installUrl);
     return;
   }
@@ -4773,7 +4773,7 @@ function openPalette() {
     add('Repository', 'Set commit identity…', openIdentity, { icon: 'commit', kbd: keymap.keys('repo.identity'), keywords: 'user email name author wrong identity' });
     add('Repository', 'Push all tags', () => act('Push tags', 'pushTags', [], { busy: 'Pushing tags…', undoable: false }), { icon: 'tag' });
     add('Repository', 'Stash changes…', () => stashSave(), { icon: 'stash', kbd: keymap.keys('repo.stash') });
-    if (!loadPref('autostash', AUTOSTASH_DEFAULT).ask) add('Repository', 'Ask before auto-stashing on checkout', () => { savePref('autostash', AUTOSTASH_DEFAULT); toast('GitLanes will ask before stashing on checkout'); }, { icon: 'stash', keywords: 'autostash auto stash checkout switch dont ask again' });
+    if (!loadPref('autostash', AUTOSTASH_DEFAULT).ask) add('Repository', 'Ask before auto-stashing on checkout', () => { savePref('autostash', AUTOSTASH_DEFAULT); toast('Since will ask before stashing on checkout'); }, { icon: 'stash', keywords: 'autostash auto stash checkout switch dont ask again' });
     if (state.head?.branch && loadPref('autostashes', { list: [] }).list.some((x) => x.root === state.repo?.root && x.branch === state.head.branch)) {
       add('Repository', `Apply auto-stash for ${state.head.branch}`, async () => { const o = await pendingAutostash(state.head.branch); if (o) applyAutostash(o, true); else toast('That auto-stash is gone'); }, { icon: 'stash', keywords: 'autostash auto stash pop apply drop' });
     }
@@ -4894,11 +4894,11 @@ function openPalette() {
       add('Branches', 'Also delete them on GitHub (on or off)', () => branchesPage.panel.toggleRemote(), { icon: 'cloud', kbd: keymap.keys('cleanup.remote'), keywords: 'clean up remote github delete branches' });
     }
     if (state.view === 'catchup' && catchupPage) {
-      add('Catch up', 'Mark caught up', () => catchupPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('catchup.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
-      add('Catch up', 'Catch up since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
-      add('Catch up', 'Reload merged pull requests', () => catchupPage.reload(), { icon: 'restore', kbd: keymap.keys('catchup.reload'), keywords: 'catch up refresh fetch github merged pull requests ci gh' });
-      if (catchupPage.canMore()) add('Catch up', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
-      add('Catch up', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
+      add('Since', 'Mark since', () => catchupPage.markCaughtUp(), { icon: 'check', kbd: keymap.keys('catchup.caughtUp'), keywords: 'catch up checkpoint seen read merged landed' });
+      add('Since', 'Since…', () => catchupPage.pickSince(), { icon: 'history', kbd: keymap.keys('catchup.since'), keywords: 'catch up since checkpoint yesterday last week tag landed merged' });
+      add('Since', 'Reload merged pull requests', () => catchupPage.reload(), { icon: 'restore', kbd: keymap.keys('catchup.reload'), keywords: 'catch up refresh fetch github merged pull requests ci gh' });
+      if (catchupPage.canMore()) add('Since', 'Show everything that landed', () => catchupPage.showMore(), { icon: 'catchup', kbd: keymap.keys('catchup.more'), keywords: 'catch up more expand all timeline merged landed' });
+      add('Since', 'Mark the next file viewed', () => catchupPage.markNextViewed(), { icon: 'check', kbd: keymap.keys('catchup.viewed'), keywords: 'catch up reader viewed tick fold file diff' });
     }
     add('View', 'Show branches that would conflict', () => showBranches('conflict'), { icon: 'branch', kbd: state.view === 'lanes' ? keymap.keys('lanes.conflicts') : state.view === 'branches' ? keymap.keys('branches.tabConflict') : undefined, keywords: 'branches predicted conflicts forecast merge-tree overlap worktrees' });
     if (state.view === 'branches' && branchesPage && !state.review) {
@@ -4958,7 +4958,7 @@ function openPalette() {
     add('App', 'Close repository', closeRepo, { icon: 'x' });
     add('App', 'Remove from recent…', removeFromRecent, { icon: 'x', keywords: 'recent repository forget clear' });
     if (state.licence?.mode !== 'beta') add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
-    if (state.licence?.mode !== 'licensed' && state.licence?.mode !== 'beta') add('App', 'Buy GitLanes', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
+    if (state.licence?.mode !== 'licensed' && state.licence?.mode !== 'beta') add('App', 'Buy Since', buy, { icon: 'external', keywords: 'license licence purchase upgrade trial' });
     if (update.status === 'ready') add('App', `Restart to update to ${update.version}`, installUpdate, { icon: 'update', keywords: 'update upgrade version install' });
     else add('App', 'Check for updates', checkUpdates, { icon: 'update', detail: update.current ? `v${update.current}` : null, keywords: 'update upgrade version' });
     add('App', 'Export shortcuts…', exportShortcuts, { icon: 'command', keywords: 'keys keymap bindings custom save file json' });
@@ -5202,7 +5202,7 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
     h('div.welcome-drag'),
     h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card', null,
       h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
-      h('h1', null, 'GitLanes'),
+      h('h1', null, 'Since'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
       trialLine(state.licence) ? h('button.licence-line', { onclick: () => openLicence() }, icon('key', 12), trialLine(state.licence), kbd(...LICENCE_KBD)) : null,
       h('div.welcome-actions', null,
@@ -5611,7 +5611,7 @@ const checkUpdates = () => api.app('check-updates');
 const installUpdate = () => api.app('install-update');
 async function toggleAutoUpdate() {
   const s = await api.app('set-auto-update', update.auto === false);
-  toast(s.auto ? 'Automatic update checks are on' : 'Automatic update checks are off', { kind: 'success', detail: s.auto ? 'GitLanes checks at launch and once a day.' : 'Check any time with ⌘K → Check for updates.' });
+  toast(s.auto ? 'Automatic update checks are on' : 'Automatic update checks are off', { kind: 'success', detail: s.auto ? 'Since checks at launch and once a day.' : 'Check any time with ⌘K → Check for updates.' });
 }
 
 function showUpdate(s) {
@@ -5620,14 +5620,14 @@ function showUpdate(s) {
   const once = (key) => { if (announced.has(key) && !manual) return false; announced.add(key); return true; };
   if (s.status !== 'checking') { checkingToast?.close(); checkingToast = null; }
   if (s.status === 'checking' && manual && !checkingToast) checkingToast = toast('Checking for updates…', { kind: 'busy', timeout: 0 });
-  else if (s.status === 'idle' && manual) toast('GitLanes is up to date', { kind: 'success', detail: `Version ${s.current}` });
-  else if (s.status === 'downloading' && manual) toast(`Downloading GitLanes ${s.version}…`, { detail: 'It installs when you restart.' });
+  else if (s.status === 'idle' && manual) toast('Since is up to date', { kind: 'success', detail: `Version ${s.current}` });
+  else if (s.status === 'downloading' && manual) toast(`Downloading Since ${s.version}…`, { detail: 'It installs when you restart.' });
   else if (s.status === 'ready' && once(`ready ${s.version}`)) {
     availableToast?.close(); availableToast = null;
-    toast(`GitLanes ${s.version} is ready`, { kind: 'success', detail: 'Restart to finish updating.', timeout: 0, action: { label: 'Restart to update', run: installUpdate } });
+    toast(`Since ${s.version} is ready`, { kind: 'success', detail: 'Restart to finish updating.', timeout: 0, action: { label: 'Restart to update', run: installUpdate } });
   } else if (s.status === 'available' && once(`available ${s.version}`)) {
     availableToast?.close();
-    availableToast = toast(`GitLanes ${s.version} is available`, {
+    availableToast = toast(`Since ${s.version} is available`, {
       detail: s.error ? `It couldn't be installed automatically: ${s.error}` : 'Download it to update.',
       timeout: 12_000,
       action: s.page ? { label: 'Download', run: () => api.app('external', s.page) } : null,

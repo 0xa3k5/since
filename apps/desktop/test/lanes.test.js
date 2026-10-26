@@ -17,7 +17,7 @@ async function commit(dir, file, content, msg = `edit ${file}`) {
   await g(dir, ['commit', '-q', '-m', msg]);
 }
 async function repo() {
-  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-lanes-')));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-lanes-')));
   const dir = path.join(parent, 'app');
   fs.mkdirSync(dir);
   await g(dir, ['init', '-q', '-b', 'main']);
@@ -274,7 +274,7 @@ test('lanes: shipped (net patch, key, PR head), titles, unmerged and baseline-on
 });
 
 test('branchKey, plainSubject, shortPath; the forecast skips done lanes', () => {
-  assert.equal(git.branchKey('agent/gitlanes-engineer/ak-228'), 'AK-228');
+  assert.equal(git.branchKey('agent/since-engineer/ak-228'), 'AK-228');
   assert.equal(git.branchKey('ak-255-shipped-lanes'), 'AK-255');
   assert.equal(git.branchKey('feature/login'), null);
   assert.equal(git.plainSubject('Fix the thing (AK-1) (#12)'), 'fix the thing (ak-1)');

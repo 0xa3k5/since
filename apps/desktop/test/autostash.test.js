@@ -11,7 +11,7 @@ const { Journal } = require('../journal');
 const load = () => import('../renderer/autostash.js');
 
 async function repo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   for (const a of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']]) await git.run(dir, a);
   const write = (f, c) => fs.writeFileSync(path.join(dir, f), c);
   const commit = async (f, c, m) => { write(f, c); await git.run(dir, ['add', f]); await git.run(dir, ['commit', '-q', '-m', m]); };
@@ -104,7 +104,7 @@ test('redo with nothing to stash again refuses instead of adopting an unrelated 
   await journal.autostash('Checkout feature', 'feature', 'Auto-stash on main before switching to feature', false);
   await journal.step('undo');
   assert.equal(read('app.js'), 'mine\n');
-  await git.run(dir, ['checkout', '--', 'app.js']); // the changes are cleared outside GitLanes
+  await git.run(dir, ['checkout', '--', 'app.js']); // the changes are cleared outside Since
   await assert.rejects(journal.step('redo'), /no changes to stash/);
   assert.equal(await head(), 'main');
   const stashes = await git.getStashes(dir);

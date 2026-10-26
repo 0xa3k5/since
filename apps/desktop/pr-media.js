@@ -4,13 +4,13 @@
 // evidence call registers each media item here and hands the renderer an opaque id.
 // - Images: `image(id)` fetches once and returns a data: URL. Kept in memory only (no disk cache),
 //   at most MAX_BYTES in all, oldest out.
-// - Videos: `gitlanes-media://video/<id>` streams from GitHub on demand (Range requests pass
+// - Videos: `since-media://video/<id>` streams from GitHub on demand (Range requests pass
 //   through) and is never stored.
 // The `gh` token goes only to the PR's own GitHub host, never to the hosts it redirects to.
 
 const crypto = require('node:crypto');
 
-const SCHEME = 'gitlanes-media';
+const SCHEME = 'since-media';
 const MAX_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_ITEMS = 2000;
@@ -102,9 +102,9 @@ function createMedia({ token, fetchImpl = (...a) => fetch(...a) } = {}) {
     return data;
   }
 
-  // protocol.handle(SCHEME) handler: gitlanes-media://video/<id> → GitHub's response body, streamed.
+  // protocol.handle(SCHEME) handler: since-media://video/<id> → GitHub's response body, streamed.
   async function video(request) {
-    const m = /^gitlanes-media:\/\/video\/([0-9a-f]{32})$/.exec(request.url);
+    const m = /^since-media:\/\/video\/([0-9a-f]{32})$/.exec(request.url);
     const item = m && items.get(m[1]);
     if (!item || item.kind !== 'video') return new Response(null, { status: 404 });
     const range = request.headers.get('range');

@@ -10,7 +10,7 @@ const git = require('../git');
 const { Journal } = require('../journal');
 
 async function repo() {
-  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-wt-')));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-wt-')));
   const dir = path.join(parent, 'app');
   fs.mkdirSync(dir);
   await git.run(dir, ['init', '-q', '-b', 'main']);

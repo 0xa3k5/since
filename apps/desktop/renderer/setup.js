@@ -1,4 +1,4 @@
-// First-run "choose your defaults" step on the welcome screen: the features GitLanes turns on for
+// First-run "choose your defaults" step on the welcome screen: the features Since turns on for
 // you, each with a switch, so people see what's on and can opt out before they start. Pure data
 // and helpers (no DOM); the view is setup-view.js.
 

@@ -1,4 +1,4 @@
-/* Landing page. Loaded only by /. Colours come from @gitlanes/tokens, through the site aliases in global.css
+/* Landing page. Loaded only by /. Colours come from @gitsince/tokens, through the site aliases in global.css
    (--surface, --raised, --sunk, --line, --line-strong, --ghost). Black appears only in shadows and key side walls. */
 
 .lp { --measure: 34rem; }

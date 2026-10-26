@@ -18,7 +18,7 @@ const contrast = (a, b) => {
 };
 
 test('packaging config points at files that exist', () => {
-  assert.strictEqual(config.appId, 'app.gitlanes.desktop');
+  assert.strictEqual(config.appId, 'com.gitsince.app');
   for (const file of [config.mac.icon, config.mac.entitlements, config.mac.entitlementsInherit, config.dmg.background]) {
     assert.ok(fs.existsSync(path.join(root, file)), `${file} is missing`);
   }
@@ -34,27 +34,27 @@ test('packaged files are only what the app loads at runtime', () => {
 
 test('packaging bakes production by default and refuses an unfilled or mock store', () => {
   delete require.cache[require.resolve('../electron-builder.config.js')];
-  const saved = process.env.GITLANES_STORE;
+  const saved = process.env.SINCE_STORE;
   try {
     for (const [store, baked] of [[undefined, 'production'], ['sandbox', 'sandbox'], ['mock', 'mock']]) {
-      if (store) process.env.GITLANES_STORE = store; else delete process.env.GITLANES_STORE;
+      if (store) process.env.SINCE_STORE = store; else delete process.env.SINCE_STORE;
       delete require.cache[require.resolve('../electron-builder.config.js')];
       const c = require('../electron-builder.config.js');
-      assert.strictEqual(c.extraMetadata.gitlanes.store, baked);
+      assert.strictEqual(c.extraMetadata.since.store, baked);
       if (baked === 'sandbox') c.beforePack();
       else assert.throws(() => c.beforePack());
     }
   } finally {
-    if (saved === undefined) delete process.env.GITLANES_STORE; else process.env.GITLANES_STORE = saved;
+    if (saved === undefined) delete process.env.SINCE_STORE; else process.env.SINCE_STORE = saved;
     delete require.cache[require.resolve('../electron-builder.config.js')];
   }
 });
 
-test('packaging bakes GITLANES_VERSION and refuses anything that is not package.json\'s version or a pre-release of it', () => {
+test('packaging bakes SINCE_VERSION and refuses anything that is not package.json\'s version or a pre-release of it', () => {
   const base = require('../package.json').version;
-  const saved = process.env.GITLANES_VERSION;
+  const saved = process.env.SINCE_VERSION;
   const load = (v) => {
-    if (v === undefined) delete process.env.GITLANES_VERSION; else process.env.GITLANES_VERSION = v;
+    if (v === undefined) delete process.env.SINCE_VERSION; else process.env.SINCE_VERSION = v;
     delete require.cache[require.resolve('../electron-builder.config.js')];
     return require('../electron-builder.config.js');
   };
@@ -64,21 +64,21 @@ test('packaging bakes GITLANES_VERSION and refuses anything that is not package.
     assert.strictEqual(load(`${base}-beta.2`).extraMetadata.version, `${base}-beta.2`);
     assert.strictEqual(load(`${base}-rc.1`).extraMetadata.version, `${base}-rc.1`);
     assert.strictEqual(load(base).extraMetadata.version, base);
-    assert.strictEqual(load(base).extraMetadata.gitlanes.store, 'production', 'the store is still baked next to it');
-    assert.throws(() => load(`-- -c.extraMetadata.version=${base}-beta.2`), /GITLANES_VERSION=.* is not a version/);
+    assert.strictEqual(load(base).extraMetadata.since.store, 'production', 'the store is still baked next to it');
+    assert.throws(() => load(`-- -c.extraMetadata.version=${base}-beta.2`), /SINCE_VERSION=.* is not a version/);
     assert.throws(() => load('beta.2'), /is not a version/);
     assert.throws(() => load(`v${base}-beta.2`), /is not a version/);
     assert.throws(() => load('9.9.9-beta.1'), /is not 0\.\d+\.\d+ or a pre-release of it/);
     assert.throws(() => load(`${base}0-beta.1`), /is not .* or a pre-release of it/);
   } finally {
-    if (saved === undefined) delete process.env.GITLANES_VERSION; else process.env.GITLANES_VERSION = saved;
+    if (saved === undefined) delete process.env.SINCE_VERSION; else process.env.SINCE_VERSION = saved;
     delete require.cache[require.resolve('../electron-builder.config.js')];
   }
 });
 
 test('every module the main process requires is packaged', () => {
   // Follow local require()s from main.js; a missing file only shows up as a crash in the DMG.
-  // bench/ is dev-only (behind GITLANES_BENCH) and never packaged.
+  // bench/ is dev-only (behind SINCE_BENCH) and never packaged.
   const seen = new Set();
   const resolve = (from, rel) => {
     const p = path.join(path.dirname(from), rel);
@@ -99,7 +99,7 @@ test('every module the main process requires is packaged', () => {
 });
 
 test('the main process opens no connections of its own, apart from updates and licences', () => {
-  // git and gh make their own requests; GitLanes only spawns them. Only updater.js and the licence
+  // git and gh make their own requests; Since only spawns them. Only updater.js and the licence
   // store may request anything, and they're listed in docs/security.md.
   const files = [...config.files.filter((f) => f.endsWith('.js')), ...fs.readdirSync(path.join(root, 'licence')).filter((f) => f.endsWith('.js')).map((f) => `licence/${f}`)];
   const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;

@@ -46,7 +46,7 @@ test('recent.json: closing a repository removes it; others and the order stay', 
   const os = require('node:os');
   const path = require('node:path');
   const store = require('../recent-store');
-  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-recent-')));
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-recent-')));
   const file = path.join(tmp, 'data', 'recent.json');
   const dirs = ['a', 'b', 'c'].map((n) => { fs.mkdirSync(path.join(tmp, n)); return { root: path.join(tmp, n), name: n }; });
   try {

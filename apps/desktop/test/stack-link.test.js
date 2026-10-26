@@ -53,7 +53,7 @@ test('linkBlocker: open, writable and on the right base, or nothing links', () =
 });
 
 test('linkStack and the extension: gh calls, all or nothing', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-test-'));
   fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
   const web = (u) => ({ name: 'origin', url: u, web: git.remoteWebUrl(u) });
   const calls = [];

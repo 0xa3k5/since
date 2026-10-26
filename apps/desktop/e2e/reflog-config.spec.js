@@ -65,38 +65,38 @@ test('add, filter, edit and delete a local config value', async ({ sandbox, laun
   await app.page.keyboard.press('Escape');
 
   await app.page.locator('.prefs-row[data-id="addConfig"] button').click();
-  await app.dialog({ fields: { Key: 'gitlanes.e2e', Value: 'one' }, submit: 'Save', under: 1 });
-  await app.toast('Set gitlanes.e2e');
-  expect(sandbox.git(repo, 'config', '--local', 'gitlanes.e2e')).toBe('one');
-  await expect(row('gitlanes.e2e').locator('.config-val')).toHaveText('one');
+  await app.dialog({ fields: { Key: 'since.e2e', Value: 'one' }, submit: 'Save', under: 1 });
+  await app.toast('Set since.e2e');
+  expect(sandbox.git(repo, 'config', '--local', 'since.e2e')).toBe('one');
+  await expect(row('since.e2e').locator('.config-val')).toHaveText('one');
 
-  await app.page.locator('.prefs-search').fill('gitlanes.e2e');
+  await app.page.locator('.prefs-search').fill('since.e2e');
   await expect(app.page.locator('.prefs-config')).toHaveCount(1);
 
-  await row('gitlanes.e2e').click();
+  await row('since.e2e').click();
   await app.dialog({ fields: { Value: 'two' }, submit: 'Save', under: 1 });
-  await app.toast('Set gitlanes.e2e');
-  expect(sandbox.git(repo, 'config', '--local', 'gitlanes.e2e')).toBe('two');
+  await app.toast('Set since.e2e');
+  expect(sandbox.git(repo, 'config', '--local', 'since.e2e')).toBe('two');
   // The refresh after the edit keeps the search.
-  await expect(row('gitlanes.e2e').locator('.config-val')).toHaveText('two');
+  await expect(row('since.e2e').locator('.config-val')).toHaveText('two');
   await expect(app.page.locator('.prefs-config')).toHaveCount(1);
 
-  await app.contextMenu(row('gitlanes.e2e'), 'Delete');
-  await app.toast('Unset gitlanes.e2e');
+  await app.contextMenu(row('since.e2e'), 'Delete');
+  await app.toast('Unset since.e2e');
   expect(sandbox.git(repo, 'config', '--local', '--get-all', 'core.bare')).toBe('false');
-  expect(() => sandbox.git(repo, 'config', '--local', 'gitlanes.e2e')).toThrow();
-  await expect(row('gitlanes.e2e')).toHaveCount(0);
+  expect(() => sandbox.git(repo, 'config', '--local', 'since.e2e')).toThrow();
+  await expect(row('since.e2e')).toHaveCount(0);
 
   // Delete in a local value's context menu unsets it.
   await app.page.locator('.prefs-search').fill('');
   await app.page.locator('.prefs-row[data-id="addConfig"] button').click();
-  await app.dialog({ fields: { Key: 'gitlanes.other', Value: 'x' }, submit: 'Save', under: 1 });
-  await app.toast('Set gitlanes.other');
-  await app.page.locator('.prefs-search').fill('gitlanes.other');
+  await app.dialog({ fields: { Key: 'since.other', Value: 'x' }, submit: 'Save', under: 1 });
+  await app.toast('Set since.other');
+  await app.page.locator('.prefs-search').fill('since.other');
   await expect(app.page.locator('.prefs-config')).toHaveCount(1);
-  await app.contextMenu(row('gitlanes.other'), 'Delete');
-  await app.toast('Unset gitlanes.other');
-  expect(() => sandbox.git(repo, 'config', '--local', 'gitlanes.other')).toThrow();
+  await app.contextMenu(row('since.other'), 'Delete');
+  await app.toast('Unset since.other');
+  expect(() => sandbox.git(repo, 'config', '--local', 'since.other')).toThrow();
   expect(sandbox.git(repo, 'config', '--local', '--get-all', 'core.bare')).toBe('false');
 
   // Config edits are not ref changes, so they don't enter the undo history.

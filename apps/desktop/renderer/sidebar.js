@@ -32,7 +32,7 @@ export function sidebarToggleLabel({ width, expanded, pinned = false, hover = fa
 // The sidebar, top to bottom (AK-491): one row per page (keys ⌘1–⌘8), a divider, then the smaller fold-out lists.
 // `view` is the page a row opens; `fixed` rows can move but not hide. Each row keeps its key wherever it sits.
 export const NAV_ITEMS = [
-  { id: 'catchup', label: 'Catch up', icon: 'catchup', view: 'catchup', fixed: true },
+  { id: 'catchup', label: 'Since', icon: 'catchup', view: 'catchup', fixed: true },
   { id: 'lanes', label: 'Review', icon: 'lanes', view: 'lanes', fixed: true },
   { id: 'map', label: 'Map', icon: 'map', view: 'map', fixed: true },
   { id: 'commit', label: 'Commit', icon: 'commit', view: 'commit', fixed: true },

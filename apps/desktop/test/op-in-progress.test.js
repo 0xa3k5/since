@@ -10,7 +10,7 @@ const git = require('../git');
 const { Journal } = require('../journal');
 const { checkGit } = require('../ipc');
 
-const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 
 async function repo() {
   const dir = tmp();

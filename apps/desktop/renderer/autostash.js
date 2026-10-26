@@ -1,4 +1,4 @@
-// Autostash on branch switch. GitLanes tries the plain checkout first; only when git refuses
+// Autostash on branch switch. Since tries the plain checkout first; only when git refuses
 // because local changes are in the way does it offer to stash them, then switch.
 
 // The preference saved by "Don't ask again" (Preferences → Git).

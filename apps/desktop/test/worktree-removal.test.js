@@ -65,7 +65,7 @@ test('removing a dirty worktree stashes its changes; undo puts them back, redo s
   const path = require('node:path');
   const git = require('../git');
   const { Journal } = require('../journal');
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   for (const a of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']]) await git.run(dir, a);
   fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
   await git.run(dir, ['add', '.']);

@@ -241,11 +241,11 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   assert.ok(labels.length > 10);
   assert.ok(labels.includes('Review'));
   for (const l of labels) assert.doesNotMatch(l, /\blanes?\b/i, l);
-  // String literals in the view, its keymap context and the menu: no "Lanes" (the brand "GitLanes" is fine).
+  // String literals in the view, its keymap context and the menu: no "Lanes" (the brand "Since" is fine).
   const visible = (file) => (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
     .filter((s) => !/^['`][\w.:/-]*['`]$/.test(s)); // ids, keys, class names
   for (const file of ['renderer/lanes-view.js', 'renderer/review-rows.js']) {
-    for (const s of visible(file)) assert.doesNotMatch(s.replace(/GitLanes/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
+    for (const s of visible(file)) assert.doesNotMatch(s.replace(/Since/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
   }
   assert.match(fs.readFileSync(path.join(__dirname, '../renderer/keymap.js'), 'utf8'), /lanes: 'Review',/);
   assert.match(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /item\('Review', acc\('view\.lanes'\)/);

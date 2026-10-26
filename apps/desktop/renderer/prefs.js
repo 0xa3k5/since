@@ -32,9 +32,9 @@ export function prefRows(s) {
     { section: 'general', id: 'autoUpdate', kind: 'switch', value: s.autoUpdate !== false, label: 'Check for updates automatically', detail: 'At launch and once a day. Updates install when you restart.', keywords: 'update upgrade version' },
     { section: 'general', id: 'checkUpdates', kind: 'action', value: 'Check now', label: 'Check for updates', keywords: 'update upgrade version' },
     ...(s.licence ? [{ section: 'general', id: 'licence', kind: 'action', value: s.licence.licensed ? 'Licence…' : 'Enter key…', label: 'Licence', detail: s.licence.detail || null, keywords: 'license key trial buy' }] : []),
-    { section: 'general', id: 'setup', kind: 'action', value: 'Open…', label: 'Choose your defaults', detail: 'The first-launch checklist of what GitLanes turns on.', keywords: 'setup welcome first run' },
+    { section: 'general', id: 'setup', kind: 'action', value: 'Open…', label: 'Choose your defaults', detail: 'The first-launch checklist of what Since turns on.', keywords: 'setup welcome first run' },
 
-    { section: 'git', id: 'autostashAsk', kind: 'switch', value: s.autostash?.ask !== false, label: 'Ask before auto-stashing on checkout', detail: 'Off: GitLanes stashes your changes, switches, and offers them back when you return.', keywords: 'autostash auto stash checkout switch' },
+    { section: 'git', id: 'autostashAsk', kind: 'switch', value: s.autostash?.ask !== false, label: 'Ask before auto-stashing on checkout', detail: 'Off: Since stashes your changes, switches, and offers them back when you return.', keywords: 'autostash auto stash checkout switch' },
     { section: 'git', id: 'autostashUntracked', kind: 'switch', value: Boolean(s.autostash?.untracked), label: 'Include untracked files in auto-stashes', keywords: 'autostash auto stash untracked new files' },
     { section: 'git', id: 'unified', kind: 'switch', value: show.unified === true, label: 'Show changes as one list', detail: 'The Commit view shows every changed file on one page, with a tick box for each file, hunk and line.', keywords: 'unified changes staged unstaged stage lines hunks commit view' },
     { section: 'git', id: 'identity', kind: 'action', value: 'Set…', label: 'Commit identity', detail: 'Name and email for this repository, and rules per remote.', keywords: 'user name email author', repo: true },
