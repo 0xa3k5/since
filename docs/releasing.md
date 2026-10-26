@@ -29,13 +29,43 @@ After editing `icon.svg` or `background.svg`, run `pnpm --filter @gitsince/deskt
 Push a tag matching the desktop version (e.g. `v0.1.0`). `.github/workflows/release.yml` then builds, signs,
 notarizes and uploads both DMGs to a **draft** GitHub Release. Publishing the draft is a manual step.
 The draft also carries `Since-<version>-<arch>-mac.zip` and `update-mac-<arch>.json` (written by
-`apps/desktop/scripts/update-feed.js`). Installed apps update from those once the release is published as the
+`apps/desktop/scripts/update-feed.js`), `Since-<arch>.dmg` copies of the DMGs (so
+`releases/latest/download/Since-<arch>.dmg`, the website's download link, always serves the latest release), and
+`since.rb`, the Homebrew cask for the tap (see below). Installed apps update from those once the release is published as the
 latest release. They read the feed from `updates.feed` in `apps/desktop/package.json`, so that URL has to be
 publicly downloadable. Only signed releases can install themselves; an unsigned app sees the update and
 links to the download page instead.
 It reads these repository secrets: `MAC_CERTIFICATE_P12_BASE64`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`. Without them, the draft holds unsigned DMGs and is marked as unsigned.
 Pull requests that touch packaging, and manual runs, do an unsigned dry run and attach the DMGs as a workflow artifact.
+
+### Publishing checklist
+
+1. Check the draft: both DMGs are the signed, notarized `Since-<version>-<arch>.dmg` (an unsigned run names them
+   `…-unsigned.dmg` and says so in the notes); the zips, feeds, aliases and `since.rb` are attached.
+2. Release notes: the website changelog entry (`apps/web/src/content/releases/<version>.md`) is the source; paste
+   or summarize it into the draft.
+3. Publish the draft as the **latest release**. From then on auto-update, `releases/latest/download/…` and the
+   website's download buttons serve it.
+4. Homebrew: copy `since.rb` into the tap repository as `Casks/since.rb`, commit and push (below).
+
+## Homebrew
+
+Since is installed with Homebrew from our own tap, `0xa3k5/homebrew-tap`:
+
+```sh
+brew install --cask 0xa3k5/tap/since
+```
+
+The cask (`since.rb`, built by `apps/desktop/scripts/homebrew-cask.js` in the release workflow) points at the
+versioned DMGs on the GitHub Release with their sha256, one per architecture, and `livecheck` follows the latest
+release. Updating the tap after a release is one commit: replace `Casks/since.rb` with the new file. `brew audit --cask
+since` and `brew install --cask 0xa3k5/tap/since` in a clean shell are the checks.
+
+The main `homebrew/cask` repository (plain `brew install --cask since`) has a notability bar for new casks: the
+repository must be at least 30 days old and, for a submission by its owner, have 225 stars, 90 forks or 90
+watchers (75 stars, 30 forks or 30 watchers when someone else submits it). Submit `since.rb` there once the repo
+qualifies; until then the tap is the install path, and the main-repo cask would replace it, not add to it.
 
 ## Releasing a beta from your Mac
 

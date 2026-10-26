@@ -1,7 +1,8 @@
 name: Release
 
 # A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
-# zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. A beta tag
+# zips, the update-mac-<arch>.json feeds that auto-update reads once the release is published, the
+# Since-<arch>.dmg aliases the website links to, and the Homebrew cask for the tap. A beta tag
 # (v0.1.0-beta.1) builds on the beta update channel (SINCE_CHANNEL=beta) and uploads to the Cloudflare R2 bucket
 # instead, with no GitHub Release; the beta app reads its update feed from there. Tags and
 # manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
@@ -129,13 +130,24 @@ jobs:
           done
 
       # Beta feeds are written by beta-publish.js below, next to the upload.
-      - name: Write update feeds
+      - name: Write update feeds, latest DMG aliases and the Homebrew cask
         if: steps.plan.outputs.beta != 'true'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
+          SIGNED: ${{ steps.plan.outputs.signed }}
         run: |
           base="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
           node apps/desktop/scripts/update-feed.js --version "$VERSION" --base-url "$base"
+          # Since-<arch>.dmg next to the versioned DMGs: releases/latest/download/Since-<arch>.dmg is the website's
+          # download link, stable across versions. Kept in latest/ so the *.dmg globs below stay versioned.
+          mkdir -p apps/desktop/dist/latest
+          for arch in arm64 x64; do
+            cp apps/desktop/dist/Since-"$VERSION"-"$arch"*.dmg "apps/desktop/dist/latest/Since-$arch.dmg"
+          done
+          # The cask for the Homebrew tap (docs/releasing.md); it only makes sense for signed, notarized DMGs.
+          if [ "$SIGNED" = true ]; then
+            node apps/desktop/scripts/homebrew-cask.js --version "$VERSION" > apps/desktop/dist/since.rb
+          fi
 
       - name: Upload dry-run artifact
         if: env.IS_TAG != 'true'
@@ -152,7 +164,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SIGNED: ${{ steps.plan.outputs.signed }}
         run: |
-          files=(apps/desktop/dist/*.dmg apps/desktop/dist/*-mac.zip apps/desktop/dist/update-mac-*.json)
+          shopt -s nullglob
+          files=(apps/desktop/dist/*.dmg apps/desktop/dist/latest/*.dmg apps/desktop/dist/*-mac.zip apps/desktop/dist/update-mac-*.json apps/desktop/dist/since.rb)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else

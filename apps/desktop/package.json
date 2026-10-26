@@ -6,8 +6,8 @@
   "main": "main.js",
   "license": "GPL-3.0-or-later",
   "updates": {
-    "feed": "https://github.com/0xa3k5/gitlanes/releases/latest/download",
-    "page": "https://github.com/0xa3k5/gitlanes/releases/latest"
+    "feed": "https://github.com/0xa3k5/since/releases/latest/download",
+    "page": "https://github.com/0xa3k5/since/releases/latest"
   },
   "scripts": {
     "start": "node scripts/dev-app-name.js && electron .",
