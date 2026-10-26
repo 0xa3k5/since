@@ -1170,18 +1170,10 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-files-n { font-variant-numeric: tabular-nums; color: var(--text-4); font-weight: var(--fw-medium); }
 .review-conflict-row > .icon { flex: none; color: var(--warn); }
 .review-conflict-count { flex: none; font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
-/* The branch's commits above its files (AK-640) */
-.review-side .review-commits-host { flex: none; max-height: 40%; overflow-y: auto; padding: 8px 8px 0; }
+/* The branch's commits above its files on the review page (AK-640); in Review's pane they're the Commits tab. */
+.review-side .review-commits-host { flex: none; max-height: 40%; overflow-y: auto; padding: 8px 0 0; }
 .review-side .review-commits-host:empty { display: none; }
-.review-stack > .review-commits { margin: 0 22px 12px; }
-.review-stack > .review-commits > .review-files-group { padding: 4px 0 6px; }
-.review-commit { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 8px; font-size: 12.5px; }
-.review-commit > .icon { flex: none; color: var(--text-4); }
-.review-commit-sha { flex: none; font-size: 11.5px; color: var(--text-3); }
-.review-commit-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.review-commit-author { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 12px; }
-.review-commit > .review-row-age { font-size: 12px; }
-.review-commits-more { margin: 2px 0 0 4px; }
+.review-commits > .review-files-group { padding: 0 12px 4px; }
 .cf-line.cf-marker { color: var(--warn); font-weight: var(--fw-strong); }
 .review-conflict .cf-col-head { text-transform: none; letter-spacing: 0; font-family: var(--mono); }
 .review-reason-link { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
@@ -1954,6 +1946,20 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .ev-line .ev-link { opacity: 0; }
 .ev-line:hover .ev-link, .ev-line:focus-within .ev-link, .ev-line .ev-link:focus-visible { opacity: 1; }
 .ev-thread.outdated .ev-item .where, .ev-thread.outdated .ev-item .msg, .ev-thread.outdated .ev-item .who { color: var(--text-4); }
+/* A commit line (AK-640): who made it (an avatar, or the avatar group with co-authors), then a button
+   with the short SHA, subject and age that opens the commit on the right. .on: the one open there. */
+.ev-line.commit-line { grid-template-columns: auto minmax(0, 1fr); column-gap: 0; padding: 0 8px 0 12px; }
+.commit-line.on, .commit-line.on:hover { background: var(--bg-selected); }
+.commit-line > .avatar, .commit-line > .avatar-stack { margin-right: 2px; }
+.ev-item.commit-open { grid-template-columns: auto minmax(0, 1fr) auto; padding-left: 8px; }
+.commit-open .where { color: var(--text-3); }
+.commit-open .msg { color: var(--text); }
+.commit-age { font-size: 12px; color: var(--text-4); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.commits-more { margin: 2px 0 4px 8px; }
+/* Review's commit pane (AK-640): the map's commit details, over the right of the diff. */
+.commit-side-host { position: relative; }
+.detail.commit-side { position: absolute; top: 0; right: 0; bottom: 0; z-index: 6; width: min(420px, 45%); min-width: 300px; border-left-color: var(--border-strong); box-shadow: var(--shadow); }
+.detail-close { margin-left: auto; }
 .ev-ann-full { margin: 0 8px 6px 36px; padding: 6px 8px; border-radius: 4px; background: var(--bg-active); color: var(--text-2); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; user-select: text; }
 /* Go to line: the line the diff jumped to, flashed once. */
 .dl.flash { animation: dl-flash 1.2s ease-out; }

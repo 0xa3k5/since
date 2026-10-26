@@ -1,10 +1,10 @@
-import { h, icon, kbd, toast, loading, timeAgo, fullDate } from './ui.js';
+import { h, icon, kbd, toast, loading } from './ui.js';
 import { renderDiff, statusBadge, fileName, fileRef } from './diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
 import * as keymap from './keymap.js';
 import { prStatusLine, draftSwitch } from './prs.js';
 import { PR_ACTIONS, prActionFor } from './pr-review.js';
-import { fileCard, foldShut } from './reader.js';
+import { fileCard, foldShut, commitLines, markCommit } from './reader.js';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).
@@ -34,11 +34,11 @@ import { fileCard, foldShut } from './reader.js';
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
 // shows the base side against the branch's side. onConflicts(files) reports what it found.
 // fallback: a base to use instead when `base` can't be resolved (a stacked PR's base not fetched here).
-// The branch's commits (AK-640, branchReview's `commits`, newest first) head the files: the first
-// few, then Show all. Nothing shows while branchReview doesn't list them.
-const COMMITS_SHOWN = 5;
-
-export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
+// The branch's commits (AK-640, branchReview's `commits`, newest first): on this page they head the
+// files column (reader.js commitLines); in Review's pane (stacked) they're the evidence strip's
+// Commits tab, so onReview(review) hands them over. onCommit(sha, mark) opens a commit beside the
+// diff (app.js) and calls mark(sha or null) as it opens and closes.
+export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {}, onReview = null, onCommit = null }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -53,6 +53,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   let jump = false; // showConflicts() before the conflicts were read
   let conflictsAt = null;
   let allCommits = false; // Show all pressed
+  let openCommit = null; // the commit open beside the diff
 
   const stacked = Boolean(header); // per-file blocks instead of a files column (AK-373)
   const diffs = new Map(); // stacked: `${path}@${tip}@${since}` → diff, so re-renders keep their height
@@ -114,23 +115,15 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     deltaBtn.disabled = !changed && !delta;
   }
 
-  // The branch's commits, newest first: short SHA, subject, author, age.
+  // The branch's commits above the files column.
   function commitsBlock() {
     const list = review?.commits;
     if (!list?.length) return null;
-    const n = Math.max(review.commitCount || 0, list.length);
-    const rows = allCommits ? list : list.slice(0, COMMITS_SHOWN);
-    const older = n - list.length;
-    return h('section.review-commits', { role: stacked ? 'listitem' : null, 'aria-label': 'Commits' },
-      h('div.lanes-group.review-files-group', null, 'Commits', h('span.review-files-n', null, String(n))),
-      ...rows.map((c) => h('div.review-commit', { title: `${c.sha}\n${c.subject}` },
-        icon('commit', 13),
-        h('span.mono.review-commit-sha', null, c.sha.slice(0, 7)),
-        h('span.review-commit-subject', null, c.subject || '(no message)'),
-        c.author ? h('span.review-commit-author', null, c.author) : null,
-        c.time ? h('span.review-row-age', { title: fullDate(c.time) }, timeAgo(c.time)) : null)),
-      rows.length < list.length ? h('button.btn.ghost.small.review-commits-more', { onclick: () => { allCommits = true; renderList(); } }, `Show all ${n}`)
-        : older > 0 ? h('div.review-none', null, `${older} older not shown`) : null);
+    const count = Math.max(review.commitCount || 0, list.length);
+    const mark = (sha) => { openCommit = sha; markCommit(commitsEl, sha); };
+    return h('section.review-commits', { 'aria-label': 'Commits' },
+      h('div.lanes-group.review-files-group', null, 'Commits', h('span.review-files-n', null, String(count))),
+      ...commitLines({ list, count, selected: openCommit, onOpen: onCommit ? (sha) => onCommit(sha, mark) : null }, allCommits, () => { allCommits = true; renderList(); }));
   }
 
   function row(f) {
@@ -171,7 +164,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     const list = entries();
     if (!list.some((e) => e.path === current && e.c === onConflict)) { current = list[0]?.path || null; onConflict = Boolean(list[0]?.c); }
     const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
-    commitsEl.replaceChildren(...[commitsBlock()].filter(Boolean));
+    if (!stacked) commitsEl.replaceChildren(...[commitsBlock()].filter(Boolean));
     listEl.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictRow), group('Changed', files.length)] : []), ...files.map(row));
     if (!files.length) listEl.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     renderMeta();
@@ -216,9 +209,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       for (const x of xs) if (x.isIntersecting) { observer.unobserve(x.target); fill(x.target); }
     }, { root: el, rootMargin: '800px 0px' }) : null;
     const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
-    const commits = commitsBlock();
-    stack.replaceChildren(...(commits ? [commits] : []), ...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock)] : []),
-      ...(cs.length || commits ? [group('Changed', files.length)] : []), ...files.map(fileBlock));
+    stack.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock), group('Changed', files.length)] : []), ...files.map(fileBlock));
     if (!files.length) stack.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     el.scrollTop = y;
     renderMeta();
@@ -462,6 +453,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     if (s) { saved = s; writeTicks(store, key, saved); }
     computeStates();
     if (delta && ![...states.values()].some((x) => x.state === 'changed')) delta = false;
+    onReview?.(review);
     renderList();
     if (moved || !main.querySelector('.diff-scroll')) renderFile();
     loadConflicts();

@@ -778,11 +778,13 @@ function folders(areas = []) {
   return { n: null, label: `in ${areas.map((a) => (a.area === '.' ? 'the root' : a.area)).join(', ')}`, title };
 }
 
-// The evidence strip's tabs, left to right; a tab with nothing in it isn't there.
-// → [{ id, label, count?, tally?, kind ('fail' | 'pass' | 'absent' | ''), icon, group ('ci' | 'people') }]
-export function evidenceTabs(evidence) {
-  if (!evidence) return [];
+// The evidence strip's tabs, left to right; a tab with nothing in it isn't there. Commits come
+// first (AK-640): commits = { list, count } from branchReview, git only, so it shows without GitHub.
+// → [{ id, label, count?, tally?, kind ('fail' | 'pass' | 'absent' | ''), icon, group ('git' | 'ci' | 'people') }]
+export function evidenceTabs(evidence, commits = null) {
   const out = [];
+  if (commits?.list?.length) out.push({ id: 'commits', label: 'Commits', count: Math.max(commits.count || 0, commits.list.length), kind: '', icon: 'commit', group: 'git' });
+  if (!evidence) return out;
   if (evidence.checks?.length) {
     const t = checkTally(evidence.checks);
     out.push({ id: 'checks', label: 'Checks', tally: t, kind: t.failed ? 'fail' : t.running ? '' : 'pass', icon: t.failed ? 'x' : t.running ? 'pending' : 'check', group: 'ci' });
@@ -792,8 +794,8 @@ export function evidenceTabs(evidence) {
   if (evidence.threads?.open) out.push({ id: 'threads', label: 'Open threads', count: evidence.threads.open, kind: '', icon: 'comment', group: 'people' });
   return out;
 }
-// Which tab the strip opens on: Checks when one fails, else none (closed).
-export const evidenceDefault = (evidence) => (evidence?.checks?.some(checkFailed) ? 'checks' : null);
+// Which tab the strip opens on: Checks when one fails, else Commits when there are some, else none (closed).
+export const evidenceDefault = (evidence, commits = null) => (evidence?.checks?.some(checkFailed) ? 'checks' : commits?.list?.length ? 'commits' : null);
 // "3m 05s", "48s"
 export function duration(s) {
   if (!Number.isFinite(s) || s < 0) return '';

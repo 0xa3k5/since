@@ -711,6 +711,18 @@ test('evidenceTabs: only tabs with something in them; CI didn’t run is the one
   assert.deepEqual(evidenceTabs(null), []);
 });
 
+test('evidenceTabs: Commits comes first, without GitHub too, and opens when no check fails (AK-640)', async () => {
+  const { evidenceTabs, evidenceDefault } = await load();
+  const commits = { list: [{ sha: 'b'.repeat(40), subject: 's', author: 'A', time: 1 }], count: 3 };
+  const ev = { checks: [{ name: 'unit', result: 'success' }], annotations: [{ path: 'a.js', level: 'notice', message: 'x' }] };
+  assert.deepEqual(evidenceTabs(ev, commits).map((t) => [t.id, t.group]), [['commits', 'git'], ['checks', 'ci'], ['annotations', 'ci']]);
+  assert.equal(evidenceTabs(null, commits)[0].count, 3);
+  assert.deepEqual(evidenceTabs(ev, { list: [], count: 0 }).map((t) => t.id), ['checks', 'annotations']);
+  assert.equal(evidenceDefault(ev, commits), 'commits');
+  assert.equal(evidenceDefault({ checks: [{ name: 'lint', result: 'failure' }] }, commits), 'checks');
+  assert.equal(evidenceDefault(null, null), null);
+});
+
 test('duration and checkLog', async () => {
   const { duration, checkLog } = await load();
   assert.deepEqual([duration(9), duration(72), duration(3725), duration(undefined)], ['9s', '1m 12s', '1h 02m', '']);

@@ -1,4 +1,4 @@
-import { h, icon, avatar, avatarStack, tipFor } from './ui.js';
+import { h, icon, avatar, avatarStack, tipFor, timeAgo, fullDate } from './ui.js';
 import * as keymap from './keymap.js';
 import { markdown } from './markdown.js';
 import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.js';
@@ -18,8 +18,8 @@ import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkL
 //  - factsBlock (AK-520): under the meta line, the size and spread (then whatever the screen adds,
 //    Review's reviewers), then one line per change fact (label, then its detail cut to one line;
 //    the whole text in its tooltip).
-//  - evidenceStrip (AK-520): Review's tab set (Checks, CI didn't run, Annotations, Media, Open
-//    threads), one open at a time; it opens on Checks when one fails, else it stays closed.
+//  - evidenceStrip (AK-520): Review's tab set (Commits, Checks, CI didn't run, Annotations, Media, Open
+//    threads), one open at a time; it opens on Checks when one fails, else on Commits (AK-640).
 //    E (review.evidence) opens the next tab. Tabs with nothing in them aren't shown.
 //  - mediaGallery (AK-521): the Media tab's 112×72 thumbnails (description, then comments, then
 //    reviews), loaded by the main process (pr-media.js): images as data: URLs kept in memory only,
@@ -271,25 +271,29 @@ export function factsBlock(facts, { after = null } = {}) {
       h('span.fact-detail.mono', null, l.detail))));
 }
 
-// Which tab is open per PR, and which failed checks show their log, for this window.
+// Which tab is open per PR (only once picked; until then evidenceDefault), which failed checks show
+// their log, and whose commit list shows all, for this window.
 const evOpen = new Map();
+const commitsAll = new Set();
 const logOpen = new Set();
 const annOpen = new Set();
 
 // The strip at the top of a PR's reader. evidence: github.evidence, or undefined while it loads
 // (a quiet line), or null (nothing to show: no strip). key: the PR, for the open tab; openUrl(url)
-// opens a check in the browser; goTo { has(path), go(path, line) } finds a line in the PR's diff. Returns the element, with .next() for E (false when it has no tabs).
-export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null, goTo = null }) {
-  if (evidence === undefined) return h('section.evidence.loading', { 'aria-label': 'Evidence', 'aria-busy': 'true' }, h('div.ev-note.muted', null, 'Loading checks and reviews…'));
-  const tabs = evidenceTabs(evidence);
+// opens a check in the browser; goTo { has(path), go(path, line) } finds a line in the PR's diff.
+// commits (AK-640): { list, count, selected (a sha), onOpen(sha) }, the Commits tab, first.
+// Returns the element, with .next() for E (false when it has no tabs).
+export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null, goTo = null, commits = null }) {
+  if (evidence === undefined && !commits?.list?.length) return h('section.evidence.loading', { 'aria-label': 'Evidence', 'aria-busy': 'true' }, h('div.ev-note.muted', null, 'Loading checks and reviews…'));
+  const tabs = evidenceTabs(evidence, commits);
   if (!tabs.length) return null;
-  if (!evOpen.has(key)) evOpen.set(key, evidenceDefault(evidence));
   const box = h('section.evidence', { 'aria-label': 'Evidence' });
-  const open = tabs.some((t) => t.id === evOpen.get(key)) ? evOpen.get(key) : null;
+  const want = evOpen.has(key) ? evOpen.get(key) : evidenceDefault(evidence, commits);
+  const open = tabs.some((t) => t.id === want) ? want : null;
   if (open) box.classList.add('open');
   const show = (id, focus = false) => {
     evOpen.set(key, id);
-    const next = evidenceStrip({ evidence, key, openUrl, loadImage, goTo });
+    const next = evidenceStrip({ evidence, key, openUrl, loadImage, goTo, commits });
     box.replaceWith(next);
     if (focus) next.querySelector(id ? `.ev-tab[data-tab="${id}"]` : '.ev-tab')?.focus({ preventScroll: true });
   };
@@ -307,8 +311,9 @@ export function evidenceStrip({ evidence, key, openUrl = null, loadImage = null,
       onclick: () => show(on ? null : t.id, true),
     }, t.icon ? icon(t.icon, 12) : null, t.label, n));
   }
+  if (evidence === undefined) bar.append(h('span.ev-loading.muted', { 'aria-busy': 'true' }, 'Loading checks…'));
   box.append(bar);
-  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, { openUrl, loadImage, goTo }, () => show(open))));
+  if (open) box.append(h('div.ev-body', { role: 'tabpanel' }, ...evidenceBody(open, evidence, key, { openUrl, loadImage, goTo, commits }, () => show(open))));
   box.next = () => {
     const i = tabs.findIndex((t) => t.id === open);
     show(i + 1 < tabs.length ? tabs[i + 1].id : null);
@@ -349,7 +354,54 @@ const refocus = (k) => document.querySelector(`section.evidence .ev-item[data-k=
 
 const LEVEL_ICON = { failure: ['x', 'fail'], warning: ['warning', 'warn'], notice: ['pending', 'wait'] };
 
-function evidenceBody(id, ev, key, { openUrl, loadImage, goTo }, redraw) {
+// One commit of the branch (AK-640): who made it (one avatar; with co-authors, the avatar group),
+// then a button with the short SHA, subject and age that runs onOpen(sha). c: branchReview's
+// { sha, subject, author, email?, coAuthors?, time }. The line carries data-sha and .on while its
+// commit is the one open beside the diff. ↑/↓ move between commits.
+export function commitLine(c, { on = false, onOpen = null } = {}) {
+  const people = [{ name: c.author, key: c.email || c.author }, ...(c.coAuthors || []).map((p) => ({ name: p.name, key: p.email || p.name }))].filter((p) => p.name);
+  const who = people.length > 1 ? authorsStack(people, 16) : people.length ? personAvatar(people[0].name, people[0].key, 16) : h('span');
+  const btn = h('button.ev-item.commit-open', {
+    type: 'button', title: `${c.sha}\n${c.subject || ''}${people.length ? `\n${people.map((p) => p.name).join(', ')}` : ''}`,
+    'aria-label': `${c.sha.slice(0, 7)} ${c.subject || 'No message'}, ${people.map((p) => p.name).join(' and ')}`,
+    'aria-pressed': String(on),
+    onclick: () => onOpen?.(c.sha),
+    onkeydown: (e) => {
+      const id = keymap.match('evidence', e);
+      if (id !== 'evidence.next' && id !== 'evidence.prev') return;
+      const all = [...btn.closest('.ev-body, .review-commits').querySelectorAll('.commit-open')];
+      all[all.indexOf(btn) + (id === 'evidence.next' ? 1 : -1)]?.focus();
+      e.preventDefault(); e.stopPropagation();
+    },
+  },
+  h('span.where', null, c.sha.slice(0, 7)),
+  h('span.msg', null, c.subject || '(no message)'),
+  c.time ? h('span.commit-age', { title: fullDate(c.time) }, timeAgo(c.time)) : h('span'));
+  return h('div.ev-line.commit-line' + (on ? '.on' : ''), { 'data-sha': c.sha }, who, btn);
+}
+// Marks the commit open beside the diff (null: none) on every commit line under `root`.
+export function markCommit(root, sha) {
+  root?.querySelectorAll('.commit-line').forEach((l) => {
+    l.classList.toggle('on', l.dataset.sha === sha);
+    l.querySelector('.commit-open')?.setAttribute('aria-pressed', String(l.dataset.sha === sha));
+  });
+}
+// The commits, newest first: the first COMMITS_SHOWN, then "Show all N" (`all` once pressed); past
+// the list branchReview returns, how many older ones aren't listed.
+export const COMMITS_SHOWN = 10;
+export function commitLines({ list, count, selected = null, onOpen = null }, all, onAll) {
+  const n = Math.max(count || 0, list.length);
+  const rows = all ? list : list.slice(0, COMMITS_SHOWN);
+  const older = n - list.length;
+  return [
+    ...rows.map((c) => commitLine(c, { on: c.sha === selected, onOpen })),
+    rows.length < list.length ? h('button.btn.ghost.small.commits-more', { type: 'button', onclick: onAll }, `Show all ${n}`)
+      : older > 0 ? h('div.ev-note.muted', null, `${older} older not shown`) : null,
+  ].filter(Boolean);
+}
+
+function evidenceBody(id, ev, key, { openUrl, loadImage, goTo, commits }, redraw) {
+  if (id === 'commits') return commitLines(commits, commitsAll.has(key), () => { commitsAll.add(key); redraw(); });
   if (id === 'ci') {
     const head = ev.head ? ev.head.slice(0, 7) : null;
     return [h('div.ev-note', null, 'No checks ran on ', head ? h('span.mono', null, head) : 'the head', ', the head of this pull request.',
