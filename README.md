@@ -1,4 +1,4 @@
-# GitLanes
+# Since
 
 [![CI](https://github.com/0xa3k5/gitlanes/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0xa3k5/gitlanes/actions/workflows/ci.yml)
 
@@ -22,14 +22,14 @@ pnpm is required; npm, yarn and bun installs are blocked. Enable it with `corepa
 
 ## Building the DMG
 
-`pnpm dist` builds `GitLanes.app` and one DMG each for Apple silicon (`arm64`) and Intel (`x64`)
+`pnpm dist` builds `Since.app` and one DMG each for Apple silicon (`arm64`) and Intel (`x64`)
 into `apps/desktop/dist/`. It needs macOS.
 
 - **Licence store:** the build bakes in the `production` Polar store and fails until its values in
-  `apps/desktop/licence/config.js` are filled in. For a test build use `GITLANES_STORE=sandbox pnpm dist`;
+  `apps/desktop/licence/config.js` are filled in. For a test build use `SINCE_STORE=sandbox pnpm dist`;
   the app then says "sandbox store" in its licence window. CI does this for everything except final release tags.
 
-- **Without a Developer ID certificate** (the default today) you get `GitLanes-<version>-<arch>-unsigned.dmg`.
+- **Without a Developer ID certificate** (the default today) you get `Since-<version>-<arch>-unsigned.dmg`.
   The app is ad-hoc signed so it launches on Apple silicon. Gatekeeper still blocks it on other Macs
   until the user right-clicks → Open, or allows it in System Settings → Privacy & Security.
 - **With a certificate**, signing switches on by itself. electron-builder looks for it in `CSC_LINK`
@@ -39,14 +39,14 @@ into `apps/desktop/dist/`. It needs macOS.
   (`APPLE_API_KEY` = path to the `.p8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`).
 
 Packaging config lives in `apps/desktop/electron-builder.config.js`, and icon/DMG art in `apps/desktop/build/`.
-After editing `icon.svg` or `background.svg`, run `pnpm --filter @gitlanes/desktop brand-assets` to regenerate
+After editing `icon.svg` or `background.svg`, run `pnpm --filter @gitsince/desktop brand-assets` to regenerate
 `icon.icns` and `background.tiff`.
 
 ### Releases
 
 Push a tag matching the desktop version (e.g. `v0.1.0`). `.github/workflows/release.yml` then builds, signs,
 notarizes and uploads both DMGs to a **draft** GitHub Release. Publishing the draft is a manual step.
-The draft also carries `GitLanes-<version>-<arch>-mac.zip` and `update-mac-<arch>.json` (written by
+The draft also carries `Since-<version>-<arch>-mac.zip` and `update-mac-<arch>.json` (written by
 `apps/desktop/scripts/update-feed.js`). Installed apps update from those once the release is published as the
 latest release. They read the feed from `updates.feed` in `apps/desktop/package.json`, so that URL has to be
 publicly downloadable. Only signed releases can install themselves; an unsigned app sees the update and
@@ -57,7 +57,7 @@ Pull requests that touch packaging, and manual runs, do an unsigned dry run and 
 
 ### Releasing a beta from your Mac
 
-Betas have no licence or trial (`GITLANES_STORE=beta`) and are published to the `gitlanes-beta` Cloudflare R2 bucket.
+Betas have no licence or trial (`SINCE_STORE=beta`) and are published to the `gitlanes-beta` Cloudflare R2 bucket.
 They are built locally, not by GitHub Actions: pushing a `v*-beta.*` tag does **not** start `release.yml`.
 
 One-time setup, in the login keychain (nothing goes into env files or the repo):
@@ -83,10 +83,10 @@ pnpm release:beta --skip-e2e      # skip the end-to-end suite (prints a warning)
 
 `apps/desktop/scripts/release-beta.js` checks the setup above and that the `pnpm` on PATH is the one `packageManager`
 pins (each missing piece fails with the command that fixes it), runs `pnpm test` and `pnpm test:e2e`, builds the version
-through `GITLANES_VERSION`, notarizes through the `gitlanes-notary` profile, and checks
+through `SINCE_VERSION`, notarizes through the `gitlanes-notary` profile, and checks
 every app and the app inside each DMG with `codesign`, `spctl` and `stapler`. Then
 `apps/desktop/scripts/beta-publish.js` writes the update feeds and uploads to R2 with `curl --aws-sigv4`: `beta/<version>/`
-first, then `beta/latest/GitLanes-<arch>.dmg` (the website's download links), then the `beta/update-mac-<arch>.json`
+first, then `beta/latest/Since-<arch>.dmg` (the website's download links), then the `beta/update-mac-<arch>.json`
 feeds, and keeps the newest 5 versions. The `v<version>` tag is pushed only after the upload succeeds.
 The R2 keys are read from the keychain at run time and handed to curl on stdin, never on the command line.
 `release.yml` uses the same `beta-publish.js` when it's run manually on a beta tag

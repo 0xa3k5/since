@@ -3,16 +3,16 @@
 // Each entry stores the refs before and after an operation. Operations that
 // destroy uncommitted work also store an exact snapshot of the paths they touch
 // (and the stash they drop), so undo and redo restore those too. Every object
-// an entry needs is pinned under refs/gitlanes/undo/<worktree>/<key> until the
+// an entry needs is pinned under refs/since/undo/<worktree>/<key> until the
 // entry leaves the journal (only redo entries ever do), so `git gc` can't
 // collect it. Each worktree has its own journal, so each gets its own pin
 // namespace (`main`, or `wt/<admin dir name>`) and only ever prunes that one.
 //
 // History has no cap. Only the newest entries of each stack are kept in memory
-// and in gitlanes-history.json; older ones are archived to page files under
-// gitlanes-history/ and read back only when undo or redo reaches them, so
+// and in since-history.json; older ones are archived to page files under
+// since-history/ and read back only when undo or redo reaches them, so
 // memory and the cost of each save stay flat. Archiving also compacts a page's
-// pins into one set under refs/gitlanes/undo/<worktree>/p<n>.
+// pins into one set under refs/since/undo/<worktree>/p<n>.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -146,8 +146,13 @@ class Journal {
   constructor(repo, { pageSize = PAGE } = {}) {
     this.root = repo.root;
     this.gitDir = repo.gitDir;
-    this.file = path.join(repo.gitDir, 'gitlanes-history.json');
-    this.dir = path.join(repo.gitDir, 'gitlanes-history');
+    this.file = path.join(repo.gitDir, 'since-history.json');
+    this.dir = path.join(repo.gitDir, 'since-history');
+    // From before the rename to Since: move the old index and pages to the new names.
+    for (const [from, to] of [['gitlanes-history.json', this.file], ['gitlanes-history', this.dir]]) {
+      const was = path.join(repo.gitDir, from);
+      if (!fs.existsSync(to) && fs.existsSync(was)) try { fs.renameSync(was, to); } catch { /* read-only repo */ }
+    }
     this.ns = repo.gitDir === (repo.commonDir || repo.gitDir) ? 'main' : `wt/${path.basename(repo.gitDir)}`;
     this.pageSize = pageSize;
     this.nextPage = 1;
@@ -217,6 +222,7 @@ class Journal {
   }
 
   async prunePins() {
+    await git.moveOldPins(this.root);
     if (this.damaged) return;
     const keys = [...this.undo.pinKeys(), ...this.redo.pinKeys()];
     if (this.legacyPins) {
@@ -792,7 +798,7 @@ class Journal {
   // Returns the folded entry and how many hot entries it replaces, or null.
   foldSequence(entry) {
     const hot = this.undo.hot;
-    if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside GitLanes
+    if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside Since
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
       if (e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.moved || e.remote) return null;
@@ -911,7 +917,7 @@ class Journal {
   }
 
   // A plain ref step (checkout, branch, commit, merge, rewrite…). Branches and HEAD must still be
-  // where the step left them, so commits made outside GitLanes since are never reset away.
+  // where the step left them, so commits made outside Since since are never reset away.
   async restoreRefs(entry, dir) {
     const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const expected = dir === 'undo' ? entry.after : entry.before, now = await git.captureRefState(this.root);

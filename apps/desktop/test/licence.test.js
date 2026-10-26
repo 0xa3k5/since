@@ -10,12 +10,12 @@ const { polarStore, mockStore, createStore, StoreError } = require('../licence/s
 const { loadConfig, releaseProfile, PROFILES } = require('../licence/config');
 
 const T0 = Date.parse('2026-10-13T12:00:00Z');
-const config = { ...loadConfig({ GITLANES_STORE: 'sandbox' }) };
+const config = { ...loadConfig({ SINCE_STORE: 'sandbox' }) };
 const fixture = (name) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'polar', name + '.json'), 'utf8'));
 
 // A Licensing instance on a fake clock, with its files in a throwaway temp dir.
 function setup({ store = mockStore(config), machine = 'mac-A', dir } = {}) {
-  dir = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-licence-'));
+  dir = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'since-licence-'));
   const clock = { t: T0 };
   const files = { stateFile: path.join(dir, 'state', 'licence.json'), mirrorFile: path.join(dir, 'prefs', 'trial') };
   const make = (opts = {}) => new Licensing({ ...files, config, store, machine, now: () => clock.t, ...opts });
@@ -102,7 +102,7 @@ test('tamper: edited state is not trusted and does not grant a new trial', () =>
 test('tamper: state copied from another Mac is not trusted', async () => {
   const a = setup({ machine: 'mac-A' });
   await a.lic.activate('GL-TEST-COPY-1234');
-  const b = setup({ machine: 'mac-B', dir: fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-licence-')) });
+  const b = setup({ machine: 'mac-B', dir: fs.mkdtempSync(path.join(os.tmpdir(), 'since-licence-')) });
   fs.mkdirSync(path.dirname(b.files.stateFile), { recursive: true });
   fs.copyFileSync(a.files.stateFile, b.files.stateFile);
   const s = b.make().status();
@@ -302,11 +302,11 @@ function replay(...names) {
 test('polar: activate and validate send the right requests and map the response', async () => {
   const { fetch, calls } = replay('activate-200', 'validate-200');
   const store = polarStore(config, { fetch });
-  const a = await store.activate({ key: 'GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D', label: 'Test MacBook', meta: { mac: '0123456789abcdef' } });
+  const a = await store.activate({ key: 'SINCE-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D', label: 'Test MacBook', meta: { mac: '0123456789abcdef' } });
   assert.equal(calls[0].url, 'https://sandbox-api.polar.sh/v1/customer-portal/license-keys/activate');
-  assert.deepEqual(calls[0].body, { organization_id: config.organizationId, key: 'GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D', label: 'Test MacBook', meta: { mac: '0123456789abcdef' } });
+  assert.deepEqual(calls[0].body, { organization_id: config.organizationId, key: 'SINCE-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D', label: 'Test MacBook', meta: { mac: '0123456789abcdef' } });
   assert.equal(a.activationId, '9b0c5f9e-2a51-4c1e-9d0e-3f6a1b2c4d5e');
-  assert.deepEqual(a.licence, { key: 'GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D', displayKey: '****-8C7D', email: 'buyer@example.com', name: 'Test Buyer', limit: 3, benefitId: config.benefitId });
+  assert.deepEqual(a.licence, { key: 'SINCE-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D', displayKey: '****-8C7D', email: 'buyer@example.com', name: 'Test Buyer', limit: 3, benefitId: config.benefitId });
   const v = await store.validate({ key: a.licence.key, activationId: a.activationId });
   assert.equal(calls[1].url, 'https://sandbox-api.polar.sh/v1/customer-portal/license-keys/validate');
   assert.deepEqual(calls[1].body, { organization_id: config.organizationId, key: a.licence.key, activation_id: a.activationId, benefit_id: config.benefitId });
@@ -355,7 +355,7 @@ test('polar: a proxy 403 or a 422 from schema drift keeps the licence; a real re
     const store = polarStore(config, { fetch: (...a) => next(...a) });
     const { clock, lic } = setup({ store });
     clock.t = T0 + 20 * DAY;
-    await lic.activate('GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D');
+    await lic.activate('SINCE-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D');
     next = res.fetch;
     return lic.refresh();
   };
@@ -369,7 +369,7 @@ test('polar: a proxy 403 or a 422 from schema drift keeps the licence; a real re
   const revoked = fixture('validate-200').body;
   s = await run(raw(200, { ...revoked, status: 'revoked' }));
   assert.equal(s.mode, 'revoked');
-  assert.equal(s.licence.maskedKey, 'GITL••••8C7D');
+  assert.equal(s.licence.maskedKey, 'SINC••••8C7D');
   s = await run(raw(403, { error: 'NotPermitted', detail: 'License key is revoked' }));
   assert.equal(s.mode, 'revoked');
 });
@@ -395,7 +395,7 @@ test('polar: end to end through Licensing with recorded responses', async () => 
   const { fetch } = replay('activate-200', 'validate-404');
   const { clock, lic } = setup({ store: polarStore(config, { fetch }) });
   clock.t = T0 + 20 * DAY;
-  assert.equal((await lic.activate('GITLANES-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D')).mode, 'licensed');
+  assert.equal((await lic.activate('SINCE-6F1C2A9B-4D7E-4B8A-9C3D-2E1F0A9B8C7D')).mode, 'licensed');
   // Refunded later: the next session's validation 404s.
   const s = await lic.refresh();
   assert.equal(s.mode, 'revoked');
@@ -404,27 +404,27 @@ test('polar: end to end through Licensing with recorded responses', async () => 
 
 test('config: sandbox by default, profile selectable, production unset until the owner provides it', async () => {
   assert.equal(loadConfig({}).profile, 'sandbox');
-  assert.equal(loadConfig({ GITLANES_STORE: 'mock' }).provider, 'mock');
-  assert.equal(loadConfig({ GITLANES_STORE: 'bogus' }).profile, 'sandbox');
-  const sb = loadConfig({ GITLANES_STORE: 'sandbox' });
+  assert.equal(loadConfig({ SINCE_STORE: 'mock' }).provider, 'mock');
+  assert.equal(loadConfig({ SINCE_STORE: 'bogus' }).profile, 'sandbox');
+  const sb = loadConfig({ SINCE_STORE: 'sandbox' });
   assert.equal(sb.apiBase, 'https://sandbox-api.polar.sh');
   assert.equal(sb.trialDays, 14);
   assert.equal(sb.activationLimit, 3);
   assert.equal(PROFILES.production.apiBase, 'https://api.polar.sh');
-  await assert.rejects(polarStore(loadConfig({ GITLANES_STORE: 'production' })).validate({ key: 'k', activationId: 'a' }), (e) => e.kind === 'config');
+  await assert.rejects(polarStore(loadConfig({ SINCE_STORE: 'production' })).validate({ key: 'k', activationId: 'a' }), (e) => e.kind === 'config');
 });
 
 test('config: packaged builds use only the baked profile; the environment and mock never apply', () => {
   const packaged = (env, baked) => loadConfig(env, { packaged: true, baked });
-  assert.equal(packaged({ GITLANES_STORE: 'mock' }, 'production').profile, 'production');
-  assert.equal(packaged({ GITLANES_STORE: 'mock' }, undefined).profile, 'production', 'no bake: production, never the test store');
-  assert.equal(packaged({ GITLANES_STORE: 'sandbox' }, 'production').profile, 'production');
-  assert.equal(packaged({ GITLANES_STORE: 'production' }, 'sandbox').profile, 'sandbox');
+  assert.equal(packaged({ SINCE_STORE: 'mock' }, 'production').profile, 'production');
+  assert.equal(packaged({ SINCE_STORE: 'mock' }, undefined).profile, 'production', 'no bake: production, never the test store');
+  assert.equal(packaged({ SINCE_STORE: 'sandbox' }, 'production').profile, 'production');
+  assert.equal(packaged({ SINCE_STORE: 'production' }, 'sandbox').profile, 'sandbox');
   assert.equal(packaged({}, 'mock').profile, 'production', 'a baked mock is ignored too');
   assert.equal(packaged({}, 'bogus').profile, 'production');
-  for (const env of [{}, { GITLANES_STORE: 'mock' }]) assert.notEqual(packaged(env, 'mock').provider, 'mock');
+  for (const env of [{}, { SINCE_STORE: 'mock' }]) assert.notEqual(packaged(env, 'mock').provider, 'mock');
   // Unpackaged (pnpm start) still follows the environment.
-  assert.equal(loadConfig({ GITLANES_STORE: 'mock' }, { packaged: false, baked: 'production' }).provider, 'mock');
+  assert.equal(loadConfig({ SINCE_STORE: 'mock' }, { packaged: false, baked: 'production' }).provider, 'mock');
 });
 
 test('config: release builds fail closed', () => {
@@ -438,12 +438,12 @@ test('beta: packaged with no licence, no trial and no store calls', async () => 
   assert.equal(releaseProfile('beta'), 'beta');
   const beta = loadConfig({}, { packaged: true, baked: 'beta' });
   assert.equal(beta.profile, 'beta');
-  assert.equal(loadConfig({ GITLANES_STORE: 'beta' }).profile, 'beta', 'pnpm start can try it too');
+  assert.equal(loadConfig({ SINCE_STORE: 'beta' }).profile, 'beta', 'pnpm start can try it too');
   // The real store factory, with a fetch that records every call.
   const calls = [];
   const fetch = async (url) => { calls.push(url); throw new Error('no network'); };
   const store = createStore(beta, { fetch });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-licence-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-licence-'));
   const files = { stateFile: path.join(dir, 'licence.json'), mirrorFile: path.join(dir, 'trial') };
   let t = T0;
   const lic = new Licensing({ ...files, config: beta, store, machine: 'mac-A', now: () => t });
@@ -467,7 +467,7 @@ test('beta: updates come from the beta bucket; other profiles use package.json',
   const { feedUrl, feedOrigins } = require('../updater');
   const { updates } = PROFILES.beta;
   assert.equal(updates.feed, 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta');
-  assert.equal(updates.page, 'https://gitlanes.akml.io/download');
+  assert.equal(updates.page, 'https://gitsince.com/download');
   assert.equal(feedUrl(updates.feed, 'arm64'), 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta/update-mac-arm64.json');
   assert.deepEqual(feedOrigins(feedUrl(updates.feed, 'x64')), ['https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev']);
   for (const name of ['production', 'sandbox', 'mock']) assert.equal(PROFILES[name].updates, undefined, name);

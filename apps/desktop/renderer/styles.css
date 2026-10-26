@@ -1642,7 +1642,7 @@ html.has-tabs #app { height: calc(100vh - 36px); }
 .lfs-state.lfs-pointer { color: var(--warn); }
 
 /* Welcome screen, split down the middle: open/clone/recent on the left, a short hands-on tour of
-   GitLanes on the right (a pretend repository, four lessons). Stacks on narrow windows. */
+   Since on the right (a pretend repository, four lessons). Stacks on narrow windows. */
 .welcome { display: block; overflow-y: auto; }
 .welcome-layout { display: grid; grid-template-columns: 1fr 1fr; min-height: 100%; }
 .welcome-main, .welcome-learn { display: flex; align-items: center; justify-content: center; padding: 64px 32px 40px; }

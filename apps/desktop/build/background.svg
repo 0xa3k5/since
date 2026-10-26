@@ -18,7 +18,7 @@
     <circle cx="40" cy="70" r="7"/><circle cx="40" cy="230" r="7"/><circle cx="84" cy="380" r="7"/>
     <circle cx="620" cy="190" r="7"/><circle cx="576" cy="40" r="7"/><circle cx="620" cy="330" r="7"/>
   </g>
-  <text x="330" y="74" text-anchor="middle" fill="#ffffff" font-family="-apple-system, 'SF Pro Display', sans-serif" font-size="20" font-weight="600">Drag GitLanes to Applications</text>
+  <text x="330" y="74" text-anchor="middle" fill="#ffffff" font-family="-apple-system, 'SF Pro Display', sans-serif" font-size="20" font-weight="600">Drag Since to Applications</text>
   <g fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
     <path d="M288 200 H368"/>
     <path d="M352 184 L370 200 L352 216"/>

@@ -1,4 +1,4 @@
-// The keymap: every keyboard shortcut in GitLanes, in one place. Renderer handlers dispatch by command id
+// The keymap: every keyboard shortcut in Since, in one place. Renderer handlers dispatch by command id
 // (`match`), main.js builds menu accelerators from it (`accelerator`), menus and ⌘K show its labels (`keys`),
 // and the website's /shortcuts page imports it. Loaded by the renderer as an ES module and by main.js via require.
 //
@@ -25,8 +25,8 @@ export const SCOPES = {
   snapshots: 'History & recovery',
   list: 'Remotes, Tags and Submodules pages',
   worktrees: 'Worktrees',
-  catchup: 'Catch up',
-  reader: 'Reader (Review and Catch up)',
+  catchup: 'Since',
+  reader: 'Reader (Review and Since)',
   gallery: 'Media gallery (Review)',
   evidence: 'Annotations and open threads (Review)',
   lanes: 'Review',
@@ -59,14 +59,14 @@ export const COMMANDS = [
   c('menu', 'file', 'file.repoSwitch', 'Switch Repository…', []),
   c('menu', 'file', 'file.close', 'Close Tab', 'Mod+W', { reserved: true }),
   c('menu', 'file', 'file.closeWindow', 'Close Window', 'Mod+Shift+W'),
-  c('menu', 'file', 'app.quit', 'Quit GitLanes', 'Mod+Q', { reserved: true, role: true }),
-  c('menu', 'file', 'app.hide', 'Hide GitLanes', 'Mod+H', { reserved: true, role: true }),
+  c('menu', 'file', 'app.quit', 'Quit Since', 'Mod+Q', { reserved: true, role: true }),
+  c('menu', 'file', 'app.hide', 'Hide Since', 'Mod+H', { reserved: true, role: true }),
   c('menu', 'edit', 'edit.undo', 'Undo', 'Mod+Z'),
   c('menu', 'edit', 'edit.redo', 'Redo', 'Mod+Shift+Z'),
   c('menu', 'edit', 'edit.find', 'Find…', 'Mod+F'),
   c('menu', 'view', 'view.palette', 'Command Menu', 'Mod+K'),
   c('menu', 'help', 'help.shortcuts', 'Keyboard Shortcuts', 'Mod+Slash'),
-  c('menu', 'views', 'view.catchup', 'Catch up', 'Mod+Alt+Digit1'),
+  c('menu', 'views', 'view.catchup', 'Since', 'Mod+Alt+Digit1'),
   c('menu', 'views', 'view.lanes', 'Review', 'Mod+Alt+Digit2'),
   c('menu', 'views', 'view.map', 'Map', 'Mod+Alt+Digit3'),
   c('menu', 'views', 'view.commit', 'Commit', 'Mod+Alt+Digit4'),
@@ -280,12 +280,12 @@ export const COMMANDS = [
   c('catchup', null, 'catchup.next', 'Next merged pull request or commit in the timeline', 'ArrowDown'),
   c('catchup', null, 'catchup.prev', 'Previous merged pull request or commit', 'ArrowUp'),
   c('catchup', null, 'catchup.open', 'Read it: move into the reader', 'Enter'),
-  c('catchup', null, 'catchup.caughtUp', 'Mark caught up: move your checkpoint to the base’s tip', 'Shift+C'),
-  c('catchup', null, 'catchup.since', 'Catch up since… (checkpoint, yesterday, last week, a tag)', 'Shift+T'),
+  c('catchup', null, 'catchup.caughtUp', 'Mark since: move your checkpoint to the base’s tip', 'Shift+C'),
+  c('catchup', null, 'catchup.since', 'Since… (checkpoint, yesterday, last week, a tag)', 'Shift+T'),
   c('catchup', null, 'catchup.reload', 'Reload merged pull requests and CI', 'Mod+R'),
   c('catchup', null, 'catchup.more', 'Show everything that landed', 'e'),
   c('catchup', null, 'catchup.viewed', 'Mark the next file viewed (folds it)', 'v'),
-  c('catchup', null, 'catchup.branch', 'Catch up on another branch', []),
+  c('catchup', null, 'catchup.branch', 'Pick another branch', []),
   // The reader (reader.js): Review's pane and Catch up's reader, once focus is in it (↵ from the list).
   // ←/→ also step the list from the list itself; ↑/↓ there move the selection instead of scrolling.
   c('reader', null, 'reader.next', 'Next item in the list', 'ArrowRight'),

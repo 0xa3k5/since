@@ -144,7 +144,7 @@ class Sandbox {
     }, null, 2));
     return {
       repo, bare,
-      env: { PATH: `${bin}${path.delimiter}${process.env.PATH}`, GITLANES_FAKE_GH: file },
+      env: { PATH: `${bin}${path.delimiter}${process.env.PATH}`, SINCE_FAKE_GH: file },
       calls: () => fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
       pr: (n) => JSON.parse(fs.readFileSync(file, 'utf8')).prs.find((p) => p.number === n),
     };
@@ -264,7 +264,7 @@ const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const test = base.extend({
   sandbox: async ({}, use) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-e2e-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-e2e-'));
     const sb = new Sandbox(dir);
     await use(sb);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -281,8 +281,8 @@ const test = base.extend({
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Its own trial mirror too, so runs never touch (or expire) the developer's real trial.
-        // Specs start on the Map (repositories open on Review otherwise); pass env GITLANES_START_VIEW: '' for Review.
-        env: { ...sandbox.env, GITLANES_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), GITLANES_START_VIEW: 'map', ...env },
+        // Specs start on the Map (repositories open on Review otherwise); pass env SINCE_START_VIEW: '' for Review.
+        env: { ...sandbox.env, SINCE_TRIAL_MIRROR: path.join(userData, 'trial-mirror'), SINCE_START_VIEW: 'map', ...env },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });

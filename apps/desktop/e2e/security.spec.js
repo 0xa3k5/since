@@ -2,7 +2,7 @@
 // The renderer is locked down (docs/security.md): no Node, no network, no navigation, no new
 // windows, and IPC refuses malformed arguments. The app itself opens no network connections: the
 // only session allowed out is the updater's, to its feed host (unit-tested in test/ipc.test.js), and
-// a development build has no feed unless GITLANES_UPDATE_FEED is set.
+// a development build has no feed unless SINCE_UPDATE_FEED is set.
 
 const { execFileSync } = require('node:child_process');
 const { test, expect } = require('./fixtures');
@@ -14,7 +14,7 @@ test('the renderer has no Node, no network and cannot navigate', async ({ sandbo
   const violations = [];
   page.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) violations.push(m.text()); });
 
-  expect(await page.evaluate(() => [typeof require, typeof process, typeof module, Object.keys(window.gitlanes).sort().join()])).toEqual(['undefined', 'undefined', 'undefined', 'app,git,on']);
+  expect(await page.evaluate(() => [typeof require, typeof process, typeof module, Object.keys(window.since).sort().join()])).toEqual(['undefined', 'undefined', 'undefined', 'app,git,on']);
 
   // fetch / XHR / WebSocket to anywhere outside the bundle fail.
   const net = await page.evaluate(async () => {
@@ -24,7 +24,7 @@ test('the renderer has no Node, no network and cannot navigate', async ({ sandbo
       try { const ws = new WebSocket('wss://example.com/'); ws.onopen = () => resolve('allowed'); ws.onerror = () => resolve('blocked'); } catch { resolve('blocked'); }
     });
     out.img = await new Promise((resolve) => { const i = new Image(); i.onload = () => resolve('allowed'); i.onerror = () => resolve('blocked'); i.src = 'https://example.com/x.png'; });
-    // Videos only through the main process's gitlanes-media: scheme (PR media, AK-519), never straight from the web.
+    // Videos only through the main process's since-media: scheme (PR media, AK-519), never straight from the web.
     out.video = await new Promise((resolve) => { const v = document.createElement('video'); v.onloadeddata = () => resolve('allowed'); v.onerror = () => resolve('blocked'); v.src = 'https://example.com/x.mp4'; });
     return out;
   });
@@ -55,15 +55,15 @@ test('IPC refuses malformed arguments before they reach git', async ({ sandbox, 
   const app = await launch(repo);
   const head = sandbox.sha(repo);
   const res = await app.page.evaluate(async () => {
-    const g = window.gitlanes.git;
+    const g = window.since.git;
     return {
       option: await g('checkout', '--orphan=evil'),
       unknown: await g('run', ['status']),
       path: await g('stageFiles', ['../../etc/passwd']),
       rewrite: await g('rewrite', 'exec', 'HEAD'),
       ok: await g('refs'),
-      external: await window.gitlanes.app('external', 'file:///Applications/Calculator.app').then(() => 'opened', (e) => e.message),
-      openFile: await window.gitlanes.app('open-file', '../../../../Applications/Calculator.app').then(() => 'opened', (e) => e.message),
+      external: await window.since.app('external', 'file:///Applications/Calculator.app').then(() => 'opened', (e) => e.message),
+      openFile: await window.since.app('open-file', '../../../../Applications/Calculator.app').then(() => 'opened', (e) => e.message),
     };
   });
   expect(res.option.error.message).toMatch(/must not start with "-"/);

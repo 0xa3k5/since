@@ -3,7 +3,7 @@
 import { h, $, icon, kbd, toast, confirm } from './ui.js';
 import * as keymap from './keymap.js';
 
-const api = window.gitlanes;
+const api = window.since;
 const isMac = navigator.platform.startsWith('Mac');
 export const LICENCE_KBD = isMac ? ['⌥', '⌘', 'L'] : ['Ctrl', 'Alt', 'L'];
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -16,7 +16,7 @@ async function call(channel, ...args) {
 export const buy = async () => { if (!(await api.app('licence-buy'))) toast('Buying isn’t set up in this build yet', { kind: 'error' }); };
 const portal = async () => { if (!(await api.app('licence-portal'))) toast('The customer portal isn’t set up in this build yet', { kind: 'error' }); };
 
-// Small status chip for the topbar. Nothing is shown once GitLanes is licensed; beta builds show a plain label.
+// Small status chip for the topbar. Nothing is shown once Since is licensed; beta builds show a plain label.
 export function licenceChip(s, onclick) {
   if (!s || s.mode === 'licensed') return null;
   if (s.mode === 'beta') return h('span.licence-chip.beta', { title: 'Beta build' }, 'Beta');
@@ -24,7 +24,7 @@ export function licenceChip(s, onclick) {
   if (s.mode === 'trial') return h('button.licence-chip', { onclick, title }, icon('key', 12), `Trial · ${plural(s.trialDaysLeft, 'day')} left`);
   if (s.mode === 'unverified') return h('button.licence-chip.warn', { onclick, title }, icon('warning', 12), 'Verify licence');
   if (s.mode === 'revoked') return h('button.licence-chip.warn', { onclick, title }, icon('warning', 12), 'Licence inactive');
-  return h('button.licence-chip.expired', { onclick, title }, icon('key', 12), 'Read-only · Buy GitLanes');
+  return h('button.licence-chip.expired', { onclick, title }, icon('key', 12), 'Read-only · Buy Since');
 }
 
 export function trialLine(s) {
@@ -37,11 +37,11 @@ export function trialLine(s) {
 
 function copy(s) {
   switch (s.mode) {
-    case 'licensed': return ['GitLanes is licensed', 'Thank you for buying GitLanes. Updates are included for life.'];
-    case 'unverified': return ['Verify your licence', `GitLanes couldn’t check your licence for ${plural(s.graceDays, 'day')}, so it’s read-only for now. Your repositories are untouched. Connect to the internet and check again.`];
-    case 'revoked': return ['Your licence isn’t active', `The licence server says this key is no longer active on this Mac. ${s.canMutate ? `Your trial still has ${plural(s.trialDaysLeft, 'day')} left.` : 'GitLanes is read-only for now; your repositories are untouched.'} If you think that’s wrong, check again. Otherwise deactivate it here and enter another key.`];
-    case 'trial': return [`Free trial: ${plural(s.trialDaysLeft, 'day')} left`, 'Everything works during the trial. Afterwards GitLanes stays read-only, so you can still browse history and diffs, until you add a licence.'];
-    default: return ['Your trial has ended', 'GitLanes is read-only now. You can still open repositories, browse history and read diffs. Buy GitLanes to make changes again: one payment, updates for life.'];
+    case 'licensed': return ['Since is licensed', 'Thank you for buying Since. Updates are included for life.'];
+    case 'unverified': return ['Verify your licence', `Since couldn’t check your licence for ${plural(s.graceDays, 'day')}, so it’s read-only for now. Your repositories are untouched. Connect to the internet and check again.`];
+    case 'revoked': return ['Your licence isn’t active', `The licence server says this key is no longer active on this Mac. ${s.canMutate ? `Your trial still has ${plural(s.trialDaysLeft, 'day')} left.` : 'Since is read-only for now; your repositories are untouched.'} If you think that’s wrong, check again. Otherwise deactivate it here and enter another key.`];
+    case 'trial': return [`Free trial: ${plural(s.trialDaysLeft, 'day')} left`, 'Everything works during the trial. Afterwards Since stays read-only, so you can still browse history and diffs, until you add a licence.'];
+    default: return ['Your trial has ended', 'Since is read-only now. You can still open repositories, browse history and read diffs. Buy Since to make changes again: one payment, updates for life.'];
   }
 }
 
@@ -69,14 +69,14 @@ export async function openLicence({ blocked = false } = {}) {
   }
   const activate = () => run('Activating…', async () => {
     status = await call('licence-activate', input.value);
-    if (status.mode === 'licensed') { input.value = ''; close(); toast('GitLanes is licensed. Thank you!', { kind: 'success' }); }
+    if (status.mode === 'licensed') { input.value = ''; close(); toast('Since is licensed. Thank you!', { kind: 'success' }); }
   });
   const check = () => run('Checking…', async () => {
     status = await call('licence-refresh');
     if (status.lastError) error = status.lastError;
   });
   const deactivate = async () => {
-    const ok = await confirm('Deactivate this Mac?', `This frees one of your ${plural(status.licence?.limit || status.activationLimit, 'Mac')}. GitLanes on this Mac goes back to ${status.trialDaysLeft ? 'the trial' : 'read-only'} until you enter the key again.`, { submit: 'Deactivate' });
+    const ok = await confirm('Deactivate this Mac?', `This frees one of your ${plural(status.licence?.limit || status.activationLimit, 'Mac')}. Since on this Mac goes back to ${status.trialDaysLeft ? 'the trial' : 'read-only'} until you enter the key again.`, { submit: 'Deactivate' });
     if (ok) run('Deactivating…', async () => { status = await call('licence-deactivate'); });
   };
 
@@ -108,12 +108,12 @@ export async function openLicence({ blocked = false } = {}) {
       h('div.dialog-foot', null,
         keyEntry ? [
           btn('ghost', 'Not now', close, kbd(...keymap.keys('dialog.cancel'))),
-          btn('subtle', 'Buy GitLanes', buy, icon('external', 13)),
+          btn('subtle', 'Buy Since', buy, icon('external', 13)),
           btn('primary', busy || 'Activate', activate, busy ? null : kbd('↵')),
         ] : [
           btn('ghost', 'Deactivate this Mac', deactivate),
           s.portalUrl ? btn('subtle', 'Manage activations', portal, icon('external', 13)) : null,
-          s.mode === 'revoked' ? btn('subtle', 'Buy GitLanes', buy, icon('external', 13)) : null,
+          s.mode === 'revoked' ? btn('subtle', 'Buy Since', buy, icon('external', 13)) : null,
           s.mode === 'unverified' || s.mode === 'revoked'
             ? btn('primary', busy || 'Check again', check)
             : [btn('subtle', busy || 'Check now', check), btn('primary', 'Done', close, kbd(...keymap.keys('dialog.cancel')))],

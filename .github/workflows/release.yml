@@ -2,7 +2,7 @@ name: Release
 
 # A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
 # zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. A beta tag
-# (v0.1.0-beta.1) builds without a licence (GITLANES_STORE=beta) and uploads to the Cloudflare R2 bucket
+# (v0.1.0-beta.1) builds without a licence (SINCE_STORE=beta) and uploads to the Cloudflare R2 bucket
 # instead, with no GitHub Release; the beta app reads its update feed from there. Tags and
 # manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
@@ -118,15 +118,15 @@ jobs:
 
       - name: Build DMGs
         env:
-          GITLANES_STORE: ${{ steps.plan.outputs.store }}
+          SINCE_STORE: ${{ steps.plan.outputs.store }}
           # Read by apps/desktop/electron-builder.config.js; the same mechanism `pnpm release:beta` uses (AK-571).
-          GITLANES_VERSION: ${{ steps.plan.outputs.version }}
+          SINCE_VERSION: ${{ steps.plan.outputs.version }}
         run: pnpm dist
 
       - name: Verify signature and notarization
         if: steps.plan.outputs.signed == 'true'
         run: |
-          for app in apps/desktop/dist/mac*/GitLanes.app; do
+          for app in apps/desktop/dist/mac*/Since.app; do
             codesign --verify --deep --strict --verbose=2 "$app"
             xcrun stapler validate "$app"
             spctl --assess --type execute --verbose "$app"
@@ -145,7 +145,7 @@ jobs:
         if: env.IS_TAG != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: GitLanes-${{ steps.plan.outputs.version }}-dmg
+          name: Since-${{ steps.plan.outputs.version }}-dmg
           path: apps/desktop/dist/*.dmg
           retention-days: 7
           compression-level: 0
@@ -165,7 +165,7 @@ jobs:
             prerelease=()
             [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease=(--prerelease)
             gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft "${prerelease[@]}" --verify-tag \
-              --title "GitLanes ${{ steps.plan.outputs.version }}" --notes "$notes"
+              --title "Since ${{ steps.plan.outputs.version }}" --notes "$notes"
           fi
 
       # Feeds, upload order, bucket layout and pruning live in beta-publish.js, shared with `pnpm release:beta`.

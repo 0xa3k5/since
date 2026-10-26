@@ -6,7 +6,7 @@ const path = require('node:path');
 
 function render(tokens) {
   const decls = (obj, indent) => Object.entries(obj).map(([k, v]) => `${indent}--${k}: ${v};`).join('\n');
-  return `/* Generated from tokens.json by build.js. Do not edit; run \`pnpm --filter @gitlanes/tokens build\`. */
+  return `/* Generated from tokens.json by build.js. Do not edit; run \`pnpm --filter @gitsince/tokens build\`. */
 
 /* Theme follows the system unless <html data-theme="light|dark"> overrides it. */
 :root {

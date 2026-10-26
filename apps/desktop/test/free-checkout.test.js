@@ -11,7 +11,7 @@ const { Journal } = require('../journal');
 const { checkGit } = require('../ipc');
 
 async function repo() {
-  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   const dir = path.join(tmp, 'repo'), wt = path.join(tmp, 'wt-feature');
   fs.mkdirSync(dir);
   for (const a of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']]) await git.run(dir, a);

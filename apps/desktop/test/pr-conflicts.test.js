@@ -9,7 +9,7 @@ const path = require('node:path');
 const git = require('../git');
 
 async function repo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-prconf-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-prconf-')));
   await git.run(dir, ['init', '-q', '-b', 'main']);
   await git.run(dir, ['config', 'user.name', 'Test']);
   await git.run(dir, ['config', 'user.email', 't@example.com']);

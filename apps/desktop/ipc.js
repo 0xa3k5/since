@@ -378,8 +378,8 @@ function absDir(v, what = 'directory') {
 
 // The network requests a session may make: its own files and inline data, plus exactly the
 // https origins in `allow` (the update feed, for the updater's private session).
-// gitlanes-media: is served by the main process (pr-media.js), not the network.
-const LOCAL_SCHEMES = new Set(['file:', 'data:', 'devtools:', 'chrome-extension:', 'gitlanes-media:']);
+// since-media: is served by the main process (pr-media.js), not the network.
+const LOCAL_SCHEMES = new Set(['file:', 'data:', 'devtools:', 'chrome-extension:', 'since-media:']);
 function requestAllowed(url, allow = []) {
   let u;
   try { u = new URL(url); } catch { return false; }

@@ -46,10 +46,10 @@ function pnpmMismatch(pinned, actual) {
 
 /** Why `files` (apps/desktop/dist after a build) are not a build of `version`, or '' when its artifacts are there. */
 function wrongBuildVersion(version, files) {
-  const expected = new RegExp(`^GitLanes-${version.replace(/[.+]/g, '\\$&')}-(${publisher.ARCHES.join('|')})[-.]`);
+  const expected = new RegExp(`^Since-${version.replace(/[.+]/g, '\\$&')}-(${publisher.ARCHES.join('|')})[-.]`);
   if (files.some((f) => expected.test(f))) return '';
-  const built = files.filter((f) => /^GitLanes-.*\.(dmg|zip)$/.test(f)).sort();
-  return `electron-builder built ${built.length ? built.join(', ') : 'no GitLanes-* artifacts'} instead of ${version}; the version override did not apply.`;
+  const built = files.filter((f) => /^Since-.*\.(dmg|zip)$/.test(f)).sort();
+  return `electron-builder built ${built.length ? built.join(', ') : 'no Since-* artifacts'} instead of ${version}; the version override did not apply.`;
 }
 
 function parseArgs(argv) {
@@ -140,20 +140,20 @@ function tests(skipE2e) {
 // signing while electron-builder.config.js still names the build signed and notarizes it (AK-431).
 const DROPPED_ENV = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_IDENTITY_AUTO_DISCOVERY', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER'];
 function buildEnv(base) {
-  const env = { ...base, GITLANES_STORE: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
+  const env = { ...base, SINCE_STORE: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
   for (const k of DROPPED_ENV) delete env[k];
   return env;
 }
 
 function build(version) {
-  step(`Build ${version} (signed, notarized, GITLANES_STORE=beta)`);
+  step(`Build ${version} (signed, notarized, SINCE_STORE=beta)`);
   fs.rmSync(DIST, { recursive: true, force: true });
   const env = buildEnv(process.env);
-  // The version goes through the environment (electron-builder.config.js reads GITLANES_VERSION): a `--`
+  // The version goes through the environment (electron-builder.config.js reads SINCE_VERSION): a `--`
   // argument has to cross two `pnpm run` layers and not every pnpm strips it, which built 0.1.0 as beta.2 (AK-571).
-  run('pnpm', ['dist'], { env: { ...env, GITLANES_VERSION: version } });
+  run('pnpm', ['dist'], { env: { ...env, SINCE_VERSION: version } });
   const wrong = wrongBuildVersion(version, fs.existsSync(DIST) ? fs.readdirSync(DIST) : []);
-  if (wrong) fail(wrong, 'GITLANES_VERSION must reach apps/desktop/electron-builder.config.js through `pnpm dist`');
+  if (wrong) fail(wrong, 'SINCE_VERSION must reach apps/desktop/electron-builder.config.js through `pnpm dist`');
 }
 
 function verifyApp(app) {
@@ -170,16 +170,16 @@ function verifyApp(app) {
 /** Checks every built app, and the app inside every DMG (what a downloader actually opens). */
 function verify(version) {
   step('Verify signatures and notarization');
-  const apps = fs.readdirSync(DIST).filter((d) => d.startsWith('mac')).map((d) => path.join(DIST, d, 'GitLanes.app')).filter((p) => fs.existsSync(p));
-  if (!apps.length) fail('No GitLanes.app in apps/desktop/dist.');
+  const apps = fs.readdirSync(DIST).filter((d) => d.startsWith('mac')).map((d) => path.join(DIST, d, 'Since.app')).filter((p) => fs.existsSync(p));
+  if (!apps.length) fail('No Since.app in apps/desktop/dist.');
   for (const app of apps) { verifyApp(app); console.log(`  ✓ ${path.relative(ROOT, app)}`); }
   for (const arch of publisher.ARCHES) {
     const dmg = path.join(DIST, publisher.dmgName(version, arch));
     if (!fs.existsSync(dmg)) fail(`${path.relative(ROOT, dmg)} is missing (an unsigned build is named …-unsigned.dmg).`);
-    const mount = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-dmg-'));
+    const mount = fs.mkdtempSync(path.join(os.tmpdir(), 'since-dmg-'));
     const attached = capture('hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mount, dmg]);
     if (!attached.ok) fail(`Could not open ${path.basename(dmg)}: ${attached.err}`);
-    try { verifyApp(path.join(mount, 'GitLanes.app')); } finally { capture('hdiutil', ['detach', mount, '-quiet']); fs.rmSync(mount, { recursive: true, force: true }); }
+    try { verifyApp(path.join(mount, 'Since.app')); } finally { capture('hdiutil', ['detach', mount, '-quiet']); fs.rmSync(mount, { recursive: true, force: true }); }
     console.log(`  ✓ ${path.basename(dmg)}`);
   }
 }
@@ -195,7 +195,7 @@ function upload(version) {
 
 function tag(version) {
   step(`Tag v${version}`);
-  run('git', ['tag', '-a', `v${version}`, '-m', `GitLanes ${version} (beta)`]);
+  run('git', ['tag', '-a', `v${version}`, '-m', `Since ${version} (beta)`]);
   run('git', ['push', 'origin', `refs/tags/v${version}`]);
 }
 
@@ -209,7 +209,7 @@ function main(argv) {
   verify(version);
   const urls = upload(version);
   tag(version);
-  console.log(`\n✓ GitLanes ${version} is live${opts.skipE2e ? ' (e2e skipped)' : ''}.`);
+  console.log(`\n✓ Since ${version} is live${opts.skipE2e ? ' (e2e skipped)' : ''}.`);
   for (const u of urls) console.log(`  ${u}`);
 }
 

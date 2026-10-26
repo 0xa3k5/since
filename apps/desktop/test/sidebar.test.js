@@ -65,7 +65,7 @@ test('toggle label matches the state', async () => {
 
 test('the sidebar: eight pages, a divider, then three fold-out lists; History has two tabs (AK-491)', async () => {
   const { NAV_ITEMS, SECTION_PAGES, sectionOf, pageOf, pageLabel } = await load();
-  assert.deepEqual(NAV_ITEMS.map((p) => p.label), ['Catch up', 'Review', 'Map', 'Commit', 'Branches', 'Stashes', 'History', 'Submodules']);
+  assert.deepEqual(NAV_ITEMS.map((p) => p.label), ['Since', 'Review', 'Map', 'Commit', 'Branches', 'Stashes', 'History', 'Submodules']);
   assert.deepEqual(SECTION_PAGES.map((p) => p.label), ['Remotes', 'Tags', 'Worktrees']);
   const all = [...NAV_ITEMS, ...SECTION_PAGES];
   assert.equal(new Set(all.map((p) => p.view)).size, all.length, 'no two rows share a page');

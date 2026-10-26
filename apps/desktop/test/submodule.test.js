@@ -31,7 +31,7 @@ const head = async (dir) => (await git.run(dir, ['rev-parse', 'HEAD'])).trim();
 // app/ with submodule lib/ (from ../lib-src) recorded at its first commit; then clone that as
 // `fresh` so the submodule starts uninitialised.
 async function setup() {
-  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-sub-')));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-sub-')));
   const src = path.join(parent, 'lib-src'), app = path.join(parent, 'app');
   await init(src);
   const c1 = await commit(src, 'lib.txt', 'one\n');

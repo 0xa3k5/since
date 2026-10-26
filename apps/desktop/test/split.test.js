@@ -9,7 +9,7 @@ const git = require('../git');
 const { Journal } = require('../journal');
 
 async function repo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   await git.run(dir, ['init', '-q', '-b', 'main']);
   await git.run(dir, ['config', 'user.name', 'Test']);
   await git.run(dir, ['config', 'user.email', 't@example.com']);
@@ -162,7 +162,7 @@ test('split files with spaces and non-ASCII characters in their names', async ()
 // The tree `files` would give on top of `base`, built independently in a scratch index.
 // Values are file contents (string or Buffer), or null to delete.
 async function expectedTree(dir, base, files) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-expect-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-expect-'));
   const env = { GIT_INDEX_FILE: path.join(tmp, 'index') };
   try {
     await git.run(dir, ['read-tree', base], { env });

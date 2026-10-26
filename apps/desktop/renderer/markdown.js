@@ -96,7 +96,7 @@ export function inline(text = '') {
 // relative paths) stays text (AK-408).
 export const safeHref = (href) => /^https?:\/\//i.test(href);
 
-const open = (e, href) => { e.preventDefault(); window.gitlanes?.app('external', href)?.catch(() => {}); };
+const open = (e, href) => { e.preventDefault(); window.since?.app('external', href)?.catch(() => {}); };
 
 function inlineEl(n) {
   switch (n.t) {

@@ -62,7 +62,7 @@ test('Review → open a branch → Map → Back returns to Review with the same 
 test('a repository opens on Review: Needs you, In progress, then the Map and Back', async ({ sandbox, launch }) => {
   const repo = sandbox.linear('home');
   branch(sandbox, repo, 'feature-a');
-  const app = await launch(repo, { env: { GITLANES_START_VIEW: '' } });
+  const app = await launch(repo, { env: { SINCE_START_VIEW: '' } });
   const { page } = app;
   await expect(page.locator('.content')).toHaveAttribute('data-view', 'lanes');
   await expect(page.getByRole('tab', { name: 'Needs you' })).toHaveAttribute('aria-selected', 'true');

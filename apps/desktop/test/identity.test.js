@@ -45,7 +45,7 @@ test('suggestPattern and upsertRule', async () => {
 });
 
 test('getIdentity counts the identities that committed in this clone', async () => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   try {
     await git.run(dir, ['init', '-q', '-b', 'main']);
     await git.run(dir, ['config', 'commit.gpgsign', 'false']);
