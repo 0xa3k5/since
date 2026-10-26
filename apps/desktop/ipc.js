@@ -403,6 +403,7 @@ const handoff = (v) => {
   for (const k of ['kind', 'dir', ...need]) if (v[k] == null) fail(`handoff.${k}`, 'is required');
   return v;
 };
+const tabAction = oneOf('new', 'close', 'select', 'next', 'prev');
 const confirmOptions = (v) => obj(v, 'dialog', { message: (s, w) => str(s, w, { max: 4096 }), detail: optional(text), ok: optional((s, w) => str(s, w, { max: 128 })), destructive: optional(bool) });
 
-module.exports = { IpcArgError, checkGit, handoff, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, str, bool, oneOf, prNumber, mediaId, knownRemote, remoteName, obj };
+module.exports = { IpcArgError, checkGit, handoff, gitSchemas, knownWorktree, requestAllowed, rev, oid, repoPath, configKey, safeConfigKey, runnable, webUrl, cloneUrl, absDir, insideRepo, confirmOptions, tabAction, str, bool, int, oneOf, prNumber, mediaId, knownRemote, remoteName, obj };

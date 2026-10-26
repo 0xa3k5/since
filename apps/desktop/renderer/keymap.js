@@ -50,12 +50,14 @@ export const COMMANDS = [
   // Menu bar: accelerators in main.js. `menu` is the menu the item sits in.
   c('menu', 'file', 'app.settings', 'Settings…', 'Mod+,', { reserved: true }),
   c('menu', 'file', 'app.licence', 'Enter Licence Key…', []),
+  c('menu', 'file', 'file.newTab', 'New Tab', 'Mod+T'),
   c('menu', 'file', 'file.newWindow', 'New Window', 'Mod+Shift+N'),
   c('menu', 'file', 'file.init', 'New Repository…', 'Mod+N'),
   c('menu', 'file', 'file.open', 'Open Repository…', 'Mod+O'),
   c('menu', 'file', 'file.clone', 'Clone Repository…', 'Mod+Shift+O'),
   c('menu', 'file', 'file.repoSwitch', 'Switch Repository…', []),
-  c('menu', 'file', 'file.close', 'Close Window', 'Mod+W', { reserved: true, role: true }),
+  c('menu', 'file', 'file.close', 'Close Tab', 'Mod+W', { reserved: true }),
+  c('menu', 'file', 'file.closeWindow', 'Close Window', 'Mod+Shift+W'),
   c('menu', 'file', 'app.quit', 'Quit GitLanes', 'Mod+Q', { reserved: true, role: true }),
   c('menu', 'file', 'app.hide', 'Hide GitLanes', 'Mod+H', { reserved: true, role: true }),
   c('menu', 'edit', 'edit.undo', 'Undo', 'Mod+Z'),
@@ -63,20 +65,32 @@ export const COMMANDS = [
   c('menu', 'edit', 'edit.find', 'Find…', 'Mod+F'),
   c('menu', 'view', 'view.palette', 'Command Menu', 'Mod+K'),
   c('menu', 'help', 'help.shortcuts', 'Keyboard Shortcuts', 'Mod+Slash'),
-  c('menu', 'views', 'view.catchup', 'Catch up', 'Mod+1'),
-  c('menu', 'views', 'view.lanes', 'Review', 'Mod+2'),
-  c('menu', 'views', 'view.map', 'Map', 'Mod+3'),
-  c('menu', 'views', 'view.commit', 'Commit', 'Mod+4'),
+  c('menu', 'views', 'view.catchup', 'Catch up', 'Mod+Alt+Digit1'),
+  c('menu', 'views', 'view.lanes', 'Review', 'Mod+Alt+Digit2'),
+  c('menu', 'views', 'view.map', 'Map', 'Mod+Alt+Digit3'),
+  c('menu', 'views', 'view.commit', 'Commit', 'Mod+Alt+Digit4'),
   // The rest of the sidebar's pages (AK-491), then the full pages of the fold-out lists below its divider.
-  c('menu', 'views', 'view.branches', 'Branches', 'Mod+5'),
-  c('menu', 'views', 'view.stashes', 'Stashes', 'Mod+6'),
-  c('menu', 'views', 'view.snapshots', 'History', 'Mod+7'),
-  c('menu', 'views', 'view.submoduleList', 'Submodules', 'Mod+8'),
+  c('menu', 'views', 'view.branches', 'Branches', 'Mod+Alt+Digit5'),
+  c('menu', 'views', 'view.stashes', 'Stashes', 'Mod+Alt+Digit6'),
+  c('menu', 'views', 'view.snapshots', 'History', 'Mod+Alt+Digit7'),
+  c('menu', 'views', 'view.submoduleList', 'Submodules', 'Mod+Alt+Digit8'),
   c('menu', 'views', 'view.remoteList', 'Remotes', 'g o'),
   c('menu', 'views', 'view.tagList', 'Tags', 'g t'),
   c('menu', 'views', 'view.worktrees', 'Worktrees', 'g w'),
   c('menu', 'views', 'view.config', 'Repository Settings', []),
   c('menu', 'views', 'view.reflog', 'Reflog', 'g r'),
+  // Window menu: the window's tabs (AK-634). ⌘1–⌘8 pick a tab by place, ⌘9 the last one, as in browsers.
+  c('menu', 'window', 'tab.next', 'Show Next Tab', 'Ctrl+Tab'),
+  c('menu', 'window', 'tab.prev', 'Show Previous Tab', 'Ctrl+Shift+Tab'),
+  c('menu', 'window', 'tab.n1', 'Tab 1', 'Mod+1'),
+  c('menu', 'window', 'tab.n2', 'Tab 2', 'Mod+2'),
+  c('menu', 'window', 'tab.n3', 'Tab 3', 'Mod+3'),
+  c('menu', 'window', 'tab.n4', 'Tab 4', 'Mod+4'),
+  c('menu', 'window', 'tab.n5', 'Tab 5', 'Mod+5'),
+  c('menu', 'window', 'tab.n6', 'Tab 6', 'Mod+6'),
+  c('menu', 'window', 'tab.n7', 'Tab 7', 'Mod+7'),
+  c('menu', 'window', 'tab.n8', 'Tab 8', 'Mod+8'),
+  c('menu', 'window', 'tab.last', 'Last Tab', 'Mod+9'),
   c('menu', 'view', 'view.back', 'Back', 'Mod+['),
   c('menu', 'view', 'view.forward', 'Forward', 'Mod+]'),
   c('menu', 'view', 'view.sidebar', 'Toggle Sidebar', 'Mod+S'),
@@ -483,6 +497,8 @@ function pressed(step, e, loose, mac = IS_MAC) {
   // Mod is ⌘ or ⌃; with Ctrl also named (⌃⌘T), Mod must be ⌘ on macOS, or plain ⌃T would match.
   if (mods.has('Mod') ? !(mac && mods.has('Ctrl') ? e.metaKey : e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
   if (mods.has('Ctrl') && !e.ctrlKey) return false;
+  // …and a Mod binding without Ctrl isn't ⌃⌘ on macOS, so ⌘T (New Tab) leaves ⌃⌘T to Cycle Theme.
+  if (mac && mods.has('Mod') && !mods.has('Ctrl') && e.metaKey && e.ctrlKey) return false;
   if (mods.has('Alt') !== !!e.altKey) return false;
   const shift = mods.has('Shift');
   if (isCode(key)) return e.code === key && shift === !!e.shiftKey;

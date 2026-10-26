@@ -47,6 +47,7 @@ import { markdown } from './markdown.js';
 import { failingChecks, passedCount, checkLines, mergeConfirm, needsCheckConfirm } from './check-confirm.js';
 import { peekEvidence } from './evidence-store.js';
 import { commitBlock } from './commit-guards.js';
+import { renderTabs } from './tabs-view.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, draftSwitch, withDraft, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 // First letter up, for lower-case labels shown as captions.
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -4918,7 +4919,17 @@ function openPalette() {
     add('App', 'Switch repository…', repoSwitcher, { icon: 'folder', kbd: keymap.keys('file.repoSwitch'), keywords: 'recent open project switch' });
     for (const x of recent) add('Recent repositories', `Switch to ${x.name}`, () => openRepo(x.root), { icon: 'folder', detail: tildePath(x.root), keywords: `recent repository open ${x.root}` });
     add('App', 'Clone repository…', cloneRepo, { icon: 'fetch' });
-    add('App', 'New window', () => api.app('new-window'), { icon: 'plus' });
+    add('App', 'New tab', () => api.app('tab', 'new'), { icon: 'plus', kbd: keymap.keys('file.newTab') });
+    add('App', 'New window', () => api.app('new-window'), { icon: 'plus', kbd: keymap.keys('file.newWindow') });
+    add('App', 'Close tab', () => api.app('tab', 'close'), { icon: 'x', kbd: keymap.keys('file.close') });
+    if (tabList.length > 1) {
+      add('App', 'Next tab', () => api.app('tab', 'next'), { icon: 'chevron', kbd: keymap.keys('tab.next') });
+      add('App', 'Previous tab', () => api.app('tab', 'prev'), { icon: 'chevronLeft', kbd: keymap.keys('tab.prev') });
+      tabList.forEach((t, i) => {
+        const key = i < TAB_KEYS.length ? TAB_KEYS[i] : i === tabList.length - 1 ? 'tab.last' : null;
+        if (!t.active) add('Tabs', t.title, () => api.app('tab', 'select', t.id), { icon: 'folder', kbd: key ? keymap.keys(key) : undefined, keywords: 'tab switch' });
+      });
+    }
     add('App', 'Close repository', closeRepo, { icon: 'x' });
     add('App', 'Remove from recent…', removeFromRecent, { icon: 'x', keywords: 'recent repository forget clear' });
     if (state.licence?.mode !== 'beta') add('App', state.licence?.mode === 'licensed' ? 'Licence…' : 'Enter licence key…', () => openLicence(), { icon: 'key', kbd: LICENCE_KBD, detail: trialLine(state.licence), keywords: 'license licence key activate trial register' });
@@ -5608,6 +5619,12 @@ api.on('keymap', (o) => {
   shortcuts?.refresh();
 });
 
+// The window's tabs (AK-634), drawn by every tab's page.
+const TAB_KEYS = ['tab.n1', 'tab.n2', 'tab.n3', 'tab.n4', 'tab.n5', 'tab.n6', 'tab.n7', 'tab.n8'];
+let tabList = [];
+const showTabs = (list) => { tabList = list; renderTabs(document.getElementById('tabstrip'), list, (action, id) => api.app('tab', action, id)); };
+api.on('tabs', showTabs);
+
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
@@ -5616,6 +5633,7 @@ api.on('keymap', (o) => {
   keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));
+  showTabs(await api.app('tabs'));
   const params = new URLSearchParams(location.search);
   if (params.get('view') === 'map') startView = 'map';
   const dir = params.get('repo');

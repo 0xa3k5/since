@@ -35,5 +35,5 @@ test('double-click on a branch row and on a plain commit row checks out, undoabl
   await app.undo();
   expect(sandbox.git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feature-a');
   expect(errors).toEqual([]);
-  expect(await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  expect(await app.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(1);
 });

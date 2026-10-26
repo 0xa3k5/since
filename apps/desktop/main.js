@@ -1,11 +1,13 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, protocol, screen, session: electronSession } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, dialog, Menu, shell, clipboard, nativeTheme, nativeImage, protocol, screen, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const git = require('./git');
+const tabOrder = require('./tab-order');
 const { Journal, workOps, worktreeOps, laneOps, remoteOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
 const { Licensing } = require('./licence');
@@ -68,18 +70,19 @@ function setTheme(mode, { announce = false } = {}) {
   nativeTheme.themeSource = mode;
   try { writeSettings({ theme: mode }); } catch (e) { console.warn('could not save theme', e.message); }
   buildMenu();
-  const focused = BrowserWindow.getFocusedWindow();
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('theme', mode, { announce: announce && w === focused });
+  const front = activeTab();
+  for (const t of tabs.values()) if (!t.isDestroyed()) t.webContents.send('theme', mode, { announce: announce && t === front });
   return mode;
 }
 const cycleTheme = () => setTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length], { announce: true });
 
 nativeTheme.on('updated', () => {
   const c = windowColors();
-  for (const w of BrowserWindow.getAllWindows()) {
-    w.setBackgroundColor(c.bg);
-    if (!isMac) w.setTitleBarOverlay?.({ color: c.bg, symbolColor: c.symbol });
+  for (const { win } of hosts) {
+    win.setBackgroundColor(c.bg);
+    if (!isMac) win.setTitleBarOverlay?.({ color: c.bg, symbolColor: c.symbol });
   }
+  for (const t of tabs.values()) t.view.setBackgroundColor(c.bg);
 });
 
 // ---------------------------------------------------------------------------
@@ -347,20 +350,20 @@ async function cleanupLanes(s, items, label) {
   for (const i of items) {
     if (!i.worktree) continue;
     i.worktree = check.knownWorktree(list, i.worktree, git.samePath);
-    if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another window. Close that window first.`);
+    if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another tab. Close that tab first.`);
   }
   const onProgress = (p) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
   return s.journal.runCleanup(label || `Clean up ${items.length} branch${items.length === 1 ? '' : 'es'}`, items, { onProgress });
 }
 
-// The window showing a repository root, if any.
+// The tab showing a repository root, if any.
 const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
 // Which worktrees are open in another window changes when a window opens, closes or switches
 // worktree: every window refreshes, not only the one whose refs moved.
 const notifyWindows = () => { for (const [, x] of sessions) if (!x.win.isDestroyed()) { x.pending.refs = true; x.schedule(); } };
-// Close another window (it shows a worktree about to be removed), once it's not running a git step.
+// Close another tab (it shows a worktree about to be removed), once it's not running a git step.
 function closeWindow(win, name) {
-  if (sessions.get(win.webContents.id)?.busy) throw new git.GitError(`“${name}” is busy in its window. Try again when it’s done.`);
+  if (sessions.get(win.webContents.id)?.busy) throw new git.GitError(`“${name}” is busy in its tab. Try again when it’s done.`);
   return new Promise((resolve) => { win.once('closed', resolve); win.destroy(); });
 }
 
@@ -446,11 +449,11 @@ handle('git', async (e, method, ...args) => {
         return { ok: await s.journal.switchMerge(label || method, to, { branch, base, message }, stash) };
       }
       if (method === 'freeCheckout') {
-        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
         return { ok: await s.journal.freeCheckout(label || method, ...realArgs) };
       }
       if (method === 'moveCheckout') {
-        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
         return { ok: await s.journal.moveCheckout(label || method, ...realArgs) };
       }
       if (method === 'removeWorktree') {
@@ -458,7 +461,7 @@ handle('git', async (e, method, ...args) => {
         const [dir, { close, stash, abort } = {}] = realArgs;
         const other = windowFor(dir);
         if (![undefined, s.win].includes(other)) {
-          if (!close) throw new git.GitError('That worktree is open in another window. Close the window first.');
+          if (!close) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
           await closeWindow(other, path.basename(dir));
         }
         return { ok: await s.journal.runWorktree(method, label || method, [dir, { stash: !!stash, abort: !!abort }]) };
@@ -471,7 +474,7 @@ handle('git', async (e, method, ...args) => {
         const wt = (await git.getWorktrees(s.repo.root)).find((w) => w.branch === branch);
         const other = wt && windowFor(wt.path);
         if (![undefined, s.win].includes(other)) {
-          if (!close) throw new git.GitError('That worktree is open in another window. Close the window first.');
+          if (!close) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
           await closeWindow(other, wt.name);
         }
         const opts = method === 'mergeLane' ? { branch, base, message, abort } : { branch, merge: false, abort };
@@ -516,7 +519,7 @@ function useGit(p) {
 }
 handle('app:git-info', okCall(() => git.gitInfo()));
 handle('app:git-choose', okCall(async (e) => {
-  const res = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile', 'treatPackageAsDirectory'], defaultPath: '/opt/homebrew/bin', message: 'Choose a git program' });
+  const res = await dialog.showOpenDialog(windowOf(e), { properties: ['openFile', 'treatPackageAsDirectory'], defaultPath: '/opt/homebrew/bin', message: 'Choose a git program' });
   if (res.canceled || !res.filePaths[0]) return null;
   chosenGit = await git.gitInfo(res.filePaths[0]);
   return chosenGit;
@@ -532,7 +535,7 @@ handle('app:git-use', okCall(async (_e, which) => {
   writeSettings({ gitPath: p });
   chosenGit = null;
   const info = await git.gitInfo();
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('git', info);
+  broadcast('git', info);
   return info;
 }));
 handle('app:set-theme', (_e, mode) => setTheme(check.oneOf(...THEMES)(mode, 'theme')));
@@ -1234,7 +1237,7 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
       const held = tip && (await git.getWorktrees(root)).find((w) => !w.current && w.branch === local);
       if (held && !(free && git.samePath(held.path, free))) return { inUse: { branch: local, worktree: { name: held.name, path: held.path, missing: held.missing, elsewhere: ![undefined, s.win].includes(windowFor(held.path)) } } };
       if (held) {
-        if (![undefined, s.win].includes(windowFor(held.path))) throw new git.GitError('That worktree is open in another window. Close the window first.');
+        if (![undefined, s.win].includes(windowFor(held.path))) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
         // Bringing that worktree's changes along needs the branch where they were made.
         if (move && args.length > 2) throw new git.GitError(`${local} has to move to the pull request first. Commit or stash the changes in “${held.name}”.`);
         if (move) await s.journal.moveCheckout(`Check out #${number}`, local, held.path, stash);
@@ -1350,7 +1353,7 @@ function initLicensing() {
     mirrorFile: mirrorOverride || path.join(os.homedir(), 'Library', 'Preferences', `.app.gitlanes.desktop${suffix}.trial`),
     now: () => Date.now() + offset,
     onChange: (status) => {
-      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('licence', status);
+      broadcast('licence', status);
       buildMenu();
     },
   });
@@ -1371,12 +1374,23 @@ handle('app:licence-dismiss', () => licensing.dismissNotice());
 handle('app:licence-buy', () => { const u = licensing.config.checkoutUrl; if (u) shell.openExternal(u); return Boolean(u); });
 handle('app:licence-portal', () => { const u = licensing.config.portalUrl; if (u) shell.openExternal(u); return Boolean(u); });
 
+// `win`: the tab asking (see Tab).
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
-  // Reuse an existing window already showing this repository.
+  const opening = win.opening;
+  win.opening = false;
+  // Reuse the tab already showing this repository, in this window or another. A tab opened only for it closes.
   for (const [, s] of sessions) {
-    if (s.repo.root === repo.root && s.win !== win && !s.win.isDestroyed()) { s.win.focus(); return { focused: true }; }
+    if (s.repo.root === repo.root && s.win !== win && !s.win.isDestroyed()) {
+      s.win.focus();
+      if (opening) win.destroy();
+      return { focused: true };
+    }
   }
+  // A tab showing another repository opens this one in a new tab; another worktree of its own repository
+  // replaces it in place, as before tabs (AK-634).
+  const cur = sessions.get(win.webContents.id)?.repo;
+  if (cur && !git.samePath(cur.commonDir || cur.gitDir, repo.commonDir || repo.gitDir)) { win.host.add(repo.root); return { focused: true }; }
   sessions.get(win.webContents.id)?.dispose();
   sessions.set(win.webContents.id, new RepoSession(win, repo));
   addRecent(repo);
@@ -1390,11 +1404,11 @@ async function bindRepo(win, dir) {
 }
 
 handle('app:open', async (e, dir) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
+  const win = tabOf(e);
   try {
     if (dir != null) check.absDir(dir);
     if (!dir) {
-      const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Open a Git repository' });
+      const res = await dialog.showOpenDialog(win.host.win, { properties: ['openDirectory', 'createDirectory'], message: 'Open a Git repository' });
       if (res.canceled) return { ok: null };
       dir = res.filePaths[0];
     }
@@ -1415,7 +1429,7 @@ async function notRepo(id, dir) {
 }
 
 handle('app:init-here', async (e, dir) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
+  const win = tabOf(e);
   try {
     check.absDir(dir);
     if (notRepoDirs.get(e.sender.id) !== dir) throw new Error('That folder wasn’t offered for a new repository.');
@@ -1426,17 +1440,17 @@ handle('app:init-here', async (e, dir) => {
 });
 
 handle('app:init', async (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const res = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Choose a folder for the new repository' });
+  const win = tabOf(e);
+  const res = await dialog.showOpenDialog(win.host.win, { properties: ['openDirectory', 'createDirectory'], message: 'Choose a folder for the new repository' });
   if (res.canceled) return { ok: null };
   try { await git.initRepo(res.filePaths[0]); return { ok: await bindRepo(win, res.filePaths[0]) }; } catch (err) { return { error: serializeError(err) }; }
 });
 
 handle('app:clone', async (e, url) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
+  const win = tabOf(e);
   try { url = check.cloneUrl(url); } catch (err) { return { error: serializeError(err) }; }
   const name = (url.split('/').pop() || 'repo').replace(/\.git$/, '');
-  const res = await dialog.showSaveDialog(win, { defaultPath: name, buttonLabel: 'Clone', message: 'Clone repository to…' });
+  const res = await dialog.showSaveDialog(win.host.win, { defaultPath: name, buttonLabel: 'Clone', message: 'Clone repository to…' });
   if (res.canceled) return { ok: null };
   try {
     await git.cloneRepo(url, res.filePath, (line) => win.webContents.send('clone:progress', line));
@@ -1450,7 +1464,8 @@ handle('app:close-repo', (e) => {
   if (root) removeRecent(root);
   sessions.get(e.sender.id)?.dispose();
   sessions.delete(e.sender.id);
-  BrowserWindow.fromWebContents(e.sender).setTitle('GitLanes');
+  tabOf(e)?.setTitle('GitLanes');
+  tabOf(e)?.setRepresentedFilename('');
   buildMenu();
   notifyWindows();
 });
@@ -1481,16 +1496,29 @@ handle('app:external', (_e, url) => shell.openExternal(check.webUrl(url)));
 handle('app:copy', (_e, text) => clipboard.writeText(check.str(text, 'clipboard text', { max: 16 * 1024 * 1024, empty: true })));
 handle('app:confirm', async (e, opts) => {
   const { message, detail, ok = 'OK', destructive } = check.confirmOptions(opts);
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const res = await dialog.showMessageBox(win, { type: destructive ? 'warning' : 'question', message, detail, buttons: [ok, 'Cancel'], defaultId: 0, cancelId: 1 });
+  const res = await dialog.showMessageBox(windowOf(e), { type: destructive ? 'warning' : 'question', message, detail, buttons: [ok, 'Cancel'], defaultId: 0, cancelId: 1 });
   return res.response === 0;
 });
 handle('app:new-window', () => { createWindow(); });
-// Open another worktree of this window's repository in a new window, or focus the window already showing it.
+handle('app:tabs', (e) => tabOf(e)?.host.list() || []);
+// The tab strip and ⌘K: only this window's tabs.
+handle('app:tab', (e, action, id) => {
+  const tab = tabOf(e);
+  if (!tab) return;
+  const host = tab.host;
+  const target = id == null ? tab : host.tabs.find((t) => t.id === check.int(id, 'tab'));
+  switch (check.tabAction(action)) {
+    case 'new': host.add(); break;
+    case 'close': if (target) closeTab(target); break;
+    case 'select': if (target) host.select(target); break;
+    default: host.step(action === 'next' ? 1 : -1);
+  }
+});
+// Open another worktree of this tab's repository in a new tab, or focus the tab already showing it.
 handle('app:open-window', async (e, dir) => {
   const target = await worktreeFolder(session(e), dir);
   const win = windowFor(target);
-  if (win) win.focus(); else createWindow(target);
+  if (win) win.focus(); else tabOf(e).host.add(target);
 });
 
 // Hand a step to the window showing another worktree of this repository (AK-581), opening one if
@@ -1505,7 +1533,7 @@ handle('app:handoff', async (e, payload) => {
   if (h.path) h.path = check.knownWorktree(list, h.path, git.samePath);
   let win = windowFor(h.dir);
   if (win === s.win) throw new Error('That worktree is open in this window.');
-  if (!win) win = createWindow(h.dir);
+  if (!win) win = s.win.host.add(h.dir);
   handoffs.set(win.webContents.id, h);
   win.focus();
   win.webContents.send('command', 'handoff');
@@ -1524,68 +1552,250 @@ handle('app:open-submodule', async (e, p) => {
   if (!sub.head) throw new Error('That submodule isn’t checked out yet. Update it first.');
   const target = path.join(s.repo.root, sub.path);
   const win = windowFor(target);
-  if (win) win.focus(); else createWindow(target);
+  if (win) win.focus(); else tabOf(e).host.add(target);
 });
 
 // ---------------------------------------------------------------------------
-// Windows & menu
+// Windows, tabs & menu
 
-// `restore`: the launch window, which takes the size and place of the window closed last (AK-633).
-function createWindow(repoDir, restore = false) {
-  const colors = windowColors();
-  const last = restore ? windowState.fitState(windowState.readState(windowStateFile()), screen.getAllDisplays().map((d) => d.workArea)) : null;
-  const win = new BrowserWindow({
-    width: 1360,
-    height: 860,
-    ...last?.bounds,
-    minWidth: 900,
-    minHeight: 560,
-    show: false,
-    backgroundColor: colors.bg,
-    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: { x: 16, y: 16 },
-    titleBarOverlay: isMac ? undefined : { color: colors.bg, symbolColor: colors.symbol, height: 40 },
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      webviewTag: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      navigateOnDragDrop: false,
-      safeDialogs: true,
-      spellcheck: false,
-      devTools: !app.isPackaged || Boolean(process.env.GITLANES_DEVTOOLS),
-    },
-  });
-  bench?.attach(win);
-  // Development only: GITLANES_START_VIEW=map opens repositories on the Map instead of Review (e2e).
-  const view = !app.isPackaged && process.env.GITLANES_START_VIEW === 'map' ? { view: 'map' } : {};
-  const query = { ...(repoDir ? { repo: repoDir } : {}), ...view };
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
-  win.once('ready-to-show', () => { if (last?.maximized) win.maximize(); win.show(); });
-  win.on('close', () => windowState.saveState(windowStateFile(), {
-    bounds: win.getNormalBounds(), maximized: win.isMaximized(), repo: sessions.get(win.webContents.id)?.repo.root || null,
-  }));
-  // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
-  win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') win.webContents.send('command', 'back'); else if (cmd === 'browser-forward') win.webContents.send('command', 'forward'); });
-  win.on('swipe', (e, dir) => { if (dir === 'left' || dir === 'right') win.webContents.send('command', dir === 'left' ? 'back' : 'forward'); });
-  const id = win.webContents.id;
-  win.on('closed', () => { sessions.get(id)?.dispose(); sessions.delete(id); handoffs.delete(id); buildMenu(); notifyWindows(); });
-  return win;
+// A window holds one tab per repository (AK-634). Each tab is its own page (a WebContentsView), so it keeps its
+// own session, watcher and undo, all torn down when the tab closes; only the tab showing is visible. Every tab
+// draws the window's tab strip from the list `changed()` sends it.
+const WEB_PREFERENCES = {
+  preload: path.join(__dirname, 'preload.js'),
+  contextIsolation: true,
+  sandbox: true,
+  nodeIntegration: false,
+  nodeIntegrationInSubFrames: false,
+  webviewTag: false,
+  webSecurity: true,
+  allowRunningInsecureContent: false,
+  navigateOnDragDrop: false,
+  safeDialogs: true,
+  spellcheck: false,
+  devTools: !app.isPackaged || Boolean(process.env.GITLANES_DEVTOOLS),
+};
+// The traffic lights: beside the sidebar, or in the 36px tab strip once there are two tabs.
+const LIGHTS = { x: 16, y: 16 }, TABBED_LIGHTS = { x: 16, y: 11 };
+const TAB_KEYS = ['tab.n1', 'tab.n2', 'tab.n3', 'tab.n4', 'tab.n5', 'tab.n6', 'tab.n7', 'tab.n8'];
+const hosts = new Set(); // TabHost
+const tabs = new Map(); // webContents.id -> Tab
+let windowFocus = () => {};
+
+const tabOf = (e) => tabs.get(e.sender.id);
+const windowOf = (e) => tabOf(e)?.host.win;
+const focusedHost = () => { const w = BaseWindow.getFocusedWindow(); return [...hosts].find((h) => h.win === w); };
+const activeTab = () => focusedHost()?.active;
+function broadcast(channel, ...args) { for (const t of tabs.values()) if (!t.isDestroyed()) t.webContents.send(channel, ...args); }
+
+// What RepoSession, windowFor and the handoffs call a window: a tab, focused, titled and closed like one.
+class Tab extends EventEmitter {
+  // `dir`: the folder it opens (none: the welcome screen).
+  constructor(host, dir) {
+    super();
+    this.host = host;
+    this.view = new WebContentsView({ webPreferences: WEB_PREFERENCES });
+    this.view.setBackgroundColor(windowColors().bg);
+    this.webContents = this.view.webContents;
+    this.id = this.webContents.id;
+    this.title = 'GitLanes';
+    this.root = '';
+    tabs.set(this.id, this);
+    // Taken before the page sees them, so they work wherever the focus is; the Window menu only shows them.
+    this.webContents.on('before-input-event', (ev, input) => {
+      if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
+      const id = keymap.match('menu', { key: input.key, code: input.code, metaKey: input.meta, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift }, null, isMac);
+      if (id === 'tab.next' || id === 'tab.prev') { ev.preventDefault(); this.host.step(id === 'tab.next' ? 1 : -1); }
+    });
+    this.webContents.once('destroyed', () => this.gone());
+    this.load(dir);
+  }
+
+  load(dir) {
+    this.opening = Boolean(dir);
+    // Development only: GITLANES_START_VIEW=map opens repositories on the Map instead of Review (e2e).
+    const view = !app.isPackaged && process.env.GITLANES_START_VIEW === 'map' ? { view: 'map' } : {};
+    const query = { ...(dir ? { repo: dir } : {}), ...view };
+    this.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
+  }
+
+  isDestroyed() { return this.webContents.isDestroyed(); }
+  focus() { this.host.select(this); this.host.win.show(); this.host.win.focus(); }
+  setTitle(title) { this.title = title; this.host.changed(); }
+  setRepresentedFilename(root) { this.root = root; this.host.changed(); }
+  destroy() { this.host.remove(this); }
+
+  // The last tab's ⌘W: the repository closes and the welcome screen shows (it stays on the recent list).
+  reset() {
+    sessions.get(this.id)?.dispose();
+    sessions.delete(this.id);
+    this.title = 'GitLanes';
+    this.setRepresentedFilename('');
+    this.load();
+    notifyWindows();
+  }
+
+  gone() {
+    sessions.get(this.id)?.dispose();
+    sessions.delete(this.id);
+    handoffs.delete(this.id);
+    notRepoDirs.delete(this.id);
+    tabs.delete(this.id);
+    this.emit('closed');
+    buildMenu();
+    notifyWindows();
+  }
 }
 
-// With no folder to open (launch, or the Dock icon with no windows left), reopen the repository of the window
-// closed last while it is still a recent repository, else show the welcome screen (AK-633). Calls made while one
-// is under way share it; a folder dropped on the Dock icon may have opened a window meanwhile.
+class TabHost {
+  // `restore`: the launch window, which takes the size and place of the window closed last (AK-633).
+  constructor(restore = false) {
+    const colors = windowColors();
+    const last = restore ? windowState.fitState(windowState.readState(windowStateFile()), screen.getAllDisplays().map((d) => d.workArea)) : null;
+    const win = this.win = new BaseWindow({
+      width: 1360,
+      height: 860,
+      ...last?.bounds,
+      minWidth: 900,
+      minHeight: 560,
+      show: false,
+      backgroundColor: colors.bg,
+      titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+      trafficLightPosition: LIGHTS,
+      titleBarOverlay: isMac ? undefined : { color: colors.bg, symbolColor: colors.symbol, height: 40 },
+    });
+    this.maximized = Boolean(last?.maximized);
+    this.tabs = [];
+    this.active = null;
+    hosts.add(this);
+    win.on('resize', () => this.layout());
+    win.on('focus', () => windowFocus());
+    win.on('close', () => windowState.saveState(windowStateFile(), { bounds: win.getNormalBounds(), maximized: win.isMaximized(), ...this.roots() }));
+    // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
+    const toActive = (cmd) => this.active?.webContents.send('command', cmd);
+    win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') toActive('back'); else if (cmd === 'browser-forward') toActive('forward'); });
+    win.on('swipe', (e, dir) => { if (dir === 'left' || dir === 'right') toActive(dir === 'left' ? 'back' : 'forward'); });
+    // Closing a window doesn't close its tabs' pages: close them, which ends their sessions.
+    win.on('closed', () => {
+      hosts.delete(this);
+      for (const t of this.tabs) if (!t.isDestroyed()) t.webContents.close();
+      this.tabs = [];
+      buildMenu();
+    });
+  }
+
+  // What launch reopens: the repositories' roots, in tab order, and the one showing.
+  roots() {
+    const root = (t) => sessions.get(t.id)?.repo.root;
+    return { tabs: this.tabs.map(root).filter(Boolean), active: (this.active && root(this.active)) || null };
+  }
+
+  list() { return this.tabs.map((t) => ({ id: t.id, title: t.title, active: t === this.active })); }
+
+  // A new last tab, shown unless `show` is false.
+  add(dir, { show = true } = {}) {
+    const tab = new Tab(this, dir);
+    this.tabs.push(tab);
+    this.win.contentView.addChildView(tab.view);
+    this.layout();
+    // A new window shows once its first page has loaded.
+    if (!this.win.isVisible()) {
+      tab.webContents.once('did-finish-load', () => {
+        if (this.win.isDestroyed() || this.win.isVisible()) return;
+        if (this.maximized) this.win.maximize();
+        this.win.show();
+      });
+    }
+    if (show || !this.active) this.select(tab);
+    else { tab.view.setVisible(false); this.changed(); }
+    return tab;
+  }
+
+  select(tab) {
+    if (!this.tabs.includes(tab)) return;
+    this.active = tab;
+    for (const t of this.tabs) t.view.setVisible(t === tab);
+    tab.webContents.focus();
+    this.changed();
+  }
+
+  step(by) { const i = tabOrder.step(this.tabs.length, this.tabs.indexOf(this.active), by); if (i >= 0) this.select(this.tabs[i]); }
+  pick(n) { const i = tabOrder.byNumber(this.tabs.length, n); if (i >= 0) this.select(this.tabs[i]); }
+
+  // Closes a tab; the window closes with its last one.
+  remove(tab) {
+    const i = this.tabs.indexOf(tab);
+    if (i < 0) return;
+    if (this.tabs.length === 1) { this.win.close(); return; }
+    const next = tabOrder.afterClose(this.tabs.length, i);
+    this.tabs.splice(i, 1);
+    this.win.contentView.removeChildView(tab.view);
+    tab.webContents.close();
+    if (this.active === tab) this.select(this.tabs[next]); else this.changed();
+  }
+
+  layout() {
+    if (this.win.isDestroyed()) return;
+    const [width, height] = this.win.getContentSize();
+    for (const t of this.tabs) t.view.setBounds({ x: 0, y: 0, width, height });
+  }
+
+  // The window's title, traffic lights, menu and every tab's strip follow the tabs and the one showing.
+  changed() {
+    if (this.win.isDestroyed()) return;
+    const a = this.active;
+    this.win.setTitle(a?.title || 'GitLanes');
+    if (isMac) {
+      this.win.setRepresentedFilename(a?.root || '');
+      this.win.setWindowButtonPosition(this.tabs.length > 1 ? TABBED_LIGHTS : LIGHTS);
+    }
+    const list = this.list();
+    for (const t of this.tabs) if (!t.isDestroyed()) t.webContents.send('tabs', list);
+    buildMenu();
+  }
+}
+
+// A new window with a tab for each folder in `dirs` (none: the welcome screen), showing the tab at `active`.
+function createWindow(dirs, { restore = false, active = 0 } = {}) {
+  const host = new TabHost(restore);
+  const list = [].concat(dirs ?? []);
+  if (!list.length) list.push(undefined);
+  list.forEach((d, i) => host.add(d, { show: i === active }));
+  bench?.attach({ setBounds: (b) => host.win.setBounds(b), webContents: host.tabs[0].webContents });
+  return host.active;
+}
+
+const newTab = () => { const h = focusedHost(); if (h) h.add(); else createWindow(); };
+// ⌘W: closes the tab. The last tab closes its repository instead (the welcome screen shows), and on the
+// welcome screen the window.
+function closeTab(tab = activeTab()) {
+  if (!tab) return BaseWindow.getFocusedWindow()?.close();
+  if (tab.host.tabs.length > 1) return tab.destroy();
+  if (sessions.has(tab.id)) return tab.reset();
+  return tab.host.win.close();
+}
+
+// A folder from Finder, the Dock or `open`: the tab already showing it, else a new tab in the front window.
+function openFolder(dir) {
+  const shown = windowFor(dir);
+  if (shown) return shown.focus();
+  const host = focusedHost() || [...hosts].at(-1);
+  if (!host) return createWindow(dir);
+  host.add(dir);
+  return host.win.focus();
+}
+
+// With no folder to open (launch, or the Dock icon with no windows left), reopen the tabs of the window closed
+// last that are still recent repositories, else show the welcome screen (AK-633). Calls made while one is under
+// way share it; a folder dropped on the Dock icon may have opened a window meanwhile.
 let openingLast = null;
 function openLastWindow() {
   openingLast ||= (async () => {
     const state = windowState.readState(windowStateFile());
-    const root = await recentStore.lastRepo(recentFile(), git.openRepo, state ? state.repo : undefined);
-    if (!BrowserWindow.getAllWindows().length) createWindow(root || undefined, true);
+    // Saved before tabs: `repo`, one root or null.
+    const wanted = !state ? undefined : Array.isArray(state.tabs) ? state.tabs : state.repo ? [state.repo] : [];
+    const roots = await recentStore.lastTabs(recentFile(), git.openRepo, wanted);
+    if (!hosts.size) createWindow(roots, { restore: true, active: tabOrder.reopenActive(roots, state?.active ?? state?.repo) });
   })().finally(() => { openingLast = null; });
   return openingLast;
 }
@@ -1601,7 +1811,7 @@ function setKeymap(o) {
   const next = keymap.getOverrides();
   writeSettings({ keymap: next });
   buildMenu();
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('keymap', next);
+  broadcast('keymap', next);
   return next;
 }
 handle('app:keymap', () => keymap.getOverrides());
@@ -1622,20 +1832,20 @@ handle('app:set-keymap', (_e, o) => {
   return setKeymap(o); // sanitize() drops unknown commands, reserved keys and bad bindings
 });
 handle('app:keymap-export', async (e) => {
-  const res = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), { defaultPath: 'gitlanes-shortcuts.json', message: 'Export your custom shortcuts' });
+  const res = await dialog.showSaveDialog(windowOf(e), { defaultPath: 'gitlanes-shortcuts.json', message: 'Export your custom shortcuts' });
   if (res.canceled || !res.filePath) return null;
   fs.writeFileSync(res.filePath, JSON.stringify({ gitlanes: 'keymap', version: 1, keymap: keymap.getOverrides() }, null, 2));
   return res.filePath;
 });
 handle('app:keymap-import', async (e) => {
-  const res = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }], message: 'Import shortcuts' });
+  const res = await dialog.showOpenDialog(windowOf(e), { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }], message: 'Import shortcuts' });
   if (res.canceled || !res.filePaths[0]) return null;
   let data;
   try { data = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf8')); } catch { throw new Error('That file isn\u2019t a shortcuts file.'); }
   const o = data?.gitlanes === 'keymap' ? data.keymap : data;
   return setKeymap({ ...keymap.getOverrides(), ...keymap.sanitize(o) });
 });
-const send = (cmd, ...args) => () => BrowserWindow.getFocusedWindow()?.webContents.send('command', cmd, ...args);
+const send = (cmd, ...args) => () => activeTab()?.webContents.send('command', cmd, ...args);
 
 
 function licenceItems() {
@@ -1649,7 +1859,9 @@ function licenceItems() {
 
 function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
-  const journal = sessions.get(BrowserWindow.getFocusedWindow()?.webContents.id)?.journal;
+  const journal = sessions.get(activeTab()?.id)?.journal;
+  const front = focusedHost();
+  const open = front?.tabs || [];
   const nextUndo = journal?.undo.top, nextRedo = journal?.redo.top;
   const update = updater.getState();
   const updateItem = update.status === 'ready'
@@ -1664,6 +1876,7 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
+        { label: 'New Tab', accelerator: acc('file.newTab'), click: newTab },
         { label: 'New Window', accelerator: acc('file.newWindow'), click: () => createWindow() },
         item('New Repository…', acc('file.init'), 'init'),
         item('Open Repository…', acc('file.open'), 'open'),
@@ -1674,7 +1887,8 @@ function buildMenu() {
           submenu: readRecent().slice(0, 10).map((rr) => ({ label: rr.name, sublabel: rr.root, click: send('open', rr.root) })),
         },
         { type: 'separator' },
-        { role: 'close' },
+        { label: 'Close Tab', accelerator: acc('file.close'), click: () => closeTab() },
+        { label: 'Close Window', accelerator: acc('file.closeWindow'), click: () => BaseWindow.getFocusedWindow()?.close() },
       ],
     },
     {
@@ -1782,7 +1996,24 @@ function buildMenu() {
         item('Open Origin in Browser', acc('repo.origin'), 'origin'),
       ],
     },
-    { role: 'windowMenu' },
+    {
+      label: 'Window',
+      role: 'window',
+      submenu: [
+        { role: 'minimize' }, { role: 'zoom' },
+        { type: 'separator' },
+        // ⌃Tab and ⌃⇧Tab are taken by each tab's page (Tab), so the menu only shows them.
+        { label: 'Show Previous Tab', accelerator: acc('tab.prev'), registerAccelerator: false, enabled: open.length > 1, click: () => front?.step(-1) },
+        { label: 'Show Next Tab', accelerator: acc('tab.next'), registerAccelerator: false, enabled: open.length > 1, click: () => front?.step(1) },
+        ...(open.length > 1 ? [
+          { type: 'separator' },
+          ...open.slice(0, TAB_KEYS.length).map((t, i) => ({ label: t.title, type: 'checkbox', checked: t === front.active, accelerator: acc(TAB_KEYS[i]), click: () => front.select(t) })),
+          { label: 'Last Tab', accelerator: acc('tab.last'), click: () => front.pick(9) },
+        ] : []),
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
     { role: 'help', submenu: [item('Keyboard Shortcuts', acc('help.shortcuts'), 'shortcuts')] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -1827,7 +2058,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: prMedia.SCHEME, privileges: { st
 
 app.on('open-file', (ev, p) => {
   ev.preventDefault();
-  if (app.isReady()) createWindow(p); else app.once('ready', () => createWindow(p));
+  if (app.isReady()) openFolder(p); else app.once('ready', () => openFolder(p));
 });
 
 app.whenReady().then(() => {
@@ -1852,17 +2083,17 @@ app.whenReady().then(() => {
     devFeed: app.isPackaged ? null : process.env.GITLANES_UPDATE_FEED,
     onChange: (state) => {
       buildMenu();
-      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('update', { ...state, page: updater.page() });
+      broadcast('update', { ...state, page: updater.page() });
     },
   });
   lockDownSession(electronSession.fromPartition(updater.PARTITION, { cache: false }), updater.allowedOrigins());
   buildMenu();
-  app.on('browser-window-focus', () => { buildMenu(); revalidate(); });
+  windowFocus = () => { buildMenu(); revalidate(); };
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // pnpm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran pnpm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
-  if (repoPath && fs.existsSync(repoPath)) createWindow(repoPath, true); else openLastWindow();
-  app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) openLastWindow(); });
+  if (repoPath && fs.existsSync(repoPath)) createWindow(repoPath, { restore: true }); else openLastWindow();
+  app.on('activate', () => { if (!hosts.size) openLastWindow(); });
   // Validate the licence at launch, then about daily while running (on focus and hourly ticks);
   // offline is fine, the cached validation carries on.
   licensing.refresh().catch((e) => console.warn('licence check failed', e.message));

@@ -40,11 +40,11 @@ test('the renderer has no Node, no network and cannot navigate', async ({ sandbo
   await app.app.evaluate(({ shell }) => { globalThis.__opened = []; shell.openExternal = async (u) => { globalThis.__opened.push(u); }; });
   await page.evaluate(() => { window.open('https://example.com/'); window.open('file:///etc/passwd'); });
   await expect.poll(() => app.app.evaluate(() => globalThis.__opened)).toEqual(['https://example.com/']);
-  const after = await app.app.evaluate(async ({ BrowserWindow }) => {
-    const wc = BrowserWindow.getAllWindows()[0].webContents;
+  const after = await app.app.evaluate(async ({ BaseWindow, webContents }) => {
+    const wc = webContents.getAllWebContents().find((w) => w.getURL().startsWith('file:'));
     await wc.executeJavaScript("location.href = 'https://example.com/'; 0");
     await new Promise((r) => setTimeout(r, 1000));
-    return { windows: BrowserWindow.getAllWindows().length, url: wc.getURL(), repo: await wc.executeJavaScript("document.querySelector('.sidebar .repo-name')?.textContent") };
+    return { windows: BaseWindow.getAllWindows().length, url: wc.getURL(), repo: await wc.executeJavaScript("document.querySelector('.sidebar .repo-name')?.textContent") };
   });
   expect(after).toEqual({ windows: 1, url, repo: 'repo' });
   expect(violations.length).toBeGreaterThan(0); // the probes above were reported, not silently allowed
