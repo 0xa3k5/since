@@ -12,7 +12,7 @@ const ORIGIN = remote('origin', 'git@github.com:acme/app.git');
 
 // A folder with a fake `gh` so findBinary finds it; the exec stub records calls instead of running it.
 function fakeGh() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-test-'));
   fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
   return dir;
 }
@@ -132,7 +132,7 @@ test('listPrs: who you are on the repository, once per session; a failed lookup 
 });
 
 test('listPrs / detect: missing gh, logged out and other errors', async () => {
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-test-'));
   await assert.rejects(github.listPrs({ enabled: true, remotes: [ORIGIN], dirs: [empty] }), { code: 'gh-missing' });
   await assert.rejects(github.listPrs({ enabled: true, remotes: [remote('l', '/srv/app')], dirs: [empty] }), { code: 'gh-no-remote' });
   const fail = (msg) => async () => { throw new Error(msg); };
@@ -241,7 +241,7 @@ test('viewPr: off, bad numbers and missing gh run nothing; asks gh for one PR', 
   await assert.rejects(github.viewPr({ enabled: false, remotes: [ORIGIN], number: 12, dirs: [dir], exec }), { code: 'gh-off' });
   for (const n of [0, -1, 1.5, '12', null]) await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: n, dirs: [dir], exec }));
   await assert.rejects(github.viewPr({ enabled: true, remotes: [], number: 12, dirs: [dir], exec }), { code: 'gh-no-remote' });
-  await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-none-'))], exec }), { code: 'gh-missing' });
+  await assert.rejects(github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-none-'))], exec }), { code: 'gh-missing' });
   assert.equal(calls.length, 0);
   const res = await github.viewPr({ enabled: true, remotes: [ORIGIN], number: 12, dirs: [dir], exec });
   assert.deepEqual(calls[0].args, ['pr', 'view', '12', '--repo', 'github.com/acme/app', '--json', github.VIEW_FIELDS.join(',')]);

@@ -11,7 +11,7 @@ const { LogStreams, CLOSED } = require('../log-streams');
 const { generate } = require('../bench/synth');
 
 async function tmp() {
-  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 }
 
 async function readAll(logs, id) {
@@ -64,7 +64,7 @@ test('log streams: end, close, dispose and stale ids', async () => {
 });
 
 test('streamLog throws when git fails instead of ending the log', async () => {
-  const s = git.streamLog(path.join(os.tmpdir(), 'gitlanes-no-such-dir-' + process.pid), { kind: 'topo' });
+  const s = git.streamLog(path.join(os.tmpdir(), 'since-no-such-dir-' + process.pid), { kind: 'topo' });
   await assert.rejects(s.read(), git.GitError);
   // An empty repository is a normal, empty log (git exits 128 there).
   const dir = await tmp();

@@ -24,7 +24,7 @@
 // - Fragile file: a changed, non-test file whose share of fix/revert commits (subject starts with
 //   `fix`, `fix(scope):`, `fix!:` or `Revert "`) over the 90 days before the merge base is at least
 //   FRAGILE_SHARE, with at least FRAGILE_MIN_COMMITS commits in that window and FRAGILE_MIN_FIXES
-//   of them fixes. Calibrated on the GitLanes clone (2026-10-17): the highest non-test share was
+//   of them fixes. Calibrated on the Since clone (2026-10-17): the highest non-test share was
 //   0.44 (renderer/lanes.js, 4 of 9), git.js 0.26 (11 of 43) and app.js 0.21 (27 of 128), so 0.5
 //   keeps all of them quiet while a file that's fixed in half of its recent commits still shows.
 //   Test files are left out: fixes add regression tests, which says nothing about the test.

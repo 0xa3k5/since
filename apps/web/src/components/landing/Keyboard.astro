@@ -138,7 +138,7 @@ const cls = ([k, , c = '']: Key) => `k ${c}${k in LEG ? ' on' : ''}`;
       }
       if (k === 'escape') { S.pane = 'detail'; render(); return true; }
       if (shift && k === 'p') { S.pane = 'plan'; render(); mark('plan', real); return true; }
-      if (shift && k === 'c') { toast('Caught up to <span style="font-family:var(--mono)">6f602d2</span> on main'); return true; }
+      if (shift && k === 'c') { toast('Checkpoint moved to <span style="font-family:var(--mono)">6f602d2</span> on main'); return true; }
       if (shift && k === 'enter') { toast('Walking through 21 merged PRs · <kbd>↓</kbd> next'); return true; }
       if (shift) return false;
       switch (k) {

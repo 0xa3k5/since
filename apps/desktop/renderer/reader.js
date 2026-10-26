@@ -23,7 +23,7 @@ import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkL
 //    E (review.evidence) opens the next tab. Tabs with nothing in them aren't shown.
 //  - mediaGallery (AK-521): the Media tab's 112×72 thumbnails (description, then comments, then
 //    reviews), loaded by the main process (pr-media.js): images as data: URLs kept in memory only,
-//    videos streamed from gitlanes-media: and never stored. I (review.media) opens the tab and
+//    videos streamed from since-media: and never stored. I (review.media) opens the tab and
 //    focuses the first one; ←/→ move between them; Space enlarges the focused one over the reader
 //    (←/→ browse, K plays or pauses a video, Space or Esc closes).
 //  - readerKey: the reader's keys once focus is in it (↵ from the list): ↑/↓ scroll by a few lines,
@@ -500,7 +500,7 @@ function imageFor(m, loadImage) {
   }
   return images.get(m.id);
 }
-const videoSrc = (m) => `gitlanes-media://video/${m.id}`;
+const videoSrc = (m) => `since-media://video/${m.id}`;
 const FROM = { description: 'the description', comment: 'a comment', review: 'a review' };
 const fromText = (m) => `from ${FROM[m.from] || 'a comment'}${m.author && m.from !== 'description' ? ` by ${m.author}` : ''}`;
 const fileName = (m) => { try { return decodeURIComponent(new URL(m.url).pathname.split('/').pop()) || m.kind; } catch { return m.kind; } };

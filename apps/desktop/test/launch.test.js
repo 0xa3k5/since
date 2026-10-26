@@ -10,7 +10,7 @@ const git = require('../git');
 const recent = require('../recent-store');
 const { readState, saveState, fitState } = require('../window-state');
 
-const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 const init = (dir) => { fs.mkdirSync(dir, { recursive: true }); execFileSync('git', ['init', '-q', dir]); return dir; };
 
 test('launch reopens the newest recent repository', async () => {

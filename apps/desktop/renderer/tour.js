@@ -1,4 +1,4 @@
-// The welcome-screen playground: a tiny pretend repository that walks through what GitLanes does,
+// The welcome-screen playground: a tiny pretend repository that walks through what Since does,
 // one short lesson at a time (move a branch, rewrite with one key, find anything in ⌘K, take it
 // back). Pure state only (no DOM, no git), so it can be unit-tested; the view is tour-view.js.
 

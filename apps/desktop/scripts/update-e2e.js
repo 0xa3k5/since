@@ -1,7 +1,7 @@
 'use strict';
 // End-to-end auto-update test against two local test releases. macOS only; takes a few minutes.
 //
-//   pnpm --filter @gitlanes/desktop test:update [-- --keep]
+//   pnpm --filter @gitsince/desktop test:update [-- --keep]
 //
 // 1. Creates a throwaway keychain holding a self-signed code-signing certificate. Squirrel.Mac only
 //    installs an update signed by the same identity as the running app, so ad-hoc builds can't update.
@@ -14,7 +14,7 @@
 // 5. Checks the installed bundle is now 0.0.2 and that it relaunched, then stops it and cleans up.
 //
 // Nothing outside the temp dir is touched except Squirrel's own cache
-// (~/Library/Caches/app.gitlanes.desktop.ShipIt) and the relaunched app's default userData folder.
+// (~/Library/Caches/com.gitsince.app.ShipIt) and the relaunched app's default userData folder.
 const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -27,7 +27,7 @@ const APP_DIR = path.join(__dirname, '..');
 const KEEP = process.argv.includes('--keep');
 const ARCH = process.arch;
 const OLD = '0.0.1', NEW = '0.0.2';
-const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-update-e2e-')));
+const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-update-e2e-')));
 const shots = path.join(APP_DIR, 'test-results', 'update-e2e');
 const run = (cmd, args, opts = {}) => (execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }) || '').trim();
 const step = (msg) => console.log(`\n▸ ${msg}`);
@@ -46,11 +46,11 @@ async function until(what, fn, timeout = 120_000) {
 
 function makeIdentity() {
   const kc = path.join(tmp, 'update-e2e.keychain-db');
-  const pw = 'gitlanes-e2e';
+  const pw = 'since-e2e';
   const cnf = path.join(tmp, 'cert.cnf');
   fs.writeFileSync(cnf, [
     '[req]', 'distinguished_name = dn', 'x509_extensions = ext', 'prompt = no',
-    '[dn]', 'CN = GitLanes Update E2E',
+    '[dn]', 'CN = Since Update E2E',
     '[ext]', 'basicConstraints = critical,CA:false', 'keyUsage = critical,digitalSignature', 'extendedKeyUsage = critical,codeSigning',
   ].join('\n'));
   const key = path.join(tmp, 'key.pem'), crt = path.join(tmp, 'cert.pem'), p12 = path.join(tmp, 'cert.p12');
@@ -73,7 +73,7 @@ function build(version, feed) {
 module.exports = { ...base, directories: { ...base.directories, output: ${JSON.stringify(out)} },
   extraMetadata: { version: ${JSON.stringify(version)}, updates: { feed: ${JSON.stringify(feed)}, page: ${JSON.stringify(feed)} } } };\n`);
   run('pnpm', ['exec', 'electron-builder', '--mac', 'dir', `--${ARCH}`, '--projectDir', APP_DIR, '--config', cfg, '--publish', 'never'], { cwd: APP_DIR, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } });
-  const app = path.join(out, ARCH === 'arm64' ? 'mac-arm64' : 'mac', 'GitLanes.app');
+  const app = path.join(out, ARCH === 'arm64' ? 'mac-arm64' : 'mac', 'Since.app');
   if (plistVersion(app) !== version) throw new Error(`${app} is not ${version}`);
   return app;
 }
@@ -111,7 +111,7 @@ async function main() {
     console.log(fs.readFileSync(path.join(served, feedName(ARCH)), 'utf8'));
 
     step(`Installing ${OLD} and launching it`);
-    const installed = path.join(tmp, 'Applications', 'GitLanes.app');
+    const installed = path.join(tmp, 'Applications', 'Since.app');
     fs.mkdirSync(path.dirname(installed));
     run('ditto', [oldApp, installed]);
     const repo = path.join(tmp, 'repo');
@@ -121,9 +121,9 @@ async function main() {
     fs.mkdirSync(userData);
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ theme: 'dark' }));
     const cdp = 9300 + Math.floor(Math.random() * 500);
-    const exe = path.join(installed, 'Contents', 'MacOS', 'GitLanes');
+    const exe = path.join(installed, 'Contents', 'MacOS', 'Since');
     // --use-mock-keychain: each run signs with a new identity, so macOS would otherwise prompt for the
-    // "GitLanes Safe Storage" keychain item (cookie encryption) and block the window until answered.
+    // "Since Safe Storage" keychain item (cookie encryption) and block the window until answered.
     // -ApplePersistenceIgnoreState: skip the "reopen windows?" alert after an earlier run was killed.
     child = spawn(exe, [`--user-data-dir=${userData}`, `--remote-debugging-port=${cdp}`, '--use-mock-keychain', repo, '-ApplePersistenceIgnoreState', 'YES'], { stdio: ['ignore', 'inherit', 'inherit'] });
     const exited = new Promise((r) => child.once('exit', r));
@@ -133,11 +133,11 @@ async function main() {
       const pages = browser.contexts().flatMap((c) => c.pages());
       return pages.find((p) => p.url().includes('index.html'));
     }, 120_000);
-    const ready = page.locator('.toast', { hasText: `GitLanes ${NEW} is ready` });
+    const ready = page.locator('.toast', { hasText: `Since ${NEW} is ready` });
     step('Waiting for the background download');
     let last = '';
     await until('the "Restart to update" toast', async () => {
-      const st = await page.evaluate(() => window.gitlanes.app('update-state'));
+      const st = await page.evaluate(() => window.since.app('update-state'));
       const line = `${st.status}${st.version ? ` ${st.version}` : ''}${st.error ? `: ${st.error}` : ''}`;
       if (line !== last) console.log(`  [app] ${(last = line)}`);
       return ready.isVisible();

@@ -64,7 +64,7 @@ function polarStore(config, { fetch = globalThis.fetch, timeout = 15000 } = {}) 
       if (/limit/i.test(detail)) throw new StoreError('limit', `This key is already active on ${config.activationLimit} Macs. Deactivate one in the customer portal, then try again.`, detail);
       throw new StoreError('rejected', 'This licence key has been revoked or disabled.', detail);
     }
-    if ((res.status === 422 || res.status === 400) && polarError) throw new StoreError('invalid', 'That doesn’t look like a GitLanes licence key.', `HTTP ${res.status} ${polarError}: ${JSON.stringify(data.detail).slice(0, 300)}`);
+    if ((res.status === 422 || res.status === 400) && polarError) throw new StoreError('invalid', 'That doesn’t look like a Since licence key.', `HTTP ${res.status} ${polarError}: ${JSON.stringify(data.detail).slice(0, 300)}`);
     throw new StoreError('network', 'The licence server had a problem. Try again in a moment.', `HTTP ${res.status}: ${detail}`);
   }
 
@@ -105,7 +105,7 @@ function polarStore(config, { fetch = globalThis.fetch, timeout = 15000 } = {}) 
   };
 }
 
-// In-memory store for development (GITLANES_STORE=mock) and tests.
+// In-memory store for development (SINCE_STORE=mock) and tests.
 // GL-TEST-… keys activate; GL-TEST-REVOKED… keys activate and then fail validation;
 // GL-TEST-FULL… keys hit the activation limit; GL-TEST-OFFLINE… keys activate and then behave as offline.
 function mockStore(config = { activationLimit: 3 }) {

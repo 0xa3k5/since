@@ -22,7 +22,7 @@ async function commit(dir, file, content, msg = `edit ${file}`) {
   await g(dir, ['commit', '-q', '-m', msg]);
 }
 async function repo() {
-  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-fanout-'))), 'app');
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-fanout-'))), 'app');
   fs.mkdirSync(dir);
   await g(dir, ['init', '-q', '-b', 'main']);
   await g(dir, ['config', 'user.name', 'Test']);

@@ -14,7 +14,7 @@ const load = () => import('../renderer/pr-review.js');
 const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
 
 test('fetchPrHead: fetches refs/pull/<n>/head into FETCH_HEAD only; branchReview diffs it', async () => {
-  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-prreview-')));
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-prreview-')));
   try {
     const up = path.join(tmp, 'up');
     fs.mkdirSync(up);

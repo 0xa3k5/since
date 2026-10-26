@@ -27,10 +27,10 @@ test('garbage versions never count as newer', () => {
 });
 
 test('a built feed reads back, in the shape Squirrel.Mac expects', () => {
-  const feed = buildFeed({ version: '0.2.0', url: 'https://example.com/GitLanes-0.2.0-arm64-mac.zip', notes: 'Fixes' });
+  const feed = buildFeed({ version: '0.2.0', url: 'https://example.com/Since-0.2.0-arm64-mac.zip', notes: 'Fixes' });
   assert.strictEqual(feed.currentRelease, '0.2.0');
   assert.deepStrictEqual(Object.keys(feed.releases[0].updateTo).sort(), ['name', 'notes', 'pub_date', 'url', 'version']);
-  assert.deepStrictEqual(readFeed(feed), { version: '0.2.0', url: 'https://example.com/GitLanes-0.2.0-arm64-mac.zip', notes: 'Fixes' });
+  assert.deepStrictEqual(readFeed(feed), { version: '0.2.0', url: 'https://example.com/Since-0.2.0-arm64-mac.zip', notes: 'Fixes' });
 });
 
 test('malformed feeds are rejected', () => {
@@ -49,19 +49,19 @@ test('malformed feeds are rejected', () => {
 test('feed URLs and the packaged zip names agree', () => {
   assert.strictEqual(feedUrl('https://x.test/dl/', 'arm64'), 'https://x.test/dl/update-mac-arm64.json');
   const config = require('../electron-builder.config.js');
-  const expanded = config.mac.artifactName.replace('${productName}', 'GitLanes').replace('${version}', '1.2.3').replace('${arch}', 'x64').replace('${ext}', 'zip');
+  const expanded = config.mac.artifactName.replace('${productName}', 'Since').replace('${version}', '1.2.3').replace('${arch}', 'x64').replace('${ext}', 'zip');
   assert.strictEqual(expanded, zipName('1.2.3', 'x64'));
   assert.match(pkg.updates.feed, /^https:\/\//);
   assert.match(pkg.updates.page, /^https:\/\//);
 });
 
 test('update-feed.js writes one feed per zip', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-feed-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-feed-'));
   try {
     fs.writeFileSync(path.join(dir, zipName('0.3.0', 'arm64')), '');
     execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'update-feed.js'), '--version', '0.3.0', '--base-url', 'https://dl.test/v0.3.0/', '--dir', dir], { stdio: 'pipe' });
     const feed = JSON.parse(fs.readFileSync(path.join(dir, feedName('arm64')), 'utf8'));
-    assert.strictEqual(readFeed(feed).url, 'https://dl.test/v0.3.0/GitLanes-0.3.0-arm64-mac.zip');
+    assert.strictEqual(readFeed(feed).url, 'https://dl.test/v0.3.0/Since-0.3.0-arm64-mac.zip');
     assert.ok(!fs.existsSync(path.join(dir, feedName('x64'))), 'no x64 zip, so no x64 feed');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -70,7 +70,7 @@ test('update-feed.js writes one feed per zip', () => {
 
 test('only bundles with a real signing identity are handed to Squirrel', () => {
   assert.equal(isSignedOutput('Executable=/x\nAuthority=Developer ID Application: A (T)\nTeamIdentifier=T'), true);
-  assert.equal(isSignedOutput('Authority=GitLanes Update Test'), true);
+  assert.equal(isSignedOutput('Authority=Since Update Test'), true);
   assert.equal(isSignedOutput('Executable=/x\nSignature=adhoc\nTeamIdentifier=not set'), false);
   assert.equal(isSignedOutput('/x: code object is not signed at all'), false);
   assert.equal(isSignedOutput(''), false);

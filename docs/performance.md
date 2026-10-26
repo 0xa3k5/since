@@ -1,6 +1,6 @@
 # Performance
 
-GitLanes opens very large histories without a commit cap. On an M1 Pro, the full Linux kernel history
+Since opens very large histories without a commit cap. On an M1 Pro, the full Linux kernel history
 (1,485,146 commits) shows its first rows **0.3 s after the window loads** (0.54 s from launch) and is laid out
 end to end in **3.5 s**. Scrolling stays at the display's refresh rate (120 fps).
 
@@ -31,7 +31,7 @@ Please keep the machine next to any number, and don't round 0.54 s down to "inst
 | Memory after loading 100k commits (all processes, idle) | < 800 MB | ~550 MB | ✅ |
 | Memory after loading 1.5M commits (all processes, idle) | < 1.5 GB | ~1.35 GB | ✅ (tight) |
 
-"Warm" means git's commit-graph file exists, which is the normal state of any repository GitLanes has opened
+"Warm" means git's commit-graph file exists, which is the normal state of any repository Since has opened
 once (see [Cold opens](#cold-opens-fresh-clones)).
 
 ## Before and after
@@ -59,7 +59,7 @@ First paint measured from window load instead of app launch: 810 → 267 ms (100
 | Linux kernel | 26,446 → **707 ms** | 26,447 → **18,266 ms** |
 
 A fresh clone usually has no commit-graph file. Without it, git has to walk the entire history before it can print
-a date-ordered log. GitLanes now shows the newest 1,000 commits immediately (in plain date order, which streams
+a date-ordered log. Since now shows the newest 1,000 commits immediately (in plain date order, which streams
 at once) and fills in the ordered graph when git gets there. After that first load it writes the commit-graph in
 the background (`git commit-graph write --reachable`, the same file `git gc` and `git maintenance` write), so
 every later open is warm.
@@ -127,8 +127,8 @@ The lanes overview's data (`git.lanes()`, no window) has its own case: a generat
 and 15 worktrees, about 0.2 s per call on an M1 Pro with git 2.49.
 
 ```sh
-pnpm --filter @gitlanes/desktop bench:lanes                          # 200 branches, 15 worktrees
-pnpm --filter @gitlanes/desktop bench:lanes -- --branches 500 --worktrees 30
+pnpm --filter @gitsince/desktop bench:lanes                          # 200 branches, 15 worktrees
+pnpm --filter @gitsince/desktop bench:lanes -- --branches 500 --worktrees 30
 ```
 
 The conflict forecast (`git.forecastConflicts()`) runs after the lanes list shows, never before it. It merges
@@ -139,7 +139,7 @@ cancels the forecast still running. Lanes merged, missing or untouched for 14 da
 2.38 there is no forecast.
 
 The app opens in a real window at 1440×900; keep the machine otherwise idle. Generated and cloned repositories
-live in `~/.cache/gitlanes-bench` (override with `--dir`). Cold runs delete the commit-graph file, so they're only
+live in `~/.cache/since-bench` (override with `--dir`). Cold runs delete the commit-graph file, so they're only
 done for repositories the benchmark owns. The raw results behind this page are in
 [`docs/bench/2026-10-13-m1pro-before.json`](bench/2026-10-13-m1pro-before.json) and
 [`docs/bench/2026-10-13-m1pro-after.json`](bench/2026-10-13-m1pro-after.json).

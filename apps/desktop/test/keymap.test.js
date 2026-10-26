@@ -238,7 +238,7 @@ test('conflicts: same scope, the always-on menu and global keys, and chord start
 test('refusal: reserved commands and keys, macOS keys, and menu keys without a modifier', async () => {
   const { refusal } = await load();
   assert.match(refusal('app.quit', 'Mod+Y', true), /can’t be changed/);
-  assert.match(refusal('repo.fetch', 'Mod+Q', true), /Quit GitLanes/);
+  assert.match(refusal('repo.fetch', 'Mod+Q', true), /Quit Since/);
   assert.match(refusal('repo.fetch', 'Mod+Tab', true), /macOS/);
   assert.match(refusal('repo.fetch', 'Mod+Shift+Digit4', true), /screenshot/);
   assert.match(refusal('repo.fetch', 'f', true), /need ⌘/);

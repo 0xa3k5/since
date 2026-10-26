@@ -77,15 +77,15 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   const opened = new Set(); // stack items expanded in the timeline (AK-616), collapsed by default
   const readParts = new Set(); // ids of a stack's parts ticked read in its reader (this view only)
 
-  const el = h('div.page.flush.catchup', { tabIndex: 0, role: 'region', 'aria-label': 'Catch up' });
+  const el = h('div.page.flush.catchup', { tabIndex: 0, role: 'region', 'aria-label': 'Since' });
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
   const reloadBtn = h('button.btn.ghost.small.review-reload', { onclick: () => reload(), 'data-tip': `${tipFor('Reload', 'catchup.reload')}\nAsk GitHub for merged pull requests and the base’s CI`, 'aria-label': 'Reload' });
   // The branch picker (AK-372, AK-374; a text button like the since picker, AK-390): a menu with the
   // default base first, then remote and local branches.
-  const branchBtn = h('button.btn.ghost.small.catchup-branch', { 'aria-haspopup': 'menu', 'aria-label': 'Branch to catch up on', 'data-tip': tipFor('Catch up on another branch', 'catchup.branch'), onclick: (e) => { e.stopPropagation(); branchMenu(); } });
+  const branchBtn = h('button.btn.ghost.small.catchup-branch', { 'aria-haspopup': 'menu', 'aria-label': 'Branch', 'data-tip': tipFor('Pick another branch', 'catchup.branch'), onclick: (e) => { e.stopPropagation(); branchMenu(); } });
   // The head reads as one sentence (AK-390, option A): "88 PRs merged on origin/main ▾ since your checkpoint ▾",
   // then one quiet line: date · other commits · CI · Updated. Actions on the right.
-  const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Catch up since…', 'catchup.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } });
+  const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Since…', 'catchup.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } });
   const lead = h('span.catchup-lead');
   const sub = h('div.catchup-subline');
   const actions = h('div.catchup-actions');
@@ -162,9 +162,9 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
   function render() {
     renderHead();
-    lead.textContent = 'Catch up'; sub.replaceChildren(); actions.replaceChildren();
+    lead.textContent = 'Since'; sub.replaceChildren(); actions.replaceChildren();
     if (failed) return showMsg(h('div.empty', null, `Couldn’t read what landed: ${failed}`));
-    if (!res) return showMsg(h('div.empty', null, loaded ? 'No base branch to catch up on.' : 'Catching up…'));
+    if (!res) return showMsg(h('div.empty', null, loaded ? 'No base branch.' : 'Loading…'));
     const head = sinceText(res, { short, ago: (ms) => ago(ms) });
     const cp = res.checkpoint || {};
     const when = since.since === 'checkpoint' ? whenText(cp.date) : '';
@@ -177,7 +177,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       ci ? h('span.catchup-ci.' + res.ci.state, { title: `${res.base} CI ${res.ci.state}${res.ci.failed?.length ? `: ${res.ci.failed.join(', ')}` : ''}` }, `CI ${ci} on ${res.base}`) : null,
       prsOn() ? updated : null,
     ].filter(Boolean).flatMap((x, i) => (i ? [h('span.catchup-dot', { 'aria-hidden': 'true' }, '·'), x] : [x])), warn || '');
-    actions.replaceChildren(...(res.defaultBase === false || !entries.length ? [] : [btn('Mark caught up', 'catchup.caughtUp', () => markCaughtUp())]));
+    actions.replaceChildren(...(res.defaultBase === false || !entries.length ? [] : [btn('Mark since', 'catchup.caughtUp', () => markCaughtUp())]));
 
     if (!entries.length) {
       lead.textContent = 'Nothing new';
@@ -185,10 +185,10 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       const what = since.since === 'checkpoint' ? (when ? `since ${when}` : 'since your checkpoint') : sincePhrase(since);
       return showMsg(h('div.catchup-empty', null,
         icon('check', 20),
-        h('h2', null, since.since === 'checkpoint' ? 'You’re caught up.' : 'Nothing new.'),
+        h('h2', null, since.since === 'checkpoint' ? 'You’re up to date.' : 'Nothing new.'),
         h('p.muted', null, `Nothing landed on ${res.base} ${what}.`),
         warn,
-        btn('Catch up since…', 'catchup.since', (e) => pickSince(e.currentTarget))),
+        btn('Since…', 'catchup.since', (e) => pickSince(e.currentTarget))),
       bridge());
     }
 
@@ -328,17 +328,17 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
 
   async function markCaughtUp() {
-    if (!res || res.defaultBase === false) return toast('Mark caught up works on the default base only');
-    if (!entries.length && res.checkpoint?.sha === res.baseSha) return toast(`Already caught up on ${res.base}`, { kind: 'success' });
+    if (!res || res.defaultBase === false) return toast('Mark since works on the default base only');
+    if (!entries.length && res.checkpoint?.sha === res.baseSha) return toast(`Nothing new on ${res.base} since your checkpoint`, { kind: 'success' });
     const to = { sha: res.baseSha, base: res.base, date: res.baseDate };
     try {
       const before = await mark(to);
       since = { since: 'checkpoint' };
       more = false;
       await fetch({ prs: Boolean(extra) });
-      toast(`Caught up to ${short(to.sha)} on ${to.base}`, { kind: 'success', action: { label: 'Undo', run: async () => { await mark(before); fetch({ prs: Boolean(extra) }); } } });
+      toast(`Checkpoint moved to ${short(to.sha)} on ${to.base}`, { kind: 'success', action: { label: 'Undo', run: async () => { await mark(before); fetch({ prs: Boolean(extra) }); } } });
     } catch (e) {
-      toast('Couldn’t mark caught up', { kind: 'error', detail: e.message });
+      toast('Couldn’t move the checkpoint', { kind: 'error', detail: e.message });
     }
   }
 

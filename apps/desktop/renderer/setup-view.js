@@ -55,7 +55,7 @@ export function setupView({ mod, values, theme, themes, ai = 'Off', pr = {}, onT
   const refocus = (label) => (list.querySelector(`[aria-label="${CSS.escape(label)}"]`) || [...list.querySelectorAll('.setup-seg button')].find((b) => b.title === label))?.focus();
 
   const el = h('section.tour.setup', { 'aria-labelledby': 'setup-title' },
-    h('div.tour-eyebrow', null, 'Welcome to GitLanes'),
+    h('div.tour-eyebrow', null, 'Welcome to Since'),
     h('h2#setup-title', null, 'Choose your defaults'),
     h('p.setup-lede', null, 'These are on to start with. Turn off anything you don’t want.'),
     list,

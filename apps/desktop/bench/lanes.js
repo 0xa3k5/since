@@ -1,5 +1,5 @@
 'use strict';
-// Lanes benchmark: `pnpm --filter @gitlanes/desktop bench:lanes [-- --branches 200 --worktrees 15 --shipped 0 --runs 5 --dir <path>]`.
+// Lanes benchmark: `pnpm --filter @gitsince/desktop bench:lanes [-- --branches 200 --worktrees 15 --shipped 0 --runs 5 --dir <path>]`.
 // Shipped case: `-- --branches 60 --shipped 50`.
 //
 // Times git.lanes() (the lanes overview's data) on a generated repository: a 5,000-commit main,
@@ -20,7 +20,7 @@ const BRANCHES = Number(arg('branches', 200));
 const WORKTREES = Number(arg('worktrees', 15));
 const RUNS = Number(arg('runs', 5));
 const SHIPPED = Math.min(Number(arg('shipped', 0)), BRANCHES);
-const DIR = arg('dir', path.join(process.env.GITLANES_BENCH_DIR || path.join(os.homedir(), '.cache', 'gitlanes-bench'), `lanes-${BRANCHES}-${WORKTREES}${SHIPPED ? `-s${SHIPPED}` : ''}`));
+const DIR = arg('dir', path.join(process.env.SINCE_BENCH_DIR || path.join(os.homedir(), '.cache', 'since-bench'), `lanes-${BRANCHES}-${WORKTREES}${SHIPPED ? `-s${SHIPPED}` : ''}`));
 const MAIN = 5000;
 const FILES = 200;
 

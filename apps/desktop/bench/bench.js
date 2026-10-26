@@ -16,7 +16,7 @@
 //                    (default: synthetic-100k,synthetic-250k, plus linux/chromium when their paths are set)
 //   --repo <path>    an existing repository (repeatable)
 //   --runs <n>       warm runs per repo (default 3)
-//   --dir <path>     where generated and cloned repos live (default $GITLANES_BENCH_DIR or ~/.cache/gitlanes-bench)
+//   --dir <path>     where generated and cloned repos live (default $SINCE_BENCH_DIR or ~/.cache/since-bench)
 //   --linux <path>   / --chromium <path>   use an existing checkout instead of cloning
 //   --clone          clone linux/chromium (commits only, root-only sparse checkout) if missing
 //   --out <file>     write the results as JSON
@@ -32,7 +32,7 @@ const APP = path.join(__dirname, '..');
 const MIRRORS = { linux: 'https://github.com/torvalds/linux.git', chromium: 'https://github.com/chromium/chromium.git' };
 
 function parseArgs(argv) {
-  const o = { repos: null, repo: [], runs: 3, dir: process.env.GITLANES_BENCH_DIR || path.join(os.homedir(), '.cache', 'gitlanes-bench'), clone: false, cold: true, out: null, linux: process.env.GITLANES_BENCH_LINUX, chromium: process.env.GITLANES_BENCH_CHROMIUM };
+  const o = { repos: null, repo: [], runs: 3, dir: process.env.SINCE_BENCH_DIR || path.join(os.homedir(), '.cache', 'since-bench'), clone: false, cold: true, out: null, linux: process.env.SINCE_BENCH_LINUX, chromium: process.env.SINCE_BENCH_CHROMIUM };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => argv[++i];
@@ -93,9 +93,9 @@ const dropCommitGraph = (dir) => { for (const f of commitGraphFiles(dir)) fs.rmS
 
 function runApp(repo) {
   const electron = require('electron'); // path to the binary when required from node
-  const out = path.join(os.tmpdir(), `gitlanes-bench-${process.pid}-${Date.now()}.json`);
+  const out = path.join(os.tmpdir(), `since-bench-${process.pid}-${Date.now()}.json`);
   return new Promise((resolve, reject) => {
-    const child = spawn(electron, [APP, repo], { env: { ...process.env, GITLANES_BENCH: out }, stdio: ['ignore', 'ignore', 'inherit'] });
+    const child = spawn(electron, [APP, repo], { env: { ...process.env, SINCE_BENCH: out }, stdio: ['ignore', 'ignore', 'inherit'] });
     child.on('error', reject);
     child.on('close', () => {
       try { const r = JSON.parse(fs.readFileSync(out, 'utf8')); fs.rmSync(out, { force: true }); r.error ? reject(new Error(r.error)) : resolve(r); } catch (e) { reject(new Error(`app exited without results (${e.message})`)); }

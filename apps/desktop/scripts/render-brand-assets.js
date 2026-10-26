@@ -1,7 +1,7 @@
 'use strict';
 // Rasterises build/icon.svg and build/background.svg into the files electron-builder packs:
 // build/icon.icns and build/background.tiff (1x + 2x in one file, so the DMG window is sharp on Retina).
-// Run after editing either SVG: `pnpm --filter @gitlanes/desktop brand-assets`. Needs macOS (iconutil).
+// Run after editing either SVG: `pnpm --filter @gitsince/desktop brand-assets`. Needs macOS (iconutil).
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -28,7 +28,7 @@ async function render(win, svgFile, width, height) {
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false });
   await win.loadURL('about:blank');
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-'));
   const iconset = path.join(tmp, 'icon.iconset');
   fs.mkdirSync(iconset);
   for (const size of [16, 32, 128, 256, 512]) {
