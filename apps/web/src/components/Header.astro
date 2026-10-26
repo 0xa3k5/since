@@ -7,7 +7,7 @@ const current = Astro.url.pathname.replace(/\.html$/, '');
 ---
 <div class="site-head" data-site-head>
   <header class="wrap nav">
-    <div class="nav-brand"><Logo /><span class="beta-pill">Beta</span></div>
+    <div class="nav-brand"><Logo /></div>
     <nav class="nav-links" aria-label="Main">
       {HEADER_NAV.map((r) => (
         <a class="nav-link" href={r.href} aria-current={current === r.href || current.startsWith(r.href + '/') ? 'page' : undefined}>{r.label}</a>
