@@ -43,7 +43,7 @@ test('opening another repository mid-load opens it in its own tab', async ({ san
   await expect(rootB).toHaveAttribute('data-history', 'ready');
   await expect(rootB).toHaveAttribute('data-commits', '2');
   await expect(page.locator('.map-list .row .subject')).toHaveText(['b two', 'b one']);
-  await expect(page.locator('.tabstrip .tab')).toHaveCount(2);
+  await expect(page.locator('.tabstrip .tab-title')).toHaveText(['repo-a', 'repo-b']);
   await expect(page.locator('.toast.error')).toHaveCount(0);
   // A's tab, behind it, still finishes its own history.
   await expect(root).toHaveAttribute('data-history', 'ready', { timeout: 15_000 });

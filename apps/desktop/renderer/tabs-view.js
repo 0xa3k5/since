@@ -14,5 +14,5 @@ export function renderTabs(el, list, act) {
     onauxclick: (e) => { if (e.button === 1) act('close', t.id); },
   },
   h('button.tab-close', { type: 'button', 'aria-label': `Close ${t.title}`, onclick: (e) => { e.stopPropagation(); act('close', t.id); } }, icon('x', 12)),
-  h('span.tab-title', t.title))) : []));
+  h('span.tab-title', null, t.title))) : []));
 }
