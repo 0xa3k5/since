@@ -44,7 +44,7 @@ if (!signed) console.log('  • no Developer ID certificate found: building an u
 module.exports = {
   appId: 'com.gitsince.app',
   productName: 'Since',
-  copyright: 'Copyright © 2026 Since',
+  copyright: 'Copyright (C) 2026 0xa3k5 and Since contributors',
   directories: { output: 'dist', buildResources: 'build' },
   files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'channel.js', 'preload.js', 'renderer/**', 'package.json'],
   // The update channel is baked into the packaged package.json; the packaged app ignores SINCE_CHANNEL
