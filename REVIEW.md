@@ -62,7 +62,7 @@ merge it as a stack, and won't rebase and retarget the next part after a merge.
 - Titles end with `[k/n]`; each body starts with `Stacked series k/n · depends on #<PR>`
   (part 1: `· base`).
 - Reviewer: check that GitHub shows the series as a stack:
-  `gh api graphql -f query='{ repository(owner:"0xa3k5", name:"gitlanes") { pullRequest(number:<PR>) { stack { number size } } } }'`
+  `gh api graphql -f query='{ repository(owner:"0xa3k5", name:"since") { pullRequest(number:<PR>) { stack { number size } } } }'`
   must return a stack whose `size` is n. If it is `null`, ask the author for `gh stack link`.
 - Merged strictly bottom-up, one reviewed part at a time: `gh stack merge <PR k> --squash --yes`
   (no `--delete-branch`). GitHub then rebases and retargets the next part onto `main`. If it can't,

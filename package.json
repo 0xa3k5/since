@@ -20,7 +20,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/0xa3k5/gitlanes.git"
+    "url": "git+ssh://git@github.com/0xa3k5/since.git"
   },
   "packageManager": "pnpm@10.34.7"
 }
