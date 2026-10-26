@@ -1551,6 +1551,20 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 
 /* ---------------------------------------------------------------- Welcome */
 .welcome { grid-column: 1 / -1; position: relative; display: flex; align-items: center; justify-content: center; height: 100vh; background: radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%), var(--bg); }
+/* The window's tabs (AK-634): a strip above everything once there are two, holding the traffic lights. */
+.tabstrip { display: flex; align-items: center; gap: 2px; box-sizing: border-box; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--bg-sidebar); -webkit-app-region: drag; }
+.tabstrip[hidden] { display: none; }
+.mac .tabstrip { padding-left: 84px; }
+html.has-tabs #app { height: calc(100vh - 36px); }
+.mac.has-tabs .sb-top { height: 52px; padding-top: 6px; }
+.mac.has-tabs #app:is(.sb-rail, .sb-overlay) .crumbs { padding-left: 0; }
+.tab { position: relative; display: flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0; max-width: 240px; height: 26px; padding: 0 26px; border-radius: var(--radius); color: var(--text-3); font-size: 12px; -webkit-app-region: no-drag; }
+.tab:hover { background: var(--bg-hover); color: var(--text-2); }
+.tab.active { background: var(--bg-active); color: var(--text); font-weight: var(--fw-medium); }
+.tab-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tab-close { position: absolute; left: 4px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; opacity: 0; }
+.tab:hover .tab-close, .tab.active .tab-close, .tab-close:focus-visible { opacity: 1; }
+.tab-close:hover { background: var(--bg-hover); color: var(--text); }
 .welcome-drag { position: absolute; inset: 0 0 auto 0; height: 44px; -webkit-app-region: drag; }
 .welcome-card { width: 480px; max-width: calc(100vw - 32px); text-align: center; }
 .welcome-card.not-repo h2 { margin: 0 0 14px; font-size: 15px; font-weight: var(--fw-strong); }

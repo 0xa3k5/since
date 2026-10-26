@@ -195,7 +195,7 @@ test('⌘Z from the menu undoes, but not while typing in a field', async ({ sand
   await app.toast('Delete commit');
 
   // The Edit menu's Undo item sends this command to the focused window.
-  const sendCommand = (cmd) => app.app.evaluate(({ BrowserWindow }, c) => BrowserWindow.getAllWindows()[0].webContents.send('command', c), cmd);
+  const sendCommand = (cmd) => app.app.evaluate(({ webContents }, c) => webContents.getAllWebContents().find((w) => w.getURL().startsWith('file:')).send('command', c), cmd);
   const search = app.page.locator('#map-search');
   await search.focus();
   // A change made outside the app refreshes the UI without stealing focus from the field.
@@ -220,7 +220,7 @@ test('the Edit menu names the next undo and redo', async ({ sandbox, launch }) =
   const repo = sandbox.linear('menu-labels', ['one', 'two']);
   const app = await launch(repo);
   // Menu labels follow the focused window; parallel test apps steal OS focus from each other.
-  await app.app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; BrowserWindow.getFocusedWindow = () => (w.isDestroyed() ? null : w); });
+  await app.app.evaluate(({ BaseWindow }) => { const w = BaseWindow.getAllWindows()[0]; BaseWindow.getFocusedWindow = () => (w.isDestroyed() ? null : w); });
   await app.selectRow('two');
   await app.page.keyboard.press('Backspace');
   await app.toast('Delete commit');

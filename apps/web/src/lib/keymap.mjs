@@ -51,7 +51,7 @@ export function row(cmd) {
 export const GROUPS = [
   { id: 'map', title: 'Map', note: 'With the commit list focused.' },
   { id: 'commit-actions', title: 'Commit actions', note: 'Single keys on the selected commit in the map. Every change to history can be undone with ⌘Z.' },
-  { id: 'views', title: 'Views', note: 'Use ⌘ and the number, or press G, then the letter.' },
+  { id: 'views', title: 'Views', note: 'Use ⌥⌘ and the number, or press G, then the letter.' },
   { id: 'commit-view', title: 'Commit view' },
   { id: 'quick-view', title: 'Quick View' },
   { id: 'global', title: 'Anywhere in a repository' },
@@ -59,6 +59,7 @@ export const GROUPS = [
   { id: 'repository', title: 'Repository menu' },
   { id: 'file', title: 'File menu' },
   { id: 'view', title: 'View menu' },
+  { id: 'window', title: 'Window menu', note: 'One tab per repository.' },
   { id: 'help', title: 'Help menu' },
 ];
 

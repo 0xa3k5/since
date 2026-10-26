@@ -26,19 +26,20 @@ test('shows macOS keys, pairs and alternatives', () => {
   assert.equal(find(group('commit-actions'), 'Delete Commit')?.alt, null);
 });
 
-test('views have ⌘ numbers and G shortcuts', () => {
+test('views have ⌥⌘ numbers and G shortcuts', () => {
   const v = group('views');
   assert.equal(v.length, 12); // Repository Settings has no keys (⌘K and the View menu only)
   assert.deepEqual(find(v, 'Worktrees')?.keys, ['G', 'W']);
-  assert.deepEqual(find(v, 'Stashes')?.keys, ['⌘', '6']);
-  assert.deepEqual(find(v, 'Branches')?.keys, ['⌘', '5']);
-  assert.equal(find(v, 'Branches')?.alt, null); // ⌘ numbers only, no G chord
-  assert.deepEqual(find(v, 'Catch up')?.keys, ['⌘', '1']);
-  assert.deepEqual(find(v, 'Review')?.keys, ['⌘', '2']);
-  assert.deepEqual(find(v, 'History')?.keys, ['⌘', '7']);
+  assert.deepEqual(find(v, 'Stashes')?.keys, ['⌥', '⌘', '6']);
+  assert.deepEqual(find(v, 'Branches')?.keys, ['⌥', '⌘', '5']);
+  assert.equal(find(v, 'Branches')?.alt, null); // ⌥⌘ numbers only, no G chord
+  assert.deepEqual(find(group('window'), 'Tab 1')?.keys, ['⌘', '1']);
+  assert.deepEqual(find(v, 'Catch up')?.keys, ['⌥', '⌘', '1']);
+  assert.deepEqual(find(v, 'Review')?.keys, ['⌥', '⌘', '2']);
+  assert.deepEqual(find(v, 'History')?.keys, ['⌥', '⌘', '7']);
   assert.equal(find(v, 'History')?.alt, null);
   assert.equal(find(v, 'Repository Settings'), undefined);
-  assert.deepEqual(find(v, 'Submodules')?.keys, ['⌘', '8']);
+  assert.deepEqual(find(v, 'Submodules')?.keys, ['⌥', '⌘', '8']);
 });
 
 test('menu groups have the menu bar shortcuts', () => {

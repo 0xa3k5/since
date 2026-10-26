@@ -35,4 +35,13 @@ async function lastRepo(file, openRepo, wanted) {
   try { return realpath((await openRepo(root)).root) === realpath(root) ? root : null; } catch { return null; }
 }
 
-module.exports = { readRecent, addRecent, removeRecent, lastRepo, MAX };
+// The tabs launch reopens (AK-634): of `wanted` (the roots the window closed last showed), those still recent
+// repositories, in order; with nothing saved (undefined) the newest recent one.
+async function lastTabs(file, openRepo, wanted) {
+  if (wanted === undefined) { const root = await lastRepo(file, openRepo); return root ? [root] : []; }
+  const roots = [];
+  for (const w of wanted) { const root = await lastRepo(file, openRepo, w); if (root && !roots.includes(root)) roots.push(root); }
+  return roots;
+}
+
+module.exports = { readRecent, addRecent, removeRecent, lastRepo, lastTabs, MAX };
