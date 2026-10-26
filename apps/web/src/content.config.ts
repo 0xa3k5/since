@@ -1,7 +1,7 @@
 // Content collections. /changelog is built from src/content/releases/*.md, one file per release.
 //
 // Maintainer note:
-// - One file per release (e.g. 1.0.0.md), curated by hand: a headline, up to 3 highlights and the
+// - One file per release (e.g. 0.1.0.md), curated by hand: a headline, up to 3 highlights and the
 //   notable changes in plain words. Not one line per pull request.
 // - `draft: true` hides a release until that release ships; flip it to false (or delete the line) on release day.
 // - `changes[].kind` is one of: added, improved, fixed.
@@ -15,7 +15,7 @@ const releases = defineCollection({
   loader: glob({ pattern: '*.md', base: './src/content/releases' }),
   schema: z.object({
     version: z.string(),
-    /** Short name shown on the page, e.g. "1.0.0". Its slug is the anchor. */
+    /** Short name shown on the page, e.g. "0.1.0". Its slug is the anchor. */
     label: z.string(),
     /** Release date, shown as "Oct 16". */
     date: z.coerce.date(),
