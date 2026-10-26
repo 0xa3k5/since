@@ -1,7 +1,7 @@
 'use strict';
 // Renders the Homebrew cask for a release from the signed DMGs in --dir, for the tap (0xa3k5/homebrew-tap).
 //
-//   node scripts/homebrew-cask.js --version 1.0.0 [--dir dist] > dist/since.rb
+//   node scripts/homebrew-cask.js --version 0.1.0 [--dir dist] > dist/since.rb
 //
 // release.yml attaches the output to the draft release; publishing a release includes copying it into the tap
 // as Casks/since.rb (docs/releasing.md). The URL is the versioned DMG on the GitHub Release, one per
@@ -18,7 +18,7 @@ const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file
 
 /** The cask text for `version`, given the DMGs' sha256 hex digests as { arm, intel }. */
 function renderCask({ version, sha }) {
-  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(String(version || ''))) throw new Error(`${version} is not a version (expected e.g. 1.0.0).`);
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(String(version || ''))) throw new Error(`${version} is not a version (expected e.g. 0.1.0).`);
   for (const k of Object.keys(ARCHES)) {
     if (!/^[0-9a-f]{64}$/.test(sha?.[k] || '')) throw new Error(`Missing or malformed sha256 for ${k} (${ARCHES[k]}).`);
   }

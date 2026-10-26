@@ -7,7 +7,7 @@
 // APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER are set. With none of that, the app is
 // ad-hoc signed so it still launches on Apple silicon, and the DMG is marked unsigned.
 //
-// The version is package.json's unless SINCE_VERSION names a pre-release of it (1.0.1-rc.1).
+// The version is package.json's unless SINCE_VERSION names a pre-release of it (0.1.0-rc.3).
 // release.yml sets it through the environment: a `pnpm dist -- -c.…` argument
 // crosses two `pnpm run` layers and some pnpm versions hand electron-builder a literal `--` (AK-571).
 const { execFileSync } = require('node:child_process');

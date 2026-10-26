@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { planUploads, pruneList, r2Client, publish, PUBLIC_URL } = require('../scripts/bucket-publish');
 
-const V = '1.0.0';
+const V = '0.1.0';
 const built = [`Since-${V}-arm64.dmg`, `Since-${V}-x64.dmg`, `Since-${V}-arm64-mac.zip`, `Since-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json'];
 
 test('planUploads puts versioned files first, then the latest DMGs, then the no-cache feeds', () => {
@@ -19,7 +19,7 @@ test('planUploads puts versioned files first, then the latest DMGs, then the no-
   ]);
   assert.equal(plan[4].contentDisposition, `attachment; filename="Since-${V}-arm64.dmg"`);
   assert.ok(plan.slice(6).every((u) => u.cacheControl === 'no-cache' && u.contentType === 'application/json'));
-  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-1\.0\.0-x64\.dmg/);
+  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-0\.1\.0-x64\.dmg/);
 });
 
 test('pruneList keeps the newest five versions in semver order and never the current one', () => {
@@ -28,8 +28,9 @@ test('pruneList keeps the newest five versions in semver order and never the cur
   assert.deepEqual(pruneList(versions, '0.1.0-beta.10'), ['0.1.0-beta.1']);
   assert.deepEqual(pruneList(versions, '0.1.0-beta.1'), []);
   assert.deepEqual(pruneList(['0.1.0-beta.1'], '0.1.0-beta.1'), []);
-  // The final release sorts above every beta.
-  assert.deepEqual(pruneList([...versions, '1.0.0'], '1.0.0'), ['0.1.0-beta.2', '0.1.0-beta.1']);
+  // The final release sorts above every beta of the same version.
+  assert.deepEqual(pruneList([...versions, '0.1.0'], '0.1.0'), ['0.1.0-beta.2', '0.1.0-beta.1']);
+  assert.deepEqual(pruneList(['0.1.0-beta.1', '0.1.0', '0.1.0-beta.3', '0.1.0-beta.2'], '0.1.0', 1), ['0.1.0-beta.3', '0.1.0-beta.2', '0.1.0-beta.1']);
 });
 
 /** A fake bucket behind the HTTP layer: records every request in order. */
@@ -83,7 +84,7 @@ test('publish stops at the first failed upload, before the feeds', () => {
   const send = ({ method, url }) => { keys.push(url); return method === 'PUT' && url.includes('x64-mac.zip') ? { status: 403, body: 'AccessDenied' } : { status: 200, body: '' }; };
   assert.throws(() => publish({ version: V, dir, client: r2Client({ accountId: 'acct', send }), log: () => {} }), /HTTP 403 AccessDenied/);
   assert.ok(keys.every((u) => !u.includes('update-mac') && !u.includes('/latest/')));
-  assert.throws(() => publish({ version: '1.0.0-beta.3', dir, client: r2Client({ accountId: 'acct', send }) }), /Not a final version/);
+  assert.throws(() => publish({ version: '0.1.0-beta.3', dir, client: r2Client({ accountId: 'acct', send }) }), /Not a final version/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

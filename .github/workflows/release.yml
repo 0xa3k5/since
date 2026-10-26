@@ -62,7 +62,7 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
-          # A pre-release tag (v1.0.1-rc.1) builds the package.json version with that suffix, so release
+          # A pre-release tag (v0.1.0-rc.3) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
           if [ "$IS_TAG" = true ]; then
             tag_version=${GITHUB_REF_NAME#v}

@@ -25,7 +25,7 @@ After editing `icon.svg` or `background.svg`, run `pnpm --filter @gitsince/deskt
 
 ## Releases
 
-Push a tag matching the desktop version (e.g. `v1.0.0`). `.github/workflows/release.yml` then builds, signs,
+Push a tag matching the desktop version (e.g. `v0.1.0`). `.github/workflows/release.yml` then builds, signs,
 notarizes and uploads both DMGs to a **draft** GitHub Release. Publishing the draft is a manual step.
 The draft also carries `Since-<version>-<arch>-mac.zip` and `update-mac-<arch>.json` (written by
 `apps/desktop/scripts/update-feed.js`), `Since-<arch>.dmg` copies of the DMGs (so
@@ -66,21 +66,21 @@ repository must be at least 30 days old and, for a submission by its owner, have
 watchers (75 stars, 30 forks or 30 watchers when someone else submits it). Submit `since.rb` there once the repo
 qualifies; until then the tap is the install path, and the main-repo cask would replace it, not add to it.
 
-## Moving beta installs to 1.0.0
+## Moving beta installs to 0.1.0
 
 Beta builds read their update feed from the `gitlanes-beta` Cloudflare R2 bucket and can't follow a feed on
-GitHub, so 1.0.0 goes to the bucket once too. After the v1.0.0 release is published, download
-`Since-1.0.0-arm64.dmg`, `Since-1.0.0-x64.dmg`, `Since-1.0.0-arm64-mac.zip` and `Since-1.0.0-x64-mac.zip` from it
+GitHub, so 0.1.0 goes to the bucket once too. After the v0.1.0 release is published, download
+`Since-0.1.0-arm64.dmg`, `Since-0.1.0-x64.dmg`, `Since-0.1.0-arm64-mac.zip` and `Since-0.1.0-x64-mac.zip` from it
 into an empty folder (not its `update-mac-*.json` feeds, which point at GitHub), then run:
 
 ```sh
 R2_ACCOUNT_ID=$(security find-generic-password -a "$USER" -s gitlanes-r2-account-id -w) \
 R2_ACCESS_KEY_ID=$(security find-generic-password -a "$USER" -s gitlanes-r2-access-key-id -w) \
 R2_SECRET_ACCESS_KEY=$(security find-generic-password -a "$USER" -s gitlanes-r2-secret-access-key -w) \
-  node apps/desktop/scripts/bucket-publish.js --version 1.0.0 --dir <folder>
+  node apps/desktop/scripts/bucket-publish.js --version 0.1.0 --dir <folder>
 ```
 
-It writes feeds that point at the bucket and uploads `beta/1.0.0/`, then `beta/latest/Since-<arch>.dmg`, then the
+It writes feeds that point at the bucket and uploads `beta/0.1.0/`, then `beta/latest/Since-<arch>.dmg`, then the
 `beta/update-mac-<arch>.json` feeds. The release must be signed and notarized: Squirrel only installs an update
-signed by the same Developer ID as the running beta. A beta install that has updated to 1.0.0 reads GitHub
+signed by the same Developer ID as the running beta. A beta install that has updated to 0.1.0 reads GitHub
 Releases from then on. The bucket and the script go once the beta installs have moved.

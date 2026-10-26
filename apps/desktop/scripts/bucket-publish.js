@@ -5,10 +5,10 @@
 // updates to it, it reads GitHub Releases like every other build. The bucket and this script go once
 // the beta installs have moved.
 //
-//   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/bucket-publish.js --version 1.0.0 [--dir dist]
+//   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/bucket-publish.js --version 0.1.0 [--dir dist]
 //
-// --dir must hold these four files from the v1.0.0 GitHub Release:
-//   Since-1.0.0-arm64.dmg  Since-1.0.0-x64.dmg  Since-1.0.0-arm64-mac.zip  Since-1.0.0-x64-mac.zip
+// --dir must hold these four files from the v0.1.0 GitHub Release:
+//   Since-0.1.0-arm64.dmg  Since-0.1.0-x64.dmg  Since-0.1.0-arm64-mac.zip  Since-0.1.0-x64-mac.zip
 // The script writes update-mac-arm64.json and update-mac-x64.json next to them itself (pointing at the
 // bucket, not GitHub), so don't download the GitHub Release's feeds into the same folder. Squirrel only
 // installs an update signed by the same Developer ID as the running beta, so the release must be signed.
