@@ -11,8 +11,11 @@ export const PRODUCT_NAME = 'Since';
 /** The source code. Since is free and open source. */
 export const REPO_URL = 'https://github.com/0xa3k5/since';
 
-/** Name of the open-source licence. Placeholder until the licence is picked (SNC-648). */
-export const LICENCE_NAME = '{{LICENCE}}';
+/** The open-source licence (SPDX id) and its full text in the repo. */
+export const LICENCE_NAME = 'GPL-3.0-or-later';
+export const LICENCE_URL = `${REPO_URL}/blob/main/LICENSE`;
+
+export const COPYRIGHT = 'Copyright (C) 2026 0xa3k5 and Since contributors';
 
 /** Latest beta DMGs on the release bucket (Cloudflare R2), one per chip. DOWNLOAD_URL is Apple silicon. */
 const BETA_LATEST = 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta/latest';

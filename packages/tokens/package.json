@@ -2,7 +2,7 @@
   "name": "@gitsince/tokens",
   "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "description": "Since brand tokens (light + dark) as JSON and CSS custom properties",
   "exports": {
     "./tokens.css": "./tokens.css",
