@@ -1,4 +1,4 @@
-/* Layout shared by /pricing, /download and /licence. Prefixed cm- so it can't collide with other pages. */
+/* Layout for /download. Prefixed cm- so it can't collide with other pages. */
 
 .cm-page { padding-top: 72px; }
 .cm-head { max-width: 720px; margin-bottom: 48px; }

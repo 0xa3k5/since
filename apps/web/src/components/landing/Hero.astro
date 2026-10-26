@@ -1,7 +1,7 @@
 ---
 import AppShot from './AppShot.astro';
 import review from '../../assets/app/review-dark.png';
-import { PRODUCT_NAME, DOWNLOAD_URL, DOWNLOAD_URL_INTEL, PRICE_NOW, SHOW_PRICING, TRIAL_DAYS } from '../../config';
+import { PRODUCT_NAME, DOWNLOAD_URL, DOWNLOAD_URL_INTEL, REPO_URL } from '../../config';
 import AppleGlyph from '../AppleGlyph.astro';
 ---
 <section class="hero wrap" aria-labelledby="hero-h">
@@ -9,9 +9,9 @@ import AppleGlyph from '../AppleGlyph.astro';
   <p class="lede">{PRODUCT_NAME} shows you what landed, what's stuck and what's ready to merge, so you can catch up on your agents' work at a glance. A Git client for the Mac, built for the person who merges.</p>
   <div class="cta-row">
     <a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download for Mac</a>
-    {SHOW_PRICING ? <a class="btn" href="#pricing">${PRICE_NOW}, once</a> : <a class="btn" href="#catch-up">How it works</a>}
+    <a class="btn" href={REPO_URL}>View source</a>
   </div>
-  <p class="small">{SHOW_PRICING && `${TRIAL_DAYS} days free · `}No account · Local-first · macOS 12+ · <a href={DOWNLOAD_URL_INTEL}>Intel Mac</a></p>
+  <p class="small">Free · Open source · No account · Local-first · macOS 12+ · <a href={DOWNLOAD_URL_INTEL}>Intel Mac</a></p>
 
   <div class="hero-shot">
     <AppShot src={review} eager alt={`${PRODUCT_NAME} Review: the pull requests that need you, stuck and ready to merge, with the first one open beside the list`} />

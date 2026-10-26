@@ -187,20 +187,6 @@ section.s { padding-block: 150px; }
 .lp .founder-in a { color: var(--accent-fg); text-decoration: none; }
 .lp .founder-in a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-/* ---------------------------------------------------------------- Pricing: one big number */
-.price-band { background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.price-c { text-align: center; }
-.price-c .eyebrow { font: 500 18px var(--font); letter-spacing: 0; text-transform: none; color: var(--text-3); margin: 0 0 18px; max-width: none; }
-.bigc { font: 500 clamp(120px, 18vw, 240px)/.85 var(--display); letter-spacing: -0.06em; color: var(--text); }
-.bigc small { font-size: .16em; letter-spacing: 0; color: var(--text-3); margin-left: .25em; vertical-align: .9em; }
-.price-c .then { font-size: 16px; color: var(--text-3); margin: 22px auto 0; max-width: none; }
-.promises { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 900px; margin: 56px auto 0; border-top: 1px solid var(--line); text-align: left; }
-.promises div { padding: 20px 20px 0 0; }
-.promises div + div { padding-left: 20px; border-left: 1px solid var(--line); }
-.promises b { display: block; font: 500 17px var(--display); color: var(--text); margin-bottom: 4px; }
-.promises span { font-size: 14px; color: var(--text-3); }
-.price-c .cta-row { margin-top: 40px; }
-
 /* ---------------------------------------------------------------- FAQ: the padding sits inside each summary, so the whole row is clickable */
 .faq-sec { text-align: center; }
 .faq-sec h2 { margin: 0 auto; }
@@ -243,9 +229,9 @@ section.s { padding-block: 150px; }
 
 /* Small screens: centred sections switch to left alignment. */
 @media (max-width: 720px) {
-  .hero, .fit-head, .tabs-h, .kb-sec, #catch-up .copy, .close, .faq-sec, .price-c, .problem .statement { text-align: left; }
+  .hero, .fit-head, .tabs-h, .kb-sec, #catch-up .copy, .close, .faq-sec, .problem .statement { text-align: left; }
   .hero h1, .lp .hero .lede, .fit-head h2, .fit-head p, .tabs-h h2, .kb-sec h2, .lp .kb-sec .lede, #catch-up .copy h2, #catch-up .copy p,
-  .lp .close h2, .lp .close .lede, .faq-sec h2, .price-c .then, .statement { margin-left: 0; margin-right: 0; }
+  .lp .close h2, .lp .close .lede, .faq-sec h2, .statement { margin-left: 0; margin-right: 0; }
   .cta-row { justify-content: flex-start; }
   .close .small, .hero .small { text-align: left; }
   .kb-console, .faq { margin-left: 0; margin-right: 0; }
