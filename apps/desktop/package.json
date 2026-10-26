@@ -17,6 +17,7 @@
     "brand-assets": "electron scripts/render-brand-assets.js",
     "bench": "node bench/bench.js",
     "bench:lanes": "node bench/lanes.js",
+    "demo-video": "playwright test -c e2e/demo-video.config.js",
     "test:update": "node scripts/update-e2e.js"
   },
   "devDependencies": {
