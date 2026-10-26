@@ -12,6 +12,7 @@ const strings = {
   SincePreview: ['since your checkpoint', 'Mark since', 'CI passing', '`CI ${ci} on ${res.base}`', '`Updated ${ago(', '`Stack · ${size} PRs`', "' are waiting in Review'"],
   ReviewPreview: ["'Changed since last look'", "'Commits'"],
   MergePlanPreview: ["'Merged'", "'Ready'", '} would conflict in ${fileList(f.files)}`', '`#${w.number} will conflict in ${fileList(w.files)} after these merge`'],
+  StackPreview: ['`Stack #${prs[0].number} → #${prs[prs.length - 1].number}`', "`${s.on ? `on #${s.on}` : 'Stack'} · ${s.at} of ${s.of}`"],
   CleanUpPreview: ['`Cleaned up: ${done}`', "' deleted'", "label: 'Undo'", '`${dir === \'undo\' ? \'Undid\' : \'Redid\'} “${label}”`', "`Clean up ${chosen.length}`"],
 };
 
