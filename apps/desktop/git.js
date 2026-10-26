@@ -2560,9 +2560,13 @@ async function shipped(cwd, b, lanes, { baseIds, baseRows, baseTree }) {
   });
 }
 
+const REVIEW_COMMITS = 200;
+
 // Branch review: the whole change of `branch` against `base` the way a pull request shows it,
 // from their merge-base (`base...branch`). Each file carries its blob at the tip (the zero id
 // for a deletion), which is what a "reviewed" tick is keyed by. `base` defaults to laneBase's.
+// commits: the branch's commits, newest first, at most REVIEW_COMMITS, [{ sha, subject, author,
+// time }] (`time` the author date in Unix seconds); commitCount: all of them.
 async function branchReview(cwd, branch, base) {
   if (String(branch).startsWith('-')) throw new GitError(`Unknown branch ${branch}`);
   const b = await laneBase(cwd, base);
@@ -2571,12 +2575,25 @@ async function branchReview(cwd, branch, base) {
   if (!tip) throw new GitError(`${branch} has no commits yet.`);
   const mergeBase = (await run(cwd, ['merge-base', b.sha, tip], { allowCodes: [0, 1] })).trim();
   if (!mergeBase) throw new GitError(`${branch} shares no history with ${b.name}.`);
-  const [raw, files] = await Promise.all([
+  // The branch's own commits: `base..tip` (not `mergeBase..tip`), so a criss-cross merge from the
+  // base can't list the base's commits either.
+  const range = `${b.sha}..${tip}`;
+  const [raw, files, log, count] = await Promise.all([
     run(cwd, ['diff-tree', '-r', '-z', '-M', '--raw', '--no-commit-id', '--abbrev=40', mergeBase, tip]),
     diffTreeFiles(cwd, mergeBase, tip),
+    run(cwd, ['log', '-z', `-n${REVIEW_COMMITS}`, '--format=%H%x1f%an%x1f%at%x1f%s', range, '--']),
+    run(cwd, ['rev-list', '--count', range, '--']),
   ]);
   const blobs = parseRawBlobsZ(raw);
-  return { branch, base: b.name, baseSha: b.sha, mergeBase, tip, files: files.map((f) => ({ ...f, blob: blobs.get(f.path) || null })) };
+  const commits = log.split('\0').filter(Boolean).map((l) => {
+    const [sha, author, t, ...subject] = l.replace(/^\n/, '').split('\x1f');
+    return { sha, subject: subject.join('\x1f'), author, time: Number(t) };
+  });
+  return {
+    branch, base: b.name, baseSha: b.sha, mergeBase, tip,
+    files: files.map((f) => ({ ...f, blob: blobs.get(f.path) || null })),
+    commits, commitCount: Number(count.trim()),
+  };
 }
 
 // path → blob at the new side, from `diff-tree --raw -z` (":old new oldsha newsha S\0path\0[path\0]").

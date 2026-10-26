@@ -66,6 +66,46 @@ test('branchReview diffs the branch from its merge-base, with each file’s blob
   assert.equal(r2.files.find((f) => f.path === 'a.txt').blob, '0'.repeat(40));
 });
 
+test('branchReview lists the branch’s commits newest first, without the base’s', async () => {
+  const dir = await repo();
+  await g(dir, ['checkout', '-q', '-b', 'feature']);
+  await commit(dir, 'f1.txt', '1\n', 'first');
+  await commit(dir, 'f2.txt', '2\n', 'second\n\nbody');
+  const r = await git.branchReview(dir, 'feature');
+  assert.equal(r.commitCount, 2);
+  assert.deepEqual(r.commits.map((c) => c.subject), ['second', 'first']);
+  const [top] = r.commits;
+  assert.equal(top.sha, await blobOf(dir, 'feature'));
+  assert.equal(top.author, 'Test');
+  assert.equal(top.time, Number((await g(dir, ['log', '-1', '--format=%at', 'feature'])).trim()));
+
+  // Main moves on and is merged into the branch: main's commits stay out of the list.
+  await g(dir, ['checkout', '-q', 'main']);
+  await commit(dir, 'm1.txt', 'm\n', 'main one');
+  await commit(dir, 'm2.txt', 'm\n', 'main two');
+  await g(dir, ['checkout', '-q', 'feature']);
+  await g(dir, ['merge', '-q', '--no-edit', '-m', 'merge main', 'main']);
+  await commit(dir, 'f3.txt', '3\n', 'third');
+  const r2 = await git.branchReview(dir, 'feature');
+  assert.deepEqual(r2.commits.map((c) => c.subject), ['third', 'merge main', 'second', 'first']);
+  assert.equal(r2.commitCount, 4);
+});
+
+test('branchReview lists at most 200 commits and counts them all', async () => {
+  const dir = await repo();
+  const from = await blobOf(dir, 'main');
+  let s = '';
+  for (let i = 1; i <= 205; i++) {
+    s += `commit refs/heads/long\nmark :${i}\ncommitter T <t@example.com> ${1700000000 + i} +0000\ndata ${`c${i}`.length}\nc${i}\n${i === 1 ? `from ${from}\n` : ''}\n`;
+  }
+  await git.run(dir, ['fast-import', '--quiet'], { input: s });
+  const r = await git.branchReview(dir, 'long');
+  assert.equal(r.commitCount, 205);
+  assert.equal(r.commits.length, 200);
+  assert.equal(r.commits[0].subject, 'c205');
+  assert.equal(r.commits[199].subject, 'c6');
+});
+
 test('branchReview refuses unknown branches, option-like names and unrelated history', async () => {
   const dir = await repo();
   await assert.rejects(git.branchReview(dir, 'nope'), /no commits/);
