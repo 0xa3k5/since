@@ -1,6 +1,5 @@
 ---
 import { HEADER_NAV } from '../routes';
-import { SHOW_PRICING } from '../config';
 import Logo from './Logo.astro';
 import AppleGlyph from './AppleGlyph.astro';
 
@@ -8,7 +7,7 @@ const current = Astro.url.pathname.replace(/\.html$/, '');
 ---
 <div class="site-head" data-site-head>
   <header class="wrap nav">
-    <div class="nav-brand"><Logo />{!SHOW_PRICING && <span class="beta-pill">Beta</span>}</div>
+    <div class="nav-brand"><Logo /><span class="beta-pill">Beta</span></div>
     <nav class="nav-links" aria-label="Main">
       {HEADER_NAV.map((r) => (
         <a class="nav-link" href={r.href} aria-current={current === r.href || current.startsWith(r.href + '/') ? 'page' : undefined}>{r.label}</a>

@@ -1,5 +1,5 @@
 ---
-import { PRODUCT_NAME, SHOW_PRICING } from '../config';
+import { PRODUCT_NAME } from '../config';
 import Base from '../layouts/Base.astro';
 import PageHead from '../components/content/PageHead.astro';
 import Kbd from '../components/content/Kbd.astro';
@@ -8,7 +8,7 @@ import '../components/content/content.css';
 ---
 <Base
   title={`Docs · ${PRODUCT_NAME}`}
-  description={`Get started with ${PRODUCT_NAME}: install, the map, undo and redo, staging lines, ${SHOW_PRICING ? 'rewriting history, and the licence and trial' : 'and rewriting history'}.`}
+  description={`Get started with ${PRODUCT_NAME}: install, the map, undo and redo, staging lines, and rewriting history.`}
   ogTheme="dark"
 >
   <div class="wrap content-page">

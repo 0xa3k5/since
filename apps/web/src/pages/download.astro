@@ -1,8 +1,7 @@
 ---
-import { DOWNLOAD_URL, DOWNLOAD_URL_INTEL, PRODUCT_NAME, SHOW_PRICING } from '../config';
+import { DOWNLOAD_URL, DOWNLOAD_URL_INTEL, LICENCE_NAME, MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED, PRODUCT_NAME, REPO_URL } from '../config';
 import Base from '../layouts/Base.astro';
-import { MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED } from '../components/commerce/links';
-import '../components/commerce/commerce.css';
+import '../styles/download.css';
 
 // One DMG per chip.
 const builds = [
@@ -12,14 +11,14 @@ const builds = [
 ---
 <Base
   title={`Download ${PRODUCT_NAME} for macOS`}
-  description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. ${SHOW_PRICING ? 'Your 14-day trial starts on first launch, with no account.' : 'No account needed.'}`}
+  description={`Download ${PRODUCT_NAME} for Apple silicon or Intel Macs. Free and open source, no account needed.`}
   ogTheme="light"
 >
   <div class="wrap cm-page">
     <header class="cm-head">
       <p class="eyebrow">Download</p>
       <h1>Download {PRODUCT_NAME}</h1>
-      <p class="lede">{SHOW_PRICING ? 'Free for 14 days. Every feature, no account, no credit card.' : 'The beta build for macOS. Every feature, no account.'}</p>
+      <p class="lede">The beta build for macOS. Free, open source, no account.</p>
     </header>
 
     <fieldset class="arch">
@@ -66,7 +65,7 @@ const builds = [
       <ol class="cm-steps">
         <li><strong>Open the downloaded <code>.dmg</code></strong> from your Downloads folder.</li>
         <li><strong>Drag {PRODUCT_NAME} into Applications.</strong> Then eject the disk image.</li>
-        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository.{SHOW_PRICING && ' Your trial starts now.'}</li>
+        <li><strong>Open {PRODUCT_NAME} from Applications</strong> and choose a repository.</li>
       </ol>
       {NOTARIZED ? (
         <div class="cm-note">
@@ -79,27 +78,27 @@ const builds = [
       )}
     </section>
 
-    {SHOW_PRICING && <section class="cm-section" aria-labelledby="trial-h">
-      <h2 id="trial-h">What the trial includes</h2>
+    <section class="cm-section" aria-labelledby="oss-h">
+      <h2 id="oss-h">Free and open source</h2>
       <div class="cm-grid">
         <div class="cm-tile">
-          <h3>Every feature, for 14 days</h3>
-          <p>The trial is the full app. It starts on first launch and runs for 14 calendar days.</p>
+          <h3>Free</h3>
+          <p>Every feature, nothing to pay.</p>
         </div>
         <div class="cm-tile">
-          <h3>No account, no card</h3>
-          <p>Nothing to sign up for. The trial clock is kept on your Mac, with no server check.</p>
+          <h3>Open source</h3>
+          <p>The code is <a href={REPO_URL}>on GitHub</a>, under the {LICENCE_NAME} licence.</p>
         </div>
         <div class="cm-tile">
-          <h3>Read-only afterwards</h3>
-          <p>When the trial ends, you can still browse history and diffs. Changes wait until you <a href="/pricing">buy a licence</a> and <a href="/licence#enter">enter your key</a>.</p>
+          <h3>No account</h3>
+          <p>Nothing to sign up for. {PRODUCT_NAME} works with the git on your Mac.</p>
         </div>
       </div>
-    </section>}
+    </section>
 
     <nav class="cm-links" aria-label="Related">
-      {SHOW_PRICING && <Fragment><a href="/pricing">Pricing</a><a href="/licence">Licence help</a></Fragment>}
       <a href="/changelog">Changelog</a>
+      <a href={REPO_URL}>Source code</a>
     </nav>
   </div>
 </Base>
