@@ -1519,9 +1519,19 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .menu-sep { height: 1px; margin: 4px -4px; background: var(--border); }
 .menu-section { padding: 6px 8px 2px; font-size: 11px; color: var(--text-4); font-weight: var(--fw-strong); }
 
-#toasts { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
-.toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; min-width: 260px; max-width: 420px; padding: 10px 12px; border-radius: 9px; background: var(--bg-elevated); box-shadow: var(--shadow); transform: translateY(8px); opacity: 0; transition: transform .16s cubic-bezier(.2,.9,.3,1), opacity .14s; }
-.toast.in { transform: none; opacity: 1; }
+#toasts { position: fixed; right: 16px; bottom: 16px; z-index: 70; width: 360px; pointer-events: none; }
+#toasts.expanded { pointer-events: auto; }
+/* One stack: the newest toast in front, up to two peeking above it at the height of the front one;
+   hovering or focusing the stack fans it out (--y is the height of the toasts below). */
+.toast { position: absolute; right: 0; bottom: 0; box-sizing: border-box; width: 100%; height: var(--h); overflow: hidden; pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 9px; background: var(--bg-elevated); box-shadow: var(--shadow); transform-origin: 50% 0; transform: translateY(calc(var(--i) * -8px + 12px)) scale(calc(1 - var(--i) * .05)); opacity: 0; transition: transform .28s cubic-bezier(.2,.9,.3,1), opacity .18s, height .28s cubic-bezier(.2,.9,.3,1); }
+.toast.in { opacity: 1; transform: translateY(calc(var(--i) * -8px)) scale(calc(1 - var(--i) * .05)); }
+.toast > * { transition: opacity .18s; }
+#toasts:not(.expanded) .toast:not(.front) { height: var(--front-h); }
+#toasts:not(.expanded) .toast:not(.front) > * { opacity: 0; }
+.toast.in.buried { opacity: 0; pointer-events: none; }
+#toasts.expanded .toast.in { transform: translateY(calc(var(--y) * -1)); }
+.toast.out { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .toast, .toast > * { transition: opacity .14s; } }
 .toast > .icon { margin-top: 1px; }
 .toast.success > .icon { color: var(--green); }
 .toast.error > .icon { color: var(--red); }
@@ -1531,7 +1541,7 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .toast-detail { margin-top: 3px; font: 11.5px/1.5 var(--mono); color: var(--text-3); white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; user-select: text; }
 .toast-action { color: var(--accent-fg); font-weight: var(--fw-strong); padding: 0 2px; }
 .toast-action:hover { text-decoration: underline; }
-.toast.choice { width: 360px; padding: 12px 10px 12px 14px; }
+.toast.choice { padding: 12px 10px 12px 14px; }
 .toast.choice .toast-title { white-space: nowrap; }
 .toast.choice .toast-detail { font: inherit; font-size: 12.5px; color: var(--text-2); white-space: normal; }
 .toast-ref { font: 12.5px var(--mono); font-weight: var(--fw-medium); color: var(--text); }
