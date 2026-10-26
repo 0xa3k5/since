@@ -48,4 +48,16 @@ test('opening another repository mid-load opens it in its own tab', async ({ san
   // A's tab, behind it, still finishes its own history.
   await expect(root).toHaveAttribute('data-history', 'ready', { timeout: 15_000 });
   await expect(app.page.locator('.sidebar .repo-name')).toHaveText('repo-a');
+
+  // Close B's tab, then Reopen Closed Tab (⇧⌘T) brings it back as the last tab.
+  await app.page.evaluate(async () => {
+    const [list] = await window.gitlanes.app('tabs');
+    await window.gitlanes.app('tab', 'close', list.find((t) => t.title.startsWith('repo-b')).id);
+  });
+  await expect(app.page.locator('.tabstrip .tab-title')).toHaveCount(0);
+  const reopened = app.app.waitForEvent('window');
+  await app.page.evaluate(() => window.gitlanes.app('tab', 'reopen'));
+  const again = await reopened;
+  await expect(again.locator('.sidebar .repo-name')).toHaveText('repo-b');
+  await expect(again.locator('.tabstrip .tab-title')).toHaveText(['repo-a', 'repo-b']);
 });

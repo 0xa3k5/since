@@ -9,5 +9,18 @@ const step = (count, i, by) => (count ? (((i + by) % count) + count) % count : -
 const afterClose = (count, i) => Math.min(i, count - 2);
 // The tab to show among the reopened `roots`: the one that was showing, else the last.
 const reopenActive = (roots, active) => (roots.includes(active) ? roots.indexOf(active) : roots.length - 1);
+// Closed tabs and windows, newest last ({ roots, active, window }); the oldest drop off past `max`.
+const remember = (closed, entry, max = 20) => (entry.roots.length ? [...closed, entry].slice(-max) : closed);
+// What ⇧⌘T reopens: the newest entry, cut to the folders `ok` still accepts, and the entries left under it.
+// Entries with none left are dropped.
+function takeClosed(closed, ok) {
+  const rest = [...closed];
+  while (rest.length) {
+    const e = rest.pop();
+    const roots = e.roots.filter(ok);
+    if (roots.length) return { entry: { ...e, roots }, rest };
+  }
+  return { entry: null, rest };
+}
 
-module.exports = { byNumber, step, afterClose, reopenActive };
+module.exports = { byNumber, step, afterClose, reopenActive, remember, takeClosed };

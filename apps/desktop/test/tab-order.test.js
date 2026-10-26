@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { byNumber, step, afterClose, reopenActive } = require('../tab-order');
+const { byNumber, step, afterClose, reopenActive, remember, takeClosed } = require('../tab-order');
 
 test('⌘1–⌘8 pick a tab by place, ⌘9 the last one', () => {
   assert.equal(byNumber(3, 1), 0);
@@ -44,6 +44,29 @@ test('tabs are views in one window; tab keys and IPC go through the keymap and i
   const { defaults } = await import('../renderer/keymap.js');
   assert.deepEqual(defaults('file.newTab', true), ['Mod+T']);
   assert.deepEqual(defaults('file.close', true), ['Mod+W']);
+  assert.deepEqual(defaults('file.reopenTab', true), ['Mod+Shift+T']);
+  assert.deepEqual(defaults('repo.terminal', true), ['Mod+Alt+Shift+T']);
   assert.deepEqual(defaults('tab.next', true), ['Ctrl+Tab']);
   assert.deepEqual(defaults('tab.prev', true), ['Ctrl+Shift+Tab']);
+});
+
+test('⇧⌘T reopens the newest closed tab or window, skipping folders that are gone or open', () => {
+  let closed = [];
+  closed = remember(closed, { roots: ['/a'], active: null, window: false });
+  closed = remember(closed, { roots: [], active: null, window: true });
+  closed = remember(closed, { roots: ['/b', '/c'], active: '/c', window: true });
+  assert.equal(closed.length, 2, 'a window with no repositories is not kept');
+  let { entry, rest } = takeClosed(closed, () => true);
+  assert.deepEqual(entry, { roots: ['/b', '/c'], active: '/c', window: true });
+  assert.deepEqual(rest, [{ roots: ['/a'], active: null, window: false }]);
+  ({ entry, rest } = takeClosed(closed, (d) => d === '/b' || d === '/a'));
+  assert.deepEqual(entry.roots, ['/b']);
+  ({ entry, rest } = takeClosed(closed, (d) => d === '/a'));
+  assert.deepEqual(entry.roots, ['/a']);
+  assert.deepEqual(rest, []);
+  assert.deepEqual(takeClosed(closed, () => false), { entry: null, rest: [] });
+  assert.deepEqual(takeClosed([], () => true), { entry: null, rest: [] });
+  for (let i = 0; i < 25; i++) closed = remember(closed, { roots: [`/r${i}`], active: null, window: false });
+  assert.equal(closed.length, 20);
+  assert.deepEqual(closed.at(-1).roots, ['/r24']);
 });

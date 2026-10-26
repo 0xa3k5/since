@@ -4922,6 +4922,7 @@ function openPalette() {
     add('App', 'New tab', () => api.app('tab', 'new'), { icon: 'plus', kbd: keymap.keys('file.newTab') });
     add('App', 'New window', () => api.app('new-window'), { icon: 'plus', kbd: keymap.keys('file.newWindow') });
     add('App', 'Close tab', () => api.app('tab', 'close'), { icon: 'x', kbd: keymap.keys('file.close') });
+    if (canReopenTab) add('App', 'Reopen closed tab', () => api.app('tab', 'reopen'), { icon: 'undo', kbd: keymap.keys('file.reopenTab'), keywords: 'restore tab window' });
     if (tabList.length > 1) {
       add('App', 'Next tab', () => api.app('tab', 'next'), { icon: 'chevron', kbd: keymap.keys('tab.next') });
       add('App', 'Previous tab', () => api.app('tab', 'prev'), { icon: 'chevronLeft', kbd: keymap.keys('tab.prev') });
@@ -5621,8 +5622,8 @@ api.on('keymap', (o) => {
 
 // The window's tabs (AK-634), drawn by every tab's page.
 const TAB_KEYS = ['tab.n1', 'tab.n2', 'tab.n3', 'tab.n4', 'tab.n5', 'tab.n6', 'tab.n7', 'tab.n8'];
-let tabList = [];
-const showTabs = (list) => { tabList = list; renderTabs(document.getElementById('tabstrip'), list, (action, id) => api.app('tab', action, id)); };
+let tabList = [], canReopenTab = false;
+const showTabs = (list, canReopen) => { tabList = list; canReopenTab = Boolean(canReopen); renderTabs(document.getElementById('tabstrip'), list, (action, id) => api.app('tab', action, id)); };
 api.on('tabs', showTabs);
 
 // Boot
@@ -5633,7 +5634,7 @@ api.on('tabs', showTabs);
   keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));
-  showTabs(await api.app('tabs'));
+  showTabs(...(await api.app('tabs')));
   const params = new URLSearchParams(location.search);
   if (params.get('view') === 'map') startView = 'map';
   const dir = params.get('repo');

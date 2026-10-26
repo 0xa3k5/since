@@ -52,6 +52,7 @@ export const COMMANDS = [
   c('menu', 'file', 'app.licence', 'Enter Licence Key…', []),
   c('menu', 'file', 'file.newTab', 'New Tab', 'Mod+T'),
   c('menu', 'file', 'file.newWindow', 'New Window', 'Mod+Shift+N'),
+  c('menu', 'file', 'file.reopenTab', 'Reopen Closed Tab', 'Mod+Shift+T'),
   c('menu', 'file', 'file.init', 'New Repository…', 'Mod+N'),
   c('menu', 'file', 'file.open', 'Open Repository…', 'Mod+O'),
   c('menu', 'file', 'file.clone', 'Clone Repository…', 'Mod+Shift+O'),
@@ -128,7 +129,7 @@ export const COMMANDS = [
   c('menu', 'repository', 'repo.prChanges', 'Request Changes on Pull Request…', 'Mod+Alt+Shift+K'),
   c('menu', 'repository', 'repo.prClose', 'Close Pull Request…', 'Mod+Alt+Shift+W'),
   c('menu', 'repository', 'repo.reveal', 'Open in Finder', 'Mod+Shift+R'),
-  c('menu', 'repository', 'repo.terminal', 'Open in Terminal', 'Mod+Shift+T'),
+  c('menu', 'repository', 'repo.terminal', 'Open in Terminal', 'Mod+Alt+Shift+T'),
   c('menu', 'repository', 'repo.origin', 'Open Origin in Browser', 'Mod+Shift+G'),
 
   // Anywhere in a repository (window keydown in app.js).

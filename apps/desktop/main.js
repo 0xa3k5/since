@@ -1500,7 +1500,7 @@ handle('app:confirm', async (e, opts) => {
   return res.response === 0;
 });
 handle('app:new-window', () => { createWindow(); });
-handle('app:tabs', (e) => tabOf(e)?.host.list() || []);
+handle('app:tabs', (e) => [tabOf(e)?.host.list() || [], closedTabs.length > 0]);
 // The tab strip and ⌘K: only this window's tabs.
 handle('app:tab', (e, action, id) => {
   const tab = tabOf(e);
@@ -1511,6 +1511,7 @@ handle('app:tab', (e, action, id) => {
     case 'new': host.add(); break;
     case 'close': if (target) closeTab(target); break;
     case 'select': if (target) host.select(target); break;
+    case 'reopen': reopenClosed(); break;
     default: host.step(action === 'next' ? 1 : -1);
   }
 });
@@ -1670,7 +1671,11 @@ class TabHost {
     hosts.add(this);
     win.on('resize', () => this.layout());
     win.on('focus', () => windowFocus());
-    win.on('close', () => windowState.saveState(windowStateFile(), { bounds: win.getNormalBounds(), maximized: win.isMaximized(), ...this.roots() }));
+    win.on('close', () => {
+      const roots = this.roots();
+      windowState.saveState(windowStateFile(), { bounds: win.getNormalBounds(), maximized: win.isMaximized(), ...roots });
+      rememberClosed(roots.tabs, { active: roots.active, window: true });
+    });
     // Back and forward from the mouse's side buttons (Windows, Linux) and the trackpad swipe (macOS, when set to swipe between pages).
     const toActive = (cmd) => this.active?.webContents.send('command', cmd);
     win.on('app-command', (e, cmd) => { if (cmd === 'browser-backward') toActive('back'); else if (cmd === 'browser-forward') toActive('forward'); });
@@ -1750,7 +1755,7 @@ class TabHost {
       this.win.setWindowButtonPosition(this.tabs.length > 1 ? TABBED_LIGHTS : LIGHTS);
     }
     const list = this.list();
-    for (const t of this.tabs) if (!t.isDestroyed()) t.webContents.send('tabs', list);
+    for (const t of this.tabs) if (!t.isDestroyed()) t.webContents.send('tabs', list, closedTabs.length > 0);
     buildMenu();
   }
 }
@@ -1770,9 +1775,32 @@ const newTab = () => { const h = focusedHost(); if (h) h.add(); else createWindo
 // welcome screen the window.
 function closeTab(tab = activeTab()) {
   if (!tab) return BaseWindow.getFocusedWindow()?.close();
+  const root = sessions.get(tab.id)?.repo.root;
+  if (root) rememberClosed([root]);
   if (tab.host.tabs.length > 1) return tab.destroy();
   if (sessions.has(tab.id)) return tab.reset();
   return tab.host.win.close();
+}
+
+// Tabs and windows closed, newest last, for Reopen Closed Tab (⇧⌘T): their repositories' roots.
+let closedTabs = [];
+function rememberClosed(roots, { active = null, window = false } = {}) {
+  closedTabs = tabOrder.remember(closedTabs, { roots, active, window });
+  for (const h of hosts) h.changed();
+}
+// ⇧⌘T: the tab closed last comes back in the front window (filling a welcome-screen tab), or the window closed
+// last comes back with its tabs. Folders deleted since or already open in a tab are skipped.
+function reopenClosed() {
+  const { entry, rest } = tabOrder.takeClosed(closedTabs, (d) => fs.existsSync(d) && !windowFor(d));
+  closedTabs = rest;
+  const host = entry && !entry.window && (focusedHost() || [...hosts].at(-1));
+  if (entry && !host) createWindow(entry.roots, { active: tabOrder.reopenActive(entry.roots, entry.active) });
+  else if (entry) {
+    const blank = host.active && !sessions.has(host.active.id) && !host.active.opening ? host.active : null;
+    if (blank) blank.load(entry.roots[0]); else host.add(entry.roots[0]);
+    host.win.focus();
+  }
+  for (const h of hosts) h.changed();
 }
 
 // A folder from Finder, the Dock or `open`: the tab already showing it, else a new tab in the front window.
@@ -1878,6 +1906,7 @@ function buildMenu() {
       submenu: [
         { label: 'New Tab', accelerator: acc('file.newTab'), click: newTab },
         { label: 'New Window', accelerator: acc('file.newWindow'), click: () => createWindow() },
+        { label: 'Reopen Closed Tab', accelerator: acc('file.reopenTab'), enabled: closedTabs.length > 0, click: reopenClosed },
         item('New Repository…', acc('file.init'), 'init'),
         item('Open Repository…', acc('file.open'), 'open'),
         item('Clone Repository…', acc('file.clone'), 'clone'),
