@@ -18,7 +18,7 @@ const builds = [
     <header class="cm-head">
       <p class="eyebrow">Download</p>
       <h1>Download {PRODUCT_NAME}</h1>
-      <p class="lede">The beta build for macOS. Free, open source, no account.</p>
+      <p class="lede">For macOS. Free, open source, no account.</p>
     </header>
 
     <fieldset class="arch">
@@ -38,6 +38,7 @@ const builds = [
         ))}
       </div>
     </fieldset>
+    <p class="arch-brew">Or with Homebrew: <code>brew install --cask 0xa3k5/tap/since</code></p>
     <p class="arch-help muted">
       Not sure which you have? Open the Apple menu → <strong>About This Mac</strong>. If it lists a <strong>Chip</strong>, you have Apple silicon. If it lists a <strong>Processor</strong>, you have Intel.
     </p>
@@ -119,6 +120,8 @@ const builds = [
   .arch-go { grid-column: 1 / -1; margin-top: 8px; }
   .arch-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; font-size: 14px; }
   .arch-panel .btn { height: 40px; padding: 0 18px; font-size: 15px; }
+  .arch-brew { margin: 16px 0 0; font-size: 14px; color: var(--text-2); }
+  .arch-brew code { user-select: all; }
   .arch-help { max-width: 720px; margin: 16px 0 0; font-size: 14px; }
   .arch-help strong { color: var(--text-2); font-weight: 600; }
 
