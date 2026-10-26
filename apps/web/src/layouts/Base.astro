@@ -11,14 +11,15 @@ import Footer from '../components/Footer.astro';
 export type Props = SeoProps;
 ---
 <!doctype html>
-<!-- The site is dark only. -->
-<html lang="en" data-theme="dark">
+<!-- The theme follows the system, like the app. -->
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <Seo {...Astro.props} />
-    <!-- Matches --bg in the dark tokens; a meta tag can't read a CSS variable. -->
-    <meta name="theme-color" content="#080707">
+    <!-- Match --bg in each theme's tokens; a meta tag can't read a CSS variable. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf7f4">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#080707">
     <link rel="preload" href="/fonts/outfit-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">

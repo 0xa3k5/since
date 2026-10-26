@@ -3,7 +3,7 @@ import AppShot from './AppShot.astro';
 import mapShot from '../../assets/app/map-dark.png';
 import commitShot from '../../assets/app/commit-dark.png';
 import conflictShot from '../../assets/app/conflict-dark.png';
-import cleanupShot from '../../assets/app/cleanup-dark.png';
+import CleanUpPreview from './previews/CleanUpPreview.astro';
 ---
 <section class="s wrap rule" id="git" aria-labelledby="g-h">
   <div class="tabs-h">
@@ -20,7 +20,7 @@ import cleanupShot from '../../assets/app/cleanup-dark.png';
       <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><AppShot src={mapShot} alt="The Map: every branch and worktree on one commit graph" /></div>
       <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><AppShot src={commitShot} alt="Commit: staged and unstaged changes with the diff of the selected file" /></div>
       <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><AppShot src={conflictShot} alt="The conflict editor: ours, base and theirs side by side" /></div>
-      <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><AppShot src={cleanupShot} alt="Clean up: finished branches and worktrees grouped by why, ready to remove" /></div>
+      <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><CleanUpPreview /></div>
     </div>
   </div>
 </section>

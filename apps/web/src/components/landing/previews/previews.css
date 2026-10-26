@@ -1,0 +1,133 @@
+/* Focused feature previews (SNC-654). One piece of the app per preview, at the app's own sizes, on a soft stage.
+   Values follow apps/desktop/renderer/styles.css; colours come only from the tokens, so both themes work.
+   Class names carry a pv- prefix so the site's .btn and friends don't reach in. */
+
+.pv {
+  position: relative; margin: 0; height: 400px; overflow: hidden; border-radius: 16px;
+  display: grid; place-items: center;
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in oklab, var(--accent) 7%, var(--bg-content)) 0%, var(--sunk) 75%);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px/1.45 var(--font); color: var(--text); text-align: left; letter-spacing: normal;
+}
+.pv-off * { animation-play-state: paused !important; }
+.pv-card { position: relative; width: min(460px, 90%); background: var(--bg-content); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.pv-wide .pv-card { width: min(680px, 92%); }
+.pv-dim { opacity: .4; filter: saturate(.6); }
+.pv .mono { font-family: var(--mono); }
+
+/* App pieces */
+.pv-btn { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: var(--radius); border: 1px solid transparent; font-size: 12.5px; font-weight: var(--fw-strong); white-space: nowrap; color: var(--text-2); }
+.pv-btn.primary { background: var(--accent-solid); color: var(--on-accent); box-shadow: var(--btn-highlight), var(--shadow-sm); }
+.pv-btn.subtle { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--text); box-shadow: var(--shadow-sm); }
+.pv-kbd { opacity: .7; font-size: 12px; letter-spacing: .04em; }
+.pv-badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: var(--fw-medium); color: var(--text-3); background: var(--bg-active); }
+.pv-box { flex: none; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 4px; background: var(--accent-solid); color: var(--on-accent); font-size: 10px; line-height: 1; }
+.pv-box::before { content: "✓"; }
+
+.pv-toast {
+  position: absolute; left: 50%; bottom: 18px; width: max-content; max-width: 92%;
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px;
+  background: var(--bg-elevated); box-shadow: var(--shadow); opacity: 0; transform: translate(-50%, 12px);
+}
+.pv-toast .ok { color: var(--green); flex: none; }
+.pv-toast b { font-weight: var(--fw-strong); }
+.pv-toast .act { margin-left: auto; padding-left: 6px; color: var(--accent-fg); font-weight: var(--fw-strong); }
+
+/* Since: the headline and the timeline; the selection steps through the rows. */
+.pv-cu-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 14px; border-bottom: 1px solid var(--border); }
+.pv-cu-head .grow { flex: 1; }
+.pv-cu-lead { font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -.01em; line-height: 1.3; }
+.pv-cu-lead .mono { font-size: .92em; }
+.pv-cu-sub { display: flex; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
+.pv-cu-sub .dot { color: var(--text-4); }
+.pv-cu-sub .passing { color: var(--green); }
+.pv-cu-list { position: relative; padding: 0 12px 12px; }
+.pv-cu-day { padding: 12px 8px 6px; height: 38px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-3); }
+.pv-cu-row { position: relative; display: grid; grid-template-columns: max-content auto minmax(0, 1fr) auto; align-items: center; gap: 12px; height: 32px; padding: 0 8px; }
+.pv-cu-time { min-width: 5.5em; font: 11.5px var(--mono); color: var(--text-4); }
+.pv-cu-num { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.pv-cu-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-cu-sel { position: absolute; left: 12px; right: 12px; top: 38px; height: 32px; border-radius: var(--radius); background: var(--bg-selected); animation: pv-step 9s infinite; }
+@keyframes pv-step { 0%, 18% { transform: translateY(0); } 24%, 42% { transform: translateY(32px); } 48%, 66% { transform: translateY(102px); } 72%, 100% { transform: translateY(0); } }
+
+/* Review: one stuck row in focus, the ready one dimmed below it. */
+.pv-rv-group { padding: 12px 16px 4px; font-size: 12px; font-weight: var(--fw-strong); color: var(--accent-fg); }
+.pv-rv-group.quiet { color: var(--text-3); }
+.pv-rv-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+.pv-rv-row.on { background: var(--bg-selected); }
+.pv-rv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.pv-rv-dot.stuck { background: var(--red); animation: pv-pulse 2.4s infinite; }
+@keyframes pv-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 40%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+.pv-rv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+.pv-rv-title .n { margin-right: 6px; font-size: 12px; color: var(--text-3); }
+.pv-rv-why { margin-top: 1px; font-size: 12px; color: var(--red); }
+.pv-rv-sub { margin-top: 1px; font-size: 12px; color: var(--text-3); }
+.pv-rv-age { font-size: 12px; color: var(--text-4); }
+
+/* Fix prompt: the dialog cut to the reason, the prompt and Copy prompt. */
+.pv-dlg-head { padding: 16px 18px 2px; }
+.pv-dlg-title { font-size: 15px; font-weight: var(--fw-strong); }
+.pv-dlg-desc { margin-top: 3px; font-size: 12.5px; color: var(--text-3); }
+.pv-dlg-body { display: grid; gap: 10px; padding: 12px 18px 2px; }
+.pv-label { font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); }
+.pv-reason { font-size: 12px; color: var(--warn); }
+.pv-prompt { height: 92px; overflow: hidden; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); font: 12px/1.5 var(--mono); color: var(--text-2); white-space: pre; }
+.pv-dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 14px; }
+.pv-fix .press { animation: pv-press 7s infinite; }
+@keyframes pv-press { 0%, 30% { transform: none; filter: none; } 33% { transform: scale(.96); filter: brightness(.92); } 37%, 100% { transform: none; filter: none; } }
+.pv-fix .pv-toast { animation: pv-toast-fix 7s infinite; }
+@keyframes pv-toast-fix { 0%, 34% { opacity: 0; transform: translate(-50%, 12px); } 39%, 78% { opacity: 1; transform: translate(-50%, 0); } 84%, 100% { opacity: 0; transform: translate(-50%, 0); } }
+
+/* Merge plan: three PRs, merged one after another. */
+.pv-mp { padding: 14px 18px 16px; }
+.pv-mp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.pv-mp-head b { font-size: 15px; font-weight: var(--fw-strong); }
+.pv-mp-head span { font-size: 12px; color: var(--text-4); }
+.pv-mp-row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.pv-mp-n { width: 16px; text-align: right; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.pv-mp-pr { color: var(--text-3); font-weight: var(--fw-medium); }
+.pv-mp-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-mp-st { position: relative; width: 84px; height: 18px; font-size: 12px; white-space: nowrap; }
+.pv-mp-st span { position: absolute; right: 0; }
+.pv-mp-st .was { color: var(--text-3); animation: pv-out 9s infinite; }
+.pv-mp-st .now { color: var(--green); opacity: 0; animation: pv-in 9s infinite; }
+.pv-mp-row:nth-child(2) span { animation-delay: .9s; }
+.pv-mp-row:nth-child(3) span { animation-delay: 1.8s; }
+@keyframes pv-out { 0%, 22% { opacity: 1; } 26%, 88% { opacity: 0; } 94%, 100% { opacity: 1; } }
+@keyframes pv-in { 0%, 22% { opacity: 0; } 26%, 88% { opacity: 1; } 94%, 100% { opacity: 0; } }
+.pv-mp-foot { margin-top: 12px; }
+
+/* Clean up: finished branches go, one Undo brings them back. */
+.pv-cl { padding: 14px 16px 0; }
+.pv-cl-big { font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -.01em; }
+.pv-cl-card { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.pv-cl-head, .pv-cl-item { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 9px 14px; }
+.pv-cl-head b { font-weight: var(--fw-medium); }
+.pv-cl-item { padding: 7px 14px; border-top: 1px solid var(--border); font-size: 12.5px; animation: pv-gone 8s infinite; }
+.pv-cl-item:nth-child(3) { animation-delay: .07s; }
+.pv-cl-item:nth-child(4) { animation-delay: .14s; }
+@keyframes pv-gone { 0%, 24% { opacity: 1; } 30%, 66% { opacity: .25; text-decoration: line-through; } 72%, 100% { opacity: 1; } }
+.pv-cl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.pv-cl-note { color: var(--text-4); white-space: nowrap; }
+.pv-cl-bar { display: flex; align-items: center; gap: 14px; margin: 12px -16px 0; padding: 12px 16px 64px; border-top: 1px solid var(--border); color: var(--text-2); }
+.pv-cl .go { animation: pv-press-cl 8s infinite; }
+@keyframes pv-press-cl { 0%, 20% { transform: none; } 23% { transform: scale(.96); } 26%, 100% { transform: none; } }
+.pv-cl .done { animation: pv-done 8s infinite; }
+.pv-cl .undid { animation: pv-undid 8s infinite; }
+@keyframes pv-done { 0%, 27% { opacity: 0; transform: translate(-50%, 12px); } 31%, 60% { opacity: 1; transform: translate(-50%, 0); } 64%, 100% { opacity: 0; transform: translate(-50%, 0); } }
+@keyframes pv-undid { 0%, 66% { opacity: 0; transform: translate(-50%, 12px); } 70%, 92% { opacity: 1; transform: translate(-50%, 0); } 96%, 100% { opacity: 0; } }
+
+@media (max-width: 720px) {
+  .pv { height: 340px; }
+  .pv-cu-time, .pv-cu-row .pv-badge { display: none; }
+  .pv-cu-row { grid-template-columns: auto minmax(0, 1fr); }
+  .pv-cu-head .pv-btn { display: none; }
+}
+
+/* A still frame: the moment each preview is about. */
+@media (prefers-reduced-motion: reduce) {
+  .pv *, .pv *::before, .pv *::after { animation: none !important; }
+  .pv-fix .pv-toast, .pv-cl .done { opacity: 1; transform: translate(-50%, 0); }
+  .pv-mp-row:first-child .was { opacity: 0; }
+  .pv-mp-row:first-child .now { opacity: 1; }
+}

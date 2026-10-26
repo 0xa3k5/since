@@ -1,5 +1,5 @@
 /* Site styles. Colours come only from @gitsince/tokens; the site adds type and layout.
-   The site is dark only (<html data-theme="dark">). Calm, dense and warm: generous whitespace, one orange element per region. */
+   The theme follows the system, like the app. Calm, dense and warm: generous whitespace, one orange element per region. */
 
 /* Outfit (SIL OFL 1.1, see /fonts/OFL.txt), self-hosted. Headings and display numbers, weight 500. */
 @font-face {
@@ -30,7 +30,7 @@
   --ghost: color-mix(in oklab, var(--border-strong) 94%, var(--text));
 }
 
-/* The site is dark; any section can opt into light with .theme-light. Values mirror the light theme in packages/tokens. */
+/* Any section can opt into light with .theme-light. Values mirror the light theme in packages/tokens. */
 .theme-light {
   color-scheme: light;
   --bg: #faf7f4; --bg-content: #ffffff; --bg-elevated: #ffffff; --bg-hover: rgba(60, 30, 10, 0.045);
@@ -71,8 +71,9 @@ code, kbd, pre { font-family: var(--mono); font-size: 0.9em; }
 .wrap { width: 100%; max-width: var(--wrap); margin: 0 auto; padding: 0 32px; }
 .muted { color: var(--text-3); }
 
-/* Screenshots ship in both themes; the site is dark, so only the dark one shows. */
-.only-light { display: none; }
+/* Screenshots ship in both themes; the system theme picks which one shows. */
+@media (prefers-color-scheme: light) { .only-dark { display: none; } }
+@media (prefers-color-scheme: dark) { .only-light { display: none; } }
 
 .skip-link { position: absolute; left: 12px; top: -48px; padding: 8px 12px; background: var(--bg-elevated); color: var(--text); border-radius: var(--radius); z-index: 50; }
 .skip-link:focus { top: 12px; }

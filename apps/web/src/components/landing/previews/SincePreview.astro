@@ -1,0 +1,20 @@
+---
+import Stage from './Stage.astro';
+---
+<Stage class="pv-wide" label="Since: 6 PRs merged on main since your checkpoint, listed by day, with the selection stepping through them">
+  <div class="pv-cu-head">
+    <div>
+      <div class="pv-cu-lead">6 PRs merged on <span class="mono">main</span> since your checkpoint</div>
+      <div class="pv-cu-sub"><span>Monday 18:40</span><span class="dot">·</span><span class="passing">CI passing on main</span></div>
+    </div>
+    <span class="grow"></span><span class="pv-btn subtle">Mark since</span>
+  </div>
+  <div class="pv-cu-list">
+    <div class="pv-cu-sel"></div>
+    <div class="pv-cu-day">Today</div>
+    <div class="pv-cu-row"><span class="pv-cu-time">10:12</span><span class="pv-cu-num">#121</span><span class="pv-cu-title">Show reviewers on pull requests</span><span class="pv-badge">SNC-312</span></div>
+    <div class="pv-cu-row"><span class="pv-cu-time">09:47</span><span class="pv-cu-num">#120</span><span class="pv-cu-title">Collapse the day headers</span><span class="pv-badge">SNC-309</span></div>
+    <div class="pv-cu-day">Yesterday</div>
+    <div class="pv-cu-row"><span class="pv-cu-time">17:03</span><span class="pv-cu-num">#119</span><span class="pv-cu-title">Retry fetches that time out</span><span class="pv-badge">SNC-298</span></div>
+  </div>
+</Stage>
