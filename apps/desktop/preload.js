@@ -1,7 +1,7 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('gitlanes', {
+contextBridge.exposeInMainWorld('since', {
   git: (method, ...args) => ipcRenderer.invoke('git', method, ...args),
   app: (channel, ...args) => ipcRenderer.invoke(`app:${channel}`, ...args),
   on: (channel, fn) => {

@@ -1,4 +1,4 @@
-# Reviewing GitLanes PRs
+# Reviewing Since PRs
 
 What the reviewer checks before a squash merge. Working rules for authors are in `CLAUDE.md`.
 

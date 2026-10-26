@@ -5,7 +5,7 @@
 // every GitHub question from demo JSON, and a `git` shim points fetches of the GitHub remote at a
 // local bare repository. Not part of the e2e suite (its testMatch is *.spec.js). Run it with:
 //
-//   pnpm --filter @gitlanes/desktop exec playwright test -c e2e/site-shots.config.js
+//   pnpm --filter @gitsince/desktop exec playwright test -c e2e/site-shots.config.js
 //
 // One app launch; the window is set to 1440×900 and captured at the display's scale (2x on Retina).
 
@@ -575,11 +575,11 @@ process.exit(1);
 `, { mode: 0o755 });
 
   // --- Launch (Review is the start view), 1440×900, dark.
-  const app = await launch(repo, { theme: 'dark', env: { GITLANES_START_VIEW: '', PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+  const app = await launch(repo, { theme: 'dark', env: { SINCE_START_VIEW: '', PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
   const { page } = app;
   await app.app.evaluate(({ BaseWindow }) => { const w = BaseWindow.getAllWindows()[0]; w.setContentSize(1440, 900); w.center(); });
   // The catch-up checkpoint: caught up three and a half days ago, then reload so Review picks it up.
-  await page.evaluate((cp) => window.gitlanes.app('catchup-mark', cp), { sha: checkpoint, base: 'origin/main', date: checkpointAt, source: 'mark' });
+  await page.evaluate((cp) => window.since.app('catchup-mark', cp), { sha: checkpoint, base: 'origin/main', date: checkpointAt, source: 'mark' });
   // Refresh pull requests first: the sidebar keeps them in its cache, and refreshing after the reload
   // would race Review's catch-up load (which then shows commits instead of merged PRs).
   await app.palette('Refresh pull requests');
@@ -589,7 +589,7 @@ process.exit(1);
   // Toasts never show in a shot (inline styles are blocked by the CSP; CSSOM isn't).
   const quiet = () => page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove()));
 
-  const LEAKS = ['E2E', 'tmp', '/var/', '/Users', '/private', 'gitlanes-e2e', 'Tester', 'orbit-remote'];
+  const LEAKS = ['E2E', 'tmp', '/var/', '/Users', '/private', 'since-e2e', 'Tester', 'orbit-remote'];
   const shot = async (name) => {
     await app.settle(500);
     await page.waitForTimeout(300);

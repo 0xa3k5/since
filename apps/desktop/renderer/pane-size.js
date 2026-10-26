@@ -6,7 +6,7 @@ export const PANES = {
   sidebar: { label: 'Sidebar width', def: 232, min: 180, max: 420, keep: 600 },
   commit: { label: 'File list width', def: 320, min: 240, max: 640, keep: 360 },
   stash: { label: 'Stash list width', def: 340, min: 240, max: 640, keep: 360 },
-  catchup: { label: 'Catch up list width', def: 380, min: 280, max: 720, keep: 420 },
+  catchup: { label: 'Since list width', def: 380, min: 280, max: 720, keep: 420 },
 };
 
 // Arrow keys move the edge by STEP px, ⇧ by BIG_STEP.

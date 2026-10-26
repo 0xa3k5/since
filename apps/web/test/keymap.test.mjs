@@ -34,7 +34,7 @@ test('views have ⌥⌘ numbers and G shortcuts', () => {
   assert.deepEqual(find(v, 'Branches')?.keys, ['⌥', '⌘', '5']);
   assert.equal(find(v, 'Branches')?.alt, null); // ⌥⌘ numbers only, no G chord
   assert.deepEqual(find(group('window'), 'Tab 1')?.keys, ['⌘', '1']);
-  assert.deepEqual(find(v, 'Catch up')?.keys, ['⌥', '⌘', '1']);
+  assert.deepEqual(find(v, 'Since')?.keys, ['⌥', '⌘', '1']);
   assert.deepEqual(find(v, 'Review')?.keys, ['⌥', '⌘', '2']);
   assert.deepEqual(find(v, 'History')?.keys, ['⌥', '⌘', '7']);
   assert.equal(find(v, 'History')?.alt, null);
@@ -47,7 +47,7 @@ test('menu groups have the menu bar shortcuts', () => {
   assert.deepEqual(find(group('repository'), 'Fetch All')?.keys, ['⇧', '⌘', 'F']);
   assert.ok(find(group('file'), 'New Window'));
   assert.ok(!find(group('file'), 'Switch Repository…'), 'commands with no keys stay off the page');
-  assert.ok(!find(group('file'), 'Quit GitLanes'), 'system menu roles stay off the page');
+  assert.ok(!find(group('file'), 'Quit Since'), 'system menu roles stay off the page');
 });
 
 test('reads the ⌘K command list', () => {

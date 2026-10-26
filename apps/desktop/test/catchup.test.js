@@ -11,7 +11,7 @@ const git = require('../git');
 const github = require('../github');
 const store = require('../catchup-store');
 
-const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `gitlanes-catchup-${p}-`)));
+const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `since-catchup-${p}-`)));
 let clock = 1700000000;
 const g = (dir, args) => git.run(dir, args, { env: { GIT_COMMITTER_DATE: `${clock} +0000`, GIT_AUTHOR_DATE: `${clock} +0000` } });
 async function commit(dir, file, msg) {

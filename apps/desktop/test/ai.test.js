@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process');
 const ai = require('../ai');
 const git = require('../git');
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-ai-test-'));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'since-ai-test-'));
 
 function fakeCli(dir, name, script) {
   const p = path.join(dir, name);
@@ -70,7 +70,7 @@ test('generate runs the CLI with the prompt on stdin, outside the repo', async (
   const msg = await ai.generate({ provider: 'claude' }, 'Write the message', { dirs: [dir, '/usr/bin', '/bin'] });
   assert.equal(msg, 'Got: Write the');
   const cwd = fs.readFileSync(path.join(dir, 'cwd'), 'utf8').trim();
-  assert.match(cwd, /gitlanes-ai-/);
+  assert.match(cwd, /since-ai-/);
   assert.equal(fs.existsSync(cwd), false, 'temp folder is removed');
 });
 

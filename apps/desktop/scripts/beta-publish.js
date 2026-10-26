@@ -4,7 +4,7 @@
 //
 //   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/beta-publish.js --version 0.1.0-beta.1 [--dir dist]
 //
-// Bucket layout: beta/<version>/ holds the DMGs and update zips, beta/latest/GitLanes-<arch>.dmg are the
+// Bucket layout: beta/<version>/ holds the DMGs and update zips, beta/latest/Since-<arch>.dmg are the
 // website's stable links, and beta/update-mac-<arch>.json are the feeds. Versioned files go up first and
 // the feeds last, so a feed never names a file that isn't there yet. The last KEEP versions are kept.
 //
@@ -21,9 +21,9 @@ const PUBLIC_URL = 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev';
 const ARCHES = ['arm64', 'x64'];
 const KEEP = 5;
 
-const dmgName = (version, arch) => `GitLanes-${version}-${arch}.dmg`;
+const dmgName = (version, arch) => `Since-${version}-${arch}.dmg`;
 const baseUrl = (version) => `${PUBLIC_URL}/beta/${version}`;
-const downloadUrls = () => ARCHES.map((arch) => `${PUBLIC_URL}/beta/latest/GitLanes-${arch}.dmg`);
+const downloadUrls = () => ARCHES.map((arch) => `${PUBLIC_URL}/beta/latest/Since-${arch}.dmg`);
 
 /** Writes update-mac-<arch>.json into dir with update-feed.js, pointing at this version's folder in the bucket. */
 function writeFeeds(version, dir) {
@@ -42,7 +42,7 @@ function planUploads(version, files) {
       { file: zipName(version, arch), key: `beta/${version}/${zipName(version, arch)}`, cacheControl: immutable, contentType: 'application/zip' },
     ]),
     ...ARCHES.map((arch) => ({
-      file: dmgName(version, arch), key: `beta/latest/GitLanes-${arch}.dmg`, cacheControl: 'public, max-age=300',
+      file: dmgName(version, arch), key: `beta/latest/Since-${arch}.dmg`, cacheControl: 'public, max-age=300',
       contentType: 'application/x-apple-diskimage', contentDisposition: `attachment; filename="${dmgName(version, arch)}"`,
     })),
     ...ARCHES.map((arch) => ({ file: feedName(arch), key: `beta/${feedName(arch)}`, cacheControl: 'no-cache', contentType: 'application/json' })),

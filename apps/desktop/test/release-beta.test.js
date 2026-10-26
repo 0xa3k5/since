@@ -39,31 +39,31 @@ test('pnpmMismatch passes only the pinned pnpm, with or without a leading v, and
 });
 
 const V = '0.1.0-beta.2';
-const built = [`GitLanes-${V}-arm64.dmg`, `GitLanes-${V}-x64.dmg`, `GitLanes-${V}-arm64-mac.zip`, `GitLanes-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json'];
+const built = [`Since-${V}-arm64.dmg`, `Since-${V}-x64.dmg`, `Since-${V}-arm64-mac.zip`, `Since-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json'];
 
 test('wrongBuildVersion names what electron-builder built when the version override did not apply', () => {
   assert.equal(wrongBuildVersion(V, [...built, 'mac-arm64', 'mac', 'builder-debug.yml']), '');
-  assert.equal(wrongBuildVersion(V, [`GitLanes-${V}-arm64-mac.zip`]), '', 'any artifact of the version is enough; planUploads reports missing files');
+  assert.equal(wrongBuildVersion(V, [`Since-${V}-arm64-mac.zip`]), '', 'any artifact of the version is enough; planUploads reports missing files');
   assert.equal(
-    wrongBuildVersion(V, ['mac-arm64', 'GitLanes-0.1.0-arm64.dmg', 'GitLanes-0.1.0-arm64-mac.zip', 'GitLanes-0.1.0-x64.dmg', 'builder-debug.yml']),
-    'electron-builder built GitLanes-0.1.0-arm64-mac.zip, GitLanes-0.1.0-arm64.dmg, GitLanes-0.1.0-x64.dmg instead of 0.1.0-beta.2; the version override did not apply.',
+    wrongBuildVersion(V, ['mac-arm64', 'Since-0.1.0-arm64.dmg', 'Since-0.1.0-arm64-mac.zip', 'Since-0.1.0-x64.dmg', 'builder-debug.yml']),
+    'electron-builder built Since-0.1.0-arm64-mac.zip, Since-0.1.0-arm64.dmg, Since-0.1.0-x64.dmg instead of 0.1.0-beta.2; the version override did not apply.',
   );
-  assert.match(wrongBuildVersion(V, []), /built no GitLanes-\* artifacts instead of 0\.1\.0-beta\.2/);
+  assert.match(wrongBuildVersion(V, []), /built no Since-\* artifacts instead of 0\.1\.0-beta\.2/);
   // A build of beta.20 is not a build of beta.2.
-  assert.match(wrongBuildVersion(V, ['GitLanes-0.1.0-beta.20-arm64.dmg']), /instead of 0\.1\.0-beta\.2;/);
+  assert.match(wrongBuildVersion(V, ['Since-0.1.0-beta.20-arm64.dmg']), /instead of 0\.1\.0-beta\.2;/);
 });
 
 test('planUploads puts versioned files first, then the latest DMGs, then the no-cache feeds', () => {
   const plan = planUploads(V, built);
   assert.deepEqual(plan.map((u) => u.key), [
-    `beta/${V}/GitLanes-${V}-arm64.dmg`, `beta/${V}/GitLanes-${V}-arm64-mac.zip`,
-    `beta/${V}/GitLanes-${V}-x64.dmg`, `beta/${V}/GitLanes-${V}-x64-mac.zip`,
-    'beta/latest/GitLanes-arm64.dmg', 'beta/latest/GitLanes-x64.dmg',
+    `beta/${V}/Since-${V}-arm64.dmg`, `beta/${V}/Since-${V}-arm64-mac.zip`,
+    `beta/${V}/Since-${V}-x64.dmg`, `beta/${V}/Since-${V}-x64-mac.zip`,
+    'beta/latest/Since-arm64.dmg', 'beta/latest/Since-x64.dmg',
     'beta/update-mac-arm64.json', 'beta/update-mac-x64.json',
   ]);
-  assert.equal(plan[4].contentDisposition, `attachment; filename="GitLanes-${V}-arm64.dmg"`);
+  assert.equal(plan[4].contentDisposition, `attachment; filename="Since-${V}-arm64.dmg"`);
   assert.ok(plan.slice(6).every((u) => u.cacheControl === 'no-cache' && u.contentType === 'application/json'));
-  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: GitLanes-0\.1\.0-beta\.2-x64\.dmg/);
+  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-0\.1\.0-beta\.2-x64\.dmg/);
 });
 
 test('pruneList keeps the newest five versions in semver order and never the current one', () => {
@@ -96,14 +96,14 @@ function fakeBucket(keys) {
 }
 
 test('publish writes feeds, uploads in order, then prunes the oldest versions', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-beta-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-beta-'));
   for (const f of built.filter((f) => !f.endsWith('.json'))) fs.writeFileSync(path.join(dir, f), 'x');
   const old = ['0.1.0-beta.1', '0.1.0-beta.0', '0.0.9-beta.1', '0.0.9-beta.2', '0.0.9-beta.3'];
-  const bucket = fakeBucket([...old.flatMap((v) => [`beta/${v}/GitLanes-${v}-arm64.dmg`, `beta/${v}/GitLanes-${v}-x64.dmg`]), 'beta/latest/GitLanes-arm64.dmg', 'beta/update-mac-arm64.json']);
+  const bucket = fakeBucket([...old.flatMap((v) => [`beta/${v}/Since-${v}-arm64.dmg`, `beta/${v}/Since-${v}-x64.dmg`]), 'beta/latest/Since-arm64.dmg', 'beta/update-mac-arm64.json']);
   const urls = publish({ version: V, dir, client: r2Client({ accountId: 'acct', send: bucket.send }), log: () => {} });
 
   const feed = JSON.parse(fs.readFileSync(path.join(dir, 'update-mac-arm64.json'), 'utf8'));
-  assert.equal(feed.releases[0].updateTo.url, `${PUBLIC_URL}/beta/${V}/GitLanes-${V}-arm64-mac.zip`);
+  assert.equal(feed.releases[0].updateTo.url, `${PUBLIC_URL}/beta/${V}/Since-${V}-arm64-mac.zip`);
 
   const puts = bucket.calls.filter((c) => c.method === 'PUT');
   assert.deepEqual(puts.map((c) => c.key), planUploads(V, built).map((u) => u.key));
@@ -112,14 +112,14 @@ test('publish writes feeds, uploads in order, then prunes the oldest versions', 
   const lastPut = bucket.calls.lastIndexOf(puts.at(-1));
   assert.ok(bucket.calls.slice(0, lastPut).every((c) => c.method === 'PUT'));
   // Six versions now; the oldest (0.0.9-beta.1) goes, with every file in it.
-  assert.deepEqual(bucket.calls.filter((c) => c.method === 'DELETE').map((c) => c.key), ['beta/0.0.9-beta.1/GitLanes-0.0.9-beta.1-arm64.dmg', 'beta/0.0.9-beta.1/GitLanes-0.0.9-beta.1-x64.dmg']);
-  assert.ok(bucket.objects.has('beta/latest/GitLanes-arm64.dmg'));
-  assert.deepEqual(urls, [`${PUBLIC_URL}/beta/latest/GitLanes-arm64.dmg`, `${PUBLIC_URL}/beta/latest/GitLanes-x64.dmg`]);
+  assert.deepEqual(bucket.calls.filter((c) => c.method === 'DELETE').map((c) => c.key), ['beta/0.0.9-beta.1/Since-0.0.9-beta.1-arm64.dmg', 'beta/0.0.9-beta.1/Since-0.0.9-beta.1-x64.dmg']);
+  assert.ok(bucket.objects.has('beta/latest/Since-arm64.dmg'));
+  assert.deepEqual(urls, [`${PUBLIC_URL}/beta/latest/Since-arm64.dmg`, `${PUBLIC_URL}/beta/latest/Since-x64.dmg`]);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('publish stops at the first failed upload, before the feeds', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-beta-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-beta-'));
   for (const f of built.filter((f) => !f.endsWith('.json'))) fs.writeFileSync(path.join(dir, f), 'x');
   const keys = [];
   const send = ({ method, url }) => { keys.push(url); return method === 'PUT' && url.includes('x64-mac.zip') ? { status: 403, body: 'AccessDenied' } : { status: 200, body: '' }; };
@@ -134,5 +134,5 @@ test('buildEnv drops CSC_IDENTITY_AUTO_DISCOVERY and stray signing variables, ke
   assert.equal('CSC_IDENTITY_AUTO_DISCOVERY' in env, false);
   assert.equal('CSC_LINK' in env, false);
   assert.equal('APPLE_ID' in env, false);
-  assert.deepEqual([env.PATH, env.GITLANES_STORE, env.APPLE_KEYCHAIN_PROFILE], ['/bin', 'beta', 'gitlanes-notary']);
+  assert.deepEqual([env.PATH, env.SINCE_STORE, env.APPLE_KEYCHAIN_PROFILE], ['/bin', 'beta', 'gitlanes-notary']);
 });

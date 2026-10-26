@@ -25,7 +25,15 @@ const changeFacts = require('./change-facts');
 const prMedia = require('./pr-media');
 
 const isMac = process.platform === 'darwin';
-const bench = process.env.GITLANES_BENCH ? require('./bench/harness')(app) : null;
+const bench = process.env.SINCE_BENCH ? require('./bench/harness')(app) : null;
+// The app was called GitLanes before: carry its settings, recent repositories and local storage over
+// once (not Chromium's caches or locks). Never overwrites anything already there, and never into an
+// explicit --user-data-dir (e2e sandboxes).
+const oldUserData = path.join(app.getPath('appData'), 'GitLanes');
+if (!app.commandLine.hasSwitch('user-data-dir') && !['settings.json', 'recent.json'].some((f) => fs.existsSync(path.join(app.getPath('userData'), f))) && fs.existsSync(oldUserData)) {
+  const keep = (src) => { const top = path.relative(oldUserData, src).split(path.sep)[0]; return !top || top.endsWith('.json') || top === 'Local Storage'; };
+  try { fs.cpSync(oldUserData, app.getPath('userData'), { recursive: true, force: false, filter: keep }); } catch (err) { console.warn('could not copy the old app data', err.message); }
+}
 const sessions = new Map(); // webContents.id -> RepoSession
 // Bumped on every repository change any window sees (watcher events, our own git commands): a lanes
 // run started before it is never shared with a later caller (git.sharedLanes).
@@ -114,7 +122,7 @@ class RepoSession {
       const abs = path.join(base, file.toString());
       if (inside(abs, gitDir) || inside(abs, commonDir)) {
         const rel = path.relative(inside(abs, gitDir) ? gitDir : commonDir, abs);
-        if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('gitlanes') || rel.startsWith(path.join('refs', 'gitlanes')) || rel.startsWith('logs')) return;
+        if (rel.startsWith('objects') || rel.endsWith('.lock') || rel.startsWith('since') || rel.startsWith(path.join('refs', 'since')) || rel.startsWith('logs')) return;
         // Another worktree's admin dir: only its HEAD and the dir itself (added/removed) matter here.
         const parts = rel.split(path.sep);
         if (parts[0] === 'worktrees' && parts.length > 2 && parts[2] !== 'HEAD' && parts[2] !== 'locked') return;
@@ -420,7 +428,7 @@ handle('git', async (e, method, ...args) => {
     }
     if (reads[method]) return { ok: await reads[method](s, ...realArgs) };
     if (!READ_ONLY_ALLOWED.has(method) && !(await licensing.ensureCanMutate())) {
-      return { error: { message: 'GitLanes is read-only until you add a licence.', code: 'READ_ONLY' } };
+      return { error: { message: 'Since is read-only until you add a licence.', code: 'READ_ONLY' } };
     }
     s.busy++;
     try {
@@ -634,7 +642,7 @@ handle('app:pr-detect', okCall(async (e) => {
 handle('app:gh-login', okCall(async (e) => {
   const s = sessions.get(e.sender.id);
   const remote = s ? github.pickRemote(await prRemotes(s.repo.root)) : null;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-'));
   const file = path.join(dir, 'gh-login.command');
   fs.writeFileSync(file, github.loginScript(remote ? remote.host : 'github.com'), { mode: 0o700 });
   spawn('open', ['-a', 'Terminal', file], { detached: true });
@@ -1217,7 +1225,7 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
   const { worktree, dir, update, free, move, stash } = prCheckoutOpts(opts);
   const s = session(e);
   const root = s.repo.root;
-  if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
+  if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('Since is read-only until you add a licence.'), { code: 'READ_ONLY' });
   const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await prRemotes(root), number });
   const local = head.local;
   s.busy++;
@@ -1316,7 +1324,7 @@ handle('app:pr-create', okCall(async (e, branch, opts) => {
   const b = await prBranch(s, branch);
   if (b.push) {
     if (!o.push) throw Object.assign(new Error(`${branch} has commits that aren’t on GitHub yet. Push it first.`), { code: 'needs-push' });
-    if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('GitLanes is read-only until you add a licence.'), { code: 'READ_ONLY' });
+    if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('Since is read-only until you add a licence.'), { code: 'READ_ONLY' });
     s.busy++;
     try {
       // A current branch already tracking GitHub takes the usual push path; anything else pushes
@@ -1340,10 +1348,10 @@ let licensing = null;
 function initLicensing() {
   // Packaged builds use only the store profile baked in at build time; the environment can't change it.
   const config = loadConfig(process.env, { packaged: app.isPackaged });
-  // Development only: shift the clock to see the trial's later days (GITLANES_CLOCK_OFFSET_DAYS=15).
-  const offset = app.isPackaged ? 0 : Number(process.env.GITLANES_CLOCK_OFFSET_DAYS || 0) * 86400000;
+  // Development only: shift the clock to see the trial's later days (SINCE_CLOCK_OFFSET_DAYS=15).
+  const offset = app.isPackaged ? 0 : Number(process.env.SINCE_CLOCK_OFFSET_DAYS || 0) * 86400000;
   // Development only: keep the trial mirror elsewhere (e2e gives every launch its own).
-  const mirrorOverride = !app.isPackaged && process.env.GITLANES_TRIAL_MIRROR;
+  const mirrorOverride = !app.isPackaged && process.env.SINCE_TRIAL_MIRROR;
   const suffix = config.profile === 'production' ? '' : `-${config.profile}`;
   licensing = new Licensing({
     config,
@@ -1464,7 +1472,7 @@ handle('app:close-repo', (e) => {
   if (root) removeRecent(root);
   sessions.get(e.sender.id)?.dispose();
   sessions.delete(e.sender.id);
-  tabOf(e)?.setTitle('GitLanes');
+  tabOf(e)?.setTitle('Since');
   tabOf(e)?.setRepresentedFilename('');
   buildMenu();
   notifyWindows();
@@ -1574,7 +1582,7 @@ const WEB_PREFERENCES = {
   navigateOnDragDrop: false,
   safeDialogs: true,
   spellcheck: false,
-  devTools: !app.isPackaged || Boolean(process.env.GITLANES_DEVTOOLS),
+  devTools: !app.isPackaged || Boolean(process.env.SINCE_DEVTOOLS),
 };
 // The traffic lights: beside the sidebar, or in the 36px tab strip once there are two tabs.
 const LIGHTS = { x: 16, y: 16 }, TABBED_LIGHTS = { x: 16, y: 11 };
@@ -1599,7 +1607,7 @@ class Tab extends EventEmitter {
     this.view.setBackgroundColor(windowColors().bg);
     this.webContents = this.view.webContents;
     this.id = this.webContents.id;
-    this.title = 'GitLanes';
+    this.title = 'Since';
     this.root = '';
     tabs.set(this.id, this);
     // Taken before the page sees them, so they work wherever the focus is; the Window menu only shows them.
@@ -1614,8 +1622,8 @@ class Tab extends EventEmitter {
 
   load(dir) {
     this.opening = Boolean(dir);
-    // Development only: GITLANES_START_VIEW=map opens repositories on the Map instead of Review (e2e).
-    const view = !app.isPackaged && process.env.GITLANES_START_VIEW === 'map' ? { view: 'map' } : {};
+    // Development only: SINCE_START_VIEW=map opens repositories on the Map instead of Review (e2e).
+    const view = !app.isPackaged && process.env.SINCE_START_VIEW === 'map' ? { view: 'map' } : {};
     const query = { ...(dir ? { repo: dir } : {}), ...view };
     this.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
   }
@@ -1630,7 +1638,7 @@ class Tab extends EventEmitter {
   reset() {
     sessions.get(this.id)?.dispose();
     sessions.delete(this.id);
-    this.title = 'GitLanes';
+    this.title = 'Since';
     this.setRepresentedFilename('');
     this.load();
     notifyWindows();
@@ -1749,7 +1757,7 @@ class TabHost {
   changed() {
     if (this.win.isDestroyed()) return;
     const a = this.active;
-    this.win.setTitle(a?.title || 'GitLanes');
+    this.win.setTitle(a?.title || 'Since');
     if (isMac) {
       this.win.setRepresentedFilename(a?.root || '');
       this.win.setWindowButtonPosition(this.tabs.length > 1 ? TABBED_LIGHTS : LIGHTS);
@@ -1860,9 +1868,9 @@ handle('app:set-keymap', (_e, o) => {
   return setKeymap(o); // sanitize() drops unknown commands, reserved keys and bad bindings
 });
 handle('app:keymap-export', async (e) => {
-  const res = await dialog.showSaveDialog(windowOf(e), { defaultPath: 'gitlanes-shortcuts.json', message: 'Export your custom shortcuts' });
+  const res = await dialog.showSaveDialog(windowOf(e), { defaultPath: 'since-shortcuts.json', message: 'Export your custom shortcuts' });
   if (res.canceled || !res.filePath) return null;
-  fs.writeFileSync(res.filePath, JSON.stringify({ gitlanes: 'keymap', version: 1, keymap: keymap.getOverrides() }, null, 2));
+  fs.writeFileSync(res.filePath, JSON.stringify({ since: 'keymap', version: 1, keymap: keymap.getOverrides() }, null, 2));
   return res.filePath;
 });
 handle('app:keymap-import', async (e) => {
@@ -1870,7 +1878,7 @@ handle('app:keymap-import', async (e) => {
   if (res.canceled || !res.filePaths[0]) return null;
   let data;
   try { data = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf8')); } catch { throw new Error('That file isn\u2019t a shortcuts file.'); }
-  const o = data?.gitlanes === 'keymap' ? data.keymap : data;
+  const o = data?.since === 'keymap' || data?.gitlanes === 'keymap' ? data.keymap : data; // gitlanes: exports from before the rename
   return setKeymap({ ...keymap.getOverrides(), ...keymap.sanitize(o) });
 });
 const send = (cmd, ...args) => () => activeTab()?.webContents.send('command', cmd, ...args);
@@ -1881,7 +1889,7 @@ function licenceItems() {
   const licensed = licensing?.status().mode === 'licensed';
   return [
     { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: acc('app.licence'), click: send('licence') },
-    ...(licensed ? [] : [{ label: 'Buy GitLanes…', click: send('buy') }]),
+    ...(licensed ? [] : [{ label: 'Buy Since…', click: send('buy') }]),
   ];
 }
 
@@ -1939,7 +1947,7 @@ function buildMenu() {
         item('Back', acc('view.back'), 'back'),
         item('Forward', acc('view.forward'), 'forward'),
         { type: 'separator' },
-        item('Catch up', acc('view.catchup'), 'view', 'catchup'),
+        item('Since', acc('view.catchup'), 'view', 'catchup'),
         item('Review', acc('view.lanes'), 'view', 'lanes'),
         item('Map', acc('view.map'), 'view', 'map'),
         item('Commit', acc('view.commit'), 'view', 'commit'),
@@ -2049,7 +2057,7 @@ function buildMenu() {
 }
 
 // ---------------------------------------------------------------------------
-// Lockdown. GitLanes talks to the network only through the git processes it starts; the
+// Lockdown. Since talks to the network only through the git processes it starts; the
 // renderer never does. See docs/security.md.
 
 app.enableSandbox();
@@ -2068,7 +2076,7 @@ app.on('web-contents-created', (_e, contents) => {
 
 // What a session may load: its own files, inline data: images and DevTools in development
 // (ipc.requestAllowed), plus the https origins in `allow`. Only the updater's private
-// "gitlanes-updates" session gets any: the update feed's host.
+// "since-updates" session gets any: the update feed's host.
 function lockDownSession(ses, allow = []) {
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
@@ -2091,7 +2099,7 @@ app.on('open-file', (ev, p) => {
 });
 
 app.whenReady().then(() => {
-  app.setName('GitLanes');
+  app.setName('Since');
   // Packaged builds carry build/icon.icns; `pnpm start` would show Electron's icon in the Dock.
   if (!app.isPackaged && isMac) {
     const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.icns'));
@@ -2109,7 +2117,7 @@ app.whenReady().then(() => {
     // The beta profile carries its own feed (the beta bucket); every other build uses package.json's.
     feed: licensing.config.updates?.feed || pkg.updates?.feed,
     page: licensing.config.updates?.page || pkg.updates?.page,
-    devFeed: app.isPackaged ? null : process.env.GITLANES_UPDATE_FEED,
+    devFeed: app.isPackaged ? null : process.env.SINCE_UPDATE_FEED,
     onChange: (state) => {
       buildMenu();
       broadcast('update', { ...state, page: updater.page() });

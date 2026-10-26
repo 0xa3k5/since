@@ -80,7 +80,7 @@ test('template storage: per repository, then the user default, then built-in', a
 });
 
 test('failed CI log: failing Actions runs from pr view, then run view --log-failed, last lines only', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-test-'));
   fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
   const ORIGIN = { name: 'origin', url: 'git@github.com:acme/app.git', web: git.remoteWebUrl('git@github.com:acme/app.git') };
   const rollup = JSON.stringify({ statusCheckRollup: [
@@ -113,7 +113,7 @@ test('failed CI log: failing Actions runs from pr view, then run view --log-fail
 });
 
 test('baseTouches: commits on the base since the branch left it, per file, with PR numbers', async () => {
-  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-sendback-'))), 'app');
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-sendback-'))), 'app');
   fs.mkdirSync(dir);
   const g = (...a) => git.run(dir, a);
   const commit = async (file, text, msg) => { fs.writeFileSync(path.join(dir, file), text); await g('add', file); await g('commit', '-q', '-m', msg); };

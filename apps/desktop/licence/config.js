@@ -1,8 +1,8 @@
 'use strict';
 // Store settings per build.
-// - Unpackaged (`pnpm start`): pick a profile with GITLANES_STORE=sandbox|production|beta|mock; sandbox by default.
-// - Packaged: only the profile baked in at build time counts (package.json "gitlanes.store", written by
-//   `GITLANES_STORE=… pnpm dist`). The environment is ignored and `mock` is never used, so a
+// - Unpackaged (`pnpm start`): pick a profile with SINCE_STORE=sandbox|production|beta|mock; sandbox by default.
+// - Packaged: only the profile baked in at build time counts (package.json "since.store", written by
+//   `SINCE_STORE=… pnpm dist`). The environment is ignored and `mock` is never used, so a
 //   variable can't unlock a shipped app. A missing bake means production; if production isn't filled
 //   in, activation is unavailable rather than falling back to the test store.
 
@@ -41,7 +41,7 @@ const PROFILES = {
     portalUrl: null,
     updates: {
       feed: 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta',
-      page: 'https://gitlanes.akml.io/download',
+      page: 'https://gitsince.com/download',
     },
   },
   // Offline store for development and screenshots: any key starting with GL-TEST- activates.
@@ -59,12 +59,12 @@ const PROFILES = {
 const RELEASE_PROFILES = ['production', 'sandbox', 'beta'];
 
 function bakedProfile() {
-  try { return require('../package.json').gitlanes?.store; } catch { return undefined; }
+  try { return require('../package.json').since?.store; } catch { return undefined; }
 }
 
 function profileName(env = process.env, { packaged = false, baked = bakedProfile() } = {}) {
   if (packaged) return RELEASE_PROFILES.includes(baked) ? baked : 'production';
-  const name = env.GITLANES_STORE || baked || 'sandbox';
+  const name = env.SINCE_STORE || baked || 'sandbox';
   return PROFILES[name] ? name : 'sandbox';
 }
 
@@ -81,7 +81,7 @@ const isComplete = (p) => Boolean(p && p.provider === 'polar' && p.apiBase && p.
 // Build-time check for `pnpm dist`: fail closed instead of shipping a build that can't sell or
 // that sells through the test store by accident.
 function releaseProfile(name) {
-  if (!RELEASE_PROFILES.includes(name)) throw new Error(`GITLANES_STORE=${name} can't be packaged. Use production, sandbox for a test build, or beta.`);
+  if (!RELEASE_PROFILES.includes(name)) throw new Error(`SINCE_STORE=${name} can't be packaged. Use production, sandbox for a test build, or beta.`);
   if (!licenceDisabled(PROFILES[name]) && !isComplete(PROFILES[name])) throw new Error(`The ${name} store profile in licence/config.js isn't filled in; packaged builds need all of its values.`);
   return name;
 }

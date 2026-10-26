@@ -7,7 +7,7 @@ const path = require('node:path');
 const git = require('../git');
 
 async function repo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   await git.run(dir, ['init', '-q', '-b', 'main']);
   await git.run(dir, ['config', 'user.name', 'Test']);
   await git.run(dir, ['config', 'user.email', 't@example.com']);
@@ -198,13 +198,13 @@ test('remoteLabel', () => {
 
 test('getConfig parses scopes, multi-line and valueless entries', async () => {
   const dir = await repo();
-  await git.run(dir, ['config', 'gitlanes.multi', 'line one\nline two']);
-  fs.appendFileSync(path.join(dir, '.git', 'config'), '[gitlanes]\n\tflag\n');
+  await git.run(dir, ['config', 'since.multi', 'line one\nline two']);
+  fs.appendFileSync(path.join(dir, '.git', 'config'), '[since]\n\tflag\n');
   const config = await git.getConfig(dir);
   const local = (key) => config.find((c) => c.scope === 'local' && c.key === key);
   assert.equal(local('user.name').value, 'Test');
-  assert.equal(local('gitlanes.multi').value, 'line one\nline two');
-  assert.equal(local('gitlanes.flag').value, '');
+  assert.equal(local('since.multi').value, 'line one\nline two');
+  assert.equal(local('since.flag').value, '');
   assert.ok(config.every((c) => ['system', 'global', 'local', 'worktree', 'command'].includes(c.scope)));
 });
 

@@ -180,7 +180,7 @@ test('worktree folders: shape in the schema, membership against git worktree lis
 });
 
 test('sessions reach no network, except the updater session to its feed host over https', () => {
-  for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'gitlanes-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
+  for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'since-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
   for (const url of ['https://github.com/x', 'http://example.com/', 'wss://example.com/', 'not a url']) assert.ok(!check.requestAllowed(url), url);
   const updater = require('../updater');
   const feed = updater.feedUrl('https://github.com/0xa3k5/gitlanes/releases/latest/download', 'arm64');
@@ -192,7 +192,7 @@ test('sessions reach no network, except the updater session to its feed host ove
   assert.ok(!check.requestAllowed('https://evil.example/', allow));
   assert.ok(!check.requestAllowed('https://github.com.evil.example/', allow));
   assert.deepStrictEqual(updater.feedOrigins('https://updates.example.com/mac'), ['https://updates.example.com']);
-  // Development feeds (GITLANES_UPDATE_FEED) may be a local http server.
+  // Development feeds (SINCE_UPDATE_FEED) may be a local http server.
   assert.ok(check.requestAllowed('http://127.0.0.1:4100/update-mac-arm64.json', updater.feedOrigins('http://127.0.0.1:4100/update-mac-arm64.json')));
   assert.ok(!check.requestAllowed('http://updates.example.com/x', updater.feedOrigins('http://updates.example.com/x')), 'remote feeds need https');
 });

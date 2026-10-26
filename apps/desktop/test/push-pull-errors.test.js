@@ -10,7 +10,7 @@ const git = require('../git');
 const { Journal } = require('../journal');
 const { checkGit } = require('../ipc');
 
-const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-test-')));
+const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 const cfg = [['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']];
 
 async function commit(dir, f, c, m) {

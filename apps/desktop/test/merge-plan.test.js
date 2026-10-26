@@ -77,7 +77,7 @@ test('changedSince stops the merge when the PR or its state moved since the plan
 
 test('simulateSquash + planOrder on a real repo: forced order, warnings, no refs touched', async () => {
   const { planOrder } = await load();
-  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-mergeplan-'))), 'app');
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-mergeplan-'))), 'app');
   fs.mkdirSync(dir);
   const g = (...a) => git.run(dir, a);
   const commit = async (file, text, msg) => { fs.writeFileSync(path.join(dir, file), text); await g('add', file); await g('commit', '-q', '-m', msg); };
@@ -118,7 +118,7 @@ test('simulateSquash + planOrder on a real repo: forced order, warnings, no refs
 });
 
 test('mergedCommit reads the squash commit; PR rows carry their head commit', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-test-'));
   fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
   const ORIGIN = { name: 'origin', url: 'git@github.com:acme/app.git', web: git.remoteWebUrl('git@github.com:acme/app.git') };
   const calls = [];
@@ -171,7 +171,7 @@ test('planOrder places a stack as one unit and explains orders around it', async
 });
 
 test('simulateRebase catches a commit that conflicts when the whole PR merges clean; stackLinear', async () => {
-  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-mergeplan-'))), 'app');
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-mergeplan-'))), 'app');
   fs.mkdirSync(dir);
   const g = (...a) => git.run(dir, a);
   const commit = async (file, text, msg) => { fs.writeFileSync(path.join(dir, file), text); await g('add', file); await g('commit', '-q', '-m', msg); };
@@ -217,7 +217,7 @@ test('simulateRebase catches a commit that conflicts when the whole PR merges cl
 });
 
 test('rebaseStack drops merge commits, cascades onto the base, keeps authors, stops on a conflict (AK-559)', async () => {
-  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-stackrebase-'))), 'app');
+  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-stackrebase-'))), 'app');
   fs.mkdirSync(dir);
   const g = (...a) => git.run(dir, a);
   const sha = async (rev = 'HEAD') => (await g('rev-parse', rev)).trim();
@@ -272,7 +272,7 @@ test('rebaseStack drops merge commits, cascades onto the base, keeps authors, st
 });
 
 test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan needs', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-gh-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-gh-test-'));
   fs.writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\n', { mode: 0o755 });
   const ORIGIN = { name: 'origin', url: 'git@github.com:acme/app.git', web: git.remoteWebUrl('git@github.com:acme/app.git') };
   const calls = [];
@@ -303,7 +303,7 @@ test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan n
 test('clean up after merging: removes worktrees and branches, skips dirty and checked-out ones, one undo', async () => {
   const { cleanupItems, cleanupSummary } = await load();
   const { Journal } = require('../journal');
-  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-mergeplan-')));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-mergeplan-')));
   const dir = path.join(parent, 'app');
   fs.mkdirSync(dir);
   const g = (...a) => git.run(dir, a);

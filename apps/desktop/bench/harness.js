@@ -1,7 +1,7 @@
 'use strict';
-// In-app benchmark probe. Loaded by main.js only when GITLANES_BENCH is set (see bench/bench.js).
+// In-app benchmark probe. Loaded by main.js only when SINCE_BENCH is set (see bench/bench.js).
 // It watches the Map from inside the page, so it measures what a user sees: the first painted
-// rows, the full graph, scroll frame times and memory. Results go to GITLANES_BENCH as JSON.
+// rows, the full graph, scroll frame times and memory. Results go to SINCE_BENCH as JSON.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -58,12 +58,12 @@ async function probe(opts) {
 }
 
 module.exports = function bench(app) {
-  const outFile = process.env.GITLANES_BENCH;
+  const outFile = process.env.SINCE_BENCH;
   const t0 = performance.timeOrigin; // process start, epoch ms
   // Keep frames coming even when the window is covered or the display sleeps.
   for (const sw of ['disable-renderer-backgrounding', 'disable-backgrounding-occluded-windows', 'disable-background-timer-throttling']) app.commandLine.appendSwitch(sw);
-  app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'gitlanes-bench-profile-')));
-  const opts = { timeout: +(process.env.GITLANES_BENCH_TIMEOUT || 600000), scrollMs: +(process.env.GITLANES_BENCH_SCROLL_MS || 3000) };
+  app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'since-bench-profile-')));
+  const opts = { timeout: +(process.env.SINCE_BENCH_TIMEOUT || 600000), scrollMs: +(process.env.SINCE_BENCH_SCROLL_MS || 3000) };
 
   const memory = () => {
     const procs = app.getAppMetrics();

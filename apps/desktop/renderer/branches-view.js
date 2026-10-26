@@ -122,7 +122,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
     const rows = [];
     if (tab === 'conflict' && !q) {
-      rows.push(h('div.branches-explain', null, h('b', null, 'Would conflict'), ' lists branches that would conflict if they were merged — with ', h('span.mono', null, base || 'main'), ' or with another branch here. GitLanes checks this on your Mac with git, without merging anything.'));
+      rows.push(h('div.branches-explain', null, h('b', null, 'Would conflict'), ' lists branches that would conflict if they were merged — with ', h('span.mono', null, base || 'main'), ' or with another branch here. Since checks this on your Mac with git, without merging anything.'));
     }
     rows.push(...shown.map(row));
     list.replaceChildren(...rows);
