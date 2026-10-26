@@ -16,7 +16,7 @@ const AUTHORS = ['Ada Lovelace', 'Grace Hopper', 'Alan Turing', 'Edsger Dijkstra
 const VERBS = ['Fix', 'Add', 'Remove', 'Refactor', 'Update', 'Rename', 'Speed up', 'Document', 'Simplify', 'Test'];
 const NOUNS = ['parser', 'scheduler', 'cache', 'lane layout', 'diff view', 'config loader', 'network client', 'build script', 'error message', 'keyboard handler', 'allocator', 'logging'];
 
-function generate(dir, count, { seed = 1, maxFeatures = 24, tags = 400 } = {}) {
+function generate(dir, count, { seed = 1, maxFeatures = 24, tags = 400, authors = AUTHORS } = {}) {
   fs.mkdirSync(dir, { recursive: true });
   execFileSync('git', ['init', '-q', '-b', 'main', dir]);
   const rand = rng(seed);
@@ -37,7 +37,7 @@ function generate(dir, count, { seed = 1, maxFeatures = 24, tags = 400 } = {}) {
   const commit = (branch, parents, msg) => {
     mark++;
     time += 1 + Math.floor(rand() * 600);
-    const who = pick(AUTHORS);
+    const who = pick(authors);
     const email = who.toLowerCase().replace(/\s+/g, '.') + '@example.com';
     const data = `${msg}\n`;
     buf += `commit refs/heads/${branch}\nmark :${mark}\nauthor ${who} <${email}> ${time} +0000\ncommitter ${who} <${email}> ${time} +0000\ndata ${Buffer.byteLength(data)}\n${data}`;

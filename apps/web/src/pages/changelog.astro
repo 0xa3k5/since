@@ -1,6 +1,6 @@
 ---
-// Release notes, one ruled section per beta, newest first. Built from src/content/releases/*.md
-// (see the note in src/content.config.ts). Drafts stay hidden until their beta ships.
+// Release notes, one ruled section per release, newest first. Built from src/content/releases/*.md
+// (see the note in src/content.config.ts). Drafts stay hidden until their release ships.
 import type { ImageMetadata } from 'astro';
 import { getCollection, render } from 'astro:content';
 import { DOWNLOAD_URL, PRODUCT_NAME } from '../config';
@@ -38,15 +38,15 @@ const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
 ---
 <Base
   title={`Changelog · ${PRODUCT_NAME}`}
-  description={`What changed in every ${PRODUCT_NAME} beta.`}
+  description={`What changed in every ${PRODUCT_NAME} release.`}
   ogTheme="dark"
 >
   <div class="lp cl">
     <section class="hero wrap" aria-labelledby="cl-h">
-      <h1 id="cl-h">What’s new. <span class="soft">Every beta, newest first.</span></h1>
-      <p class="lede">{PRODUCT_NAME} ships small and often. Here’s what changed in each beta, so you know what’s different since the one you’re running.</p>
+      <h1 id="cl-h">What’s new. <span class="soft">Every release, newest first.</span></h1>
+      <p class="lede">{PRODUCT_NAME} ships small and often. Here’s what changed in each release, so you know what’s different since the one you’re running.</p>
       <div class="cl-cta">
-        <a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download the latest beta</a>
+        <a class="btn btn-primary" href={DOWNLOAD_URL}><AppleGlyph />Download the latest release</a>
         {latest && <a class="cl-latest" href={`#${latest.id}`}>{latest.label} · {latest.when}</a>}
       </div>
     </section>
@@ -82,7 +82,7 @@ const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
 </Base>
 
 <style>
-  /* Release notes: the landing page's rhythm (landing.css), left-aligned. One ruled section per beta: the label
+  /* Release notes: the landing page's rhythm (landing.css), left-aligned. One ruled section per release: the label
      stays put on the left while its notes scroll on the right. Colours are tokens only. */
   .cl .hero { padding-top: 120px; padding-bottom: 96px; text-align: left; }
   .cl .hero h1 { max-width: 16ch; margin: 0; text-wrap: balance; }

@@ -17,12 +17,13 @@ export const LICENCE_URL = `${REPO_URL}/blob/main/LICENSE`;
 
 export const COPYRIGHT = 'Copyright (C) 2026 0xa3k5 and Since contributors';
 
-/** Latest beta DMGs on the release bucket (Cloudflare R2), one per chip. DOWNLOAD_URL is Apple silicon. */
-const BETA_LATEST = 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev/beta/latest';
-export const DOWNLOAD_URL = `${BETA_LATEST}/Since-arm64.dmg`;
-export const DOWNLOAD_URL_INTEL = `${BETA_LATEST}/Since-x64.dmg`;
+/** DMGs from the latest GitHub Release, one per chip (fixed-name aliases attached by release.yml, see
+ * docs/releasing.md). DOWNLOAD_URL is Apple silicon. */
+const RELEASE_LATEST = `${REPO_URL}/releases/latest/download`;
+export const DOWNLOAD_URL = `${RELEASE_LATEST}/Since-arm64.dmg`;
+export const DOWNLOAD_URL_INTEL = `${RELEASE_LATEST}/Since-x64.dmg`;
 
-/** Beta builds are signed and notarized (AK-424), so the install note says they open without warnings. */
+/** Releases are signed and notarized in CI, so the install note says they open without warnings. */
 export const NOTARIZED = true;
 
 /** Minimum macOS from the packaging config. TBD until it's tested on a real Mac running that version. */
