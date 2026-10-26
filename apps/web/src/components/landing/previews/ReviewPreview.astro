@@ -1,13 +1,26 @@
 ---
 import Stage from './Stage.astro';
+// [path, viewed, changed since last look]
+const files: [string, boolean, boolean][] = [
+  ['sidebar.css', false, true], ['sidebar.js', false, true], ['tokens.css', false, false],
+  ['labels.js', true, false], ['nav.js', true, false], ['sidebar.test.js', true, false],
+];
 ---
-<Stage label="Review: a stuck pull request with the reason on its row, CI failing on test/unit, above one that is ready to merge">
-  <div class="pv-rv-group">Stuck</div>
-  <div class="pv-rv-row on"><span class="pv-rv-dot stuck"></span>
-    <div><div class="pv-rv-title"><span class="n">#214</span>Retry failed fetches</div><div class="pv-rv-why">CI failing · test/unit</div></div><span class="pv-rv-age">2h</span></div>
-  <div class="pv-dim">
-    <div class="pv-rv-group quiet">Ready to merge</div>
-    <div class="pv-rv-row"><span class="pv-rv-dot"></span>
-      <div><div class="pv-rv-title"><span class="n">#216</span>Medium weights in the sidebar</div><div class="pv-rv-sub">agent/web-301 · 3 commits</div></div><span class="pv-rv-age">40m</span></div>
+<Stage class="pv-wide pv-rv" label="Review: a pull request open with its files, three ticked as viewed, two changed since your last look, the selected file's diff and a commit with its co-authors">
+  <div class="pv-rv-head">
+    <div class="pv-rv-title"><span class="n">#216</span>Medium weights in the sidebar</div>
+    <div class="pv-rv-sub mono">agent/web-301 → main</div>
+    <div class="pv-rv-tabs"><span class="on">Files 6</span><span>Commits 3</span><span class="grow"></span><span class="pv-chip on">Changed since last look</span></div>
+  </div>
+  <div class="pv-rv-body">
+    <div class="pv-rv-files">
+      {files.map(([p, viewed, changed], i) => (
+        <div class:list={['pv-rv-file', { on: i === 0, viewed }]}><span class:list={['pv-box', { off: !viewed }]}></span><span class="p mono">{p}</span>{changed && <span class="pv-changed"></span>}</div>
+      ))}
+    </div>
+    <div class="pv-rv-diff">
+      <div class="pv-diff mono"><div>.sidebar .label {'{'}</div><div class="d">-  font-weight: 600;</div><div class="a">+  font-weight: var(--fw-medium);</div><div>   color: var(--text-2);</div><div class="d">-  letter-spacing: .02em;</div><div>{'}'}</div></div>
+      <div class="pv-rv-commit"><span class="pv-avs"><span class="pv-av">M</span><span class="pv-av ag">O</span></span><span class="mono sha">a1f3c9</span><span class="msg">Use medium weight for labels</span><span class="age">2h</span></div>
+    </div>
   </div>
 </Stage>

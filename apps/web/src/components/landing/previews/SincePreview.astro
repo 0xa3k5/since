@@ -1,20 +1,44 @@
 ---
 import Stage from './Stage.astro';
+// The reader follows the selection: one beat per row (pv-b1..3 in previews.css).
+const beats = [
+  { at: 3, title: ['#313', 'Show reviewers on pull requests'], who: ['M', 'O'], by: 'mira + orbit-agent', branch: 'agent/web-313 → main' },
+  { at: 4, title: ['Stack', '#257 → #271 · 1 of 14'], who: ['J'], by: 'jun', branch: 'agent/web-257 → main' },
+  { at: 5, title: ['#298', 'Retry fetches that time out'], who: ['P'], by: 'priya', branch: 'priya/retry-fetch → main' },
+];
 ---
-<Stage class="pv-wide" label="Since: 6 PRs merged on main since your checkpoint, listed by day, with the selection stepping through them">
+<Stage class="pv-wide pv-sn" label="Since: 88 PRs merged on origin/main since your checkpoint, a timeline by day with one merged stack, and a reader showing the selected PR's author, description and files">
   <div class="pv-cu-head">
     <div>
-      <div class="pv-cu-lead">6 PRs merged on <span class="mono">main</span> since your checkpoint</div>
-      <div class="pv-cu-sub"><span>Monday 18:40</span><span class="dot">·</span><span class="passing">CI passing on main</span></div>
+      <div class="pv-cu-lead">88 PRs merged on <span class="pv-pick mono">origin/main ▾</span> <span class="pv-pick">since your checkpoint ▾</span></div>
+      <div class="pv-cu-sub"><span>Mon 18:40</span><span class="dot">·</span><span class="passing">CI passing on main</span><span class="dot">·</span><span>Updated 4m ago</span></div>
     </div>
     <span class="grow"></span><span class="pv-btn subtle">Mark since</span>
   </div>
-  <div class="pv-cu-list">
-    <div class="pv-cu-sel"></div>
-    <div class="pv-cu-day">Today</div>
-    <div class="pv-cu-row"><span class="pv-cu-time">10:12</span><span class="pv-cu-num">#121</span><span class="pv-cu-title">Show reviewers on pull requests</span><span class="pv-badge">SNC-312</span></div>
-    <div class="pv-cu-row"><span class="pv-cu-time">09:47</span><span class="pv-cu-num">#120</span><span class="pv-cu-title">Collapse the day headers</span><span class="pv-badge">SNC-309</span></div>
-    <div class="pv-cu-day">Yesterday</div>
-    <div class="pv-cu-row"><span class="pv-cu-time">17:03</span><span class="pv-cu-num">#119</span><span class="pv-cu-title">Retry fetches that time out</span><span class="pv-badge">SNC-298</span></div>
+  <div class="pv-sn-body">
+    <div class="pv-sn-list">
+      <div class="pv-sn-day">Today</div>
+      <div class="pv-sn-row b1"><span class="pv-cu-time">10:12</span><span class="pv-cu-num">#313</span><span class="pv-cu-title">Show reviewers on pull requests</span></div>
+      <div class="pv-sn-row b2"><span class="pv-cu-time">09:47</span><span class="pv-sn-chev">▸</span><span class="pv-cu-num">#257 → #271</span><span class="pv-cu-title quiet">· Stack · 14 PRs</span></div>
+      <div class="pv-sn-day">Yesterday</div>
+      <div class="pv-sn-row b3"><span class="pv-cu-time">17:03</span><span class="pv-cu-num">#298</span><span class="pv-cu-title">Retry fetches that time out</span></div>
+      <div class="pv-sn-hand"><b>2 stuck</b> and <b>3 ready to merge</b> are waiting in <span class="acc">Review</span></div>
+    </div>
+    <div class="pv-sn-reader">
+      <div class="pv-sn-beats">
+        {beats.map((b, i) => (
+          <div class={`pv-sn-beat b${i + 1}`}>
+            <div class="pv-sn-nav">‹ {b.at} of 21 ›</div>
+            <div class="pv-sn-title"><span class="n">{b.title[0]}</span> {b.title[1]}</div>
+            <div class="pv-sn-who"><span class="pv-avs">{b.who.map((a, j) => <span class:list={['pv-av', j && 'ag']}>{a}</span>)}</span>{b.by} · <span class="mono">{b.branch}</span> · <span class="passing">Merged</span></div>
+          </div>
+        ))}
+      </div>
+      <p class="pv-sn-desc">Adds the reviewer avatars to each PR row and the requested reviewers to the pane.</p>
+      <div class="pv-file done"><div class="pv-file-h"><span class="pv-file-chev">▸</span><span class="pv-box"></span><span class="p mono">renderer/review-rows.js</span><span class="add">+42</span><span class="del">−6</span></div></div>
+      <div class="pv-file folds"><div class="pv-file-h"><span class="pv-file-chev">▾</span><span class="pv-box off"><span class="pv-box b3"></span></span><span class="p mono">renderer/styles.css</span><span class="add">+18</span><span class="del">−2</span></div>
+        <div class="pv-diff mono"><div>.review-row .who {'{'}</div><div class="d">-  gap: 4px;</div><div class="a">+  gap: 6px;</div><div class="a">+  color: var(--text-3);</div></div>
+      </div>
+    </div>
   </div>
 </Stage>

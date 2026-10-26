@@ -9,9 +9,9 @@ const app = readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => readFil
 const preview = (name) => readFileSync(new URL(`../src/components/landing/previews/${name}.astro`, import.meta.url), 'utf8');
 
 const strings = {
-  SincePreview: ['since your checkpoint', 'Mark since', 'CI passing', '`CI ${ci} on ${res.base}`'],
-  ReviewPreview: ["'Stuck'", "'Ready to merge'", "'CI failing'"],
-  MergePlanPreview: ["'Merged'", "'Ready'"],
+  SincePreview: ['since your checkpoint', 'Mark since', 'CI passing', '`CI ${ci} on ${res.base}`', '`Updated ${ago(', '`Stack · ${size} PRs`', "' are waiting in Review'"],
+  ReviewPreview: ["'Changed since last look'", "'Commits'"],
+  MergePlanPreview: ["'Merged'", "'Ready'", '} would conflict in ${fileList(f.files)}`', '`#${w.number} will conflict in ${fileList(w.files)} after these merge`'],
   CleanUpPreview: ['`Cleaned up: ${done}`', "' deleted'", "label: 'Undo'", '`${dir === \'undo\' ? \'Undid\' : \'Redid\'} “${label}”`', "`Clean up ${chosen.length}`"],
 };
 

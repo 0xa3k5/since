@@ -33,36 +33,98 @@
 .pv-toast b { font-weight: var(--fw-strong); }
 .pv-toast .act { margin-left: auto; padding-left: 6px; color: var(--accent-fg); font-weight: var(--fw-strong); }
 
-/* Since: the headline and the timeline; the selection steps through the rows. */
-.pv-cu-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 14px; border-bottom: 1px solid var(--border); }
-.pv-cu-head .grow { flex: 1; }
-.pv-cu-lead { font-size: 20px; font-weight: var(--fw-strong); letter-spacing: -.01em; line-height: 1.3; }
-.pv-cu-lead .mono { font-size: .92em; }
-.pv-cu-sub { display: flex; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
-.pv-cu-sub .dot { color: var(--text-4); }
-.pv-cu-sub .passing { color: var(--green); }
-.pv-cu-list { position: relative; padding: 0 12px 12px; }
-.pv-cu-day { padding: 12px 8px 6px; height: 38px; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-3); }
-.pv-cu-row { position: relative; display: grid; grid-template-columns: max-content auto minmax(0, 1fr) auto; align-items: center; gap: 12px; height: 32px; padding: 0 8px; }
-.pv-cu-time { min-width: 5.5em; font: 11.5px var(--mono); color: var(--text-4); }
-.pv-cu-num { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
-.pv-cu-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pv-cu-sel { position: absolute; left: 12px; right: 12px; top: 38px; height: 32px; border-radius: var(--radius); background: var(--bg-selected); animation: pv-step 9s infinite; }
-@keyframes pv-step { 0%, 18% { transform: translateY(0); } 24%, 42% { transform: translateY(32px); } 48%, 66% { transform: translateY(102px); } 72%, 100% { transform: translateY(0); } }
+/* Shared pieces: avatars, the unticked box, file cards and diff lines. */
+.pv-box.off { position: relative; background: transparent; box-shadow: inset 0 0 0 1.5px var(--border-strong); }
+.pv-box.off::before { content: none; }
+.pv-box.off .pv-box { position: absolute; inset: 0; }
+.pv-avs { display: inline-flex; flex: none; }
+.pv-av { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--lane-1); color: var(--bg); font-size: 9px; font-weight: var(--fw-strong); }
+.pv-av.ag { background: var(--lane-3); }
+.pv-av + .pv-av { margin-left: -5px; box-shadow: 0 0 0 1.5px var(--bg-content); }
+.pv-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border-strong); font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.pv-chip.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-fg); }
+.pv .add { color: var(--green); }
+.pv .del { color: var(--red); }
+.pv .passing { color: var(--green); }
+.pv .acc { color: var(--accent-fg); }
+.pv-file { margin-top: 6px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.pv-file-h { display: flex; align-items: center; gap: 7px; padding: 5px 8px; font-size: 12px; background: var(--bg-hover); }
+.pv-file-h .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-file.done .p { color: var(--text-4); }
+.pv-file-chev { width: 8px; color: var(--text-4); }
+.pv-diff { font-size: 11.5px; line-height: 19px; }
+.pv-diff > div { padding: 0 8px; white-space: pre; overflow: hidden; }
+.pv-diff .a { background: var(--add-bg); }
+.pv-diff .d { background: var(--del-bg); }
 
-/* Review: one stuck row in focus, the ready one dimmed below it. */
-.pv-rv-group { padding: 12px 16px 4px; font-size: 12px; font-weight: var(--fw-strong); color: var(--accent-fg); }
-.pv-rv-group.quiet { color: var(--text-3); }
-.pv-rv-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--border); }
-.pv-rv-row.on { background: var(--bg-selected); }
-.pv-rv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
-.pv-rv-dot.stuck { background: var(--red); animation: pv-pulse 2.4s infinite; }
-@keyframes pv-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 40%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
-.pv-rv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
-.pv-rv-title .n { margin-right: 6px; font-size: 12px; color: var(--text-3); }
-.pv-rv-why { margin-top: 1px; font-size: 12px; color: var(--red); }
-.pv-rv-sub { margin-top: 1px; font-size: 12px; color: var(--text-3); }
-.pv-rv-age { font-size: 12px; color: var(--text-4); }
+/* Three beats, one per row: the selection and the reader step together. Without motion, the first beat. */
+.pv .b2, .pv .b3 { opacity: 0; }
+.pv .b1 { animation: pv-b1 9s infinite; }
+.pv .b2 { animation: pv-b2 9s infinite; }
+.pv .b3 { animation: pv-b3 9s infinite; }
+@keyframes pv-b1 { 0%, 30% { opacity: 1; } 33%, 97% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes pv-b2 { 0%, 30% { opacity: 0; } 33%, 63% { opacity: 1; } 66%, 100% { opacity: 0; } }
+@keyframes pv-b3 { 0%, 63% { opacity: 0; } 66%, 97% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Since: the headline, then the timeline by day beside the reader. */
+.pv-cu-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
+.pv-cu-head .grow { flex: 1; }
+.pv-cu-lead { font-size: 15px; font-weight: var(--fw-strong); line-height: 1.35; }
+.pv-pick { border-bottom: 1px dashed var(--text-4); }
+.pv-pick.mono { font-size: .9em; }
+.pv-cu-sub { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; font-size: 12px; color: var(--text-3); }
+.pv-cu-sub .dot { color: var(--text-4); }
+.pv-cu-time { min-width: 3em; font: 11.5px var(--mono); color: var(--text-4); }
+.pv-cu-num { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pv-cu-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-cu-title.quiet { color: var(--text-3); }
+.pv-sn-body { display: grid; grid-template-columns: 44% 56%; }
+.pv-sn-list { padding: 4px 0 8px; border-right: 1px solid var(--border); }
+.pv-sn-day { padding: 9px 14px 3px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--text-4); }
+.pv-sn-row { position: relative; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; font-size: 12.5px; }
+.pv-sn-row.b1, .pv-sn-row.b2, .pv-sn-row.b3 { opacity: 1; animation: none; }
+.pv-sn-row::before { content: ""; position: absolute; inset: 0 6px; z-index: -1; border-radius: var(--radius); background: var(--bg-selected); opacity: 0; }
+.pv-sn-row { isolation: isolate; }
+.pv-sn-row.b1::before { opacity: 1; animation: pv-b1 9s infinite; }
+.pv-sn-row.b2::before { animation: pv-b2 9s infinite; }
+.pv-sn-row.b3::before { animation: pv-b3 9s infinite; }
+.pv-sn-chev { width: 8px; color: var(--text-4); }
+.pv-sn-hand { margin: 10px 14px 0; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
+.pv-sn-hand b { color: var(--text); font-weight: var(--fw-medium); }
+.pv-sn-reader { min-width: 0; padding: 10px 14px 14px; }
+.pv-sn-beats { display: grid; }
+.pv-sn-beat { grid-area: 1 / 1; min-width: 0; }
+.pv-sn-nav { font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.pv-sn-title { margin: 3px 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: var(--fw-strong); }
+.pv-sn-title .n { color: var(--text-3); font-weight: var(--fw-medium); }
+.pv-sn-who { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--text-3); }
+.pv-sn-who .mono { font-size: 11.5px; }
+.pv-sn-desc { margin: 8px 0; font-size: 12px; color: var(--text-2); }
+.pv-sn .folds .pv-diff { max-height: 76px; animation: pv-fold 9s infinite; }
+@keyframes pv-fold { 0%, 66% { max-height: 76px; } 70%, 97% { max-height: 0; } 100% { max-height: 76px; } }
+
+/* Review: the PR pane, files beside the diff, a commit under it. */
+.pv-rv-head { padding: 12px 16px 0; border-bottom: 1px solid var(--border); }
+.pv-rv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: var(--fw-strong); }
+.pv-rv-title .n { margin-right: 6px; color: var(--text-3); font-weight: var(--fw-medium); }
+.pv-rv-sub { margin-top: 2px; font-size: 11.5px; color: var(--text-3); }
+.pv-rv-tabs { display: flex; align-items: center; gap: 16px; margin-top: 8px; font-size: 12px; color: var(--text-3); }
+.pv-rv-tabs > span:not(.pv-chip) { padding: 6px 0; }
+.pv-rv-tabs .on { color: var(--text); box-shadow: inset 0 -2px var(--accent); }
+.pv-rv-tabs .grow { flex: 1; }
+.pv-rv-body { display: grid; grid-template-columns: 38% 62%; }
+.pv-rv-files { padding: 6px 0; border-right: 1px solid var(--border); }
+.pv-rv-file { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; font-size: 12px; }
+.pv-rv-file.on { background: var(--bg-selected); }
+.pv-rv-file.viewed .p { color: var(--text-4); }
+.pv-rv-file .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-changed { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.pv-rv-diff { min-width: 0; display: flex; flex-direction: column; }
+.pv-rv-diff .pv-diff { flex: 1; padding: 8px 0; }
+.pv-rv-commit { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 12px; opacity: .75; }
+.pv-rv-commit .sha { color: var(--text-4); font-size: 11.5px; }
+.pv-rv-commit .msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-rv-commit .age { color: var(--text-4); }
 
 /* Merge plan: three PRs, merged one after another. */
 .pv-mp { padding: 14px 18px 16px; }
@@ -77,10 +139,13 @@
 .pv-mp-st span { position: absolute; right: 0; }
 .pv-mp-st .was { color: var(--text-3); animation: pv-out 9s infinite; }
 .pv-mp-st .now { color: var(--green); opacity: 0; animation: pv-in 9s infinite; }
-.pv-mp-row:nth-child(2) span { animation-delay: .9s; }
-.pv-mp-row:nth-child(3) span { animation-delay: 1.8s; }
+.pv-mp-row.r2 span { animation-delay: .9s; }
+.pv-mp-row.r3 span { animation-delay: 1.8s; }
 @keyframes pv-out { 0%, 22% { opacity: 1; } 26%, 88% { opacity: 0; } 94%, 100% { opacity: 1; } }
 @keyframes pv-in { 0%, 22% { opacity: 0; } 26%, 88% { opacity: 1; } 94%, 100% { opacity: 0; } }
+.pv-mp-note { padding: 0 0 6px 46px; font-size: 11.5px; color: var(--text-3); }
+.pv-mp-warn { display: flex; gap: 8px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--warn); }
+.pv-mp-warn b { font-weight: var(--fw-medium); }
 .pv-mp-foot { margin-top: 12px; }
 
 /* Clean up: finished branches go, one Undo brings them back. */
@@ -105,9 +170,9 @@
 
 @media (max-width: 720px) {
   .pv { height: 340px; }
-  .pv-cu-time, .pv-cu-row .pv-badge { display: none; }
-  .pv-cu-row { grid-template-columns: auto minmax(0, 1fr); }
-  .pv-cu-head .pv-btn { display: none; }
+  .pv-cu-head .pv-btn, .pv-sn-reader, .pv-rv-files { display: none; }
+  .pv-sn-body, .pv-rv-body { grid-template-columns: 1fr; }
+  .pv-sn-list { border-right: 0; }
 }
 
 /* A still frame: the moment each preview is about. */
