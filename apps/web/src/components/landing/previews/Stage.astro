@@ -1,0 +1,20 @@
+---
+// A focused feature preview: one piece of the app at real size, lifted onto a soft stage. The markup follows
+// apps/desktop/renderer (classes, sizes, copy) and is drawn with the theme tokens, so it follows the site theme.
+// It's a picture for assistive tech (role="img"); nothing inside is focusable.
+import './previews.css';
+
+export interface Props { label: string; class?: string; }
+const { label, class: cls = '' } = Astro.props;
+---
+<figure class:list={['pv', cls]} role="img" aria-label={label}>
+  <div class="pv-card"><slot /></div>
+</figure>
+
+<script>
+  // Loops run only while the preview is on screen.
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) e.target.classList.toggle('pv-off', !e.isIntersecting);
+  }, { threshold: 0.2 });
+  document.querySelectorAll('.pv').forEach((el) => io.observe(el));
+</script>

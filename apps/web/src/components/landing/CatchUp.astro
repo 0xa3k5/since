@@ -1,6 +1,5 @@
 ---
-import AppShot from './AppShot.astro';
-import catchup from '../../assets/app/catchup-dark.png';
+import SincePreview from './previews/SincePreview.astro';
 import { PRODUCT_NAME } from '../../config';
 ---
 <section class="s wrap rule fs" id="catch-up" data-name="Since" aria-labelledby="c-h">
@@ -9,7 +8,7 @@ import { PRODUCT_NAME } from '../../config';
       <h2 id="c-h">See what happened <span class="soft">since you last looked.</span></h2>
       <p>{PRODUCT_NAME} remembers the commit you last marked, not a clock. It shows everything that reached main after it, grouped by issue or by area, so twenty PRs read as four pieces of work.</p>
     </div>
-    <div class="halo"><AppShot src={catchup} class="fade-out" alt="Since: the pull requests that reached main since your checkpoint, by day, with the newest open in the reader" /></div>
+    <SincePreview />
     <div class="facts3 facts4">
       <div><h4>Counts at a glance</h4><p>Merged, stuck and ready, plus main's CI with GitHub connected.</p></div>
       <div><h4>Any starting point</h4><p>Your last checkpoint, yesterday, last week or a tag.</p></div>

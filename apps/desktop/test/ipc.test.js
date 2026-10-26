@@ -183,12 +183,12 @@ test('sessions reach no network, except the updater session to its feed host ove
   for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'since-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
   for (const url of ['https://github.com/x', 'http://example.com/', 'wss://example.com/', 'not a url']) assert.ok(!check.requestAllowed(url), url);
   const updater = require('../updater');
-  const feed = updater.feedUrl('https://github.com/0xa3k5/gitlanes/releases/latest/download', 'arm64');
+  const feed = updater.feedUrl('https://github.com/0xa3k5/since/releases/latest/download', 'arm64');
   const allow = updater.feedOrigins(feed);
   assert.deepStrictEqual(allow, ['https://github.com', 'https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com']);
   assert.ok(check.requestAllowed(feed, allow));
   assert.ok(check.requestAllowed('https://release-assets.githubusercontent.com/a/b.zip?sig=1', allow), 'GitHub redirects release downloads');
-  assert.ok(!check.requestAllowed('http://github.com/0xa3k5/gitlanes/releases', allow), 'https only');
+  assert.ok(!check.requestAllowed('http://github.com/0xa3k5/since/releases', allow), 'https only');
   assert.ok(!check.requestAllowed('https://evil.example/', allow));
   assert.ok(!check.requestAllowed('https://github.com.evil.example/', allow));
   assert.deepStrictEqual(updater.feedOrigins('https://updates.example.com/mac'), ['https://updates.example.com']);

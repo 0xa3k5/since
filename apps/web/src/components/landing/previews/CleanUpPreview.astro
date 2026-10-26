@@ -1,0 +1,18 @@
+---
+import Stage from './Stage.astro';
+const branches = [['agent/web-301', 216, '1h'], ['agent/web-302', 217, '1h'], ['agent/web-307', 218, '2h']];
+---
+<Stage label="Clean up: three merged branches deleted in one step, then brought back with Undo">
+  <div class="pv-cl">
+    <div class="pv-cl-big">3 finished branches can go</div>
+    <div class="pv-cl-card">
+      <div class="pv-cl-head"><span class="pv-box"></span><b>Merged</b><span>3</span><span class="pv-cl-note">▴</span></div>
+      {branches.map(([name, pr, age]) => (
+        <div class="pv-cl-item"><span class="pv-box"></span><span class="pv-cl-name">{name}</span><span class="pv-cl-note">merged #{pr}</span><span class="pv-cl-note">{age}</span></div>
+      ))}
+    </div>
+    <div class="pv-cl-bar"><span class="pv-btn primary go">Clean up 3</span><span>3 branches</span></div>
+    <div class="pv-toast done"><span class="ok">✓</span><b>Cleaned up: 3 branches deleted</b><span class="act">Undo</span></div>
+    <div class="pv-toast undid"><b>Undid “Clean up 3 branches”</b><span class="act">Redo</span></div>
+  </div>
+</Stage>

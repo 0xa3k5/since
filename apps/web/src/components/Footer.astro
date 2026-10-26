@@ -1,9 +1,8 @@
 ---
-import { PRODUCT_NAME } from '../config';
+import { COPYRIGHT, LICENCE_NAME, LICENCE_URL, PRODUCT_NAME } from '../config';
 import { FOOTER_NAV } from '../routes';
 import Logo from './Logo.astro';
-
-const year = new Date().getFullYear();
+import ThemeSwitch from './ThemeSwitch.astro';
 ---
 <footer class="site-footer">
   <div class="wrap">
@@ -21,7 +20,8 @@ const year = new Date().getFullYear();
       </div>
     </div>
     <div class="footer-legal">
-      <p>© {year} {PRODUCT_NAME}</p>
+      <ThemeSwitch />
+      <p>{COPYRIGHT} · <a href={LICENCE_URL}>{LICENCE_NAME}</a></p>
       <p>Git™ is a trademark of Software Freedom Conservancy. {PRODUCT_NAME} is not affiliated with or endorsed by the Git project.</p>
     </div>
   </div>

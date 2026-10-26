@@ -1,0 +1,15 @@
+---
+import Stage from './Stage.astro';
+---
+<Stage class="pv-fix" label="The fix prompt for a stuck pull request: why it is stuck, the prompt for its agent, and Copy prompt">
+  <div class="pv-dlg-head"><div class="pv-dlg-title">Fix prompt for #214</div><div class="pv-dlg-desc">Retry failed fetches · agent/web-298 → main</div></div>
+  <div class="pv-dlg-body">
+    <div><div class="pv-label">Why it’s stuck</div><div class="pv-reason">CI failing · test/unit</div></div>
+    <div class="pv-prompt">PR #214 “Retry failed fetches” can’t merge yet.
+CI is failing on test/unit:
+  ✕ retries a timed-out fetch once
+Fix it on agent/web-298 and push.</div>
+  </div>
+  <div class="pv-dlg-foot"><span class="pv-btn">Cancel <span class="pv-kbd">esc</span></span><span class="pv-btn primary press">Copy prompt <span class="pv-kbd">⌘↩</span></span></div>
+  <div class="pv-toast"><span class="ok">✓</span><b>Prompt copied</b></div>
+</Stage>

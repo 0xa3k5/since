@@ -1,0 +1,40 @@
+---
+// System, Light or Dark. System is the default and stores nothing; a pick is kept in localStorage
+// and applied before first paint by the inline script in Base.astro.
+const OPTIONS = [
+  { value: 'system', label: 'System', path: 'M2.5 3.5h11v7h-11z M6 13.5h4 M8 10.5v3' },
+  { value: 'light', label: 'Light', path: 'M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z M8 1.5v1.5 M8 13v1.5 M1.5 8H3 M13 8h1.5 M3.4 3.4l1.1 1.1 M11.5 11.5l1.1 1.1 M3.4 12.6l1.1-1.1 M11.5 4.5l1.1-1.1' },
+  { value: 'dark', label: 'Dark', path: 'M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z' },
+];
+---
+<fieldset class="theme-switch" data-theme-switch>
+  <legend class="sr-only">Theme</legend>
+  {OPTIONS.map((o) => (
+    <label title={o.label}>
+      <input type="radio" name="theme" value={o.value} checked={o.value === 'system'} />
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d={o.path} /></svg>
+      <span class="sr-only">{o.label}</span>
+    </label>
+  ))}
+</fieldset>
+
+<script>
+  const root = document.documentElement;
+  const BG = { light: '#faf7f4', dark: '#080707' };
+  const box = document.querySelector('[data-theme-switch]');
+  if (box) {
+    const current = root.dataset.theme === 'light' || root.dataset.theme === 'dark' ? root.dataset.theme : 'system';
+    const input = box.querySelector<HTMLInputElement>(`input[value="${current}"]`);
+    if (input) input.checked = true;
+    box.addEventListener('change', (e) => {
+      const v = (e.target as HTMLInputElement).value;
+      if (v === 'light' || v === 'dark') root.dataset.theme = v;
+      else delete root.dataset.theme;
+      try { v === 'system' ? localStorage.removeItem('theme') : localStorage.setItem('theme', v); } catch {}
+      for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+        const own = m.media.includes('light') ? 'light' : 'dark';
+        m.content = BG[v === 'system' ? own : (v as 'light' | 'dark')];
+      }
+    });
+  }
+</script>

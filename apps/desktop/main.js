@@ -2043,6 +2043,10 @@ app.on('open-file', (ev, p) => {
 
 app.whenReady().then(() => {
   app.setName('Since');
+  app.setAboutPanelOptions({
+    copyright: 'Copyright (C) 2026 0xa3k5 and Since contributors',
+    credits: 'GPL-3.0-or-later\nhttps://github.com/0xa3k5/since/blob/main/LICENSE',
+  });
   // Packaged builds carry build/icon.icns; `pnpm start` would show Electron's icon in the Dock.
   if (!app.isPackaged && isMac) {
     const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.icns'));
