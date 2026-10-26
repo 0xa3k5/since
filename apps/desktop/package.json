@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "A fast, keyboard-first Git client for macOS with a live commit graph",
   "main": "main.js",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "updates": {
     "feed": "https://github.com/0xa3k5/gitlanes/releases/latest/download",
     "page": "https://github.com/0xa3k5/gitlanes/releases/latest"
