@@ -180,8 +180,49 @@ export const kbd = (...keys) => h('span.kbd-group', null, keys.map((k) => h('kbd
 // `action` is one inline text link (Undo). `actions` is a choice: a row of buttons under the text
 // (the first, or any with `primary`, is the primary one) plus a dismiss button; the title stays on one line.
 // A toast with `actions` stays until the user does something else (a click or key outside it).
+// Toasts group into one stack: the newest in front, up to two peeking behind it. Hovering or focusing
+// the stack fans it out and holds every timer until the pointer or focus leaves.
+const TOAST_GAP = 8, TOAST_PEEK = 8, TOAST_SHOWN = 3;
+const toasts = new Set();
+
+function toastRoot() {
+  const root = $('#toasts');
+  if (root.dataset.stack) return root;
+  root.dataset.stack = '1';
+  const fan = (open) => {
+    if (open === root.classList.contains('expanded')) return;
+    root.classList.toggle('expanded', open);
+    for (const t of toasts) open ? t.pause() : t.resume();
+    layoutToasts(root);
+  };
+  const held = () => root.matches(':hover') || root.contains(document.activeElement);
+  root.addEventListener('pointerover', () => fan(true));
+  root.addEventListener('pointerleave', () => fan(held()));
+  root.addEventListener('focusin', () => fan(true));
+  root.addEventListener('focusout', (e) => { if (!root.contains(e.relatedTarget)) fan(root.matches(':hover')); });
+  return root;
+}
+
+function layoutToasts(root) {
+  const live = [...toasts].reverse();
+  if (!live.length) root.classList.remove('expanded');
+  const open = root.classList.contains('expanded');
+  let y = 0;
+  live.forEach((t, i) => {
+    t.el.style.setProperty('--i', i);
+    t.el.style.setProperty('--y', `${y}px`);
+    t.el.classList.toggle('front', i === 0);
+    t.el.classList.toggle('buried', !open && i >= TOAST_SHOWN);
+    t.el.inert = !open && i > 0;
+    y += t.h + TOAST_GAP;
+  });
+  const front = live[0]?.h || 0;
+  root.style.setProperty('--front-h', `${front}px`);
+  root.style.height = `${open ? Math.max(0, y - TOAST_GAP) : front + TOAST_PEEK * Math.min(live.length - 1, TOAST_SHOWN - 1)}px`;
+}
+
 export function toast(message, { kind = 'info', action, actions = [], timeout = 4200, detail } = {}) {
-  let root = $('#toasts');
+  const root = toastRoot();
   const run = (a) => () => { a.run(); close(); };
   const choice = actions.length > 0;
   const primary = actions.find((a) => a.primary) || actions[0];
@@ -192,19 +233,31 @@ export function toast(message, { kind = 'info', action, actions = [], timeout = 
     action ? h('button.toast-action', { onclick: run(action) }, action.label) : null,
     choice ? h('button.icon-btn.tiny.toast-close', { 'aria-label': 'Dismiss', title: 'Dismiss', onclick: () => close() }, icon('x', 12)) : null,
   );
+  const measure = () => { el.style.height = 'auto'; t.h = el.offsetHeight; el.style.height = ''; el.style.setProperty('--h', `${t.h}px`); };
+  let timer, left = timeout && (kind === 'error' ? timeout * 2 : timeout), since;
+  const t = {
+    el, h: 0,
+    pause() { if (!timer) return; clearTimeout(timer); timer = null; left -= Date.now() - since; },
+    resume() { if (timer || !left || choice) return; since = Date.now(); timer = setTimeout(close, Math.max(left, 1200)); },
+  };
   root.append(el);
+  measure();
+  toasts.add(t);
+  layoutToasts(root);
   requestAnimationFrame(() => el.classList.add('in'));
-  let timer;
   const elsewhere = (e) => { if (!el.contains(e.target) && !MODIFIERS.has(e.key)) close(); };
   function close() {
+    if (!toasts.delete(t)) return;
     clearTimeout(timer);
     removeEventListener('pointerdown', elsewhere, true); removeEventListener('keydown', elsewhere, true);
-    el.classList.remove('in'); setTimeout(() => el.remove(), 180);
+    el.classList.remove('in'); el.classList.add('out');
+    layoutToasts(root);
+    setTimeout(() => el.remove(), 180);
   }
   if (choice) setTimeout(() => { if (el.isConnected) { addEventListener('pointerdown', elsewhere, true); addEventListener('keydown', elsewhere, true); } });
-  else if (timeout) timer = setTimeout(close, kind === 'error' ? timeout * 2 : timeout);
+  else if (!root.classList.contains('expanded')) t.resume();
   el.addEventListener('click', (e) => { if (e.target === el) close(); });
-  return { close, update: (m) => { el.querySelector('.toast-title').textContent = m; } };
+  return { close, update: (m) => { el.querySelector('.toast-title').textContent = m; if (toasts.has(t)) { measure(); layoutToasts(root); } } };
 }
 
 const MODIFIERS = new Set(['Meta', 'Shift', 'Alt', 'Control', 'CapsLock']);
