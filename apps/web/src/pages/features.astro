@@ -6,6 +6,10 @@ import Base from '../layouts/Base.astro';
 import AppShot from '../components/landing/AppShot.astro';
 import Kbd from '../components/content/Kbd.astro';
 import AppleGlyph from '../components/AppleGlyph.astro';
+import CatchUp from '../components/landing/CatchUp.astro';
+import Review from '../components/landing/Review.astro';
+import MergePlan from '../components/landing/MergePlan.astro';
+import StackPreview from '../components/landing/previews/StackPreview.astro';
 import '../components/landing/landing.css';
 
 // Each feature shows its capture in the site's theme.
@@ -23,6 +27,9 @@ import palette from '../assets/features/palette-dark.webp';
 import paletteLight from '../assets/features/palette-light.webp';
 import stashes from '../assets/features/stashes-dark.webp';
 import stashesLight from '../assets/features/stashes-light.webp';
+
+// Part 1 reuses the home page's sections (their ids), then the Stacks section.
+const landing = [['catch-up', 'Since'], ['review', 'Review'], ['merge', 'Merge plan'], ['stacks', 'Stacks']];
 
 const sections = [
   {
@@ -121,20 +128,42 @@ const tiles = [
 
 ---
 <Base
-  title={`Features: edit Git history from the keyboard · ${PRODUCT_NAME}`}
-  description="Squash, fixup, reword and rebase with a single key, right on the commit graph. Line staging, a ⌘K command menu, live refresh, and ⌘Z for every branch, tag and HEAD change."
+  title={`Features: land your agents' work, edit Git from the keyboard · ${PRODUCT_NAME}`}
+  description="See what your agents merged since your checkpoint, review the whole change and merge ready PRs in a conflict-free order. Plus a full keyboard Git client: one-key history edits, line staging and ⌘Z for everything."
 >
   <div class="lp fp">
     <section class="hero wrap" aria-labelledby="fp-h">
       <p class="kicker">Features</p>
-      <h1 id="fp-h">Your commit graph, <span class="soft">operated from the keyboard.</span></h1>
-      <p class="lede">{PRODUCT_NAME} is a client for Git on the Mac. You work directly on the commit graph, one key per action, and ⌘Z takes back anything you did.</p>
+      <h1 id="fp-h">Land agents' work. <span class="soft">Then keep a complete Git client.</span></h1>
+      <p class="lede">{PRODUCT_NAME} reads the branches and PRs your agents open and helps you land them. Under it is a Git client you drive from the keyboard, where ⌘Z takes back anything local.</p>
       <nav class="jump" aria-label="On this page">
+        {landing.map(([id, label]) => <a href={`#${id}`}>{label}</a>)}
+        <span class="jump-sep" aria-hidden="true"></span>
         {sections.map((s) => <a href={`#${s.id}`}>{s.eyebrow}</a>)}
         <a href="#more">More</a>
       </nav>
     </section>
 
+    <div class="wrap part"><h2 class="part-h">Landing agents' work</h2></div>
+    <CatchUp />
+    <Review />
+    <MergePlan />
+    <section class="s wrap rule" id="stacks" aria-labelledby="stacks-h">
+      <div class="feat">
+        <div class="copy">
+          <h2 id="stacks-h">Stacks. <span class="soft">One piece of work, start to finish.</span></h2>
+          <p>A stack is a chain of PRs, each built on the one below. {PRODUCT_NAME} keeps it together everywhere it shows up.</p>
+        </div>
+        <StackPreview />
+        <div class="facts3">
+          <div><h4>Review</h4><p>One header over its parts, each noting the PR it's built on.</p></div>
+          <div><h4>Merge plan</h4><p>One row, merged bottom to top in one step.</p></div>
+          <div><h4>Since</h4><p>A merged stack is one item. Open it to read the parts, bottom first.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap part rule"><h2 class="part-h">Still a complete Git client</h2></div>
     {sections.map((s, i) => (
       <section class:list={['s', 'wrap', 'rule', i === 0 ? 'stage' : i % 2 ? 'side' : 'side flip']} id={s.id} aria-labelledby={`${s.id}-h`}>
         <div class="feat">
@@ -165,7 +194,7 @@ const tiles = [
 
     <section class="s wrap rule" id="more" aria-labelledby="more-h">
       <div class="more-head">
-        <h2 id="more-h">And the rest of the day-to-day. <span class="soft">Still a complete Git client.</span></h2>
+        <h2 id="more-h">And the rest of the day-to-day.</h2>
       </div>
       <div class="rest">
         {tiles.map((t) => (
@@ -197,6 +226,13 @@ const tiles = [
   .jump { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 34px; }
   .jump a { font-size: 13.5px; color: var(--text-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; text-decoration: none; transition: color .15s, border-color .15s; }
   .jump a:hover { color: var(--text); border-color: var(--line-strong); }
+  .jump-sep { width: 1px; margin: 4px 6px; background: var(--line-strong); }
+  /* The two group headings; the section under each drops its own rule and most of its top space. */
+  .part { padding-top: 120px; }
+  .fp .part + :global(.s) { padding-top: 56px; border-top: 0; }
+  .fp .part-h { margin: 0; font-size: 15px; font-weight: var(--fw-medium); color: var(--accent-fg); }
+  #stacks .feat { grid-template-columns: 1fr; gap: 56px; }
+  #stacks .copy p { color: var(--text-3); max-width: 42rem; }
   .jump a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
   .fp h2 { font-size: clamp(32px, 3.8vw, 48px); }
@@ -213,8 +249,8 @@ const tiles = [
   .side .copy p { color: var(--text-3); }
   .flip .feat { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
   .flip .copy { order: 2; }
-  .fp .feat li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-  .fp .feat li::before { content: none; }
+  .fp :is(.side, .stage) .feat li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .fp :is(.side, .stage) .feat li::before { content: none; }
   .combo { display: inline-flex; flex-wrap: wrap; gap: 8px; }
   .fp :global(.keys) { display: inline-flex; gap: 3px; }
   .fp :global(.keys-or) { font-size: 12px; color: var(--text-4); margin: 0 3px; }

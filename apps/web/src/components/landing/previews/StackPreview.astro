@@ -1,0 +1,17 @@
+---
+import Stage from './Stage.astro';
+// [number, title, the row's stack note (review-rows.js stackNote)], top of the stack first.
+const parts: [number, string, string][] = [
+  [271, 'Merge a stack in one step', 'on #264 · 3 of 3'],
+  [264, 'Group stacks in Review', 'on #257 · 2 of 3'],
+  [257, 'Add the stack model', 'Stack · 1 of 3'],
+];
+---
+<Stage label="Review: a stack of three pull requests under one header, each part noting the one it is built on">
+  <div class="pv-st">
+    <div class="pv-st-head"><span class="pv-file-chev">▾</span><span class="pv-cu-num">Stack #257 → #271</span></div>
+    {parts.map(([n, title, note]) => (
+      <div class="pv-st-row"><span class="pv-cu-num">#{n}</span><span class="pv-cu-title">{title}</span><span class="pv-st-note">{note}</span></div>
+    ))}
+  </div>
+</Stage>
