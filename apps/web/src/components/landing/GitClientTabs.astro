@@ -3,6 +3,9 @@ import AppShot from './AppShot.astro';
 import mapShot from '../../assets/app/map-dark.png';
 import commitShot from '../../assets/app/commit-dark.png';
 import conflictShot from '../../assets/app/conflict-dark.png';
+import mapLight from '../../assets/app/map-light.png';
+import commitLight from '../../assets/app/commit-light.png';
+import conflictLight from '../../assets/app/conflict-light.png';
 import CleanUpPreview from './previews/CleanUpPreview.astro';
 ---
 <section class="s wrap rule" id="git" aria-labelledby="g-h">
@@ -17,9 +20,9 @@ import CleanUpPreview from './previews/CleanUpPreview.astro';
       <button type="button" class="tab" role="tab" id="git-tab-3" aria-controls="git-panel-3" aria-selected="false" tabindex="-1"><i></i><span><kbd>X</kbd></span><b>Clean up</b><span>Finished branches gone, undoable</span></button>
     </div>
     <div class="tabpanels halo">
-      <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><AppShot src={mapShot} alt="The Map: every branch and worktree on one commit graph" /></div>
-      <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><AppShot src={commitShot} alt="Commit: staged and unstaged changes with the diff of the selected file" /></div>
-      <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><AppShot src={conflictShot} alt="The conflict editor: ours, base and theirs side by side" /></div>
+      <div data-panel role="tabpanel" id="git-panel-0" aria-labelledby="git-tab-0" class="on"><AppShot dark={mapShot} light={mapLight} alt="The Map: every branch and worktree on one commit graph" /></div>
+      <div data-panel role="tabpanel" id="git-panel-1" aria-labelledby="git-tab-1"><AppShot dark={commitShot} light={commitLight} alt="Commit: staged and unstaged changes with the diff of the selected file" /></div>
+      <div data-panel role="tabpanel" id="git-panel-2" aria-labelledby="git-tab-2"><AppShot dark={conflictShot} light={conflictLight} alt="The conflict editor: ours, base and theirs side by side" /></div>
       <div data-panel role="tabpanel" id="git-panel-3" aria-labelledby="git-tab-3"><CleanUpPreview /></div>
     </div>
   </div>

@@ -11,7 +11,6 @@ const preview = (name) => readFileSync(new URL(`../src/components/landing/previe
 const strings = {
   SincePreview: ['since your checkpoint', 'Mark since', 'CI passing', '`CI ${ci} on ${res.base}`'],
   ReviewPreview: ["'Stuck'", "'Ready to merge'", "'CI failing'"],
-  FixPromptPreview: ['`Fix prompt for #${pr.number}`', 'Why it’s stuck', "'Copy prompt'", "'Prompt copied'"],
   MergePlanPreview: ["'Merged'", "'Ready'"],
   CleanUpPreview: ['`Cleaned up: ${done}`', "' deleted'", "label: 'Undo'", '`${dir === \'undo\' ? \'Undid\' : \'Redid\'} “${label}”`', "`Clean up ${chosen.length}`"],
 };

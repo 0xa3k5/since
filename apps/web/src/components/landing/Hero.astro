@@ -1,6 +1,7 @@
 ---
 import AppShot from './AppShot.astro';
 import review from '../../assets/app/review-dark.png';
+import reviewLight from '../../assets/app/review-light.png';
 import { PRODUCT_NAME, DOWNLOAD_URL, DOWNLOAD_URL_INTEL, REPO_URL } from '../../config';
 import AppleGlyph from '../AppleGlyph.astro';
 ---
@@ -14,7 +15,7 @@ import AppleGlyph from '../AppleGlyph.astro';
   <p class="small">Free · Open source · No account · Local-first · macOS 12+ · <a href={DOWNLOAD_URL_INTEL}>Intel Mac</a></p>
 
   <div class="hero-shot">
-    <AppShot src={review} eager alt={`${PRODUCT_NAME} Review: the pull requests that need you, stuck and ready to merge, with the first one open beside the list`} />
+    <AppShot dark={review} light={reviewLight} eager alt={`${PRODUCT_NAME} Review: the pull requests that need you, stuck and ready to merge, with the first one open beside the list`} />
   </div>
 </section>
 
