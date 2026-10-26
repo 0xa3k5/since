@@ -1,12 +1,21 @@
 'use strict';
-// Publishes a built beta to the Cloudflare R2 bucket: writes the update feeds, uploads, prunes old versions.
-// Both `pnpm release:beta` (AK's Mac) and release.yml call this, so the bucket layout lives in one place.
+// One last upload to the Cloudflare R2 bucket the beta builds read their update feed from. Beta installs
+// only accept a feed on that host (updater.js limits the update session to the feed's origin), so they
+// can't follow a feed on GitHub. This publishes the final release to the bucket; once a beta install
+// updates to it, it reads GitHub Releases like every other build. The bucket and this script go once
+// the beta installs have moved.
 //
-//   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/beta-publish.js --version 0.1.0-beta.1 [--dir dist]
+//   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/bucket-publish.js --version 1.0.0 [--dir dist]
 //
-// Bucket layout: beta/<version>/ holds the DMGs and update zips, beta/latest/Since-<arch>.dmg are the
-// website's stable links, and beta/update-mac-<arch>.json are the feeds. Versioned files go up first and
-// the feeds last, so a feed never names a file that isn't there yet. The last KEEP versions are kept.
+// --dir must hold these four files from the v1.0.0 GitHub Release:
+//   Since-1.0.0-arm64.dmg  Since-1.0.0-x64.dmg  Since-1.0.0-arm64-mac.zip  Since-1.0.0-x64-mac.zip
+// The script writes update-mac-arm64.json and update-mac-x64.json next to them itself (pointing at the
+// bucket, not GitHub), so don't download the GitHub Release's feeds into the same folder. Squirrel only
+// installs an update signed by the same Developer ID as the running beta, so the release must be signed.
+//
+// Bucket layout: beta/<version>/ holds the DMGs and update zips, beta/latest/Since-<arch>.dmg are stable
+// download links, and beta/update-mac-<arch>.json are the feeds. Versioned files go up first and the
+// feeds last, so a feed never names a file that isn't there yet. The last KEEP versions are kept.
 //
 // The HTTP layer is curl's built-in SigV4 signing (no aws CLI, no npm S3 client). The keys go to curl
 // through a config on stdin, never through argv, so they don't show up in `ps`.
@@ -16,7 +25,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const { compareVersions, parseVersion, feedName, zipName } = require('../updater');
 
 const BUCKET = 'gitlanes-beta';
-// Must match the beta channel's feed in channel.js.
+// The feed host baked into every beta build.
 const PUBLIC_URL = 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev';
 const ARCHES = ['arm64', 'x64'];
 const KEEP = 5;
@@ -111,7 +120,7 @@ function curlSender({ accessKeyId, secretAccessKey }) {
 
 /** Writes the feeds, uploads in order, prunes. Returns the website download URLs. */
 function publish({ version, dir, client, log = console.log }) {
-  if (!/^\d+\.\d+\.\d+-beta\.\d+$/.test(version)) throw new Error(`Not a beta version: ${version}`);
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Not a final version: ${version}`);
   writeFeeds(version, dir);
   for (const u of planUploads(version, fs.readdirSync(dir))) {
     log(`  • ${u.key}`);
@@ -130,7 +139,7 @@ if (require.main === module) {
   for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];
   const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY } = process.env;
   if (!args.version || !R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) {
-    console.error('usage: R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… beta-publish.js --version <x.y.z-beta.n> [--dir <dist>]');
+    console.error('usage: R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… bucket-publish.js --version <x.y.z> [--dir <dist>]');
     process.exit(2);
   }
   try {

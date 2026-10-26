@@ -94,7 +94,6 @@ const state = {
   collapsed: loadPref('collapsed', {}),
   sections: loadPref('sidebarSections', {}), // which refs-tree sections show, in what order (Preferences → Sidebar)
   theme: 'system',
-  channel: null,
   prs: null, // pull requests from GitHub (see loadPrs); null until known
 };
 
@@ -1210,7 +1209,6 @@ function renderTopbar() {
   if (state.view === 'commit') {
     right.append(h('button.btn.subtle', { onclick: () => stashSave() }, icon('stash', 14), 'Stash'));
   }
-  if (state.channel === 'beta') right.append(h('span.channel-chip', { title: 'Beta build' }, 'Beta'));
   right.append(
     h('button.icon-btn', { title: tip(undoTitle(), 'edit.undo'), disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: tip(redoTitle(), 'edit.redo'), disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
@@ -5638,7 +5636,6 @@ api.on('tabs', showTabs);
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
-  state.channel = await api.app('channel');
   keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));

@@ -1605,9 +1605,6 @@ html.has-tabs #app { height: calc(100vh - 36px); }
 .recent-path { max-width: 100%; }
 .menu { max-height: calc(100vh - 16px); overflow-y: auto; }
 
-/* Build channel */
-.channel-chip { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; margin-right: 4px; border-radius: 11px; border: 1px solid var(--border-strong); font-size: 12px; font-weight: var(--fw-medium); color: var(--text-3); white-space: nowrap; cursor: default; }
-
 /* Git LFS */
 .badge.lfs { height: 16px; padding: 0 4px; font-size: 9.5px; color: var(--accent-fg); background: var(--accent-soft); flex: none; }
 .lfs-list { margin-top: 10px; max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }

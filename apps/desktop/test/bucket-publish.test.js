@@ -4,54 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { nextBetaVersion, parseArgs, pinnedPnpm, pnpmMismatch, wrongBuildVersion, buildEnv } = require('../scripts/release-beta');
-const { planUploads, pruneList, r2Client, publish, PUBLIC_URL } = require('../scripts/beta-publish');
+const { planUploads, pruneList, r2Client, publish, PUBLIC_URL } = require('../scripts/bucket-publish');
 
-test('nextBetaVersion starts at beta.1 and counts up from the highest tag of this version', () => {
-  assert.equal(nextBetaVersion('0.1.0', ['v0.1.0-rc.1', 'v0.1.0-rc.2']), '0.1.0-beta.1');
-  assert.equal(nextBetaVersion('0.1.0', ['v0.1.0-beta.1', 'v0.1.0-beta.10', 'v0.1.0-beta.2', 'v0.2.0-beta.40']), '0.1.0-beta.11');
-  assert.equal(nextBetaVersion('0.1.0', ['v0.1.0-beta.x', 'v0.1.0-beta.3.1']), '0.1.0-beta.1');
-});
-
-test('nextBetaVersion accepts an unused beta override and rejects anything else', () => {
-  assert.equal(nextBetaVersion('0.1.0', ['v0.1.0-beta.1'], 'v0.1.0-beta.5'), '0.1.0-beta.5');
-  assert.throws(() => nextBetaVersion('0.1.0', ['v0.1.0-beta.1'], '0.1.0-beta.1'), /already exists/);
-  assert.throws(() => nextBetaVersion('0.1.0', [], '0.1.0-rc.1'), /not a beta version/);
-});
-
-test('parseArgs reads the version override and --skip-e2e, and rejects unknown flags', () => {
-  assert.deepEqual(parseArgs(['--', '0.1.0-beta.2', '--skip-e2e']), { skipE2e: true, version: '0.1.0-beta.2' });
-  assert.deepEqual(parseArgs([]), { skipE2e: false, version: '' });
-  assert.throws(() => parseArgs(['--force']), /Unknown option/);
-});
-
-test('pnpmMismatch passes only the pinned pnpm, with or without a leading v, and says when pnpm is missing', () => {
-  assert.equal(pinnedPnpm('pnpm@10.34.7'), '10.34.7');
-  assert.equal(pinnedPnpm('pnpm@10.34.7+sha512.abc123'), '10.34.7');
-  assert.equal(pinnedPnpm(undefined), '');
-  assert.equal(pinnedPnpm('yarn@4.0.0'), '');
-  assert.equal(pnpmMismatch('10.34.7', '10.34.7\n'), '');
-  assert.equal(pnpmMismatch('10.34.7', 'v10.34.7'), '');
-  assert.match(pnpmMismatch('10.34.7', '10.20.0'), /^pnpm 10\.20\.0 is on PATH, but this repo pins pnpm@10\.34\.7\./);
-  assert.match(pnpmMismatch('10.34.7', '10.34.70'), /pins pnpm@10\.34\.7\./);
-  assert.match(pnpmMismatch('10.34.7', ''), /pnpm was not found on PATH; this repo pins pnpm@10\.34\.7\./);
-  assert.equal(pnpmMismatch('', '10.20.0'), '', 'no pin, nothing to compare');
-});
-
-const V = '0.1.0-beta.2';
+const V = '1.0.0';
 const built = [`Since-${V}-arm64.dmg`, `Since-${V}-x64.dmg`, `Since-${V}-arm64-mac.zip`, `Since-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json'];
-
-test('wrongBuildVersion names what electron-builder built when the version override did not apply', () => {
-  assert.equal(wrongBuildVersion(V, [...built, 'mac-arm64', 'mac', 'builder-debug.yml']), '');
-  assert.equal(wrongBuildVersion(V, [`Since-${V}-arm64-mac.zip`]), '', 'any artifact of the version is enough; planUploads reports missing files');
-  assert.equal(
-    wrongBuildVersion(V, ['mac-arm64', 'Since-0.1.0-arm64.dmg', 'Since-0.1.0-arm64-mac.zip', 'Since-0.1.0-x64.dmg', 'builder-debug.yml']),
-    'electron-builder built Since-0.1.0-arm64-mac.zip, Since-0.1.0-arm64.dmg, Since-0.1.0-x64.dmg instead of 0.1.0-beta.2; the version override did not apply.',
-  );
-  assert.match(wrongBuildVersion(V, []), /built no Since-\* artifacts instead of 0\.1\.0-beta\.2/);
-  // A build of beta.20 is not a build of beta.2.
-  assert.match(wrongBuildVersion(V, ['Since-0.1.0-beta.20-arm64.dmg']), /instead of 0\.1\.0-beta\.2;/);
-});
 
 test('planUploads puts versioned files first, then the latest DMGs, then the no-cache feeds', () => {
   const plan = planUploads(V, built);
@@ -63,7 +19,7 @@ test('planUploads puts versioned files first, then the latest DMGs, then the no-
   ]);
   assert.equal(plan[4].contentDisposition, `attachment; filename="Since-${V}-arm64.dmg"`);
   assert.ok(plan.slice(6).every((u) => u.cacheControl === 'no-cache' && u.contentType === 'application/json'));
-  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-0\.1\.0-beta\.2-x64\.dmg/);
+  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-1\.0\.0-x64\.dmg/);
 });
 
 test('pruneList keeps the newest five versions in semver order and never the current one', () => {
@@ -72,6 +28,8 @@ test('pruneList keeps the newest five versions in semver order and never the cur
   assert.deepEqual(pruneList(versions, '0.1.0-beta.10'), ['0.1.0-beta.1']);
   assert.deepEqual(pruneList(versions, '0.1.0-beta.1'), []);
   assert.deepEqual(pruneList(['0.1.0-beta.1'], '0.1.0-beta.1'), []);
+  // The final release sorts above every beta.
+  assert.deepEqual(pruneList([...versions, '1.0.0'], '1.0.0'), ['0.1.0-beta.2', '0.1.0-beta.1']);
 });
 
 /** A fake bucket behind the HTTP layer: records every request in order. */
@@ -125,14 +83,7 @@ test('publish stops at the first failed upload, before the feeds', () => {
   const send = ({ method, url }) => { keys.push(url); return method === 'PUT' && url.includes('x64-mac.zip') ? { status: 403, body: 'AccessDenied' } : { status: 200, body: '' }; };
   assert.throws(() => publish({ version: V, dir, client: r2Client({ accountId: 'acct', send }), log: () => {} }), /HTTP 403 AccessDenied/);
   assert.ok(keys.every((u) => !u.includes('update-mac') && !u.includes('/latest/')));
-  assert.throws(() => publish({ version: '0.1.0', dir, client: r2Client({ accountId: 'acct', send }) }), /Not a beta version/);
+  assert.throws(() => publish({ version: '1.0.0-beta.3', dir, client: r2Client({ accountId: 'acct', send }) }), /Not a final version/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('buildEnv drops CSC_IDENTITY_AUTO_DISCOVERY and stray signing variables, keeps the rest', () => {
-  const env = buildEnv({ PATH: '/bin', CSC_IDENTITY_AUTO_DISCOVERY: 'false', CSC_LINK: 'x.p12', APPLE_ID: 'a@b.c' });
-  assert.equal('CSC_IDENTITY_AUTO_DISCOVERY' in env, false);
-  assert.equal('CSC_LINK' in env, false);
-  assert.equal('APPLE_ID' in env, false);
-  assert.deepEqual([env.PATH, env.SINCE_CHANNEL, env.APPLE_KEYCHAIN_PROFILE], ['/bin', 'beta', 'gitlanes-notary']);
-});

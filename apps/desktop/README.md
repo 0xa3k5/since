@@ -43,14 +43,6 @@ Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
 Not yet: external diff/merge tools, submodules.
 
-## Update channel
-`channel.js` picks the update feed: `release` (package.json's feed) or `beta` (the beta bucket, with a
-"Beta" label in the topbar).
-
-- Unpackaged: `SINCE_CHANNEL=release` (default) `| beta`.
-- Packaged builds ignore `SINCE_CHANNEL` at run time; they use the channel baked in by `pnpm dist`:
-  `release` by default, or `SINCE_CHANNEL=beta pnpm dist` (what `pnpm release:beta` and beta tags in CI use).
-
 ## Updates
 `updater.js` uses Electron's built-in `autoUpdater` (Squirrel.Mac), so it adds no dependency. The packaged app
 checks a few seconds after launch and then once a day. It downloads in the background, then shows a
