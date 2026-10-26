@@ -1,5 +1,5 @@
 ---
-import { DOWNLOAD_URL, DOWNLOAD_URL_INTEL, LICENCE_NAME, MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED, PRODUCT_NAME, REPO_URL } from '../config';
+import { DOWNLOAD_URL, DOWNLOAD_URL_INTEL, HOMEBREW_COMMAND, LICENCE_NAME, MIN_MACOS, MIN_MACOS_VERIFIED, NOTARIZED, PRODUCT_NAME, REPO_URL } from '../config';
 import Base from '../layouts/Base.astro';
 import '../styles/download.css';
 
@@ -18,7 +18,7 @@ const builds = [
     <header class="cm-head">
       <p class="eyebrow">Download</p>
       <h1>Download {PRODUCT_NAME}</h1>
-      <p class="lede">The beta build for macOS. Free, open source, no account.</p>
+      <p class="lede">The latest release for macOS. Free, open source, no account.</p>
     </header>
 
     <fieldset class="arch">
@@ -40,6 +40,9 @@ const builds = [
     </fieldset>
     <p class="arch-help muted">
       Not sure which you have? Open the Apple menu → <strong>About This Mac</strong>. If it lists a <strong>Chip</strong>, you have Apple silicon. If it lists a <strong>Processor</strong>, you have Intel.
+    </p>
+    <p class="arch-help muted">
+      Or with <a href="https://brew.sh">Homebrew</a>: <code>{HOMEBREW_COMMAND}</code>
     </p>
 
     <section class="cm-section" aria-labelledby="req-h">
