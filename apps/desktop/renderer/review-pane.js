@@ -4,7 +4,7 @@ import { reviewView } from './review-view.js';
 import { laneKey } from './lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
 import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from './pr-review.js';
-import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip } from './reader.js';
+import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
 import * as keymap from './keymap.js';
 import { loginProfile } from './profile.js';
@@ -24,6 +24,8 @@ import { loginProfile } from './profile.js';
 // PR's evidence strip (github.evidence: checks, annotations, media, reviews, open threads) under the
 // status strip, loaded when the PR is opened; E opens its next tab. ctx.onFacts() tells the list
 // there's something new for the row's chips.
+// AK-640: the branch's commits are the strip's first tab (Commits), for a lane without a PR too; a
+// commit opens the map's commit details on the right of the pane (commitSide, app.js).
 
 // Fetched PR heads for this window, so moving back to a PR doesn't fetch it again. Keyed by its
 // last update, so a pushed PR is fetched afresh.
@@ -59,7 +61,8 @@ function reviewersLine(pr, inline = false) {
 // (nav: { at, of, onStep(±1) } for ‹ N of M › and ←/→)
 // (conflicts: it conflicts with its base, so the files start with what conflicts, AK-305). run(id, row, ctx) runs a
 // pane action (PANE_ACTIONS); call(channel, ...args) is api.app; onBack() returns focus to the list.
-export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
+// commitSide(host, sha, mark) toggles a commit's details on the right of `host` (app.js).
+export function reviewPane({ row, ctx, root, git, store, call, run, onBack, commitSide = null }) {
   const el = h('div.review-pane', { tabIndex: -1 });
   const head = h('div.review-pane-head');
   let mini = miniHeader(el);
@@ -72,6 +75,8 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
   let facts = null; // change facts for the diff, once read
   let ev; // the PR's evidence: undefined while it loads, null when there's nothing
   let strip = null;
+  let commits = null; // { list, count } from the branch review, for the Commits tab
+  let openCommit = null; // the commit open on the right
 
   // Title, meta, status strip and description run across the whole pane and scroll with the files.
   // Labelled buttons for the actions you take most, icon buttons for the rest, the primary one last.
@@ -153,7 +158,15 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
       // The reviewers sit on the change line once the facts are in (AK-516), else on a line of their own.
       below: [stackLine(), facts ? factsBlock(facts, { after: pr ? reviewersLine(pr, true) : null }) : pr ? reviewersLine(pr) : null, ...(pr ? mergeOrderLines() : [])].filter(Boolean),
     });
-    strip = pr && ctx.prsOn ? evidenceStrip({ evidence: ev, key: `${ctx.remote ?? ''}#${pr.number}`, openUrl: (u) => call('external', u), loadImage: (id) => call('pr-media-image', id).then((r) => r?.ok ?? null), goTo: view ? { has: view.hasFile, go: view.goToLine } : null }) : null;
+    const prOn = Boolean(pr && ctx.prsOn);
+    // The strip redraws itself on a tab switch, so `selected` follows the open commit.
+    const cm = commits && { ...commits, selected: openCommit, onOpen: commitSide ? (sha) => commitSide(el, sha, mark) : null };
+    function mark(sha) { openCommit = sha; if (cm) cm.selected = sha; markCommit(head, sha); }
+    strip = prOn || commits ? evidenceStrip({
+      evidence: prOn ? ev : null, key: prOn ? `${ctx.remote ?? ''}#${pr.number}` : `lane:${row.key}`,
+      openUrl: (u) => call('external', u), loadImage: (id) => call('pr-media-image', id).then((r) => r?.ok ?? null), goTo: view ? { has: view.hasFile, go: view.goToLine } : null,
+      commits: cm,
+    }) : null;
     head.replaceChildren(...[
       top,
       statusStrip([...rest.map(button), rest.length && icons.length ? h('span.review-pane-sep.pane-secondary') : null, ...icons.map(button), github ? button(github) : null, moreBtn, lead ? button(lead) : null].filter(Boolean)),
@@ -296,7 +309,15 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack }) {
 
   function mount(review) {
     loadFacts(review.base, review.lane?.rev);
-    view = reviewView({ ...review, root, git, store, header: head, embedded: true, onKey, onClose: onBack, checkConflicts: Boolean(ctx.conflicts), onConflicts: (files) => ctx.onConflicts?.(files) });
+    view = reviewView({
+      ...review, root, git, store, header: head, embedded: true, onKey, onClose: onBack, checkConflicts: Boolean(ctx.conflicts), onConflicts: (files) => ctx.onConflicts?.(files),
+      onReview: (r) => {
+        const next = r.commits?.length ? { list: r.commits, count: Math.max(r.commitCount || 0, r.commits.length) } : null;
+        if (next?.list[0]?.sha === commits?.list[0]?.sha && next?.count === commits?.count) return;
+        commits = next;
+        renderHead();
+      },
+    });
     const had = wantFocus || el.contains(document.activeElement);
     // The view is the reader's scroll: the slim bar moves into it.
     mini.destroy();

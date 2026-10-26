@@ -1441,7 +1441,7 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   reviewPage = null;
-  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onPrAction: prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : id === 'draft' ? draftSwitch(state.review.pr, prViewer())?.why || null : null) }); return contentEl.append(reviewPage.el); }
+  if (state.review) { reviewPage = reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onCommit: (sha, mark) => commitSide(reviewPage.el, sha, mark), onPrAction: prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : id === 'draft' ? draftSwitch(state.review.pr, prViewer())?.why || null : null) }); return contentEl.append(reviewPage.el); }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': mapView = createMapView(contentEl); break;
@@ -1691,7 +1691,9 @@ function selectWorktreeItem(w) {
   sidebarEl?.querySelector(`.sb-worktree[data-path="${CSS.escape(w.path)}"]`)?.focus({ preventScroll: true });
 }
 
-function commitDetail(c) {
+// open(path): Open and a file row (the commit on its own page, at that file); close: a × at the end
+// of the actions, for Review's commit pane (commitSide).
+function commitDetail(c, { open = (path) => openQuick(c.sha, path), close = null } = {}) {
   const refs = state.byRef.get(c.sha) || [];
   const [subject, ...rest] = c.message.split('\n');
   const body = rest.join('\n').trim();
@@ -1702,6 +1704,7 @@ function commitDetail(c) {
         h('button.btn.subtle', { onclick: () => checkoutCommit(c) }, icon('checkout', 14), 'Checkout'),
         h('button.btn.subtle', { onclick: () => createBranch(c.sha) }, icon('branch', 14), 'Branch'),
         h('button.icon-btn', { title: 'More actions', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); commitMenu(r.left, r.bottom + 4, c); } }, icon('more')),
+        close ? h('button.icon-btn.detail-close', { 'data-tip': 'Close', 'aria-label': 'Close', onclick: close }, icon('x')) : null,
       ),
       h('h2.detail-title', null, subject),
       refs.length ? h('div.pills.wrap', null, refs.map(refPill)) : null,
@@ -1717,9 +1720,27 @@ function commitDetail(c) {
       c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => go(() => selectCommit(p, 'center')) }, p.slice(0, 7))))) : null,
     ),
     h('div.files-head', null, h('span', null, `${c.files.length} file${c.files.length === 1 ? '' : 's'} changed`), h('span.stat', null, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`)),
-      h('button.btn.ghost.small', { onclick: () => openQuick(c.sha) }, 'Open', kbd(...keymap.keys('map.quick')))),
-    h('div.file-list', null, c.files.slice(0, 500).map((f) => withHistoryMenu(fileRow(f, () => openQuick(c.sha, f.path)), f))),
+      h('button.btn.ghost.small', { onclick: () => open() }, 'Open', close ? null : kbd(...keymap.keys('map.quick')))),
+    h('div.file-list', null, c.files.slice(0, 500).map((f) => withHistoryMenu(fileRow(f, () => open(f.path)), f))),
   );
+}
+
+// Review's commit pane (AK-640): the map's commit details on the right of `host` (Review's pane or the
+// review page), over the diff. The same commit again, × or Esc closes it; mark(sha or null) follows it.
+// Open shows just that commit's changes on a page of its own; Back (or Esc) returns to Review as it was.
+function commitSide(host, sha, mark = () => {}) {
+  const old = host.querySelector(':scope > .commit-side');
+  old?.remove();
+  if (old?.dataset.sha === sha) return mark(null);
+  const close = () => { el.remove(); mark(null); };
+  const back = () => ({ review: state.review, lanes: lanesOpen() ? lanesPage?.location() : null });
+  const el = h('aside.detail.commit-side', { tabIndex: -1, 'data-sha': sha, 'aria-label': `Commit ${sha.slice(0, 7)}` }, loading('Loading commit…'));
+  el.addEventListener('keydown', (e) => { if (keymap.match('review', e) === 'review.close' && !e.target.closest?.('input, textarea')) { e.preventDefault(); e.stopPropagation(); close(); } });
+  loadCommit(sha).then((c) => { if (el.isConnected) el.replaceChildren(commitDetail(c, { open: (path) => openQuick(sha, path, back()), close })); },
+    (e) => { if (el.isConnected) el.replaceChildren(h('div.empty', null, e.message)); });
+  host.classList.add('commit-side-host');
+  host.append(el);
+  mark(sha);
 }
 
 const SIGNATURE_LABELS = { good: 'Verified', expired: 'Expired', revoked: 'Revoked', bad: 'Bad signature', unverified: 'Signed, not verified' };
@@ -1755,10 +1776,13 @@ function openQuickNow(sha, path, back = null) {
   renderView();
 }
 function closeQuick(...args) { return go(() => closeQuickNow(...args)); }
+// `back` is { path } (File History) or { review, lanes } (Review, the page or the lanes row it was on).
 function closeQuickNow() {
   const sha = state.quick?.sha;
-  if (state.quick?.back) return openFileHistory(state.quick.back.path);
+  const back = state.quick?.back;
+  if (back?.path) return openFileHistory(back.path);
   state.quick = null;
+  if (back && 'review' in back) { state.review = back.review; lanesPlace = back.lanes; renderTopbar(); renderView(); return; }
   renderTopbar();
   renderView();
   if (sha) selectCommit(sha, 'center');
@@ -3349,7 +3373,7 @@ function openLanes() {
     progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
     onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
-    pane: (row, ctx) => reviewPane({ row, ctx, root: state.repo.root, git, store: localStorage, call: (...a) => api.app(...a), run: paneAction, onBack: () => lanesPage?.el.focus({ preventScroll: true }) }),
+    pane: (row, ctx) => reviewPane({ row, ctx, root: state.repo.root, git, store: localStorage, call: (...a) => api.app(...a), run: paneAction, onBack: () => lanesPage?.el.focus({ preventScroll: true }), commitSide }),
     onPaneAction: paneAction,
     paneWidth: () => loadPref('reviewPane', {}).width || null,
     setPaneWidth: (width) => savePref('reviewPane', { width }),

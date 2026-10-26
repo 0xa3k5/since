@@ -4,7 +4,7 @@ import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary
 import * as keymap from './keymap.js';
 import { prStatusLine, draftSwitch } from './prs.js';
 import { PR_ACTIONS, prActionFor } from './pr-review.js';
-import { fileCard, foldShut } from './reader.js';
+import { fileCard, foldShut, commitLines, markCommit } from './reader.js';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).
@@ -34,7 +34,11 @@ import { fileCard, foldShut } from './reader.js';
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
 // shows the base side against the branch's side. onConflicts(files) reports what it found.
 // fallback: a base to use instead when `base` can't be resolved (a stacked PR's base not fetched here).
-export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
+// The branch's commits (AK-640, branchReview's `commits`, newest first): on this page they head the
+// files column (reader.js commitLines); in Review's pane (stacked) they're the evidence strip's
+// Commits tab, so onReview(review) hands them over. onCommit(sha, mark) opens a commit beside the
+// diff (app.js) and calls mark(sha or null) as it opens and closes.
+export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {}, onReview = null, onCommit = null }) {
   const key = storeKey(root, lane.key);
   let review = null;
   let saved = readTicks(store, key);
@@ -48,6 +52,8 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   let onConflict = false; // `current` is its Conflicting entry, not its Changed one
   let jump = false; // showConflicts() before the conflicts were read
   let conflictsAt = null;
+  let allCommits = false; // Show all pressed
+  let openCommit = null; // the commit open beside the diff
 
   const stacked = Boolean(header); // per-file blocks instead of a files column (AK-373)
   const diffs = new Map(); // stacked: `${path}@${tip}@${since}` → diff, so re-renders keep their height
@@ -57,6 +63,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   const meta = h('div.quick-meta');
   const deltaBtn = h('button.chip', { title: 'Only files changed since you last looked (D)', onclick: () => toggleDelta() }, 'Changed since last look');
   const listEl = h('div.file-list.review-list', { role: 'listbox', 'aria-label': 'Files' });
+  const commitsEl = h('div.review-commits-host');
   // With a header, the progress line (reviewed count, Changed since last look) sits under it once,
   // across the pane; the files column is just the list.
   // Draft ↔ ready (AK-610): the switch that applies; onPrAction('draft') flips it on GitHub, then
@@ -78,6 +85,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       meta,
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
       pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key)))), draftChip) : null),
+    commitsEl,
     listEl,
   );
   const top = header ? h('div.review-pane-top', null, header, h('div.review-progress-line', null, meta, deltaBtn)) : null;
@@ -105,6 +113,17 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     ].filter(Boolean));
     deltaBtn.classList.toggle('on', delta);
     deltaBtn.disabled = !changed && !delta;
+  }
+
+  // The branch's commits above the files column.
+  function commitsBlock() {
+    const list = review?.commits;
+    if (!list?.length) return null;
+    const count = Math.max(review.commitCount || 0, list.length);
+    const mark = (sha) => { openCommit = sha; markCommit(commitsEl, sha); };
+    return h('section.review-commits', { 'aria-label': 'Commits' },
+      h('div.lanes-group.review-files-group', null, 'Commits', h('span.review-files-n', null, String(count))),
+      ...commitLines({ list, count, selected: openCommit, onOpen: onCommit ? (sha) => onCommit(sha, mark) : null }, allCommits, () => { allCommits = true; renderList(); }));
   }
 
   function row(f) {
@@ -145,6 +164,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     const list = entries();
     if (!list.some((e) => e.path === current && e.c === onConflict)) { current = list[0]?.path || null; onConflict = Boolean(list[0]?.c); }
     const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
+    if (!stacked) commitsEl.replaceChildren(...[commitsBlock()].filter(Boolean));
     listEl.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictRow), group('Changed', files.length)] : []), ...files.map(row));
     if (!files.length) listEl.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     renderMeta();
@@ -433,6 +453,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     if (s) { saved = s; writeTicks(store, key, saved); }
     computeStates();
     if (delta && ![...states.values()].some((x) => x.state === 'changed')) delta = false;
+    onReview?.(review);
     renderList();
     if (moved || !main.querySelector('.diff-scroll')) renderFile();
     loadConflicts();
