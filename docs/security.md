@@ -7,9 +7,9 @@ at `b084e11` plus the AK-48 changes (Electron 44.7.0).
 
 ## Network: what leaves your Mac
 
-**`git` talks to the network only when you ask it to.** Apart from git, the app makes two kinds
-of request of its own, both from the main process: the update check and licence validation. The
-renderer makes none. Beta builds have no licence, so they make only the update check, to the beta
+**`git` talks to the network only when you ask it to.** Apart from git, the app makes one kind
+of request of its own, from the main process: the update check. The
+renderer makes none. Beta builds send the update check to the beta
 bucket on Cloudflare R2 (`pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev`). The opt-in pull request features work like git: Since runs your GitHub
 CLI (`gh`), and the connection happens inside `gh`, under your `gh` login. Since never sees
 or stores a GitHub token, and opens no connection for them itself.
@@ -24,7 +24,6 @@ or stores a GitHub token, and opens no connection for them itself.
 | Open in hosting service, View on hosting service | You pick the menu item | Your default browser, not Since | The remote's web page |
 | Update check | At launch and about daily (*Automatically check for updates*, can be switched off), or *Check for Updates…* | The updater's private `since-updates` session | `https://github.com` (the update feed) and GitHub's release-asset hosts it redirects to; beta builds: `https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev` (the beta bucket) |
 | Update download | When a newer signed version is found | macOS's updater (Squirrel) | The release zip named by the feed |
-| Licence validation | Activating a key, at launch and about daily. Never in beta builds, which have no licence | Main process | Polar's licence API (`api.polar.sh`) |
 | PR set-up check | You turn on *Pull requests* for this repository (off by default, per repository) | `gh auth status --hostname <host>` | Your GitHub host (`github.com` or your GitHub Enterprise host) |
 | PR status | Pull requests are on for this repository and you fetch (⌘⇧F), refresh PRs (⌘⌥⇧P), turn them on, or approve or close one; or the lanes overview asks for its PRs (`app:lanes-list` with `prs: true`; without it, or with pull requests off, the lanes list is local git only) | `gh pr list --repo …` (the same call also asks for `latestReviews`, `additions`, `deletions` and `changedFiles`, for the review stages' per-reviewer verdicts and PR size; only each reviewer's login and verdict are kept, never review text) | `api.github.com`, or your GitHub Enterprise host |
 | Shipped lanes | Pull requests are on and the lanes overview asks for its PRs (`app:lanes-list` with `prs: true`), on the same refreshes as its PR status. With pull requests off, the shipped check is local git only | `gh pr list --repo … --state merged --limit 100 --json number,title,headRefOid,headRefName,mergeCommit,mergedAt` per refresh (merged PRs' head commits, to mark lanes whose work already shipped; their merge commits, to name what landed in Review's catch-up card) | `api.github.com`, or your GitHub Enterprise host |
@@ -59,8 +58,7 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
   (`clone`, `fetch`, `pull`, `push`) are started from the user actions listed above.
   `test/packaging.test.js` checks that no packaged main-process file requires a Node network
   module or Electron's `net`, and that `git.js`, `ai.js` and `github.js` never call `fetch`;
-  the only requests the app makes itself are the update check (`updater.js`) and licence
-  validation (`licence/stores.js`).
+  the only request the app makes itself is the update check (`updater.js`).
 - **GitHub CLI calls.** `github.js` spawns `gh` the same way `ai.js` spawns AI CLIs: the binary
   is resolved on the extended `PATH`, runs in an empty temp folder with prompts off, has a
   30-second timeout after which its whole process group is killed. Every PR call passes `--repo` for a
@@ -73,8 +71,7 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
   DevTools (the updater's session may also reach the update feed's host). `e2e/security.spec.js` checks that `fetch`, `WebSocket` and remote images fail.
 - **Runtime.** `e2e/security.spec.js` drives the app through every view, then lists the
   sockets held by the main process and all its helpers with `lsof`. Apart from Playwright's own
-  loopback debugger connections, there are none (in development the updater has no feed, and
-  e2e runs use a mock licence store). The packaged app (`electron-builder --dir`) was
+  loopback debugger connections, there are none (in development the updater has no feed). The packaged app (`electron-builder --dir`) was
   also run on a repository for 20 seconds with `lsof` sampling every 5 seconds: no sockets at all.
 - **Chromium features that would phone home** are off: spellcheck (which downloads
   dictionaries) is disabled, and Electron ships without Google's Safe Browsing, sync or update

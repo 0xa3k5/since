@@ -10,9 +10,7 @@ const git = require('./git');
 const tabOrder = require('./tab-order');
 const { Journal, workOps, worktreeOps, laneOps, remoteOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
-const { Licensing } = require('./licence');
-const { loadConfig } = require('./licence/config');
-const { createStore } = require('./licence/stores');
+const { loadChannel } = require('./channel');
 const updater = require('./updater');
 const pkg = require('./package.json');
 const check = require('./ipc');
@@ -375,12 +373,6 @@ function closeWindow(win, name) {
   return new Promise((resolve) => { win.once('closed', resolve); win.destroy(); });
 }
 
-// After the trial (or an unverified licence) the app stays usable read-only: reads and fetch
-// still work, anything that changes the repository is refused until a licence is added.
-// Undo, redo, restoring history and aborting a stuck rebase/merge stay available so nothing is
-// trapped by the trial ending mid-way.
-const READ_ONLY_ALLOWED = new Set(['fetch', 'undo', 'redo', 'restoreHistory', 'abortOp']);
-
 // Every IPC channel goes through here: calls are only accepted from our own renderer page,
 // loaded from the app bundle into a window's main frame. Arguments are checked by ipc.js.
 const RENDERER_URL = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -427,9 +419,6 @@ handle('git', async (e, method, ...args) => {
       for (const i of worktreeArgs) realArgs[i] = check.knownWorktree(list, realArgs[i], git.samePath);
     }
     if (reads[method]) return { ok: await reads[method](s, ...realArgs) };
-    if (!READ_ONLY_ALLOWED.has(method) && !(await licensing.ensureCanMutate())) {
-      return { error: { message: 'Since is read-only until you add a licence.', code: 'READ_ONLY' } };
-    }
     s.busy++;
     try {
       // Aborting isn't a step of its own: the stopped sequence it ends is dropped (Journal.abortOp).
@@ -1225,7 +1214,6 @@ handle('app:pr-checkout', okCall(async (e, number, opts) => {
   const { worktree, dir, update, free, move, stash } = prCheckoutOpts(opts);
   const s = session(e);
   const root = s.repo.root;
-  if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('Since is read-only until you add a licence.'), { code: 'READ_ONLY' });
   const { remote, head } = await github.viewPr({ enabled: await prEnabled(root), remotes: await prRemotes(root), number });
   const local = head.local;
   s.busy++;
@@ -1324,7 +1312,6 @@ handle('app:pr-create', okCall(async (e, branch, opts) => {
   const b = await prBranch(s, branch);
   if (b.push) {
     if (!o.push) throw Object.assign(new Error(`${branch} has commits that aren’t on GitHub yet. Push it first.`), { code: 'needs-push' });
-    if (!(await licensing.ensureCanMutate())) throw Object.assign(new Error('Since is read-only until you add a licence.'), { code: 'READ_ONLY' });
     s.busy++;
     try {
       // A current branch already tracking GitHub takes the usual push path; anything else pushes
@@ -1341,46 +1328,11 @@ handle('app:pr-create', okCall(async (e, branch, opts) => {
 }));
 
 // ---------------------------------------------------------------------------
-// Trial & licence
+// Update channel
 
-let licensing = null;
-
-function initLicensing() {
-  // Packaged builds use only the store profile baked in at build time; the environment can't change it.
-  const config = loadConfig(process.env, { packaged: app.isPackaged });
-  // Development only: shift the clock to see the trial's later days (SINCE_CLOCK_OFFSET_DAYS=15).
-  const offset = app.isPackaged ? 0 : Number(process.env.SINCE_CLOCK_OFFSET_DAYS || 0) * 86400000;
-  // Development only: keep the trial mirror elsewhere (e2e gives every launch its own).
-  const mirrorOverride = !app.isPackaged && process.env.SINCE_TRIAL_MIRROR;
-  const suffix = config.profile === 'production' ? '' : `-${config.profile}`;
-  licensing = new Licensing({
-    config,
-    store: createStore(config),
-    stateFile: path.join(app.getPath('userData'), `licence${suffix}.json`),
-    // A second copy of the trial clock outside the app's folder, so deleting one doesn't restart the trial.
-    mirrorFile: mirrorOverride || path.join(os.homedir(), 'Library', 'Preferences', `.app.gitlanes.desktop${suffix}.trial`),
-    now: () => Date.now() + offset,
-    onChange: (status) => {
-      broadcast('licence', status);
-      buildMenu();
-    },
-  });
-}
-
-function revalidate() {
-  licensing?.maybeRefresh()?.catch((e) => console.warn('licence check failed', e.message));
-}
-
-const licenceCall = (fn) => async (_e, ...args) => {
-  try { return { ok: await fn(...args) }; } catch (err) { return { error: serializeError(err) }; }
-};
-handle('app:licence', () => licensing.status());
-handle('app:licence-activate', licenceCall((key) => licensing.activate(check.str(key, 'licence key', { max: 1024, empty: true }))));
-handle('app:licence-refresh', licenceCall(() => licensing.refresh()));
-handle('app:licence-deactivate', licenceCall(() => licensing.deactivate()));
-handle('app:licence-dismiss', () => licensing.dismissNotice());
-handle('app:licence-buy', () => { const u = licensing.config.checkoutUrl; if (u) shell.openExternal(u); return Boolean(u); });
-handle('app:licence-portal', () => { const u = licensing.config.portalUrl; if (u) shell.openExternal(u); return Boolean(u); });
+// Packaged builds use only the channel baked in at build time; the environment can't change it.
+const channel = loadChannel(process.env, { packaged: app.isPackaged });
+handle('app:channel', () => channel.channel);
 
 // `win`: the tab asking (see Tab).
 async function bindRepo(win, dir) {
@@ -1884,15 +1836,6 @@ handle('app:keymap-import', async (e) => {
 const send = (cmd, ...args) => () => activeTab()?.webContents.send('command', cmd, ...args);
 
 
-function licenceItems() {
-  if (licensing?.disabled) return [];
-  const licensed = licensing?.status().mode === 'licensed';
-  return [
-    { label: licensed ? 'Licence…' : 'Enter Licence Key…', accelerator: acc('app.licence'), click: send('licence') },
-    ...(licensed ? [] : [{ label: 'Buy Since…', click: send('buy') }]),
-  ];
-}
-
 function buildMenu() {
   const item = (label, accelerator, cmd, ...args) => ({ label, accelerator, click: send(cmd, ...args) });
   const journal = sessions.get(activeTab()?.id)?.journal;
@@ -1907,7 +1850,7 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{
       label: app.name,
-      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, ...licenceItems(), ...(licensing?.disabled ? [] : [{ type: 'separator' }]), item('Settings…', acc('app.settings'), 'preferences'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      submenu: [{ role: 'about' }, updateItem, autoItem, { type: 'separator' }, item('Settings…', acc('app.settings'), 'preferences'), { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
     }] : []),
     {
       label: 'File',
@@ -2111,12 +2054,11 @@ app.whenReady().then(() => {
   const saved = readSettings().theme;
   nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
   keymap.setOverrides(readSettings().keymap);
-  initLicensing();
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
-    // The beta profile carries its own feed (the beta bucket); every other build uses package.json's.
-    feed: licensing.config.updates?.feed || pkg.updates?.feed,
-    page: licensing.config.updates?.page || pkg.updates?.page,
+    // The beta channel carries its own feed (the beta bucket); every other build uses package.json's.
+    feed: channel.updates?.feed || pkg.updates?.feed,
+    page: channel.updates?.page || pkg.updates?.page,
     devFeed: app.isPackaged ? null : process.env.SINCE_UPDATE_FEED,
     onChange: (state) => {
       buildMenu();
@@ -2125,16 +2067,12 @@ app.whenReady().then(() => {
   });
   lockDownSession(electronSession.fromPartition(updater.PARTITION, { cache: false }), updater.allowedOrigins());
   buildMenu();
-  windowFocus = () => { buildMenu(); revalidate(); };
+  windowFocus = () => { buildMenu(); };
   const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => !a.startsWith('-'));
   // pnpm runs workspace scripts inside apps/desktop; resolve relative paths against where the user ran pnpm.
   const repoPath = arg && path.resolve(process.env.INIT_CWD || process.cwd(), arg);
   if (repoPath && fs.existsSync(repoPath)) createWindow(repoPath, { restore: true }); else openLastWindow();
   app.on('activate', () => { if (!hosts.size) openLastWindow(); });
-  // Validate the licence at launch, then about daily while running (on focus and hourly ticks);
-  // offline is fine, the cached validation carries on.
-  licensing.refresh().catch((e) => console.warn('licence check failed', e.message));
-  setInterval(revalidate, 60 * 60 * 1000).unref();
 });
 
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });

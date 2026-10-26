@@ -16,7 +16,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const { compareVersions, parseVersion, feedName, zipName } = require('../updater');
 
 const BUCKET = 'gitlanes-beta';
-// Must match the beta profile's feed in licence/config.js.
+// Must match the beta channel's feed in channel.js.
 const PUBLIC_URL = 'https://pub-1b56c7c361874048ab3f67ebe6cdac1b.r2.dev';
 const ARCHES = ['arm64', 'x64'];
 const KEEP = 5;

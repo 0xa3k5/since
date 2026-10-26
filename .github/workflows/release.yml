@@ -2,7 +2,7 @@ name: Release
 
 # A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
 # zips and update-mac-<arch>.json feeds that auto-update reads once the release is published. A beta tag
-# (v0.1.0-beta.1) builds without a licence (SINCE_STORE=beta) and uploads to the Cloudflare R2 bucket
+# (v0.1.0-beta.1) builds on the beta update channel (SINCE_CHANNEL=beta) and uploads to the Cloudflare R2 bucket
 # instead, with no GitHub Release; the beta app reads its update feed from there. Tags and
 # manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
@@ -67,14 +67,10 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
-          # Licence store baked into the app: production for a final release tag, no licence for a beta
-          # tag, the Polar sandbox for release candidates and dry runs. A production build fails until
-          # licence/config.js has the production values, so a release can't ship selling through the test store.
-          # Passed to the build step only, so the e2e suite keeps its usual (sandbox) licence behaviour.
-          store=sandbox beta=false
-          [ "$IS_TAG" = true ] && [ "${GITHUB_REF_NAME#v}" = "$version" ] && store=production
-          if [ "$IS_TAG" = true ] && [[ "$GITHUB_REF_NAME" =~ -beta\.[0-9]+$ ]]; then store=beta beta=true; fi
-          echo "store=$store" >> "$GITHUB_OUTPUT"
+          # Update channel baked into the app: beta for a beta tag (the beta bucket's feed), release otherwise.
+          channel=release beta=false
+          if [ "$IS_TAG" = true ] && [[ "$GITHUB_REF_NAME" =~ -beta\.[0-9]+$ ]]; then channel=beta beta=true; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "beta=$beta" >> "$GITHUB_OUTPUT"
           # A pre-release tag (v0.1.0-rc.1, v0.1.0-beta.1) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
@@ -118,7 +114,7 @@ jobs:
 
       - name: Build DMGs
         env:
-          SINCE_STORE: ${{ steps.plan.outputs.store }}
+          SINCE_CHANNEL: ${{ steps.plan.outputs.channel }}
           # Read by apps/desktop/electron-builder.config.js; the same mechanism `pnpm release:beta` uses (AK-571).
           SINCE_VERSION: ${{ steps.plan.outputs.version }}
         run: pnpm dist

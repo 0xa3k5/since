@@ -9,7 +9,7 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 - Secrets or credentials shown in the UI or written to logs.
 - An IPC call whose arguments aren't validated in `apps/desktop/ipc.js`.
 - A network call beyond the ones documented in `docs/security.md`.
-- Breaking the update feed, its signature checks, or the licence checks.
+- Breaking the update feed or its signature checks.
 - A keyboard trap.
 - A diff to `CLAUDE.md` or `REVIEW.md` that the issue didn't ask for (agent runtimes write their own
   `CLAUDE.md` into worktrees; it must never be committed over the repo's file).
@@ -33,7 +33,7 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 
 **Critical paths always need AK** (the reviewer posts a verdict, AK merges):
 signing, notarization, secrets and publishing; the auto-update feed and its signature checks;
-licence validation, Polar product/price IDs, prices and legal terms; history rewrites.
+legal terms; history rewrites.
 
 **`feat` PRs** (new user-facing features or behaviour) are reviewed as usual but merged by AK, not
 the reviewer: post the verdict and assign AK.

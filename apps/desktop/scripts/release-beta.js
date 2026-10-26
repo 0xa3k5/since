@@ -140,13 +140,13 @@ function tests(skipE2e) {
 // signing while electron-builder.config.js still names the build signed and notarizes it (AK-431).
 const DROPPED_ENV = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_IDENTITY_AUTO_DISCOVERY', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER'];
 function buildEnv(base) {
-  const env = { ...base, SINCE_STORE: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
+  const env = { ...base, SINCE_CHANNEL: 'beta', APPLE_KEYCHAIN_PROFILE: NOTARY_PROFILE };
   for (const k of DROPPED_ENV) delete env[k];
   return env;
 }
 
 function build(version) {
-  step(`Build ${version} (signed, notarized, SINCE_STORE=beta)`);
+  step(`Build ${version} (signed, notarized, SINCE_CHANNEL=beta)`);
   fs.rmSync(DIST, { recursive: true, force: true });
   const env = buildEnv(process.env);
   // The version goes through the environment (electron-builder.config.js reads SINCE_VERSION): a `--`

@@ -10,7 +10,7 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 
 - `apps/desktop`: the app.
   - `main.js` (window, menus, session lock-down), `ipc.js` (argument checks for every IPC call),
-    `git.js` (all git calls), `journal.js` (undo/redo), `updater.js`, `licence/`
+    `git.js` (all git calls), `journal.js` (undo/redo), `updater.js`, `channel.js` (update channel)
   - `renderer/`: buildless UI (`app.js`, `graph.js`, `keymap.js`, views)
   - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
 - `apps/web`: the website (Astro).
@@ -51,7 +51,7 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
 - One PR per issue, branched from the latest `main`, based on `main`, squash-merged.
 - Title (becomes the commit on `main`) in Conventional Commits, ending with the issue key:
   `<type>(<scope>): <summary> (AK-NN)`. Types: feat, fix, perf, refactor, style, docs, test,
-  build, ci, chore, revert. Scopes: desktop, web, tokens, licence, release, ci, deps.
+  build, ci, chore, revert. Scopes: desktop, web, tokens, release, ci, deps.
   Summary: imperative, lower case, no period, ≤72 characters.
 - Related work ships as a stacked PR series (`[k/n]`, merged bottom-up, see `REVIEW.md`).
   Unrelated work is a separate PR on `main`. No other stacking.

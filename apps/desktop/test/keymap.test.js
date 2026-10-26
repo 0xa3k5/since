@@ -84,12 +84,12 @@ test('every handler refers to a registered command', async () => {
 });
 
 test('no inline key checks remain outside text inputs', () => {
-  // The only e.key comparisons left are on <input> fields (map search, licence key, tour search) and the
+  // The only e.key comparisons left are on <input> fields (map search, tour search) and the
   // shortcut recorder's fixed Esc (cancel) and ⌫ (remove), which must work whatever the keymap says.
   const inline = SOURCES.flatMap((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n')
     .map((l, i) => [`${f}:${i + 1}`, l]).filter(([, l]) => /\be\.(key|code) ===/.test(l)));
   assert.deepEqual(inline.map(([at]) => at.split(':')[0]).sort(), [
-    'renderer/app.js', 'renderer/app.js', 'renderer/app.js', 'renderer/licence.js', 'renderer/shortcuts-view.js', 'renderer/shortcuts-view.js', 'renderer/tour-view.js',
+    'renderer/app.js', 'renderer/app.js', 'renderer/app.js', 'renderer/shortcuts-view.js', 'renderer/shortcuts-view.js', 'renderer/tour-view.js',
   ], inline.map(([at, l]) => `${at} ${l.trim()}`).join('\n'));
 });
 
@@ -277,7 +277,7 @@ test('⌘B creates a branch anywhere, without taking the Map’s b or ⌘⇧B', 
 // AK's pruned list (AK-560, AK-628): these keep their ⌘K entry, menu item and handler, but have no default keys.
 test('pruned commands have no default keys; the changed ones have their new keys', async () => {
   const { COMMANDS, command, defaults } = await load();
-  const unbound = ['app.licence', 'file.repoSwitch', 'view.config', 'global.setup', 'global.prs', 'global.resetPanes',
+  const unbound = ['file.repoSwitch', 'view.config', 'global.setup', 'global.prs', 'global.resetPanes',
     'global.prHide', 'global.prRemote', 'commit.author', 'lanes.mergeReady', 'catchup.branch', 'cleanup.remote',
     'prefs.moveUp', 'prefs.moveDown', 'prefs.unset'];
   assert.deepEqual(COMMANDS.filter((c) => !c.keys.length).map((c) => c.id).sort(), [...unbound].sort());

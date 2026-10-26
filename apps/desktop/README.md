@@ -43,32 +43,20 @@ Theme: System / Light / Dark (View → Theme, ⌃⌘T to cycle).
 
 Not yet: external diff/merge tools, submodules.
 
-## Trial and licence
-`licence/` (main process) owns the 14-day local trial and licence keys; `renderer/licence.js` is the UI
-(topbar chip, licence window, ⌥⌘L, ⌘K). After the trial Since stays read-only: reads and fetch work,
-changes are refused until a licence is added (undo, redo, restore and abort still work). Keys are Polar
-licence keys, activated per Mac and validated at launch, about daily while running, and before a change is
-refused; the last good validation is cached (signed) so the app works offline for 30 days. Only Polar's own
-error replies can revoke a key, and a revoked key is kept (marked revoked) so it can be re-checked or
-deactivated. A clock set far forward is remembered and can end the trial early; that's a known trade-off of
-not letting a rolled-back clock extend it.
+## Update channel
+`channel.js` picks the update feed: `release` (package.json's feed) or `beta` (the beta bucket, with a
+"Beta" label in the topbar).
 
-- Store profile (unpackaged): `SINCE_STORE=sandbox` (default) `| production | mock`. Values live in `licence/config.js`.
-- Packaged builds ignore `SINCE_STORE` at run time and never use `mock`; they use the profile baked in by
-  `pnpm dist`: `production` by default (the build fails until its values are filled in), or
-  `SINCE_STORE=sandbox pnpm dist` for a test build. CI bakes `sandbox` except for final release tags.
-- `SINCE_TRIAL_MIRROR=<file>` (unpackaged only) moves the trial mirror; e2e uses it so runs don't touch your real trial.
-- `SINCE_STORE=mock pnpm desktop` accepts any `GL-TEST-…` key (`GL-TEST-REVOKED…`, `GL-TEST-FULL…`,
-  `GL-TEST-OFFLINE…` exercise the failure paths).
-- `SINCE_CLOCK_OFFSET_DAYS=20` (unpackaged builds only) moves the clock forward to see later trial days.
-  The trial starts on first launch, so launch once without it first.
+- Unpackaged: `SINCE_CHANNEL=release` (default) `| beta`.
+- Packaged builds ignore `SINCE_CHANNEL` at run time; they use the channel baked in by `pnpm dist`:
+  `release` by default, or `SINCE_CHANNEL=beta pnpm dist` (what `pnpm release:beta` and beta tags in CI use).
 
 ## Updates
 `updater.js` uses Electron's built-in `autoUpdater` (Squirrel.Mac), so it adds no dependency. The packaged app
 checks a few seconds after launch and then once a day. It downloads in the background, then shows a
 "Restart to update" toast. You can also check from Since → Check for Updates… or ⌘K → "Check for updates".
 If an update can't be installed in place (an unsigned build, or the app is running from the DMG), the toast
-links to the download page instead. The update never checks the licence, because updates are free for life.
+links to the download page instead.
 Turn off the launch and daily checks with Since → Automatically Check for Updates or ⌘K → "Turn off automatic
 update checks"; manual checks still work. Builds without a real signing identity (unsigned or ad-hoc signed)
 never hand the download to Squirrel; they show the download link instead.

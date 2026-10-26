@@ -1,1 +1,0 @@
-{"status":422,"body":{"error":"RequestValidationError","detail":[{"type":"uuid_version","loc":["body","activation_id"],"msg":"UUID version 4 expected","input":"00000000-0000-0000-0000-000000000000","ctx":{"expected_version":4}}]}}

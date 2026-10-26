@@ -49,7 +49,6 @@ const c = (scope, group, id, label, keys, extra) => ({ id, label, scope, group, 
 export const COMMANDS = [
   // Menu bar: accelerators in main.js. `menu` is the menu the item sits in.
   c('menu', 'file', 'app.settings', 'Settings…', 'Mod+,', { reserved: true }),
-  c('menu', 'file', 'app.licence', 'Enter Licence Key…', []),
   c('menu', 'file', 'file.newTab', 'New Tab', 'Mod+T'),
   c('menu', 'file', 'file.newWindow', 'New Window', 'Mod+Shift+N'),
   c('menu', 'file', 'file.reopenTab', 'Reopen Closed Tab', 'Mod+Shift+T'),
