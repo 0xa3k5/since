@@ -1,4 +1,4 @@
-import { h, icon, kbd, toast, loading } from './ui.js';
+import { h, icon, kbd, toast, loading, timeAgo, fullDate } from './ui.js';
 import { renderDiff, statusBadge, fileName, fileRef } from './diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
 import * as keymap from './keymap.js';
@@ -34,6 +34,10 @@ import { fileCard, foldShut } from './reader.js';
 // start with a Conflicting group (git mergeConflicts, merge-tree, read-only) and a conflicting file
 // shows the base side against the branch's side. onConflicts(files) reports what it found.
 // fallback: a base to use instead when `base` can't be resolved (a stacked PR's base not fetched here).
+// The branch's commits (AK-640, branchReview's `commits`, newest first) head the files: the first
+// few, then Show all. Nothing shows while branchReview doesn't list them.
+const COMMITS_SHOWN = 5;
+
 export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {} }) {
   const key = storeKey(root, lane.key);
   let review = null;
@@ -48,6 +52,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   let onConflict = false; // `current` is its Conflicting entry, not its Changed one
   let jump = false; // showConflicts() before the conflicts were read
   let conflictsAt = null;
+  let allCommits = false; // Show all pressed
 
   const stacked = Boolean(header); // per-file blocks instead of a files column (AK-373)
   const diffs = new Map(); // stacked: `${path}@${tip}@${since}` → diff, so re-renders keep their height
@@ -57,6 +62,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   const meta = h('div.quick-meta');
   const deltaBtn = h('button.chip', { title: 'Only files changed since you last looked (D)', onclick: () => toggleDelta() }, 'Changed since last look');
   const listEl = h('div.file-list.review-list', { role: 'listbox', 'aria-label': 'Files' });
+  const commitsEl = h('div.review-commits-host');
   // With a header, the progress line (reviewed count, Changed since last look) sits under it once,
   // across the pane; the files column is just the list.
   // Draft ↔ ready (AK-610): the switch that applies; onPrAction('draft') flips it on GitHub, then
@@ -78,6 +84,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       meta,
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
       pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key)))), draftChip) : null),
+    commitsEl,
     listEl,
   );
   const top = header ? h('div.review-pane-top', null, header, h('div.review-progress-line', null, meta, deltaBtn)) : null;
@@ -105,6 +112,25 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     ].filter(Boolean));
     deltaBtn.classList.toggle('on', delta);
     deltaBtn.disabled = !changed && !delta;
+  }
+
+  // The branch's commits, newest first: short SHA, subject, author, age.
+  function commitsBlock() {
+    const list = review?.commits;
+    if (!list?.length) return null;
+    const n = Math.max(review.commitCount || 0, list.length);
+    const rows = allCommits ? list : list.slice(0, COMMITS_SHOWN);
+    const older = n - list.length;
+    return h('section.review-commits', { role: stacked ? 'listitem' : null, 'aria-label': 'Commits' },
+      h('div.lanes-group.review-files-group', null, 'Commits', h('span.review-files-n', null, String(n))),
+      ...rows.map((c) => h('div.review-commit', { title: `${c.sha}\n${c.subject}` },
+        icon('commit', 13),
+        h('span.mono.review-commit-sha', null, c.sha.slice(0, 7)),
+        h('span.review-commit-subject', null, c.subject || '(no message)'),
+        c.author ? h('span.review-commit-author', null, c.author) : null,
+        c.time ? h('span.review-row-age', { title: fullDate(c.time) }, timeAgo(c.time)) : null)),
+      rows.length < list.length ? h('button.btn.ghost.small.review-commits-more', { onclick: () => { allCommits = true; renderList(); } }, `Show all ${n}`)
+        : older > 0 ? h('div.review-none', null, `${older} older not shown`) : null);
   }
 
   function row(f) {
@@ -145,6 +171,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     const list = entries();
     if (!list.some((e) => e.path === current && e.c === onConflict)) { current = list[0]?.path || null; onConflict = Boolean(list[0]?.c); }
     const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
+    commitsEl.replaceChildren(...[commitsBlock()].filter(Boolean));
     listEl.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictRow), group('Changed', files.length)] : []), ...files.map(row));
     if (!files.length) listEl.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     renderMeta();
@@ -189,7 +216,9 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       for (const x of xs) if (x.isIntersecting) { observer.unobserve(x.target); fill(x.target); }
     }, { root: el, rootMargin: '800px 0px' }) : null;
     const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
-    stack.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock), group('Changed', files.length)] : []), ...files.map(fileBlock));
+    const commits = commitsBlock();
+    stack.replaceChildren(...(commits ? [commits] : []), ...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock)] : []),
+      ...(cs.length || commits ? [group('Changed', files.length)] : []), ...files.map(fileBlock));
     if (!files.length) stack.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     el.scrollTop = y;
     renderMeta();

@@ -1170,6 +1170,18 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-files-n { font-variant-numeric: tabular-nums; color: var(--text-4); font-weight: var(--fw-medium); }
 .review-conflict-row > .icon { flex: none; color: var(--warn); }
 .review-conflict-count { flex: none; font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+/* The branch's commits above its files (AK-640) */
+.review-side .review-commits-host { flex: none; max-height: 40%; overflow-y: auto; padding: 8px 8px 0; }
+.review-side .review-commits-host:empty { display: none; }
+.review-stack > .review-commits { margin: 0 22px 12px; }
+.review-stack > .review-commits > .review-files-group { padding: 4px 0 6px; }
+.review-commit { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 8px; font-size: 12.5px; }
+.review-commit > .icon { flex: none; color: var(--text-4); }
+.review-commit-sha { flex: none; font-size: 11.5px; color: var(--text-3); }
+.review-commit-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.review-commit-author { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 12px; }
+.review-commit > .review-row-age { font-size: 12px; }
+.review-commits-more { margin: 2px 0 0 4px; }
 .cf-line.cf-marker { color: var(--warn); font-weight: var(--fw-strong); }
 .review-conflict .cf-col-head { text-transform: none; letter-spacing: 0; font-family: var(--mono); }
 .review-reason-link { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
