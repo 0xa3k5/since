@@ -132,8 +132,10 @@ test('menu accelerators and keycaps per platform', async () => {
   const { accelerator, keys } = await load();
   assert.equal(accelerator('repo.fetch', true), 'CmdOrCtrl+Shift+F');
   assert.equal(accelerator('view.sidebar', true), 'CmdOrCtrl+S');
-  assert.equal(accelerator('view.map', true), 'CmdOrCtrl+3');
-  assert.equal(accelerator('view.branches', true), 'CmdOrCtrl+5');
+  assert.equal(accelerator('view.map', true), 'CmdOrCtrl+Alt+3');
+  assert.equal(accelerator('tab.n3', true), 'CmdOrCtrl+3');
+  assert.equal(accelerator('tab.next', true), 'Ctrl+Tab');
+  assert.equal(accelerator('view.branches', true), 'CmdOrCtrl+Alt+5');
   assert.equal(accelerator('view.cycleTheme', true), 'Ctrl+Cmd+T');
   assert.equal(accelerator('view.cycleTheme', false), 'Ctrl+Alt+Shift+T');
   assert.equal(accelerator('app.settings', true), 'CmdOrCtrl+,');
@@ -147,10 +149,10 @@ test('menu accelerators and keycaps per platform', async () => {
   assert.equal(accelerator('view.config', true), undefined);
 });
 
-test('Mod+1…8 open the sidebar pages in their default order; the fold-out lists have chords (AK-491)', async () => {
+test('⌥⌘1…8 open the sidebar pages in their default order; the fold-out lists have chords (AK-491, AK-634)', async () => {
   const { defaults } = await load();
   const { NAV_ITEMS, SECTION_PAGES } = await import('../renderer/sidebar.js');
-  NAV_ITEMS.forEach((p, i) => assert.equal(defaults(`view.${p.view}`, true)[0], `Mod+${i + 1}`, `view.${p.view}`));
+  NAV_ITEMS.forEach((p, i) => assert.equal(defaults(`view.${p.view}`, true)[0], `Mod+Alt+Digit${i + 1}`, `view.${p.view}`));
   for (const p of SECTION_PAGES) assert.ok(defaults(`view.${p.view}`, true).length, `${p.label} has a key`);
   assert.deepEqual(defaults('view.config', true), [], 'Repository Settings is ⌘K and View menu only (AK-628)');
 });
@@ -251,7 +253,7 @@ test('refusal: reserved commands and keys, macOS keys, and menu keys without a m
 test('Ctrl+Mod needs ⌘ on macOS, so plain ⌃T doesn’t match ⌃⌘T (AK-207)', async () => {
   const { match } = await load();
   const ev = (key, o = {}) => ({ key, code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
-  assert.equal(match('menu', ev('t', { ctrlKey: true }), null, true), null);
+  assert.notEqual(match('menu', ev('t', { ctrlKey: true }), null, true), 'view.cycleTheme');
   assert.equal(match('menu', ev('t', { ctrlKey: true, metaKey: true }), null, true), 'view.cycleTheme');
 });
 
@@ -281,7 +283,7 @@ test('pruned commands have no default keys; the changed ones have their new keys
   assert.deepEqual(COMMANDS.filter((c) => !c.keys.length).map((c) => c.id).sort(), [...unbound].sort());
   for (const id of ['tour.squash', 'tour.rebase', 'tour.cherryPick']) assert.equal(command(id), undefined, id);
   const now = {
-    'view.catchup': ['Mod+1'], 'view.submoduleList': ['Mod+8'], 'view.sidebar': ['Mod+S'], 'lanes.reload': ['Mod+R'],
+    'view.catchup': ['Mod+Alt+Digit1'], 'view.submoduleList': ['Mod+Alt+Digit8'], 'tab.n1': ['Mod+1'], 'tab.last': ['Mod+9'], 'view.sidebar': ['Mod+S'], 'lanes.reload': ['Mod+R'],
     'catchup.reload': ['Mod+R'], 'review.changes': ['q'], 'cleanup.all': ['Mod+a'], 'menu.next': ['ArrowDown'], 'menu.prev': ['ArrowUp'],
   };
   for (const [id, list] of Object.entries(now)) assert.deepEqual(defaults(id, true), list, id);

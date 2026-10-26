@@ -4,7 +4,7 @@ import { COMMANDS, SCOPES, command, bindings, keys } from './keymap.js';
 // menu), every command once. A `pair` command (↓ ↑) shares a row with the command it pairs. `first` is the active
 // view's scope, listed first; `custom` is a Set of command ids whose keys the user changed (marked in the list).
 
-const MENUS = { file: 'File menu', edit: 'Edit menu', view: 'View menu', views: 'Views', repository: 'Repository menu', help: 'Help menu' };
+const MENUS = { file: 'File menu', edit: 'Edit menu', view: 'View menu', views: 'Views', repository: 'Repository menu', window: 'Window menu', help: 'Help menu' };
 
 const sectionOf = (cmd) => (cmd.scope === 'menu' ? `menu:${cmd.group}` : cmd.scope);
 const titleOf = (id) => (id.startsWith('menu:') ? MENUS[id.slice(5)] : SCOPES[id]);

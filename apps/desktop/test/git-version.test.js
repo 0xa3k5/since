@@ -106,6 +106,6 @@ test('merge here checks the git version before handing off, offers the gate with
   assert.match(fn, /toast\(`Continue in \$\{plan\.baseWorktree\.name\}`\)/);
   assert.match(app, /api\.on\('git', /);
   const main = fsm.readFileSync(pth.join(__dirname, '../main.js'), 'utf8');
-  assert.match(main.slice(main.indexOf("handle('app:git-use'")), /webContents\.send\('git', info\)/);
+  assert.match(main.slice(main.indexOf("handle('app:git-use'")), /broadcast\('git', info\)/);
   assert.match(fsm.readFileSync(pth.join(__dirname, '../preload.js'), 'utf8'), /'git'\]/);
 });

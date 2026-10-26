@@ -81,7 +81,7 @@ for (const theme of ['light', 'dark']) {
   test(`update toasts in the ${theme} theme`, async ({ sandbox, launch }, testInfo) => {
     const app = await launch(sandbox.linear(`toast-${theme}`, ['one', 'two']), { theme });
     // Drive the renderer with the states the packaged updater sends.
-    const send = (s) => app.app.evaluate(({ BrowserWindow }, st) => BrowserWindow.getAllWindows()[0].webContents.send('update', st), s);
+    const send = (s) => app.app.evaluate(({ webContents }, st) => webContents.getAllWebContents().find((w) => w.getURL().startsWith('file:')).send('update', st), s);
     await send({ status: 'available', version: '0.2.0', current: CURRENT, page: 'https://example.invalid' });
     await send({ status: 'ready', version: '0.2.0', current: CURRENT });
     const ready = app.page.locator('.toast', { hasText: 'GitLanes 0.2.0 is ready' });

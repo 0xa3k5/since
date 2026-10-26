@@ -1,5 +1,5 @@
 'use strict';
-// Streamed history: opening another repository while one is still loading (AK-80).
+// Streamed history: opening another repository while one is still loading (AK-80) opens it in its own tab (AK-634).
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -21,7 +21,7 @@ function slowGitFor(sandbox, repo, seconds) {
   sandbox.env = { ...sandbox.env, PATH: `${bin}:${sandbox.env.PATH}` };
 }
 
-test('opening another repository mid-load shows only its history', async ({ sandbox, launch }) => {
+test('opening another repository mid-load opens it in its own tab', async ({ sandbox, launch }) => {
   // More commits than the preview shows, so A can't be complete before its ordered log arrives.
   const a = sandbox.path('repo-a');
   await generate(a, 1500, { tags: 0 });
@@ -34,25 +34,30 @@ test('opening another repository mid-load shows only its history', async ({ sand
   await expect(root).toHaveAttribute('data-commits', '1000');
   await expect(root).toHaveAttribute('data-history', 'loading');
 
-  // Record every history state from here on: A's cut-short history must never count as loaded,
-  // not even for the moment before B's own load replaces it.
-  await app.page.evaluate(() => {
-    window.__states = [];
-    const html = document.documentElement;
-    new MutationObserver(() => window.__states.push([html.dataset.history, html.dataset.commits]))
-      .observe(html, { attributes: true, attributeFilter: ['data-history', 'data-commits'] });
-  });
-  await app.app.evaluate(({ BrowserWindow }, dir) => BrowserWindow.getAllWindows()[0].webContents.send('command', 'open', dir), b);
-  await expect(app.page.locator('.sidebar .repo-name')).toHaveText('repo-b');
-  await expect(root).toHaveAttribute('data-history', 'ready');
-  await expect(root).toHaveAttribute('data-commits', '2');
+  // B opens in a new tab: a page of its own, so nothing of A's held-back streams can reach it.
+  const opened = app.app.waitForEvent('window');
+  await app.app.evaluate(({ webContents }, dir) => webContents.getAllWebContents().find((w) => w.getURL().startsWith('file:')).send('command', 'open', dir), b);
+  const page = await opened;
+  const rootB = page.locator('html');
+  await expect(page.locator('.sidebar .repo-name')).toHaveText('repo-b');
+  await expect(rootB).toHaveAttribute('data-history', 'ready');
+  await expect(rootB).toHaveAttribute('data-commits', '2');
+  await expect(page.locator('.map-list .row .subject')).toHaveText(['b two', 'b one']);
+  await expect(page.locator('.tabstrip .tab-title')).toHaveText(['repo-a', 'repo-b']);
+  await expect(page.locator('.toast.error')).toHaveCount(0);
+  // A's tab, behind it, still finishes its own history.
+  await expect(root).toHaveAttribute('data-history', 'ready', { timeout: 15_000 });
+  await expect(app.page.locator('.sidebar .repo-name')).toHaveText('repo-a');
 
-  // Outlast A's held-back streams: nothing of A may arrive late.
-  await app.page.waitForTimeout(5000);
-  await expect(root).toHaveAttribute('data-commits', '2');
-  await expect(root).toHaveAttribute('data-history', 'ready');
-  await expect(app.page.locator('.map-list .row .subject')).toHaveText(['b two', 'b one']);
-  await expect(app.page.locator('.toast.error')).toHaveCount(0);
-  const states = await app.page.evaluate(() => window.__states);
-  expect(states.filter(([history, commits]) => history === 'ready' && commits !== '2')).toEqual([]);
+  // Close B's tab, then Reopen Closed Tab (⇧⌘T) brings it back as the last tab.
+  await app.page.evaluate(async () => {
+    const [list] = await window.gitlanes.app('tabs');
+    await window.gitlanes.app('tab', 'close', list.find((t) => t.title.startsWith('repo-b')).id);
+  });
+  await expect(app.page.locator('.tabstrip .tab-title')).toHaveCount(0);
+  const reopened = app.app.waitForEvent('window');
+  await app.page.evaluate(() => window.gitlanes.app('tab', 'reopen'));
+  const again = await reopened;
+  await expect(again.locator('.sidebar .repo-name')).toHaveText('repo-b');
+  await expect(again.locator('.tabstrip .tab-title')).toHaveText(['repo-a', 'repo-b']);
 });
