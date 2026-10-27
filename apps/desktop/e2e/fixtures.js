@@ -11,6 +11,27 @@ const path = require('node:path');
 
 const APP_DIR = path.join(__dirname, '..');
 
+// The specs lay out for a wide window: below 1100 CSS px (renderer/sidebar.js) the sidebar collapses to the
+// rail, and its hover overlay then covers whatever a spec clicks next to it. GitHub's macOS runners have a
+// 1024×768 display, which the window is clamped to. On such a display the page is zoomed out until the
+// viewport is at least MIN_WIDTH CSS px. Electron keeps the zoom per origin, so windows opened later get it
+// too; the 'window' hook below covers the gap before that applies.
+//   E2E_MIN_WIDTH=0 turns this off (shows the runner's failure mode); E2E_WINDOW=1024x677 opens the first
+//   window at that size, to reproduce the runner's display locally.
+const MIN_WIDTH = process.env.E2E_MIN_WIDTH === undefined ? 1200 : Number(process.env.E2E_MIN_WIDTH);
+const WINDOW = /^(\d+)x(\d+)$/.exec(process.env.E2E_WINDOW || '');
+
+async function widen(app, page) {
+  if (!MIN_WIDTH) return;
+  const width = await page.evaluate(() => window.innerWidth);
+  if (width >= MIN_WIDTH) return;
+  const factor = Math.floor((width / MIN_WIDTH) * 100) / 100;
+  const apply = () => app.evaluate(({ webContents }, f) => { for (const wc of webContents.getAllWebContents()) wc.setZoomFactor(f); }, factor);
+  app.on('window', () => { apply().catch(() => {}); });
+  await apply();
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeGreaterThanOrEqual(MIN_WIDTH);
+}
+
 // Fixed author and dates keep history (and --date-order) deterministic.
 let clock = 1_760_000_000;
 function gitEnv(home) {
@@ -278,6 +299,7 @@ const test = base.extend({
       const userData = sandbox.path(`userdata-${apps.length}`);
       fs.mkdirSync(userData);
       if (theme || settings) fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ ...settings, ...(theme ? { theme } : {}) }));
+      if (WINDOW) fs.writeFileSync(path.join(userData, 'window-state.json'), JSON.stringify({ bounds: { x: 0, y: 0, width: Number(WINDOW[1]), height: Number(WINDOW[2]) } }));
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Specs start on the Map (repositories open on Review otherwise); pass env SINCE_START_VIEW: '' for Review.
@@ -289,6 +311,7 @@ const test = base.extend({
       const page = await app.firstWindow();
       page.on('pageerror', (err) => testInfo.attach('pageerror', { body: String(err.stack || err) }));
       await page.waitForLoadState('domcontentloaded');
+      await widen(app, page);
       const driver = new AppDriver(app, page, sandbox);
       if (repo) await expect(page.locator('.sidebar .repo-name')).toHaveText(path.basename(repo));
       await driver.settle();
