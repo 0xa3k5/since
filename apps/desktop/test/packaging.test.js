@@ -27,23 +27,22 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'channel.js', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'preload.js', 'renderer/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
 
-test('packaging bakes the release channel by default and refuses an unknown one', () => {
-  delete require.cache[require.resolve('../electron-builder.config.js')];
+test('packaging bakes no update channel and refuses an old beta build command', () => {
   const saved = process.env.SINCE_CHANNEL;
+  const load = (v) => {
+    if (v === undefined) delete process.env.SINCE_CHANNEL; else process.env.SINCE_CHANNEL = v;
+    delete require.cache[require.resolve('../electron-builder.config.js')];
+    return require('../electron-builder.config.js');
+  };
   try {
-    for (const [channel, baked] of [[undefined, 'release'], ['beta', 'beta'], ['sandbox', 'sandbox']]) {
-      if (channel) process.env.SINCE_CHANNEL = channel; else delete process.env.SINCE_CHANNEL;
-      delete require.cache[require.resolve('../electron-builder.config.js')];
-      const c = require('../electron-builder.config.js');
-      assert.strictEqual(c.extraMetadata.since.channel, baked);
-      if (baked === 'sandbox') assert.throws(() => c.beforePack(), /SINCE_CHANNEL=sandbox/);
-      else c.beforePack();
-    }
+    assert.deepStrictEqual(load(undefined).extraMetadata, {});
+    assert.deepStrictEqual(load('release').extraMetadata, {});
+    for (const name of ['beta', 'sandbox']) assert.throws(() => load(name), new RegExp(`SINCE_CHANNEL=${name} can't be packaged`));
   } finally {
     if (saved === undefined) delete process.env.SINCE_CHANNEL; else process.env.SINCE_CHANNEL = saved;
     delete require.cache[require.resolve('../electron-builder.config.js')];
@@ -64,11 +63,10 @@ test('packaging bakes SINCE_VERSION and refuses anything that is not package.jso
     assert.strictEqual(load(`${base}-beta.2`).extraMetadata.version, `${base}-beta.2`);
     assert.strictEqual(load(`${base}-rc.1`).extraMetadata.version, `${base}-rc.1`);
     assert.strictEqual(load(base).extraMetadata.version, base);
-    assert.strictEqual(load(base).extraMetadata.since.channel, 'release', 'the channel is still baked next to it');
     assert.throws(() => load(`-- -c.extraMetadata.version=${base}-beta.2`), /SINCE_VERSION=.* is not a version/);
     assert.throws(() => load('beta.2'), /is not a version/);
     assert.throws(() => load(`v${base}-beta.2`), /is not a version/);
-    assert.throws(() => load('9.9.9-beta.1'), /is not 0\.\d+\.\d+ or a pre-release of it/);
+    assert.throws(() => load('9.9.9-beta.1'), /is not \d+\.\d+\.\d+ or a pre-release of it/);
     assert.throws(() => load(`${base}0-beta.1`), /is not .* or a pre-release of it/);
   } finally {
     if (saved === undefined) delete process.env.SINCE_VERSION; else process.env.SINCE_VERSION = saved;
@@ -94,7 +92,7 @@ test('every module the main process requires is packaged', () => {
   visit('main.js');
   visit('preload.js');
   const packaged = (file) => config.files.some((f) => f === file || (f.endsWith('/**') && file.startsWith(f.slice(0, -2))));
-  assert.ok(seen.has('ipc.js') && seen.has('channel.js'));
+  assert.ok(seen.has('ipc.js') && seen.has('updater.js'));
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
 });
 

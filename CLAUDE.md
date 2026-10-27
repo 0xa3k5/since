@@ -10,7 +10,7 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 
 - `apps/desktop`: the app.
   - `main.js` (window, menus, session lock-down), `ipc.js` (argument checks for every IPC call),
-    `git.js` (all git calls), `journal.js` (undo/redo), `updater.js`, `channel.js` (update channel)
+    `git.js` (all git calls), `journal.js` (undo/redo), `updater.js`
   - `renderer/`: buildless UI (`app.js`, `graph.js`, `keymap.js`, views)
   - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
 - `apps/web`: the website (Astro).

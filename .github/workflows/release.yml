@@ -2,19 +2,13 @@ name: Release
 
 # A `v*` tag builds, signs, notarizes and uploads the DMGs to a draft GitHub Release, together with the
 # zips, the update-mac-<arch>.json feeds that auto-update reads once the release is published, the
-# Since-<arch>.dmg aliases the website links to, and the Homebrew cask for the tap. A beta tag
-# (v0.1.0-beta.1) builds on the beta update channel (SINCE_CHANNEL=beta) and uploads to the Cloudflare R2 bucket
-# instead, with no GitHub Release; the beta app reads its update feed from there. Tags and
+# Since-<arch>.dmg aliases the website links to, and the Homebrew cask for the tap. Tags and
 # manual runs first run the full end-to-end suite; a failure stops the release before anything is built.
 # Pull requests that touch packaging, and manual runs, do a dry run: an unsigned build uploaded as
 # a workflow artifact. Signing secrets are optional; without them every run produces unsigned DMGs.
-#
-# Beta tags don't trigger this workflow: betas ship from AK's Mac with `pnpm release:beta`, which pushes the
-# tag only after the upload. To build a beta here instead, run the workflow manually on an existing beta tag
-# (gh workflow run release.yml --ref v0.1.0-beta.3). Both paths publish with apps/desktop/scripts/beta-publish.js.
 on:
   push:
-    tags: ['v*', '!v*-beta.*']
+    tags: ['v*']
   pull_request:
     paths:
       - '.github/workflows/release.yml'
@@ -68,12 +62,7 @@ jobs:
         id: plan
         run: |
           version=$(node -p "require('./apps/desktop/package.json').version")
-          # Update channel baked into the app: beta for a beta tag (the beta bucket's feed), release otherwise.
-          channel=release beta=false
-          if [ "$IS_TAG" = true ] && [[ "$GITHUB_REF_NAME" =~ -beta\.[0-9]+$ ]]; then channel=beta beta=true; fi
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
-          echo "beta=$beta" >> "$GITHUB_OUTPUT"
-          # A pre-release tag (v0.1.0-rc.1, v0.1.0-beta.1) builds the package.json version with that suffix, so release
+          # A pre-release tag (v0.1.0-rc.3) builds the package.json version with that suffix, so release
           # candidates don't need a version bump on main.
           if [ "$IS_TAG" = true ]; then
             tag_version=${GITHUB_REF_NAME#v}
@@ -89,8 +78,6 @@ jobs:
             fi
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
-            # Friends download beta builds straight from the bucket: they must open without a Gatekeeper warning.
-            [ "$beta" = true ] && { echo "::error::Beta builds must be signed and notarized, but the signing secrets are missing"; exit 1; }
             [ "$IS_TAG" = true ] && echo "::warning::No signing secrets: this release's DMGs are unsigned and not notarized"
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
@@ -115,8 +102,7 @@ jobs:
 
       - name: Build DMGs
         env:
-          SINCE_CHANNEL: ${{ steps.plan.outputs.channel }}
-          # Read by apps/desktop/electron-builder.config.js; the same mechanism `pnpm release:beta` uses (AK-571).
+          # Read by apps/desktop/electron-builder.config.js (AK-571).
           SINCE_VERSION: ${{ steps.plan.outputs.version }}
         run: pnpm dist
 
@@ -129,9 +115,7 @@ jobs:
             spctl --assess --type execute --verbose "$app"
           done
 
-      # Beta feeds are written by beta-publish.js below, next to the upload.
       - name: Write update feeds, latest DMG aliases and the Homebrew cask
-        if: steps.plan.outputs.beta != 'true'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
           SIGNED: ${{ steps.plan.outputs.signed }}
@@ -159,7 +143,7 @@ jobs:
           compression-level: 0
 
       - name: Upload to draft release
-        if: env.IS_TAG == 'true' && steps.plan.outputs.beta != 'true'
+        if: env.IS_TAG == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNED: ${{ steps.plan.outputs.signed }}
@@ -176,12 +160,3 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft "${prerelease[@]}" --verify-tag \
               --title "Since ${{ steps.plan.outputs.version }}" --notes "$notes"
           fi
-
-      # Feeds, upload order, bucket layout and pruning live in beta-publish.js, shared with `pnpm release:beta`.
-      - name: Upload beta to R2
-        if: steps.plan.outputs.beta == 'true'
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: node apps/desktop/scripts/beta-publish.js --version "${{ steps.plan.outputs.version }}"

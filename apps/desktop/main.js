@@ -10,7 +10,6 @@ const git = require('./git');
 const tabOrder = require('./tab-order');
 const { Journal, workOps, worktreeOps, laneOps, remoteOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
-const { loadChannel } = require('./channel');
 const updater = require('./updater');
 const pkg = require('./package.json');
 const check = require('./ipc');
@@ -1327,13 +1326,6 @@ handle('app:pr-create', okCall(async (e, branch, opts) => {
   return github.createPr({ enabled: b.enabled, remotes: b.remotes, base: o.base, head: b.head, title: o.title, body: o.body, draft: o.draft });
 }));
 
-// ---------------------------------------------------------------------------
-// Update channel
-
-// Packaged builds use only the channel baked in at build time; the environment can't change it.
-const channel = loadChannel(process.env, { packaged: app.isPackaged });
-handle('app:channel', () => channel.channel);
-
 // `win`: the tab asking (see Tab).
 async function bindRepo(win, dir) {
   const repo = await git.openRepo(dir);
@@ -2060,9 +2052,8 @@ app.whenReady().then(() => {
   keymap.setOverrides(readSettings().keymap);
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
-    // The beta channel carries its own feed (the beta bucket); every other build uses package.json's.
-    feed: channel.updates?.feed || pkg.updates?.feed,
-    page: channel.updates?.page || pkg.updates?.page,
+    feed: pkg.updates?.feed,
+    page: pkg.updates?.page,
     devFeed: app.isPackaged ? null : process.env.SINCE_UPDATE_FEED,
     onChange: (state) => {
       buildMenu();

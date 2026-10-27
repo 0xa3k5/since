@@ -7,11 +7,10 @@
 // APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER are set. With none of that, the app is
 // ad-hoc signed so it still launches on Apple silicon, and the DMG is marked unsigned.
 //
-// The version is package.json's unless SINCE_VERSION names a pre-release of it (0.1.0-beta.2).
-// release-beta.js and release.yml set it through the environment: a `pnpm dist -- -c.…` argument
+// The version is package.json's unless SINCE_VERSION names a pre-release of it (0.1.0-rc.3).
+// release.yml sets it through the environment: a `pnpm dist -- -c.…` argument
 // crosses two `pnpm run` layers and some pnpm versions hand electron-builder a literal `--` (AK-571).
 const { execFileSync } = require('node:child_process');
-const { releaseChannel } = require('./channel');
 
 // CI passes unset secrets as empty strings, which electron-builder would treat as a certificate path.
 for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
@@ -26,12 +25,15 @@ function hasDeveloperId() {
   } catch { return false; }
 }
 
-const CHANNEL = process.env.SINCE_CHANNEL || 'release';
+// There is one update channel now (package.json's feed). Fail closed on an old beta build command.
+if (process.env.SINCE_CHANNEL && process.env.SINCE_CHANNEL !== 'release') {
+  throw new Error(`SINCE_CHANNEL=${process.env.SINCE_CHANNEL} can't be packaged: the beta channel is gone.`);
+}
 
 /** The version to bake from SINCE_VERSION, or '' to keep package.json's. Only `base` itself or a pre-release of it. */
 function versionOverride(value, base) {
   if (!value) return '';
-  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(value)) throw new Error(`SINCE_VERSION=${value} is not a version (expected e.g. ${base}-beta.2).`);
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(value)) throw new Error(`SINCE_VERSION=${value} is not a version (expected e.g. ${base}-rc.1).`);
   if (value !== base && !value.startsWith(`${base}-`)) throw new Error(`SINCE_VERSION=${value} is not ${base} or a pre-release of it; bump apps/desktop/package.json first.`);
   return value;
 }
@@ -46,13 +48,9 @@ module.exports = {
   productName: 'Since',
   copyright: 'Copyright (C) 2026 0xa3k5 and Since contributors',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'channel.js', 'preload.js', 'renderer/**', 'package.json'],
-  // The update channel is baked into the packaged package.json; the packaged app ignores SINCE_CHANNEL
-  // at run time. Release unless the build asks for the beta feed (SINCE_CHANNEL=beta).
+  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'preload.js', 'renderer/**', 'package.json'],
   // The version, when overridden, names the artifacts and is what the updater compares against the feed.
-  extraMetadata: { since: { channel: CHANNEL }, ...(VERSION ? { version: VERSION } : {}) },
-  // Fail closed: refuse to package an unknown channel.
-  beforePack: () => { releaseChannel(CHANNEL); },
+  extraMetadata: VERSION ? { version: VERSION } : {},
   asar: true,
   // In CI a provided certificate must actually be used; never fall back to an unsigned release.
   forceCodeSigning: Boolean(process.env.CSC_LINK),

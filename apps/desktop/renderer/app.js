@@ -94,7 +94,6 @@ const state = {
   collapsed: loadPref('collapsed', {}),
   sections: loadPref('sidebarSections', {}), // which refs-tree sections show, in what order (Preferences → Sidebar)
   theme: 'system',
-  channel: null,
   prs: null, // pull requests from GitHub (see loadPrs); null until known
 };
 
@@ -1210,7 +1209,6 @@ function renderTopbar() {
   if (state.view === 'commit') {
     right.append(h('button.btn.subtle', { onclick: () => stashSave() }, icon('stash', 14), 'Stash'));
   }
-  if (state.channel === 'beta') right.append(h('span.channel-chip', { title: 'Beta build' }, 'Beta'));
   right.append(
     h('button.icon-btn', { title: tip(undoTitle(), 'edit.undo'), disabled: !state.history.undo.length, onclick: undo }, icon('undo')),
     h('button.icon-btn', { title: tip(redoTitle(), 'edit.redo'), disabled: !state.history.redo.length, onclick: redo }, icon('redo')),
@@ -2324,7 +2322,7 @@ async function createBranch(sha) {
   act(`Create branch ${v.name.trim()}`, 'createBranch', [v.name.trim(), sha, v.co]);
 }
 async function createTag(sha) {
-  const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v1.0.0', required: true }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
+  const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v0.1.0', required: true }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
   if (!v || !v.name.trim()) return;
   act(`Create tag ${v.name.trim()}`, 'createTag', [v.name.trim(), sha, v.msg.trim() || null]);
 }
@@ -5638,7 +5636,6 @@ api.on('tabs', showTabs);
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
   state.theme = await api.app('theme');
-  state.channel = await api.app('channel');
   keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
   showUpdate(await api.app('update-state'));

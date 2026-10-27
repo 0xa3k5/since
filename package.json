@@ -16,8 +16,7 @@
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm --filter @gitsince/desktop test:e2e",
     "bench": "pnpm --filter @gitsince/desktop bench",
-    "demo-video": "pnpm --filter @gitsince/desktop demo-video",
-    "release:beta": "node apps/desktop/scripts/release-beta.js"
+    "demo-video": "pnpm --filter @gitsince/desktop demo-video"
   },
   "repository": {
     "type": "git",
