@@ -1600,15 +1600,23 @@ class Tab extends EventEmitter {
   }
 }
 
+// Development only: SINCE_WINDOW_SIZE=1360x860 opens every window at that size even on a smaller display
+// (e2e on CI runners, whose screen would otherwise squeeze the window below the sidebar breakpoint).
+const fixedSize = (() => {
+  const m = !app.isPackaged && /^(\d+)x(\d+)$/.exec(process.env.SINCE_WINDOW_SIZE || '');
+  return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
+})();
+
 class TabHost {
   // `restore`: the launch window, which takes the size and place of the window closed last (AK-633).
   constructor(restore = false) {
     const colors = windowColors();
-    const last = restore ? windowState.fitState(windowState.readState(windowStateFile()), screen.getAllDisplays().map((d) => d.workArea)) : null;
+    const last = restore && !fixedSize ? windowState.fitState(windowState.readState(windowStateFile()), screen.getAllDisplays().map((d) => d.workArea)) : null;
     const win = this.win = new BaseWindow({
       width: 1360,
       height: 860,
       ...last?.bounds,
+      ...(fixedSize ? { ...fixedSize, enableLargerThanScreen: true } : {}),
       minWidth: 900,
       minHeight: 560,
       show: false,
@@ -1661,6 +1669,7 @@ class TabHost {
         if (this.win.isDestroyed() || this.win.isVisible()) return;
         if (this.maximized) this.win.maximize();
         this.win.show();
+        if (fixedSize) this.win.setSize(fixedSize.width, fixedSize.height); // showing clamps it to the screen
       });
     }
     if (show || !this.active) this.select(tab);

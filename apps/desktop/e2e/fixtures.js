@@ -262,6 +262,12 @@ class AppDriver {
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Every window opens at this size, above the sidebar breakpoint, whatever the display (CI runners' screens
+// are smaller and would put the sidebar in rail/overlay mode).
+const WINDOW_SIZE = { width: 1360, height: 860 };
+const SIDEBAR_BREAKPOINT = 1100; // renderer/sidebar.js
+let loggedDisplay = false;
+
 const test = base.extend({
   sandbox: async ({}, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-e2e-'));
@@ -281,7 +287,7 @@ const test = base.extend({
       const app = await electron.launch({
         args: [APP_DIR, `--user-data-dir=${userData}`, ...(repo ? [repo] : [])],
         // Specs start on the Map (repositories open on Review otherwise); pass env SINCE_START_VIEW: '' for Review.
-        env: { ...sandbox.env, SINCE_START_VIEW: 'map', ...env },
+        env: { ...sandbox.env, SINCE_START_VIEW: 'map', SINCE_WINDOW_SIZE: `${WINDOW_SIZE.width}x${WINDOW_SIZE.height}`, ...env },
         colorScheme: null, // let nativeTheme drive prefers-color-scheme, as in the real app
         cwd: sandbox.dir,
       });
@@ -289,6 +295,13 @@ const test = base.extend({
       const page = await app.firstWindow();
       page.on('pageerror', (err) => testInfo.attach('pageerror', { body: String(err.stack || err) }));
       await page.waitForLoadState('domcontentloaded');
+      if (process.env.CI && !loggedDisplay) {
+        loggedDisplay = true;
+        console.log('display work area:', await app.evaluate(({ screen }) => screen.getPrimaryDisplay().workAreaSize));
+      }
+      // One clear failure here instead of many specs failing on a collapsed or overlaid sidebar.
+      await expect.poll(() => page.evaluate(() => window.innerWidth), { message: 'window narrower than the sidebar breakpoint' })
+        .toBeGreaterThanOrEqual(SIDEBAR_BREAKPOINT);
       const driver = new AppDriver(app, page, sandbox);
       if (repo) await expect(page.locator('.sidebar .repo-name')).toHaveText(path.basename(repo));
       await driver.settle();
