@@ -6,6 +6,11 @@
 // older feed can never start a download. Squirrel then downloads in the background, checks that the new
 // bundle is signed by the same Developer ID as the running app, and swaps it in on restart (or next quit).
 //
+// Squirrel gets `update-mac-<arch>-squirrel.json` from the release we checked, in its default (server)
+// format: just that release, no version compare. In JSON mode Squirrel compares versions again with
+// NSNumericSearch, which ranks 0.1.0-rc.4 above 0.1.0, so a pre-release would never update to its final
+// release. Builds up to 0.1.0 still read update-mac-<arch>.json in JSON mode, so releases keep publishing it.
+//
 // Apart from git itself, the feed request and the download are the app's only network traffic. They carry
 // no identifiers and no analytics.
 // Loaded lazily so the pure helpers below also run under plain Node (unit tests, scripts/update-feed.js).
@@ -42,6 +47,9 @@ function compareVersions(a, b) {
 
 const feedName = (arch) => `update-mac-${arch}.json`;
 const feedUrl = (base, arch) => `${String(base).replace(/\/+$/, '')}/${feedName(arch)}`;
+// The one-release feed Squirrel reads, next to that release's zip, so it can only name the version we checked.
+const squirrelFeedName = (arch) => `update-mac-${arch}-squirrel.json`;
+const squirrelFeedUrl = (zipUrl, arch) => new URL(squirrelFeedName(arch), zipUrl).href;
 const zipName = (version, arch) => `Since-${version}-${arch}-mac.zip`;
 
 function buildFeed({ version, url, notes = '', pubDate = new Date().toISOString() }) {
@@ -125,7 +133,11 @@ function init(opts) {
 
   if (config.canInstall) {
     autoUpdater.on('update-downloaded', () => set({ status: 'ready', version: state.version }));
-    autoUpdater.on('update-not-available', () => set({ status: 'idle' }));
+    // Squirrel found nothing to install after our check found an update: say so instead of leaving "Downloading…" up.
+    autoUpdater.on('update-not-available', () => {
+      if (state.status === 'downloading') set({ status: 'available', version: state.version, error: 'The installer refused the update.', manual: state.manual });
+      else set({ status: 'idle' });
+    });
     // Most often: an unsigned build, or the app runs from the DMG or a read-only folder.
     autoUpdater.on('error', (err) => {
       if (state.status === 'downloading') set({ status: 'available', version: state.version, error: err.message, manual: state.manual });
@@ -157,7 +169,7 @@ async function check({ manual = false } = {}) {
     if (!config.canInstall) return set({ status: 'available', version: feed.version, manual });
     if (!(await checkSigned())) return set({ status: 'available', version: feed.version, manual, error: 'This copy of Since isn’t signed.' });
     set({ status: 'downloading', version: feed.version, manual });
-    autoUpdater.setFeedURL({ url: config.url, serverType: 'json' });
+    autoUpdater.setFeedURL({ url: squirrelFeedUrl(feed.url, arch()), serverType: 'default' });
     autoUpdater.checkForUpdates();
     return state;
   } catch (err) {
@@ -174,4 +186,4 @@ const refresh = () => set({ ...state, manual: false });
 const getState = () => state;
 const page = () => config?.page || null;
 
-module.exports = { PARTITION, feedOrigins, allowedOrigins, init, check, install, refresh, getState, page, isSignedOutput, compareVersions, parseVersion, buildFeed, readFeed, feedName, feedUrl, zipName };
+module.exports = { PARTITION, feedOrigins, allowedOrigins, init, check, install, refresh, getState, page, isSignedOutput, compareVersions, parseVersion, buildFeed, readFeed, feedName, feedUrl, squirrelFeedName, squirrelFeedUrl, zipName };

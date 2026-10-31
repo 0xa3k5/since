@@ -5,24 +5,27 @@
 // updates to it, it reads GitHub Releases like every other build. The bucket and this script go once
 // the beta installs have moved.
 //
-//   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/bucket-publish.js --version 0.1.0 [--dir dist]
+//   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/bucket-publish.js --version 0.1.1 [--dir dist]
 //
-// --dir must hold these four files from the v0.1.0 GitHub Release:
-//   Since-0.1.0-arm64.dmg  Since-0.1.0-x64.dmg  Since-0.1.0-arm64-mac.zip  Since-0.1.0-x64-mac.zip
-// The script writes update-mac-arm64.json and update-mac-x64.json next to them itself (pointing at the
-// bucket, not GitHub), so don't download the GitHub Release's feeds into the same folder. Squirrel only
-// installs an update signed by the same Developer ID as the running beta, so the release must be signed.
+// --dir must hold these four files from the v0.1.1 GitHub Release:
+//   Since-0.1.1-arm64.dmg  Since-0.1.1-x64.dmg  Since-0.1.1-arm64-mac.zip  Since-0.1.1-x64-mac.zip
+// The script writes the update-mac-<arch>.json and update-mac-<arch>-squirrel.json feeds next to them itself
+// (pointing at the bucket, not GitHub), so don't download the GitHub Release's feeds into the same folder.
+// Squirrel only installs an update signed by the same Developer ID as the running beta, so the release must be
+// signed. It has to be 0.1.1 or later, not 0.1.0: beta builds hand update-mac-<arch>.json to Squirrel, which
+// compares versions numerically and ranks 0.1.0-beta.3 above 0.1.0 (see updater.js).
 //
 // Bucket layout: beta/<version>/ holds the DMGs and update zips, beta/latest/Since-<arch>.dmg are stable
-// download links, and beta/update-mac-<arch>.json are the feeds. Versioned files go up first and the
-// feeds last, so a feed never names a file that isn't there yet. The last KEEP versions are kept.
+// download links, and beta/update-mac-<arch>.json are the feeds (beta/<version>/update-mac-<arch>-squirrel.json
+// for newer builds). Versioned files go up first and the feeds last, so a feed never names a file that isn't
+// there yet. The last KEEP versions are kept.
 //
 // The HTTP layer is curl's built-in SigV4 signing (no aws CLI, no npm S3 client). The keys go to curl
 // through a config on stdin, never through argv, so they don't show up in `ps`.
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { compareVersions, parseVersion, feedName, zipName } = require('../updater');
+const { compareVersions, parseVersion, feedName, squirrelFeedName, zipName } = require('../updater');
 
 const BUCKET = 'gitlanes-beta';
 // The feed host baked into every beta build.
@@ -34,14 +37,14 @@ const dmgName = (version, arch) => `Since-${version}-${arch}.dmg`;
 const baseUrl = (version) => `${PUBLIC_URL}/beta/${version}`;
 const downloadUrls = () => ARCHES.map((arch) => `${PUBLIC_URL}/beta/latest/Since-${arch}.dmg`);
 
-/** Writes update-mac-<arch>.json into dir with update-feed.js, pointing at this version's folder in the bucket. */
+/** Writes the update-mac-<arch>.json feeds into dir with update-feed.js, pointing at this version's folder in the bucket. */
 function writeFeeds(version, dir) {
   execFileSync(process.execPath, [path.join(__dirname, 'update-feed.js'), '--version', version, '--base-url', baseUrl(version), '--dir', dir], { stdio: 'inherit' });
 }
 
 /** The uploads in order: versioned files, then the stable latest DMGs, then the feeds. Throws if a file is missing. */
 function planUploads(version, files) {
-  const need = ARCHES.flatMap((arch) => [dmgName(version, arch), zipName(version, arch), feedName(arch)]);
+  const need = ARCHES.flatMap((arch) => [dmgName(version, arch), zipName(version, arch), squirrelFeedName(arch), feedName(arch)]);
   const missing = need.filter((f) => !files.includes(f));
   if (missing.length) throw new Error(`Missing build output: ${missing.join(', ')}`);
   const immutable = 'public, max-age=31536000, immutable';
@@ -54,6 +57,7 @@ function planUploads(version, files) {
       file: dmgName(version, arch), key: `beta/latest/Since-${arch}.dmg`, cacheControl: 'public, max-age=300',
       contentType: 'application/x-apple-diskimage', contentDisposition: `attachment; filename="${dmgName(version, arch)}"`,
     })),
+    ...ARCHES.map((arch) => ({ file: squirrelFeedName(arch), key: `beta/${version}/${squirrelFeedName(arch)}`, cacheControl: 'no-cache', contentType: 'application/json' })),
     ...ARCHES.map((arch) => ({ file: feedName(arch), key: `beta/${feedName(arch)}`, cacheControl: 'no-cache', contentType: 'application/json' })),
   ];
 }

@@ -54,8 +54,8 @@ update checks"; manual checks still work. Builds without a real signing identity
 never hand the download to Squirrel; they show the download link instead.
 
 **Network:** the update check is the app's only network call apart from git itself. It is a plain GET for
-`update-mac-<arch>.json` at the `updates.feed` URL in `package.json`, followed by the zip download when there is
-a newer version. No identifiers, no analytics. Dev builds (`pnpm desktop`) make no update request unless you
+`update-mac-<arch>.json` at the `updates.feed` URL in `package.json`. When it names a newer version, Squirrel
+fetches that release's `update-mac-<arch>-squirrel.json` and the zip it names. No identifiers, no analytics. Dev builds (`pnpm desktop`) make no update request unless you
 set `SINCE_UPDATE_FEED=<base url>`, and even then they never install.
 
 **Testing:** `pnpm --filter @gitsince/desktop test:update` runs the full flow on macOS against two local test

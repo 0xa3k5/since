@@ -27,8 +27,9 @@ After editing `icon.svg` or `background.svg`, run `pnpm --filter @gitsince/deskt
 
 Push a tag matching the desktop version (e.g. `v0.1.0`). `.github/workflows/release.yml` then builds, signs,
 notarizes and uploads both DMGs to a **draft** GitHub Release. Publishing the draft is a manual step.
-The draft also carries `Since-<version>-<arch>-mac.zip` and `update-mac-<arch>.json` (written by
-`apps/desktop/scripts/update-feed.js`), `Since-<arch>.dmg` copies of the DMGs (so
+The draft also carries `Since-<version>-<arch>-mac.zip`, `update-mac-<arch>.json` and
+`update-mac-<arch>-squirrel.json` (written by `apps/desktop/scripts/update-feed.js`; builds up to 0.1.0 read the
+first, newer builds hand the second to Squirrel), `Since-<arch>.dmg` copies of the DMGs (so
 `releases/latest/download/Since-<arch>.dmg`, the website's download link, always serves the latest release), and
 `since.rb`, the Homebrew cask for the tap (see below). Installed apps update from those once the release is published as the
 latest release. They read the feed from `updates.feed` in `apps/desktop/package.json`, so that URL has to be
@@ -66,21 +67,24 @@ repository must be at least 30 days old and, for a submission by its owner, have
 watchers (75 stars, 30 forks or 30 watchers when someone else submits it). Submit `since.rb` there once the repo
 qualifies; until then the tap is the install path, and the main-repo cask would replace it, not add to it.
 
-## Moving beta installs to 0.1.0
+## Moving beta installs to 0.1.1
 
 Beta builds read their update feed from the `gitlanes-beta` Cloudflare R2 bucket and can't follow a feed on
-GitHub, so 0.1.0 goes to the bucket once too. After the v0.1.0 release is published, download
-`Since-0.1.0-arm64.dmg`, `Since-0.1.0-x64.dmg`, `Since-0.1.0-arm64-mac.zip` and `Since-0.1.0-x64-mac.zip` from it
-into an empty folder (not its `update-mac-*.json` feeds, which point at GitHub), then run:
+GitHub, so one release goes to the bucket once too. It has to be 0.1.1, not 0.1.0: beta and rc builds hand
+`update-mac-<arch>.json` to Squirrel, which compares versions numerically and ranks `0.1.0-beta.3` and
+`0.1.0-rc.4` above `0.1.0`, so they never install 0.1.0. They do install 0.1.1 (rc builds from GitHub, beta
+builds from the bucket). After the v0.1.1 release is published, download `Since-0.1.1-arm64.dmg`,
+`Since-0.1.1-x64.dmg`, `Since-0.1.1-arm64-mac.zip` and `Since-0.1.1-x64-mac.zip` from it into an empty folder
+(not its `update-mac-*.json` feeds, which point at GitHub), then run:
 
 ```sh
 R2_ACCOUNT_ID=$(security find-generic-password -a "$USER" -s gitlanes-r2-account-id -w) \
 R2_ACCESS_KEY_ID=$(security find-generic-password -a "$USER" -s gitlanes-r2-access-key-id -w) \
 R2_SECRET_ACCESS_KEY=$(security find-generic-password -a "$USER" -s gitlanes-r2-secret-access-key -w) \
-  node apps/desktop/scripts/bucket-publish.js --version 0.1.0 --dir <folder>
+  node apps/desktop/scripts/bucket-publish.js --version 0.1.1 --dir <folder>
 ```
 
-It writes feeds that point at the bucket and uploads `beta/0.1.0/`, then `beta/latest/Since-<arch>.dmg`, then the
-`beta/update-mac-<arch>.json` feeds. The release must be signed and notarized: Squirrel only installs an update
-signed by the same Developer ID as the running beta. A beta install that has updated to 0.1.0 reads GitHub
-Releases from then on. The bucket and the script go once the beta installs have moved.
+It writes feeds that point at the bucket and uploads `beta/0.1.1/`, then `beta/latest/Since-<arch>.dmg`, then the
+feeds. The release must be signed and notarized: Squirrel only installs an update signed by the same Developer ID
+as the running beta. A beta install that has updated to 0.1.1 reads GitHub Releases from then on. The bucket
+and the script go once the beta installs have moved.
