@@ -101,3 +101,25 @@ test('↵ on an open popover trigger closes it', async () => {
   fire('keydown', t, { key: 'Enter', code: 'Enter' });
   assert.equal(popovers().length, 0);
 });
+
+// SNC-671: a menu closed before its outside-press listener was added (a throttled timer in a background window)
+// left that listener behind, and it closed the next menu on the press that chose an item.
+test('a menu closed at once leaves no listener behind to close the next one', async () => {
+  const { contextMenu, closeMenu } = await import('../renderer/ui.js');
+  const presses = () => (window.on.mousedown || []).length;
+  const before = presses();
+  contextMenu(0, 0, [{ label: 'Edit…', run() {} }]);
+  closeMenu();
+  await tick();
+  assert.equal(presses(), before);
+
+  const ran = [];
+  contextMenu(0, 0, [{ label: 'Delete', run: () => ran.push('Delete') }]);
+  await tick();
+  const item = menus()[0].children.find((c) => c.classList.contains('menu-item'));
+  fire('mousedown', item);
+  assert.equal(menus().length, 1, 'pressing an item keeps its menu open');
+  for (const f of item.on.click) f({});
+  assert.deepEqual(ran, ['Delete']);
+  assert.equal(menus().length, 0);
+});

@@ -116,7 +116,8 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     if (busy) return;
     idx = items.findIndex((el) => el._row === r);
     busy = true;
-    try { await act(r, value); } finally { busy = false; }
+    box.setAttribute('aria-busy', 'true');
+    try { await act(r, value); } finally { busy = false; box.removeAttribute('aria-busy'); }
     if (overlay.isConnected && !overlay.classList.contains('closing')) { render(); input.focus(); }
   }
   function activate(dir = 0) {
