@@ -112,7 +112,7 @@
 .pv-sn-beat.s1 { animation: pv-sn-s1 12s infinite; }
 .pv-sn-beat.s2 { animation: pv-sn-s2 12s infinite; }
 .pv-sn-beat.s3 { animation: pv-sn-s3 12s infinite; }
-@keyframes pv-sn-s1 { 0%, 23% { opacity: 1; } 25%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
+@keyframes pv-sn-s1 { 0%, 23% { opacity: 1; } 25%, 91% { opacity: 0; } 93%, 100% { opacity: 1; } }
 @keyframes pv-sn-s2 { 0%, 25% { opacity: 0; } 27%, 46% { opacity: 1; } 48%, 100% { opacity: 0; } }
 @keyframes pv-sn-s3 { 0%, 48% { opacity: 0; } 50%, 89% { opacity: 1; } 91%, 100% { opacity: 0; } }
 .pv-sn-title { margin: 3px 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: var(--fw-strong); }
