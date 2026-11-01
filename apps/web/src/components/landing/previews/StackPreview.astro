@@ -7,11 +7,12 @@ const parts: [number, string, string][] = [
   [257, 'Add the stack model', 'Stack · 1 of 3'],
 ];
 ---
-<Stage label="Review: a stack of three pull requests under one header, each part noting the one it is built on">
+<Stage h={188} hSm={182} label="Review: a stack of three pull requests under one header, each part noting the one it is built on">
   <div class="pv-st">
     <div class="pv-st-head"><span class="pv-file-chev">▾</span><span class="pv-cu-num">Stack #257 → #271</span></div>
     {parts.map(([n, title, note]) => (
       <div class="pv-st-row"><span class="pv-cu-num">#{n}</span><span class="pv-cu-title">{title}</span><span class="pv-st-note">{note}</span></div>
     ))}
+    <div class="pv-st-next"><span class="pv-cu-num">#219</span><span class="pv-cu-title quiet">Tighten the toolbar spacing</span></div>
   </div>
 </Stage>
