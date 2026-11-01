@@ -61,15 +61,6 @@
 .pv-diff .a { background: var(--add-bg); }
 .pv-diff .d { background: var(--del-bg); }
 
-/* Three beats, one per row: the selection and the reader step together. Without motion, the first beat. */
-.pv .b2, .pv .b3 { opacity: 0; }
-.pv .b1 { animation: pv-b1 9s infinite; }
-.pv .b2 { animation: pv-b2 9s infinite; }
-.pv .b3 { animation: pv-b3 9s infinite; }
-@keyframes pv-b1 { 0%, 30% { opacity: 1; } 33%, 97% { opacity: 0; } 100% { opacity: 1; } }
-@keyframes pv-b2 { 0%, 30% { opacity: 0; } 33%, 63% { opacity: 1; } 66%, 100% { opacity: 0; } }
-@keyframes pv-b3 { 0%, 63% { opacity: 0; } 66%, 97% { opacity: 1; } 100% { opacity: 0; } }
-
 /* Since: the headline, then the timeline by day beside the reader. */
 .pv-cu-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
 .pv-cu-head .grow { flex: 1; }
@@ -82,30 +73,62 @@
 .pv-cu-num { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pv-cu-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-cu-title.quiet { color: var(--text-3); }
+/* Since, 12s loop: › steps the selection down two rows (it travels, the nav count rolls, only the title and
+   who line fade), the box press on styles.css folds its diff, then ‹ takes the selection back to the first row
+   and the reader reloads it. Row tops: 32, 62 and 120px (list padding 4, day 28, row 30). */
 .pv-sn-body { display: grid; grid-template-columns: 44% 56%; }
-.pv-sn-list { padding: 4px 0 8px; border-right: 1px solid var(--border); }
-.pv-sn-day { padding: 9px 14px 3px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--text-4); }
+.pv-sn-list { position: relative; padding: 4px 0 8px; border-right: 1px solid var(--border); }
+.pv-sn-day { box-sizing: border-box; height: 28px; padding: 9px 14px 0; font-size: 11.5px; line-height: 16px; font-weight: var(--fw-medium); color: var(--text-4); }
 .pv-sn-row { position: relative; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; font-size: 12.5px; }
-.pv-sn-row.b1, .pv-sn-row.b2, .pv-sn-row.b3 { opacity: 1; animation: none; }
-.pv-sn-row::before { content: ""; position: absolute; inset: 0 6px; z-index: -1; border-radius: var(--radius); background: var(--bg-selected); opacity: 0; }
-.pv-sn-row { isolation: isolate; }
-.pv-sn-row.b1::before { opacity: 1; animation: pv-b1 9s infinite; }
-.pv-sn-row.b2::before { animation: pv-b2 9s infinite; }
-.pv-sn-row.b3::before { animation: pv-b3 9s infinite; }
+.pv-sn-sel { position: absolute; top: 32px; left: 6px; right: 6px; height: 30px; border-radius: var(--radius); background: var(--bg-selected); animation: pv-sn-sel 12s infinite; }
+@keyframes pv-sn-sel {
+  0%, 23% { transform: none; animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  27%, 46% { transform: translateY(30px); animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  50%, 89% { transform: translateY(88px); animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  95%, 100% { transform: none; }
+}
 .pv-sn-chev { width: 8px; color: var(--text-4); }
 .pv-sn-hand { margin: 10px 14px 0; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
 .pv-sn-hand b { color: var(--text); font-weight: var(--fw-medium); }
 .pv-sn-reader { min-width: 0; padding: 10px 14px 14px; }
+.pv-sn-nav { font-size: 11.5px; line-height: 16px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.pv-sn-nav .prev, .pv-sn-nav .next { display: inline-block; }
+.pv-sn-nav .next { animation: pv-sn-next 12s infinite; }
+.pv-sn-nav .prev { animation: pv-sn-prev 12s infinite; }
+@keyframes pv-sn-next { 0%, 22% { transform: none; } 22.8% { transform: scale(.8); } 24%, 45% { transform: none; } 45.8% { transform: scale(.8); } 47%, 100% { transform: none; } }
+@keyframes pv-sn-prev { 0%, 88% { transform: none; } 88.8% { transform: scale(.8); } 90%, 100% { transform: none; } }
+.pv-sn-n { display: inline-block; height: 16px; overflow: hidden; vertical-align: top; }
+.pv-sn-n > span { display: block; animation: pv-sn-roll 12s infinite; }
+@keyframes pv-sn-roll {
+  0%, 23% { transform: none; animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  27%, 46% { transform: translateY(-16px); animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  50%, 89% { transform: translateY(-32px); animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  95%, 100% { transform: none; }
+}
 .pv-sn-beats { display: grid; }
 .pv-sn-beat { grid-area: 1 / 1; min-width: 0; }
-.pv-sn-nav { font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.pv-sn-beat.s2, .pv-sn-beat.s3 { opacity: 0; }
+.pv-sn-beat.s1 { animation: pv-sn-s1 12s infinite; }
+.pv-sn-beat.s2 { animation: pv-sn-s2 12s infinite; }
+.pv-sn-beat.s3 { animation: pv-sn-s3 12s infinite; }
+@keyframes pv-sn-s1 { 0%, 23% { opacity: 1; } 25%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
+@keyframes pv-sn-s2 { 0%, 25% { opacity: 0; } 27%, 46% { opacity: 1; } 48%, 100% { opacity: 0; } }
+@keyframes pv-sn-s3 { 0%, 48% { opacity: 0; } 50%, 89% { opacity: 1; } 91%, 100% { opacity: 0; } }
 .pv-sn-title { margin: 3px 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: var(--fw-strong); }
 .pv-sn-title .n { color: var(--text-3); font-weight: var(--fw-medium); }
 .pv-sn-who { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--text-3); }
 .pv-sn-who .mono { font-size: 11.5px; }
 .pv-sn-desc { margin: 8px 0; font-size: 12px; color: var(--text-2); }
-.pv-sn .folds .pv-diff { max-height: 76px; animation: pv-fold 9s infinite; }
-@keyframes pv-fold { 0%, 66% { max-height: 76px; } 70%, 97% { max-height: 0; } 100% { max-height: 76px; } }
+.pv-sn .folds .pv-box.off { animation: pv-sn-press 12s infinite; }
+@keyframes pv-sn-press { 0%, 60% { transform: none; } 61% { transform: scale(.8); } 62.5%, 100% { transform: none; } }
+.pv-sn .folds .pv-box .pv-box { opacity: 0; animation: pv-sn-tick 12s infinite; }
+@keyframes pv-sn-tick { 0%, 62% { opacity: 0; } 62.5%, 90% { opacity: 1; } 90.5%, 100% { opacity: 0; } }
+.pv-sn .folds .pv-diff { max-height: 76px; animation: pv-fold 12s infinite; }
+@keyframes pv-fold {
+  0%, 62% { max-height: 76px; animation-timing-function: cubic-bezier(.25,.8,.25,1); }
+  66%, 90% { max-height: 0; animation-timing-function: cubic-bezier(.45,0,.1,1); }
+  96%, 100% { max-height: 76px; }
+}
 
 /* Review: the PR pane, files beside the diff, a commit under it. */
 .pv-rv-head { padding: 12px 16px 0; border-bottom: 1px solid var(--border); }
@@ -213,6 +236,11 @@
   .pv-cl-big > span { transform: translateY(-29px); }
   .pv-cl .done { opacity: 1; transform: translate(-50%, 0); }
   .pv-mp-st .roll { transform: translateY(-18px); }
+  .pv-sn-sel { transform: translateY(88px); }
+  .pv-sn-n > span { transform: translateY(-32px); }
+  .pv-sn-beat.s1 { opacity: 0; }
+  .pv-sn-beat.s3, .pv-sn .folds .pv-box .pv-box { opacity: 1; }
+  .pv-sn .folds .pv-diff { max-height: 0; }
 }
 
 /* Stacks: one header in Review, the parts under it. */
