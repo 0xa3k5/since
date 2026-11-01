@@ -6,8 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { planUploads, pruneList, r2Client, publish, PUBLIC_URL } = require('../scripts/bucket-publish');
 
-const V = '0.1.0';
-const built = [`Since-${V}-arm64.dmg`, `Since-${V}-x64.dmg`, `Since-${V}-arm64-mac.zip`, `Since-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json'];
+const V = '0.1.1';
+const built = [`Since-${V}-arm64.dmg`, `Since-${V}-x64.dmg`, `Since-${V}-arm64-mac.zip`, `Since-${V}-x64-mac.zip`, 'update-mac-arm64.json', 'update-mac-x64.json', 'update-mac-arm64-squirrel.json', 'update-mac-x64-squirrel.json'];
 
 test('planUploads puts versioned files first, then the latest DMGs, then the no-cache feeds', () => {
   const plan = planUploads(V, built);
@@ -15,11 +15,12 @@ test('planUploads puts versioned files first, then the latest DMGs, then the no-
     `beta/${V}/Since-${V}-arm64.dmg`, `beta/${V}/Since-${V}-arm64-mac.zip`,
     `beta/${V}/Since-${V}-x64.dmg`, `beta/${V}/Since-${V}-x64-mac.zip`,
     'beta/latest/Since-arm64.dmg', 'beta/latest/Since-x64.dmg',
+    `beta/${V}/update-mac-arm64-squirrel.json`, `beta/${V}/update-mac-x64-squirrel.json`,
     'beta/update-mac-arm64.json', 'beta/update-mac-x64.json',
   ]);
   assert.equal(plan[4].contentDisposition, `attachment; filename="Since-${V}-arm64.dmg"`);
   assert.ok(plan.slice(6).every((u) => u.cacheControl === 'no-cache' && u.contentType === 'application/json'));
-  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-0\.1\.0-x64\.dmg/);
+  assert.throws(() => planUploads(V, built.filter((f) => !f.endsWith('x64.dmg'))), /Missing build output: Since-0\.1\.1-x64\.dmg/);
 });
 
 test('pruneList keeps the newest five versions in semver order and never the current one', () => {
@@ -63,6 +64,7 @@ test('publish writes feeds, uploads in order, then prunes the oldest versions', 
 
   const feed = JSON.parse(fs.readFileSync(path.join(dir, 'update-mac-arm64.json'), 'utf8'));
   assert.equal(feed.releases[0].updateTo.url, `${PUBLIC_URL}/beta/${V}/Since-${V}-arm64-mac.zip`);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'update-mac-arm64-squirrel.json'), 'utf8')).url, feed.releases[0].updateTo.url);
 
   const puts = bucket.calls.filter((c) => c.method === 'PUT');
   assert.deepEqual(puts.map((c) => c.key), planUploads(V, built).map((u) => u.key));
