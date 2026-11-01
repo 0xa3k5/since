@@ -58,6 +58,11 @@ test('add, filter, edit and delete a local config value', async ({ sandbox, laun
   await app.palette('Repository settings…');
   await expect(app.page.locator('.prefs')).toBeVisible();
   const row = (key) => app.page.locator('.prefs-config', { has: app.page.locator('.prefs-key', { hasText: new RegExp(`^${key.replace('.', '\\.')}$`) }) });
+  // The toast shows before a row's action has finished, and the window ignores clicks until it has (aria-busy).
+  const done = async (text) => {
+    await app.toast(text);
+    await expect(app.page.locator('.prefs')).not.toHaveAttribute('aria-busy', 'true');
+  };
 
   // Global values are read-only here.
   await row('user.name').click({ button: 'right' });
@@ -66,7 +71,7 @@ test('add, filter, edit and delete a local config value', async ({ sandbox, laun
 
   await app.page.locator('.prefs-row[data-id="addConfig"] button').click();
   await app.dialog({ fields: { Key: 'since.e2e', Value: 'one' }, submit: 'Save', under: 1 });
-  await app.toast('Set since.e2e');
+  await done('Set since.e2e');
   expect(sandbox.git(repo, 'config', '--local', 'since.e2e')).toBe('one');
   await expect(row('since.e2e').locator('.config-val')).toHaveText('one');
 
@@ -75,14 +80,14 @@ test('add, filter, edit and delete a local config value', async ({ sandbox, laun
 
   await row('since.e2e').click();
   await app.dialog({ fields: { Value: 'two' }, submit: 'Save', under: 1 });
-  await app.toast('Set since.e2e');
+  await done('Set since.e2e');
   expect(sandbox.git(repo, 'config', '--local', 'since.e2e')).toBe('two');
   // The refresh after the edit keeps the search.
   await expect(row('since.e2e').locator('.config-val')).toHaveText('two');
   await expect(app.page.locator('.prefs-config')).toHaveCount(1);
 
   await app.contextMenu(row('since.e2e'), 'Delete');
-  await app.toast('Unset since.e2e');
+  await done('Unset since.e2e');
   expect(sandbox.git(repo, 'config', '--local', '--get-all', 'core.bare')).toBe('false');
   expect(() => sandbox.git(repo, 'config', '--local', 'since.e2e')).toThrow();
   await expect(row('since.e2e')).toHaveCount(0);
@@ -91,11 +96,11 @@ test('add, filter, edit and delete a local config value', async ({ sandbox, laun
   await app.page.locator('.prefs-search').fill('');
   await app.page.locator('.prefs-row[data-id="addConfig"] button').click();
   await app.dialog({ fields: { Key: 'since.other', Value: 'x' }, submit: 'Save', under: 1 });
-  await app.toast('Set since.other');
+  await done('Set since.other');
   await app.page.locator('.prefs-search').fill('since.other');
   await expect(app.page.locator('.prefs-config')).toHaveCount(1);
   await app.contextMenu(row('since.other'), 'Delete');
-  await app.toast('Unset since.other');
+  await done('Unset since.other');
   expect(() => sandbox.git(repo, 'config', '--local', 'since.other')).toThrow();
   expect(sandbox.git(repo, 'config', '--local', '--get-all', 'core.bare')).toBe('false');
 

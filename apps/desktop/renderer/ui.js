@@ -593,11 +593,13 @@ export function contextMenu(x, y, items, { focus = -1, trigger = pressed } = {})
   const inside = (t) => levels.some((l) => l.el.contains(t));
   const onDown = (e) => { if (!inside(e.target) && !(e.button === 0 && trigger?.contains(e.target))) closeMenu(); };
   window.addEventListener('keydown', onKey, true);
-  setTimeout(() => window.addEventListener('mousedown', onDown, true));
+  // Deferred so the press that opened the menu doesn't close it. A menu closed before then (Esc, or another menu at
+  // once) clears the timer: a late listener would outlive it and close every later menu on its first press.
+  const listen = setTimeout(() => window.addEventListener('mousedown', onDown, true));
   window.addEventListener('blur', closeMenu);
   const owns = trigger?.hasAttribute('aria-haspopup');
   if (owns) trigger.setAttribute('aria-expanded', 'true');
-  openMenu = { trigger, close: () => { clearTimeout(hoverT); closeFrom(0); if (owns) trigger.setAttribute('aria-expanded', 'false'); }, cleanup: () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onDown, true); window.removeEventListener('blur', closeMenu); } };
+  openMenu = { trigger, close: () => { clearTimeout(hoverT); closeFrom(0); if (owns) trigger.setAttribute('aria-expanded', 'false'); }, cleanup: () => { clearTimeout(listen); window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onDown, true); window.removeEventListener('blur', closeMenu); } };
 }
 export function closeMenu() {
   if (!openMenu) return;

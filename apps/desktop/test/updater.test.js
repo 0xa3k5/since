@@ -6,7 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const { compareVersions, buildFeed, readFeed, feedUrl, feedName, zipName, isSignedOutput } = require('../updater');
+const updater = require('../updater');
+const { compareVersions, buildFeed, readFeed, feedUrl, feedName, squirrelFeedName, squirrelFeedUrl, zipName, isSignedOutput } = updater;
 const pkg = require('../package.json');
 
 test('compareVersions follows semver precedence', () => {
@@ -48,6 +49,7 @@ test('malformed feeds are rejected', () => {
 
 test('feed URLs and the packaged zip names agree', () => {
   assert.strictEqual(feedUrl('https://x.test/dl/', 'arm64'), 'https://x.test/dl/update-mac-arm64.json');
+  assert.strictEqual(squirrelFeedUrl('https://x.test/dl/v1.2.3/Since-1.2.3-arm64-mac.zip', 'arm64'), 'https://x.test/dl/v1.2.3/update-mac-arm64-squirrel.json');
   const config = require('../electron-builder.config.js');
   const expanded = config.mac.artifactName.replace('${productName}', 'Since').replace('${version}', '1.2.3').replace('${arch}', 'x64').replace('${ext}', 'zip');
   assert.strictEqual(expanded, zipName('1.2.3', 'x64'));
@@ -62,6 +64,8 @@ test('update-feed.js writes one feed per zip', () => {
     execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'update-feed.js'), '--version', '0.3.0', '--base-url', 'https://dl.test/v0.3.0/', '--dir', dir], { stdio: 'pipe' });
     const feed = JSON.parse(fs.readFileSync(path.join(dir, feedName('arm64')), 'utf8'));
     assert.strictEqual(readFeed(feed).url, 'https://dl.test/v0.3.0/Since-0.3.0-arm64-mac.zip');
+    // Squirrel's default (server) format: the release entry alone, no version list to compare.
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, squirrelFeedName('arm64')), 'utf8')), feed.releases[0].updateTo);
     assert.ok(!fs.existsSync(path.join(dir, feedName('x64'))), 'no x64 zip, so no x64 feed');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -74,4 +78,37 @@ test('only bundles with a real signing identity are handed to Squirrel', () => {
   assert.equal(isSignedOutput('Executable=/x\nSignature=adhoc\nTeamIdentifier=not set'), false);
   assert.equal(isSignedOutput('/x: code object is not signed at all'), false);
   assert.equal(isSignedOutput(''), false);
+});
+
+// A packaged, signed 0.1.0-rc.4 against a fake Electron: the case Squirrel's numeric compare used to drop silently.
+test('a pre-release hands the release entry to Squirrel and reports a refused update', async () => {
+  const { EventEmitter } = require('node:events');
+  const childProcess = require('node:child_process');
+  const Module = require('node:module');
+  const load = Module._load;
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const execFile = childProcess.execFile;
+  const autoUpdater = Object.assign(new EventEmitter(), { feeds: [], setFeedURL(o) { this.feeds.push(o); }, checkForUpdates() {} });
+  const zip = `https://dl.test/v0.1.1/${zipName('0.1.1', process.arch)}`;
+  const fetched = [];
+  const session = { fromPartition: () => ({ fetch: async (url) => { fetched.push(url); return { status: 200, ok: true, json: async () => buildFeed({ version: '0.1.1', url: zip }) }; } }) };
+  const electron = { app: { isPackaged: true, getVersion: () => '0.1.0-rc.4' }, autoUpdater, session };
+  Module._load = function (request, ...rest) { return request === 'electron' ? electron : load.call(this, request, ...rest); };
+  Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' });
+  childProcess.execFile = (_cmd, _args, cb) => cb(null, '', 'Authority=Developer ID Application: Test\n');
+  try {
+    updater.init({ feed: 'https://dl.test/latest/download', page: 'https://dl.test/latest', auto: () => false });
+    assert.strictEqual((await updater.check({ manual: true })).status, 'downloading');
+    assert.deepStrictEqual(fetched, [`https://dl.test/latest/download/${feedName(process.arch)}`]);
+    assert.deepStrictEqual(autoUpdater.feeds, [{ url: `https://dl.test/v0.1.1/${squirrelFeedName(process.arch)}`, serverType: 'default' }]);
+    autoUpdater.emit('update-not-available');
+    assert.deepStrictEqual(updater.getState(), { status: 'available', version: '0.1.1', error: 'The installer refused the update.', manual: true, current: '0.1.0-rc.4', auto: false });
+    // Outside a download it's the plain "up to date" case.
+    autoUpdater.emit('update-not-available');
+    assert.strictEqual(updater.getState().status, 'idle');
+  } finally {
+    Object.defineProperty(process, 'platform', platform);
+    childProcess.execFile = execFile;
+    Module._load = load;
+  }
 });

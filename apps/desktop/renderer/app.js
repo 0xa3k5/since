@@ -5163,7 +5163,7 @@ async function prefAct(row, value) {
   else if (id.startsWith('remote:')) { const r = state.remotes.find((x) => `remote:${x.name}` === id); if (r) leavePrefs(() => palette(() => remoteItems(r), { placeholder: `Remote ${r.name}…` })); }
 }
 // One git config entry of the open repository: edit (local only), copy or unset. Moved here from the old
-// Config view; the table refreshes once git has the new value.
+// Config view; act()'s refresh reloads the table while Preferences is open (refreshAux).
 async function configAct(c, how) {
   if (how === 'copy') return copy(c.value, 'Copied');
   if (c && c.scope !== 'local') return toast(`${c.key} is set in your ${c.scope} git config`, { detail: 'Only this repository’s local values can be edited here.' });
@@ -5173,7 +5173,6 @@ async function configAct(c, how) {
     if (!v || !v.k.trim()) return;
     await act(`Set ${v.k.trim()}`, 'setConfig', [v.k.trim(), v.v], { undoable: false });
   }
-  state.config = await git('config').catch(() => state.config);
 }
 
 async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
