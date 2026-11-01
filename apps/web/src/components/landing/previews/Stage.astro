@@ -1,13 +1,15 @@
 ---
-// A focused feature preview: one piece of the app at real size, lifted onto a soft stage. The markup follows
+// A focused feature preview: one piece of the app at real size, cropped by the stage edge (previews.css).
+// h / hSm: the stage height above and below 720px, picked so the bottom crop cuts only filler. The markup follows
 // apps/desktop/renderer (classes, sizes, copy) and is drawn with the theme tokens, so it follows the site theme.
 // It's a picture for assistive tech (role="img"); nothing inside is focusable.
 import './previews.css';
 
-export interface Props { label: string; class?: string; }
-const { label, class: cls = '' } = Astro.props;
+export interface Props { label: string; class?: string; h: number; hSm?: number; }
+const { label, class: cls = '', h, hSm } = Astro.props;
+const style = `--pv-h: ${h}px;` + (hSm ? ` --pv-h-sm: ${hSm}px;` : '');
 ---
-<figure class:list={['pv', cls]} role="img" aria-label={label}>
+<figure class:list={['pv', cls]} style={style} role="img" aria-label={label}>
   <div class="pv-card"><slot /></div>
 </figure>
 
