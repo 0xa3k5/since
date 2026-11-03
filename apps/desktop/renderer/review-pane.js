@@ -94,8 +94,10 @@ export function reviewPane({ row, ctx, root, git, store, call, run, onBack, comm
     if (bar.scrollWidth > bar.clientWidth) bar.classList.add('fit-shrink');
     // Still too wide: everything but the primary button goes into ⋯, so nothing runs off the edge.
     const strip = bar.parentElement;
-    strip.classList.remove('fit-more');
+    strip.classList.remove('fit-more', 'fit-wrap');
     if (bar.scrollWidth > bar.clientWidth) strip.classList.add('fit-more');
+    // Even ⋯ and the primary button don't fit beside the label: they move to a line of their own.
+    if (bar.scrollWidth > bar.clientWidth) strip.classList.add('fit-wrap');
   }
 
   function renderHead() {

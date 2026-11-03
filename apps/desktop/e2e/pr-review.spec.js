@@ -94,3 +94,60 @@ test('Review PRs that aren’t checked out here: the pane fetches each head, the
   expect(gh.pr(9).state).toBe('OPEN');
   await expect.poll(() => sandbox.log(gh.repo, 'origin/main')[0]).toBe('Fix gadget (#8)');
 });
+
+test('Narrow window: the pane gives way, so its actions, the head row and Merge stay inside the window', async ({ sandbox, launch }) => {
+  gh = sandbox.github({ prs: [{ number: 5, title: 'Keep pre-release builds on the pre-release feed until the final release is out, then move them over', branch: 'agent/since-engineer/keep-pre-release-builds-on-their-feed-until-the-final-release', files: { 'apps/desktop/test/updater.test.js': 'test\n' } }] });
+  const app = await launch(gh.repo, { env: gh.env, settings: { github: { on: true } } });
+  const { page } = app;
+  await app.view('lanes');
+  await page.getByRole('tab', { name: /^All open/ }).click();
+  await page.locator('.review-row', { has: page.locator('.review-row-num', { hasText: '#5' }) }).click({ position: { x: 8, y: 8 } });
+  const pane = page.locator('.review-pane');
+  await pane.getByRole('button', { name: 'Approve…' }).click();
+  await app.dialog({ submit: 'Approve' });
+  await app.toast('Approved #5');
+  const merge = pane.locator('.review-pane-status').getByRole('button', { name: 'Merge…' });
+  await expect(merge).toBeVisible();
+
+  // The widest sidebar, and the pane dragged out as far as it goes, as in a big window.
+  await page.locator('.pane-handle[data-pane="sidebar"]').focus();
+  await page.keyboard.press('End');
+  const hb = await page.locator('.review-split-handle').boundingBox();
+  await page.mouse.move(hb.x + 3, hb.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(0, hb.y + 40, { steps: 4 });
+  await page.mouse.up();
+  await page.mouse.move(hb.x + 200, hb.y + 40);
+
+  // Unzoomed: 1100 px keeps the sidebar open (at its widest), 900 px is the window's minimum (sidebar rail).
+  await app.app.evaluate(({ webContents }) => { for (const wc of webContents.getAllWebContents()) wc.setZoomFactor(1); });
+  for (const width of [1100, 900]) {
+    await app.app.evaluate(({ BaseWindow }, w) => BaseWindow.getAllWindows()[0].setContentSize(w, 640), width);
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(width);
+    await app.settle();
+    const out = await page.evaluate(() => {
+      const box = (s) => document.querySelector(s).getBoundingClientRect();
+      const split = box('.review-split');
+      const host = box('.review-pane-host');
+      const right = Math.min(split.right, window.innerWidth) + 0.5;
+      const over = (s) => { const e = document.querySelector(s); return e.scrollWidth > e.clientWidth + 1; };
+      const merge = [...document.querySelectorAll('.review-pane-status button')].find((b) => b.getAttribute('aria-label') === 'Merge…');
+      const m = merge.getBoundingClientRect();
+      return [
+        host.right > right && 'pane',
+        box('.review-reload').right > right && 'Reload',
+        (m.left < host.left || m.right > Math.min(host.right, right) || !m.width) && 'Merge',
+        box('.reader-branch').right > host.right && 'branch',
+        over('.review-split') && 'split overflows',
+        over('.review-tabs') && 'tabs overflow',
+        over('.review-pane-head') && 'pane head overflows',
+      ].filter(Boolean);
+    });
+    expect(out, `at ${width} px`).toEqual([]);
+  }
+
+  // Merge is clickable there.
+  await merge.click();
+  await app.dialog();
+  await app.toast('Merged #5');
+});
