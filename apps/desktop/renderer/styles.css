@@ -45,8 +45,6 @@
   --scrim: rgba(28, 22, 18, 0.32);
   --btn-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.22);
   --avatar-text: #ffffff;
-  --logo-bg: linear-gradient(140deg, #ff8a4c, #e8590c 55%, #b8400a);
-  --logo-shadow: 0 8px 30px rgba(232, 89, 12, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   --shadow: 0 0 0 1px rgba(60, 30, 10, 0.06), 0 8px 24px rgba(60, 30, 10, 0.12), 0 2px 6px rgba(60, 30, 10, 0.06);
   --shadow-sm: 0 1px 2px rgba(60, 30, 10, 0.06);
   --radius: 6px;
@@ -54,6 +52,9 @@
   /* Two weights only: medium for quiet emphasis, strong for titles. No bold; hierarchy beyond that is colour. */
   --fw-medium: 500;
   --fw-strong: 550;
+  --brand-cream: #fff4ec;
+  --brand-orange: #ff6700;
+  --brand-ink: #1a0d05;
 
   /* Commit graph lanes. Lane 0 is the brand orange; the rest are ordered so neighbouring
      lanes differ in hue and lightness (checked for protan/deutan/tritan in test/theme.test.js). */
@@ -108,8 +109,6 @@
     --scrim: rgba(0, 0, 0, 0.55);
     --btn-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.18);
     --avatar-text: #140d08;
-    --logo-bg: linear-gradient(140deg, #ffa066, #ff6700 55%, #c94400);
-    --logo-shadow: 0 8px 30px rgba(255, 103, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
     --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
 
@@ -229,7 +228,7 @@ a.repo-origin:hover { color: var(--text-2); text-decoration: underline; }
   width: 18px; height: 18px; border-radius: 5px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 10.5px; font-weight: var(--fw-strong); color: var(--accent-text);
-  background: var(--logo-bg);
+  background: var(--brand-orange);
 }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius); color: var(--text-3); flex: none; }
 .icon-btn[hidden] { display: none; }
@@ -1205,7 +1204,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-updated { flex: none; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .review-head-row .review-reload { flex: none; gap: 6px; }
 .review-head > p { margin-top: 4px; }
-.review-split.split { grid-template-columns: minmax(320px, 1fr) 6px var(--pane-w, 62%); }
+/* The pane keeps its saved width while the list keeps 320px, and both give way in a narrow window
+   (min 360px or 60%), so neither the pane nor the head row above it runs past the edge. */
+.review-split.split { --pane-col: clamp(min(360px, 60%), var(--pane-w, 62%), 100% - 326px); grid-template-columns: minmax(0, 1fr) 6px var(--pane-col); }
 .review-split > .lanes { min-width: 0; }
 .review-split:not(.split) > .review-split-handle, .review-split:not(.split) > .review-pane-host { display: none; }
 .review-split-handle { cursor: col-resize; background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat; }
@@ -1299,6 +1300,9 @@ button.review-stack-pr:focus-visible { outline: 2px solid var(--accent); outline
 .review-pane-status > .review-pane-actions { flex: 0 1 auto; margin-left: auto; justify-content: safe flex-end; gap: 6px; margin-top: 0; }
 .review-pane-status.fit-more .pane-secondary { display: none; }
 .review-pane-status.fit-more .pane-more { display: inline-flex; }
+/* Still too narrow for the primary button beside the label: the actions take a line of their own. */
+.review-pane-status.fit-wrap { flex-wrap: wrap; row-gap: 6px; }
+.review-pane-status.fit-wrap > .review-pane-actions { flex: 1 0 100%; }
 .review-pane-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; min-width: 0; }
 .review-pane-actions > .btn { flex: none; }
 .review-pane-actions .pane-more { display: none; }
@@ -1585,7 +1589,8 @@ html.has-tabs #app { height: calc(100vh - 36px); }
 .welcome-card.not-repo .welcome-actions { margin-top: 14px; }
 .welcome-card h1 { margin: 16px 0 4px; font-size: 26px; font-weight: var(--fw-strong); letter-spacing: -0.02em; }
 .logo { display: flex; justify-content: center; }
-.logo-mark { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--accent-text); background: var(--logo-bg); box-shadow: var(--logo-shadow); }
+/* The app icon's "Shift" mark: same tile proportions (corner 22.5%) and colours as build/icon.svg. */
+.logo-mark { width: 52px; height: 52px; border-radius: 12px; display: flex; background: var(--brand-orange); }
 .welcome-actions { display: flex; justify-content: center; gap: 8px; margin: 24px 0 32px; }
 .recent-head { text-align: left; font-size: 12px; font-weight: var(--fw-strong); color: var(--text-4); padding: 0 10px 6px; }
 .recent-list { display: grid; gap: 2px; text-align: left; max-height: 320px; overflow-y: auto; }
@@ -1716,6 +1721,7 @@ html.has-tabs #app { height: calc(100vh - 36px); }
 .reader-nav-pos { min-width: 4.5em; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .reader-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
 .reader-meta .mono { font-size: 11.5px; color: var(--text-2); }
+.reader-branch { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-author { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
 /* Who made it (AK-390): one person is "(AK) AK"; two or more are an avatar group, names in its tooltip (AK-533). */
 .reader-authors { display: inline-flex; align-items: center; gap: 6px; min-width: 0; vertical-align: middle; }

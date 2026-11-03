@@ -106,6 +106,14 @@ export function icon(name, size = 16) {
   return span;
 }
 
+// The "Shift" brand mark (build/icon.svg master: half-discs r 92, gap 16, slide 32, 64% of the tile).
+// Draws only the mark; the tile is the container's background.
+export function brandMark(size) {
+  const span = document.createElement('span');
+  span.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 256 256" aria-hidden="true"><g transform="translate(128 128) scale(0.64) translate(-128 -128)"><path d="M20 118A92 92 0 0 1 204 118Z" fill="var(--brand-ink)"/><path d="M236 134A92 92 0 0 1 52 134Z" fill="var(--brand-cream)"/></g></svg>`;
+  return span.firstElementChild;
+}
+
 // --- Formatting --------------------------------------------------------------
 const MIN = 60, HOUR = 3600, DAY = 86400;
 export function timeAgo(t) {

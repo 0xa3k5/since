@@ -127,7 +127,7 @@ export function readerHead({ num = null, numTip = '', title, badges = [], author
     h('div.reader-meta', null,
       authors ? authorsEl(authors, 16, '', authorProfile)
         : author ? h('span.reader-author', { title: authorTip || author }, personAvatar(author, authorKey || author, 16), h('span', null, author)) : null,
-      branch ? h('span.reader-branch', null, h('span.mono', null, branch), base ? [h('span.reader-arrow', null, ' → '), h('span.mono', null, base)] : null)
+      branch ? h('span.reader-branch', { title: base ? `${branch} → ${base}` : branch }, h('span.mono', null, branch), base ? [h('span.reader-arrow', null, ' → '), h('span.mono', null, base)] : null)
         : base ? h('span.reader-branch', null, 'on ', h('span.mono', null, base)) : null,
       ...meta),
     ...below);

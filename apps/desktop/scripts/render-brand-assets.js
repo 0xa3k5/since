@@ -1,7 +1,8 @@
 'use strict';
 // Rasterises build/icon.svg and build/background.svg into the files electron-builder packs:
 // build/icon.icns and build/background.tiff (1x + 2x in one file, so the DMG window is sharp on Retina).
-// Run after editing either SVG: `pnpm --filter @gitsince/desktop brand-assets`. Needs macOS (iconutil).
+// build/icon-small.svg is the small-size cut used wherever the icon is 32 px or less.
+// Run after editing any of these SVGs: `pnpm --filter @gitsince/desktop brand-assets`. Needs macOS (iconutil).
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -31,9 +32,10 @@ app.whenReady().then(async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-'));
   const iconset = path.join(tmp, 'icon.iconset');
   fs.mkdirSync(iconset);
+  const iconFor = (px) => (px <= 32 ? 'icon-small.svg' : 'icon.svg');
   for (const size of [16, 32, 128, 256, 512]) {
-    fs.writeFileSync(path.join(iconset, `icon_${size}x${size}.png`), await render(win, 'icon.svg', size, size));
-    fs.writeFileSync(path.join(iconset, `icon_${size}x${size}@2x.png`), await render(win, 'icon.svg', size * 2, size * 2));
+    fs.writeFileSync(path.join(iconset, `icon_${size}x${size}.png`), await render(win, iconFor(size), size, size));
+    fs.writeFileSync(path.join(iconset, `icon_${size}x${size}@2x.png`), await render(win, iconFor(size * 2), size * 2, size * 2));
   }
   execFileSync('iconutil', ['-c', 'icns', iconset, '-o', path.join(buildDir, 'icon.icns')]);
 
