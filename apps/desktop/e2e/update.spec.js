@@ -88,6 +88,10 @@ for (const theme of ['light', 'dark']) {
     await expect(ready.locator('.toast-action')).toHaveText('Restart to update');
     await expect(app.page.locator('.toast', { hasText: 'is available' })).toHaveCount(0);
     await shot(app, testInfo, `${theme}-update-toasts`);
+    // Restart asks the main process to install; count the calls instead of quitting the test app.
+    await app.app.evaluate(({ ipcMain }) => { globalThis.installs = 0; ipcMain.removeHandler('app:install-update'); ipcMain.handle('app:install-update', () => { globalThis.installs++; }); });
+    await ready.locator('.toast-action').click();
+    await expect.poll(() => app.app.evaluate(() => globalThis.installs)).toBe(1);
     await app.page.locator('.sb-top button[title^="Command menu"]').click();
     await app.page.locator('.palette-input').fill('update');
     await expect(app.page.locator('.palette-item .palette-label', { hasText: 'Restart to update to 0.2.0' })).toBeVisible();

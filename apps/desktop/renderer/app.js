@@ -1,4 +1,4 @@
-import { h, $, icon, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, closePalette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
+import { h, $, icon, brandMark, kbd, loading, toast, ago, dialog, confirm, prompt, contextMenu, closeMenu, menuAnchor, palette, closePalette, VirtualList, timeAgo, fullDate, avatar, avatarStack, resolveSheet, ref } from './ui.js';
 import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js';
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
@@ -5191,7 +5191,7 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
   const el = h('div.welcome', { tabIndex: 0 },
     h('div.welcome-drag'),
     h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card', null,
-      h('div.logo', null, h('div.logo-mark', null, icon('map', 22))),
+      h('div.logo', null, h('div.logo-mark', null, brandMark(52))),
       h('h1', null, 'Since'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
       h('div.welcome-actions', null,
