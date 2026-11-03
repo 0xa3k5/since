@@ -54,6 +54,7 @@
   /* Two weights only: medium for quiet emphasis, strong for titles. No bold; hierarchy beyond that is colour. */
   --fw-medium: 500;
   --fw-strong: 550;
+  --brand-cream: #fff4ec;
 
   /* Commit graph lanes. Lane 0 is the brand orange; the rest are ordered so neighbouring
      lanes differ in hue and lightness (checked for protan/deutan/tritan in test/theme.test.js). */
