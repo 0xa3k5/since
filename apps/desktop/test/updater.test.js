@@ -81,14 +81,14 @@ test('only bundles with a real signing identity are handed to Squirrel', () => {
 });
 
 // A packaged, signed 0.1.0-rc.4 against a fake Electron: the case Squirrel's numeric compare used to drop silently.
-test('a pre-release hands the release entry to Squirrel and reports a refused update', async () => {
+test('a pre-release hands the release entry to Squirrel, reports a refused update and restarts into a downloaded one', async () => {
   const { EventEmitter } = require('node:events');
   const childProcess = require('node:child_process');
   const Module = require('node:module');
   const load = Module._load;
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   const execFile = childProcess.execFile;
-  const autoUpdater = Object.assign(new EventEmitter(), { feeds: [], setFeedURL(o) { this.feeds.push(o); }, checkForUpdates() {} });
+  const autoUpdater = Object.assign(new EventEmitter(), { feeds: [], installs: 0, setFeedURL(o) { this.feeds.push(o); }, checkForUpdates() {}, quitAndInstall() { this.installs++; } });
   const zip = `https://dl.test/v0.1.1/${zipName('0.1.1', process.arch)}`;
   const fetched = [];
   const session = { fromPartition: () => ({ fetch: async (url) => { fetched.push(url); return { status: 200, ok: true, json: async () => buildFeed({ version: '0.1.1', url: zip }) }; } }) };
@@ -106,6 +106,14 @@ test('a pre-release hands the release entry to Squirrel and reports a refused up
     // Outside a download it's the plain "up to date" case.
     autoUpdater.emit('update-not-available');
     assert.strictEqual(updater.getState().status, 'idle');
+    // The toast's Restart action: nothing to install until Squirrel has the update, then quit and install it.
+    updater.install();
+    assert.strictEqual(autoUpdater.installs, 0);
+    await updater.check({ manual: true });
+    autoUpdater.emit('update-downloaded');
+    assert.deepStrictEqual(updater.getState(), { status: 'ready', version: '0.1.1', current: '0.1.0-rc.4', auto: false });
+    updater.install();
+    assert.strictEqual(autoUpdater.installs, 1);
   } finally {
     Object.defineProperty(process, 'platform', platform);
     childProcess.execFile = execFile;
