@@ -47,7 +47,11 @@ Pull requests that touch packaging, and manual runs, do an unsigned dry run and 
    or summarize it into the draft.
 3. Publish the draft as the **latest release**. From then on auto-update, `releases/latest/download/…` and the
    website's download buttons serve it.
-4. Homebrew: copy `since.rb` into the tap repository as `Casks/since.rb`, commit and push (below).
+4. Website: set `draft: false` in `apps/web/src/content/releases/<version>.md` in a PR and merge it.
+5. Homebrew: copy `since.rb` into the tap repository as `Casks/since.rb`, commit and push (below). Nothing
+   updates the tap automatically; a release isn't finished until this is done (0.1.1 missed it). Check:
+   `gh api repos/0xa3k5/homebrew-tap/contents/Casks/since.rb -H 'Accept: application/vnd.github.raw' | grep version`
+   names the new version.
 
 ## Homebrew
 
