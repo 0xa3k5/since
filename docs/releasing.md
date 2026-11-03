@@ -20,7 +20,7 @@ into `apps/desktop/dist/`. It needs macOS.
   (`APPLE_API_KEY` = path to the `.p8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`).
 
 Packaging config lives in `apps/desktop/electron-builder.config.js`, and icon/DMG art in `apps/desktop/build/`.
-After editing `icon.svg` or `background.svg`, run `pnpm --filter @gitsince/desktop brand-assets` to regenerate
+After editing `icon.svg`, `icon-small.svg` (the 16–32 px cut) or `background.svg`, run `pnpm --filter @gitsince/desktop brand-assets` to regenerate
 `icon.icns` and `background.tiff`.
 
 ## Releases

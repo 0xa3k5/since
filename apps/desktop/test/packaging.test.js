@@ -132,11 +132,11 @@ test('DMG background reads under both Finder label colours', () => {
 });
 
 test('brand assets use the orange brand, not the retired indigo', () => {
-  for (const file of ['build/icon.svg', 'build/background.svg']) {
+  for (const file of ['build/icon.svg', 'build/icon-small.svg', 'build/background.svg']) {
     const svg = fs.readFileSync(path.join(root, file), 'utf8').toLowerCase();
     assert.ok(!svg.includes('#5e6ad2') && !svg.includes('#7170ff'), file);
   }
-  assert.match(fs.readFileSync(path.join(root, 'build/icon.svg'), 'utf8'), /#e67233/i);
+  for (const file of ['build/icon.svg', 'build/icon-small.svg']) assert.match(fs.readFileSync(path.join(root, file), 'utf8'), /#ff6700/i);
 });
 
 test('the View menu leaves ⌘R free: no reload role on its default key (AK-362)', () => {
