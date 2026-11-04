@@ -5,10 +5,7 @@
 A fast, keyboard-first Git client for macOS. The main screen is a live commit graph you operate on
 directly, with undo and redo for every change to your repository. Built to supervise and land agent work.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/media/banner-dark.webp">
-  <img alt="Since, the Git client for the agentic era, showing what landed since your last look" src="docs/media/banner-light.webp">
-</picture>
+<img alt="Since: what landed since your last look, a pull request read file by file, and the merge plan merging three pull requests in order" src="docs/media/demo-light.gif" width="960">
 
 - A live commit graph you work on directly: branch, rebase, merge, stash and clean up from the graph.
 - Undo and redo for every ref change, stash and config edit.
