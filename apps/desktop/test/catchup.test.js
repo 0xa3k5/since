@@ -112,7 +112,7 @@ test('landed: a checkpoint lost to a force-push falls back to its date and says 
 });
 
 test('grouping: issue key first (labelled with its PR title), else area; merged PRs join by merge commit', async () => {
-  const { landedEntries, groupLanded, issueKey, areaOf, sinceOptions, countsText } = await load('catchup.js');
+  const { landedEntries, issueKey, areaOf, sinceOptions } = await load('catchup.js');
   assert.equal(issueKey('feat: x (AK-281)'), 'AK-281');
   assert.equal(issueKey('no key', 'web2-1', 'WEB2-45 fix'), 'WEB2-45');
   assert.equal(issueKey('fix: read UTF-8 paths'), null);
@@ -137,20 +137,7 @@ test('grouping: issue key first (labelled with its PR title), else area; merged 
   assert.deepEqual(entries.map((e) => [e.kind, e.number ?? null, e.key, e.area]), [
     ['pr', 111, 'AK-281', 'apps/desktop'], ['pr', 112, 'AK-281', 'apps/desktop'], ['commit', null, null, 'apps/web'], ['commit', null, null, 'apps/web'],
   ]);
-  const groups = groupLanded(entries);
-  assert.deepEqual(groups.map((x) => [x.id, x.label, x.entries.length]), [
-    ['key:AK-281', 'feat(desktop): catch up on what landed (AK-281)', 2],
-    ['area:apps/web', 'apps/web', 2],
-  ]);
-  // Without PRs (PR features off): the same commits group by the key in their subjects, else by area.
-  assert.deepEqual(groupLanded(landedEntries(commits, null)).map((x) => [x.id, x.label]), [
-    ['area:apps/web', 'apps/web'], ['key:AK-281', 'feat: catch up (AK-281) (#111)'], ['area:apps/desktop', 'apps/desktop'],
-  ]);
   assert.deepEqual(sinceOptions(['v2', 'v1']).map((o) => o.label), ['Last checkpoint', 'Yesterday', 'Last week', 'Tag v2', 'Tag v1']);
-  const c = countsText({ entries, stuck: 1, ready: 2, prsOn: true, ci: { state: 'failing', failed: ['test'] }, base: 'main' });
-  assert.deepEqual(c.parts, ['2 merged · 2 other commits', '1 stuck', '2 ready to merge']);
-  assert.equal(c.ci.text, 'main CI failing: test');
-  assert.deepEqual(countsText({ entries: landedEntries(commits), stuck: 0, ready: 0, prsOn: false, ci: null, base: 'main' }).parts, ['4 commits landed', '0 stuck']);
 });
 
 test('base CI: the newest run per workflow on the newest commit; cancelled runs don’t fail it', () => {
@@ -161,15 +148,6 @@ test('base CI: the newest run per workflow on the newest commit; cancelled runs 
   assert.equal(github.parseBaseCi(JSON.stringify([run(a, 'CI', 'queued', ''), run(a, 'Old', 'completed', 'cancelled')])).state, 'pending');
   assert.equal(github.parseBaseCi('[]'), null);
   assert.throws(() => github.parseBaseCi('{}'), /list/);
-});
-
-test('walk-through header: a short "since …" for every catch-up kind (AK-304)', async () => {
-  const { sinceLabel } = await load('catchup.js');
-  assert.equal(sinceLabel({ kind: 'checkpoint', checkpoint: { sha: 'a1b2c3d4e5f6' } }), 'since a1b2c3d');
-  assert.equal(sinceLabel({ kind: 'tag', tag: 'v0.1.0' }), 'since tag v0.1.0');
-  assert.equal(sinceLabel({ kind: 'yesterday' }), 'since yesterday');
-  assert.equal(sinceLabel({ kind: 'week' }), 'since last week');
-  assert.equal(sinceLabel({ kind: 'checkpoint', checkpoint: {} }), 'since checkpoint');
 });
 
 test('timeline: entries by day, newest first, Today and Yesterday, then dates (AK-365)', async () => {

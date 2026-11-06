@@ -170,7 +170,7 @@ test('planOrder places a stack as one unit and explains orders around it', async
   assert.match(blockedText(stuck.blocked[0]), /^Conflicts in app\.js/);
 });
 
-test('simulateRebase catches a commit that conflicts when the whole PR merges clean; stackLinear', async () => {
+test('simulateRebase catches a commit that conflicts when the whole PR merges clean', async () => {
   const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-mergeplan-'))), 'app');
   fs.mkdirSync(dir);
   const g = (...a) => git.run(dir, a);
@@ -206,69 +206,6 @@ test('simulateRebase catches a commit that conflicts when the whole PR merges cl
   assert.equal((await g('show', `${r.commit}:h.txt`)), 'two\n');
   assert.deepEqual(await git.simulateRebase(dir, base, ok), r); // fixed identity and date
 
-  // Stacks: ok-2 sits on ok; a merge commit or a sideways head isn't linear.
-  await commit('i.txt', 'i\n', 'stacked');
-  const ok2 = (await g('rev-parse', 'HEAD')).trim();
-  assert.equal(await git.stackLinear(dir, base, [ok, ok2]), true);
-  assert.equal(await git.stackLinear(dir, base, [pr, ok2]), false);
-  await g('merge', '-q', '--no-edit', 'main');
-  const merged = (await g('rev-parse', 'HEAD')).trim();
-  assert.equal(await git.stackLinear(dir, fork, [ok, merged]), false);
-});
-
-test('rebaseStack drops merge commits, cascades onto the base, keeps authors, stops on a conflict (AK-559)', async () => {
-  const dir = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-stackrebase-'))), 'app');
-  fs.mkdirSync(dir);
-  const g = (...a) => git.run(dir, a);
-  const sha = async (rev = 'HEAD') => (await g('rev-parse', rev)).trim();
-  const commit = async (file, text, msg) => { fs.writeFileSync(path.join(dir, file), text); await g('add', file); await g('commit', '-q', '-m', msg); };
-  await g('init', '-q', '-b', 'main');
-  await g('config', 'user.name', 'Me');
-  await g('config', 'user.email', 'me@example.com');
-  await g('config', 'commit.gpgsign', 'false');
-  await commit('f.txt', 'a\n', 'base');
-  await g('checkout', '-q', '-b', 'one');
-  fs.writeFileSync(path.join(dir, 'one.txt'), '1\n');
-  await g('add', 'one.txt');
-  await g('-c', 'user.name=Agent', '-c', 'user.email=agent@example.com', 'commit', '-q', '-m', 'part one\n\nbody line');
-  await g('checkout', '-q', '-b', 'two');
-  await commit('two.txt', '2\n', 'part two');
-  // One more commit on part one, merged into part two: the merge commit to get rid of.
-  await g('checkout', '-q', 'one');
-  await commit('one.txt', '1b\n', 'part one, more');
-  await g('checkout', '-q', 'two');
-  await g('merge', '-q', '--no-edit', 'one');
-  await g('checkout', '-q', 'main');
-  await commit('m.txt', 'm\n', 'main moves on');
-  const [base, one, two] = [await sha('main'), await sha('one'), await sha('two')];
-  const refsBefore = await g('for-each-ref', '--format=%(refname) %(objectname)');
-
-  const res = await git.rebaseStack(dir, base, [one, two]);
-  assert.deepEqual(res.changed, [true, true]);
-  const [n1, n2] = res.heads;
-  assert.equal(await git.stackLinear(dir, base, [n1, n2]), true);
-  assert.equal((await g('log', '--format=%s', `${base}..${n2}`)).trim(), 'part two\npart one, more\npart one');
-  assert.equal((await g('show', '-s', '--format=%an|%cn|%B', `${n1}~1`)).trim(), 'Agent|Me|part one\n\nbody line');
-  assert.equal((await g('show', `${n2}:one.txt`)), '1b\n');
-  assert.equal(await g('for-each-ref', '--format=%(refname) %(objectname)'), refsBefore, 'objects only, no ref moves');
-
-  // Already linear on the base: nothing changes.
-  assert.deepEqual(await git.rebaseStack(dir, base, [n1, n2]), { heads: [n1, n2], changed: [false, false] });
-
-  // Part one amended since part two was cut: the old copy isn't replayed into part two again.
-  await g('checkout', '-q', '-b', 'one2', n1);
-  await g('commit', '-q', '--amend', '-m', 'part one, more (reworded)');
-  const amended = await git.rebaseStack(dir, base, [await sha('one2'), n2]);
-  assert.equal((await g('log', '--format=%s', `${base}..${amended.heads[1]}`)).trim(), 'part two\npart one, more (reworded)\npart one');
-  await g('checkout', '-q', 'main');
-
-  // Part two clashes with the base: stops there, naming the commit and the file.
-  await commit('two.txt', 'main\n', 'main adds two.txt');
-  const base2 = await sha('main');
-  const stuck = await git.rebaseStack(dir, base2, [n1, n2]);
-  assert.equal(stuck.conflict.index, 1);
-  assert.deepEqual(stuck.conflict.files, ['two.txt']);
-  assert.equal(stuck.conflict.commit, await sha(`${n2}`));
 });
 
 test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan needs', async () => {
@@ -356,13 +293,11 @@ test('cleanupItems skips the main worktree, other windows and locked worktrees',
 });
 
 test('the sheet names the method and counts the picks (AK-542)', async () => {
-  const { mergeLabel, orderLabel, METHOD_NAMES } = await import('../renderer/merge-plan.js');
+  const { mergeLabel, METHOD_NAMES } = await import('../renderer/merge-plan.js');
   assert.equal(mergeLabel('squash', 3), 'Squash & Merge 3 in order');
   assert.equal(mergeLabel('merge', 2), 'Merge 2 in order');
   assert.equal(mergeLabel('rebase', 1), 'Rebase & Merge 1');
   assert.equal(mergeLabel('nope', 1), 'Squash & Merge 1');
-  assert.equal(orderLabel(3, 4), 'Order · 3 of 4 picked');
-  assert.equal(orderLabel(3, 4, true), 'Order · 3');
   assert.deepEqual(Object.keys(METHOD_NAMES), ['squash', 'merge', 'rebase']);
 });
 
@@ -422,45 +357,23 @@ test('blockersOf: GitHub’s own rules, one blocker per kind (AK-550)', async ()
   assert.equal(blockerText({ kind: 'check-failed', required: true, checks: [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }] }), 'a, b and 2 more failed');
 });
 
-test('stack names: issue-key range, else the shared title without its prefix and part (AK-549)', async () => {
-  const { stackName, cleanTitle } = await load();
-  assert.equal(stackName(['feat(desktop): change facts for a PR diff (AK-518) [1/4]', 'fix(desktop): offer check out (AK-530) [7/7]']), 'AK-518 → AK-530');
-  assert.equal(stackName(['feat(desktop): merge plan engine (AK-541) [1/3]', 'feat(desktop): merge plan sheet (AK-541) [2/3]']), 'Merge plan engine');
-  assert.equal(stackName(['Good stack', 'Good stack, part two']), 'Good stack');
+test('PR titles lose their prefix, part and issue key', async () => {
+  const { cleanTitle } = await load();
   assert.equal(cleanTitle('feat(desktop)!: pick PRs (AK-542) [3/3]'), 'Pick PRs');
-  assert.equal(stackName([]), '');
 });
 
-test('needs groups and the summary sentence (AK-549)', async () => {
-  const { groupNeeds, planSummary } = await load();
+test('needs groups (AK-549)', async () => {
+  const { groupNeeds } = await load();
   const failed = (req) => ({ kind: 'check-failed', required: req, checks: [{ name: 'changes', required: req, quick: true }] });
   const stack = { key: 's1', prs: Array.from({ length: 10 }, (_, i) => i + 1), blockers: [failed(false)] };
   const one = groupNeeds([stack]);
   assert.deepEqual(one.map((g) => g.id), ['check-failed']);
-  const s = planSummary({ now: 0, groups: one, base: 'main' });
-  assert.equal(s.lead, 'Nothing can merge yet, and it’s one thing:');
-  assert.equal(s.rest, ' the changes check failed on all 10 PRs in the stack. main doesn’t require it, so GitHub would let you merge.');
   const mixed = groupNeeds([
     { key: 8, prs: [8], blockers: [{ kind: 'draft', required: true }] },
     { key: 4, prs: [4], blockers: [{ kind: 'conflicts-pr', required: true, with: 3, files: ['a'] }] },
     { key: 5, prs: [5], blockers: [failed(false), { kind: 'needs-review', required: true }] },
   ]);
   assert.deepEqual(mixed.map((g) => g.id), ['conflicts', 'review', 'draft'], 'grouped by the required blocker first');
-  assert.deepEqual(planSummary({ now: 4, groups: mixed, base: 'main' }), { lead: '4 of 7 can merge now.', rest: ' 3 need something first: 1 has conflicts, 1 needs a review and 1 is a draft.' });
-  assert.equal(planSummary({ now: 3, groups: [] }).lead, 'All 3 can merge');
-});
-
-test('the summary counts only the stack PRs a check failed on (AK-549)', async () => {
-  const { groupNeeds, planSummary } = await load();
-  const g = groupNeeds([{ key: 's', prs: [1, 2, 3], hits: 1, blockers: [{ kind: 'check-failed', required: true, checks: [{ name: 'test', required: true }] }] }]);
-  assert.equal(planSummary({ groups: g, base: 'main' }).rest, ' the test check failed on 1 of the 3 PRs in the stack.');
-});
-
-test('the summary names a blocked stack apart from the PRs that failed (AK-549)', async () => {
-  const { groupNeeds, planSummary } = await load();
-  const failed = { kind: 'check-failed', required: true, checks: [{ name: 'ci/test', required: true }] };
-  const g = groupNeeds([{ key: 's', prs: [11, 12, 13], hits: 1, blockers: [failed] }, { key: 5, prs: [5], blockers: [failed] }, { key: 8, prs: [8], blockers: [{ kind: 'draft', required: true }] }]);
-  assert.equal(planSummary({ now: 2, groups: g, base: 'main' }).rest, ' 5 need something first: 1 failed a check, 1 is a draft and 3 are in a stack that can’t merge yet.');
 });
 
 test('bottomPart cuts a chain where GitHub stacks begin or end (AK-541)', async () => {

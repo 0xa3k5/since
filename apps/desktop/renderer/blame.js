@@ -12,7 +12,7 @@ export function blameRows({ commits, lines }) {
 
 // The history list: the working-tree file first (its blame shows uncommitted lines), then
 // every commit that touched the file.
-export const WORKING_TREE = Object.freeze({ sha: null, subject: 'Working tree', status: null });
+const WORKING_TREE = Object.freeze({ sha: null, subject: 'Working tree', status: null });
 export function historyRows(path, entries) {
   return [{ ...WORKING_TREE, path }, ...entries];
 }

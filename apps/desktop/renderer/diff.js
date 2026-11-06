@@ -142,7 +142,7 @@ export function hunkKeys(hunk, hi) {
   return out;
 }
 
-export function statusLabel(s) {
+function statusLabel(s) {
   return { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', T: 'Type changed', U: 'Conflict', '?': 'Untracked' }[s] || s;
 }
 

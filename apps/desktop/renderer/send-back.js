@@ -81,7 +81,7 @@ const logBlock = (log) => (log && log.trim() ? `Last lines of the failed log:\n\
 export const appendLog = (text, log) => (logBlock(log) ? `${String(text || '').trimEnd()}\n\n${logBlock(log)}` : String(text || ''));
 
 // The facts a template is filled from. `reason` is stuckReason's text for the row.
-export function promptFacts(row, { base = null, touches = {}, log = '', reason = '' } = {}) {
+function promptFacts(row, { base = null, touches = {}, log = '', reason = '' } = {}) {
   const { pr } = row;
   const head = pr?.branch || row.branch || row.title || 'the branch';
   const to = pr?.base || base || 'the base';
@@ -100,7 +100,7 @@ export function promptFacts(row, { base = null, touches = {}, log = '', reason =
 
 // Fills `{{name}}` placeholders; unknown ones stay as typed. Lines left empty by a missing fact
 // collapse, so an unfetched log doesn't leave a gap.
-export function fillTemplate(template, facts) {
+function fillTemplate(template, facts) {
   return String(template || '')
     .replace(/\{\{\s*(\w+)\s*\}\}/g, (all, k) => (Object.hasOwn(facts, k) ? facts[k] : all))
     .replace(/\n{3,}/g, '\n\n')

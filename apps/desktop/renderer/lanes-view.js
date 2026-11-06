@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from './ui.js';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, savedLanes, saveLanes, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, authorsOf, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from './review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from './review-rows.js';
 import * as keymap from './keymap.js';
 import { GIT_NEEDS } from './git-version.js';
 import { updateBranchBlock } from './pr-review.js';
@@ -634,8 +634,6 @@ export function lanesView({ repo = null, git = null, pane = null, onPaneAction =
     list.replaceChildren(...rows);
     fitAll();
     queueFacts(shown);
-    const n = staged.stages.stuck.length;
-    const ready = staged.stages.ready.length;
     const needs = needsYou(staged.stages);
     // The counts live on the tabs; the title row only says it's loading.
     count.replaceChildren(...(!loaded ? ['Loading…'] : prsLoading ? [h('span.spinner.review-count-spin', { role: 'status', 'aria-label': 'Loading pull requests' })] : []));

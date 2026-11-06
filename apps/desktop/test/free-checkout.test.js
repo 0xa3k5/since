@@ -68,7 +68,7 @@ test('free and check out: undo refused once the other worktree has switched bran
 test('ipc: freeCheckout takes a branch and a worktree folder', () => {
   assert.equal(checkGit('freeCheckout', ['feature', '/tmp/wt']).worktreeArgs[0], 1);
   assert.throws(() => checkGit('freeCheckout', ['feature', 'relative']));
-  assert.equal(checkGit('freeBlocker', ['/tmp/wt']).worktreeArgs[0], 0);
+  assert.equal(checkGit('worktreeHold', ['/tmp/wt']).worktreeArgs[0], 0);
 });
 
 // Moving a dirty worktree's branch and changes here (Journal.moveCheckout).

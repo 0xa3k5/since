@@ -20,7 +20,7 @@ export function matchRule(rules, remotes) {
 
 // The identity this clone usually commits as: the most frequent reflog committer, once it has
 // made at least `min` commits here.
-export function usualIdentity(used, min = 3) {
+function usualIdentity(used, min = 3) {
   const top = [...(used || [])].sort((a, b) => b.count - a.count)[0];
   return top && top.count >= min ? top : null;
 }

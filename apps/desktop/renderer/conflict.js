@@ -32,8 +32,6 @@ export function parseConflicts(text) {
   return segs;
 }
 
-export const conflictCount = (segs) => segs.filter((s) => s.type === 'conflict').length;
-
 // A choice for one block: which ours/theirs lines to keep, and whether theirs come first.
 export function sideChoice(block, side) {
   return {

@@ -177,4 +177,4 @@ function normalize(saved = {}) {
   };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, MAX_DIFF, buildPrompt, buildPrPrompt, splitPr, promptHash, cleanMessage, stagedChanges, searchDirs, findBinary, runCli, runOllama, generate, normalize };
+module.exports = { PROVIDERS, PROVIDER_IDS, MAX_DIFF, buildPrompt, buildPrPrompt, splitPr, promptHash, cleanMessage, stagedChanges, searchDirs, findBinary, runCli, generate, normalize };

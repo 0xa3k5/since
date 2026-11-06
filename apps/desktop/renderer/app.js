@@ -3,7 +3,7 @@ import { mergeGateFix, methodFix, ghErrorFix, mergeViaNote } from './gh-gates.js
 import { paint, graphWidth, laneColor, readPalette } from './graph.js';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { renderDiff, hunkKeys, statusBadge, fileName, setSwatches, fileRef } from './diff.js';
-import { isRowControl, rowDoubleClick } from './keys.js';
+import { rowDoubleClick } from './keys.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import { removalPlan } from './worktree-removal.js';
 import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch, SWITCHES } from './resolve-text.js';
@@ -29,7 +29,7 @@ import { openStackLink } from './stack-link-view.js';
 import { loadPrReview, leavesPage, paneActions, fixActions } from './pr-review.js';
 import { storeKey, readTicks, progress as reviewProgress } from './review.js';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
-import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, HISTORY_VIEWS, sectionOf, pageOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.js';
 import { remoteNameError, remoteUsage, removeRemoteWarning } from './remotes.js';
 import { PANES, clampPane, stepPane, loadSizes, defaultSizes } from './pane-size.js';
 import { authorProfile, loginProfile } from './profile.js';
@@ -988,7 +988,6 @@ function openOrigin() {
 
 function renderSidebar() {
   if (!sidebarEl) return;
-  const branches = state.refs.filter((r) => r.kind === 'branch').sort((a, b) => (a.short === state.head.branch ? -1 : b.short === state.head.branch ? 1 : a.short.localeCompare(b.short)));
   const remotes = state.refs.filter((r) => r.kind === 'remote');
   const tags = state.refs.filter((r) => r.kind === 'tag').sort((a, b) => b.date - a.date);
   const groups = new Map();
@@ -4164,13 +4163,6 @@ async function openPr(pr) {
   if (ok) openPrOnGitHub(pr);
 }
 
-// A sidebar PR (AK-385): its row in Review, with the pane. Go to Branch (context menu, ⌘K) still
-// jumps to it on the map.
-function showPrInReview(pr) {
-  if (!state.repo) return;
-  if (state.view !== 'lanes' || !lanesOpen()) setView('lanes');
-  lanesPage?.showPr(pr.number);
-}
 function goToPr(pr) {
   const r = prRef(pr, state.refs, state.prs.byRef);
   if (!r) return toast(`${pr.branch} isn’t in this clone`, { detail: 'Check it out to get it, or open the pull request on GitHub.', action: { label: 'Check out', run: () => checkoutPr(pr) } });

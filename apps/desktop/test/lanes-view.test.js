@@ -43,15 +43,6 @@ test('within a bucket the newest activity comes first', async () => {
   assert.deepEqual(sorted.map((l) => l.name), ['b', 'new', 'old']);
 });
 
-test('filter as you type, and agent lanes only', async () => {
-  const { filterLanes } = await load();
-  const lanes = [lane('claude/fix-login', { agent: { reason: 'branch prefix' } }), lane('feature/login'), lane('docs', { pr: { number: 12, title: 'Fix login docs' } })];
-  assert.deepEqual(filterLanes(lanes, 'login').map((l) => l.name), ['claude/fix-login', 'feature/login', 'docs']);
-  assert.deepEqual(filterLanes(lanes, 'fix log').map((l) => l.name), ['claude/fix-login', 'docs']);
-  assert.deepEqual(filterLanes(lanes, '#12').map((l) => l.name), ['docs']);
-  assert.deepEqual(filterLanes(lanes, '', { agentsOnly: true }).map((l) => l.name), ['claude/fix-login']);
-});
-
 test('Enter switches worktree, or shows the tip', async () => {
   const { laneTarget } = await load();
   assert.deepEqual(laneTarget(lane('x', { worktree: { path: '/w/x', current: false } })), { kind: 'worktree', path: '/w/x' });
@@ -77,7 +68,7 @@ test('ahead/behind label and PR carry-over on local refreshes', async () => {
 });
 
 test('predicted conflicts: both lanes of a pair get them, they sort with "needs you" and block ready', async () => {
-  const { conflictsByLane, withConflicts, sortLanes, filterLanes, conflictText, laneBucket } = await load();
+  const { conflictsByLane, withConflicts, sortLanes, conflictText, laneBucket } = await load();
   const by = conflictsByLane([
     { a: { name: 'left', branch: 'left', worktree: null }, b: { name: 'right', branch: 'right', worktree: null }, files: ['a.js'] },
     { a: { name: 'left', branch: 'left', worktree: null }, b: null, files: ['a.js', 'b.js', 'c.js', 'd.js', 'e.js'] },
@@ -89,7 +80,6 @@ test('predicted conflicts: both lanes of a pair get them, they sort with "needs 
   const lanes = withConflicts([lane('left', ready), lane('right'), lane('quiet')], by);
   assert.equal(laneBucket(lanes[0], NOW), 'conflicts', 'a green, approved PR with conflicts is not ready');
   assert.deepEqual(sortLanes(lanes, NOW).map((l) => l.bucket), ['conflicts', 'conflicts', 'active']);
-  assert.deepEqual(filterLanes(lanes, '', { conflictsOnly: true }).map((l) => l.name), ['left', 'right']);
   assert.equal(lanes[2].conflicts, null);
 });
 

@@ -50,7 +50,7 @@ export const SECTION_PAGES = [
 const ITEMS = [...NAV_ITEMS.map((p) => ({ ...p, group: 'nav' })), ...SECTION_PAGES.map((p) => ({ ...p, group: 'list' }))];
 
 // Snapshots and the reflog are one page, History, with a tab each.
-export const HISTORY_VIEWS = ['snapshots', 'reflog'];
+const HISTORY_VIEWS = ['snapshots', 'reflog'];
 
 // The sidebar row that stays highlighted while `view` is on screen, or null.
 export const sectionOf = (view) => (HISTORY_VIEWS.includes(view) ? 'history' : ITEMS.find((p) => p.view === view)?.id || null);

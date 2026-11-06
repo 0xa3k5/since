@@ -4,13 +4,13 @@
 // HEAD's first-parent chain (the "trunk") always sits in lane 0, so the current branch reads as
 // one straight line down the left edge; every other branch fans out to the right of it.
 
-export const LANE_W = 14;
-export const GRAPH_PAD = 12;
-export const MAX_LANES = 28;
+const LANE_W = 14;
+const GRAPH_PAD = 12;
+const MAX_LANES = 28;
 
 // Lane colours live in styles.css (--lane-0 … --lane-9) so they follow the theme.
-export const LANES = 10;
-export const laneVar = (n) => `var(--lane-${n % LANES})`;
+const LANES = 10;
+const laneVar = (n) => `var(--lane-${n % LANES})`;
 
 export function readPalette(el = document.documentElement) {
   const cs = getComputedStyle(el);

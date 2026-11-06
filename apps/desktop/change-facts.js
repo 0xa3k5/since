@@ -470,7 +470,5 @@ async function recentHistory(root, tip, tipTime, paths) {
 }
 
 module.exports = {
-  changeFacts, analyze, fragileFiles, parseNumstat, parseSummary, parsePatch, lockChanges, manifestDeps,
-  FRAGILE_SHARE, FRAGILE_MIN_COMMITS, FRAGILE_MIN_FIXES, FRAGILE_DAYS,
-  _clearCache: () => cache.clear(),
-};
+  changeFacts, analyze, fragileFiles, parsePatch, lockChanges, manifestDeps,
+  _clearCache: () => cache.clear() };

@@ -10,7 +10,7 @@ const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // Why a done lane counts as merged, for its badge's tooltip.
-export function doneText(l) {
+function doneText(l) {
   const why = l.done.reason === 'pr' ? `Pull request #${l.done.pr} was merged`
     : l.done.reason === 'key' ? `${l.done.key} is on the base branch`
       : l.done.reason === 'subject' ? 'A commit with its title is on the base branch'
@@ -31,7 +31,7 @@ export function laneBadges(l) {
 }
 
 // A lane action as a small button (lanes.js ACTIONS); onRun(id) runs it.
-export function laneActionBtn(id, onRun, inline = true) {
+function laneActionBtn(id, onRun, inline = true) {
   const a = ACTIONS[id];
   return h(inline ? 'button.btn.subtle.lanes-fix-btn' : 'button.btn.subtle.lanes-step', {
     'data-tip': tipFor(a.label, a.keyId), 'aria-label': a.label,

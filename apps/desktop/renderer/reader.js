@@ -72,7 +72,7 @@ export function readerKey(e, { scroller, onStep = null, onFile = null, onBack = 
 }
 
 // An initials avatar whose tooltip is just the name (ui.js avatar wants an email for its colour and tooltip).
-export function personAvatar(name, key = name, size = 18) {
+function personAvatar(name, key = name, size = 18) {
   const a = avatar(name || '?', key || name || '?', size);
   a.title = name || '';
   return a;
@@ -82,7 +82,7 @@ export function personAvatar(name, key = name, size = 18) {
 // person is their avatar and name; two or more are one avatar group, names in its tooltip (AK-533).
 // profile(a): { url, label, open } for an author we can place on GitHub (AK-627), else null; one
 // author is then a link, a group's popover rows open theirs.
-export function authorsEl(authors = [], size = 16, cls = '', profile = null) {
+function authorsEl(authors = [], size = 16, cls = '', profile = null) {
   const list = (authors || []).filter((a) => a?.name);
   if (!list.length) return null;
   if (list.length > 1) return authorsStack(list, size, '.reader-authors' + cls, profile);
@@ -358,7 +358,7 @@ const LEVEL_ICON = { failure: ['x', 'fail'], warning: ['warning', 'warn'], notic
 // then a button with the short SHA, subject and age that runs onOpen(sha). c: branchReview's
 // { sha, subject, author, email?, coAuthors?, time }. The line carries data-sha and .on while its
 // commit is the one open beside the diff. ↑/↓ move between commits.
-export function commitLine(c, { on = false, onOpen = null } = {}) {
+function commitLine(c, { on = false, onOpen = null } = {}) {
   const people = [{ name: c.author, key: c.email || c.author }, ...(c.coAuthors || []).map((p) => ({ name: p.name, key: p.email || p.name }))].filter((p) => p.name);
   const who = people.length > 1 ? authorsStack(people, 16) : people.length ? personAvatar(people[0].name, people[0].key, 16) : h('span');
   const btn = h('button.ev-item.commit-open', {
@@ -388,7 +388,7 @@ export function markCommit(root, sha) {
 }
 // The commits, newest first: the first COMMITS_SHOWN, then "Show all N" (`all` once pressed); past
 // the list branchReview returns, how many older ones aren't listed.
-export const COMMITS_SHOWN = 10;
+const COMMITS_SHOWN = 10;
 export function commitLines({ list, count, selected = null, onOpen = null }, all, onAll) {
   const n = Math.max(count || 0, list.length);
   const rows = all ? list : list.slice(0, COMMITS_SHOWN);
@@ -507,7 +507,7 @@ const fileName = (m) => { try { return decodeURIComponent(new URL(m.url).pathnam
 const ORDER = { description: 0, comment: 1, review: 2 };
 
 // The thumbnails, as a row of buttons. Space (a button's click) enlarges the focused one.
-export function mediaGallery(list, { openUrl = null, loadImage = null } = {}) {
+function mediaGallery(list, { openUrl = null, loadImage = null } = {}) {
   const media = [...(list || [])].filter((m) => m?.id).sort((a, b) => (ORDER[a.from] ?? 1) - (ORDER[b.from] ?? 1));
   const grid = h('div.ev-media', { role: 'list', 'aria-label': 'Images and videos' });
   const thumbs = media.map((m, i) => {
@@ -546,7 +546,7 @@ const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStar
 
 // The enlarged view: over the reader on --scrim, with "2 of 3 · file · from the description", the
 // keys and Open on GitHub. Videos play inline, muted at first, with their controls.
-export function mediaView(media, start, { openUrl = null, loadImage = null, back = null } = {}) {
+function mediaView(media, start, { openUrl = null, loadImage = null, back = null } = {}) {
   let i = start;
   const stage = h('div.media-stage');
   const bar = h('div.media-bar');

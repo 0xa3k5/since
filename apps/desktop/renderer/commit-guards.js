@@ -21,7 +21,7 @@ export function commitBlock(id, c, headOid, get = null) {
 // Whether rewriting `c` on HEAD would replay a merge commit (git.rewriteRange refuses): a merge
 // reachable from HEAD but not from where the rebase starts (`c`'s parent, or its grandparent when
 // `grand`). false when `c` isn't on HEAD (that rewrite runs on another branch) or isn't loaded.
-export function mergeInWay(c, headOid, grand, get) {
+function mergeInWay(c, headOid, grand, get) {
   const reach = (from, stop = null) => {
     const seen = new Set();
     const todo = from ? [from] : [];

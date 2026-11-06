@@ -7,7 +7,7 @@ import { AGENT_HINTS } from './agents.js';
 const HOUR = 3600e3;
 // "Pushed recently": a lane committed to or edited within this long is still being worked on
 // (In progress) when it has no pull request.
-export const RECENT_FOR = 48 * HOUR;
+const RECENT_FOR = 48 * HOUR;
 
 export const STAGES = [
   { id: 'stuck', label: 'Stuck' },
@@ -31,7 +31,7 @@ const time = (iso) => {
 };
 
 // The row's newest sign of life: the PR's last update or the lane's last commit or edit.
-export const rowActivity = (row) => Math.max(time(row.pr?.updatedAt), row.lane?.activity || 0);
+const rowActivity = (row) => Math.max(time(row.pr?.updatedAt), row.lane?.activity || 0);
 
 // GitHub's merge box state (pr.mergeState, github.normalizePr) once it has worked it out.
 // A draft's state is just "draft", so GitHub's older mergeable check and the forecast still count.
@@ -295,7 +295,7 @@ export function partWhy(row, { base = null } = {}) {
 // widths (styles.css, review-list); the rest depends on how wide a stack's actions are, so a fit
 // pass measures each head (stackFit).
 export const STACK_SHED = { count: 720, tag: 600, short: 520 };
-export const stackTier = (width) => ({ count: width > STACK_SHED.count, tag: width > STACK_SHED.tag ? 'name' : 'icon', sentence: width > STACK_SHED.short ? 'full' : 'short' });
+const stackTier = (width) => ({ count: width > STACK_SHED.count, tag: width > STACK_SHED.tag ? 'name' : 'icon', sentence: width > STACK_SHED.short ? 'full' : 'short' });
 // The fit pass's level for a head `room` px wide: '' (all shown), 'quiet' (no sentence), 'menu'
 // (secondary actions in ⋯) or 'tight' (every action in ⋯). base: padding plus what never sheds;
 // sentence: its narrowest before it hides; main, secondary: the actions' widths; more: ⋯'s.
@@ -456,10 +456,6 @@ export function rowBadges(row, { requested = new Set() } = {}) {
 
 // Why a row looks agent-made, or null: its lane's guess (branch name, commit trailers), else a bot
 // opened its PR.
-export function rowAgent({ lane, pr } = {}) {
-  if (lane?.agent) return `Looks agent-made (${lane.agent.reason}: ${lane.agent.match})`;
-  return pr?.bot ? `Opened by a bot (${pr.authorName || pr.author})` : null;
-}
 
 // What to call a reviewer or author: the name (github.js fills it with a bot's login without its
 // "app/" and "[bot]", AK-312), else the login.
@@ -685,7 +681,7 @@ export function conflictNote(row, { base = null, files = null } = {}) {
 // gives nothing, and the one absence shown is "CI didn't run" (evidence.ciMissing).
 
 // A flag-level fact's chip on a row; info-level facts ("tests changed") never get one.
-export const FACT_CHIPS = { dependencies: 'deps', ci: 'ci config', 'tests-deleted': 'test deleted', 'tests-skipped': 'tests skipped', modes: 'mode changed', binaries: 'binaries', fragile: 'fragile' };
+const FACT_CHIPS = { dependencies: 'deps', ci: 'ci config', 'tests-deleted': 'test deleted', 'tests-skipped': 'tests skipped', modes: 'mode changed', binaries: 'binaries', fragile: 'fragile' };
 // A fact's label in the reader's facts line.
 const FACT_LABELS = {
   dependencies: (n) => (n === 1 ? 'dependency changed' : 'dependencies changed'), ci: () => 'ci config', 'tests-deleted': (n) => (n === 1 ? 'test deleted' : 'tests deleted'),
