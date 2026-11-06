@@ -158,7 +158,7 @@ export function peopleOrder(people = []) {
 
 // The popover body for an avatar group: one row per person with their avatar, name and email (sub),
 // or an "agent" tag. A row with `open` runs it when picked; the others are plain.
-export function peoplePop(people, label = 'Authors') {
+function peoplePop(people, label = 'Authors') {
   const { agents, humans, head } = peopleOrder(people);
   const row = (p) => {
     const a = avatar(p.name, p.email || p.key || p.name, 20);
@@ -678,7 +678,7 @@ function popKeys(e) {
   else if (id === 'menu.next') { e.preventDefault(); rows[(at + 1) % rows.length]?.focus(); }
   else if (id === 'menu.prev') { e.preventDefault(); rows[at < 0 ? rows.length - 1 : (at - 1 + rows.length) % rows.length]?.focus(); }
 }
-export function openPopover(target, { held = false, focus = false } = {}) {
+function openPopover(target, { held = false, focus = false } = {}) {
   clearTimeout(popTimer); clearTimeout(popLeave);
   if (pop?.target !== target) {
     closePopover();
@@ -696,7 +696,7 @@ export function openPopover(target, { held = false, focus = false } = {}) {
   pop.held ||= held;
   if (focus) popRows()[0]?.focus();
 }
-export function closePopover({ refocus = false } = {}) {
+function closePopover({ refocus = false } = {}) {
   clearTimeout(popTimer); clearTimeout(popLeave);
   if (!pop) return;
   const { el, target } = pop;
@@ -739,7 +739,7 @@ if (typeof document !== 'undefined') {
 }
 
 // --- Command palette ---------------------------------------------------------------
-export function fuzzy(q, s) {
+function fuzzy(q, s) {
   if (!q) return 1;
   q = q.toLowerCase(); s = s.toLowerCase();
   const direct = s.indexOf(q);

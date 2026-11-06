@@ -20,7 +20,7 @@ export function areaOf(file) {
   return parts[0];
 }
 // A change's area: the one most of its files are in (first seen wins a tie).
-export function mainArea(files = []) {
+function mainArea(files = []) {
   const n = new Map();
   for (const f of files) { const a = areaOf(f); n.set(a, (n.get(a) || 0) + 1); }
   let best = null;
@@ -56,26 +56,6 @@ export function landedEntries(commits = [], merged = null) {
   });
 }
 
-// Groups to show: by issue key (labelled with its PR's title, or its newest subject), otherwise
-// by area. Biggest first, then newest. → [{ id, label, key?, area?, entries, date }]
-export function groupLanded(entries) {
-  const groups = new Map();
-  for (const e of entries) {
-    const id = e.key ? `key:${e.key}` : `area:${e.area}`;
-    let g = groups.get(id);
-    if (!g) { g = { id, ...(e.key ? { key: e.key } : { area: e.area }), label: null, entries: [], date: 0 }; groups.set(id, g); }
-    g.entries.push(e);
-    g.date = Math.max(g.date, e.date || 0);
-    // A key group reads as its PR's title; entries come newest first, so the first PR wins.
-    if (e.key && (!g.label || (e.kind === 'pr' && !g.pr))) { g.label = e.title; if (e.kind === 'pr') g.pr = true; }
-  }
-  for (const g of groups.values()) { if (!g.key) g.label = g.area; delete g.pr; }
-  return [...groups.values()].sort((a, b) => b.entries.length - a.entries.length || b.date - a.date);
-}
-
-// How many groups the card shows before "+N more ▾".
-export const TOP = 4;
-
 // The "Since…" picker: last checkpoint, yesterday, last week, then the newest tags.
 export function sinceOptions(tags = [], max = 8) {
   return [
@@ -97,31 +77,11 @@ export function sinceText(res, { short = (s) => s.slice(0, 7), ago = () => '' } 
   if (!cp.sha) return { text: cp.source === 'week' ? 'Since last week (no checkpoint yet)' : 'No checkpoint yet' };
   return withFallback(res, `Caught up to ${short(cp.sha)} on ${cp.base || res.base}${at ? ` · ${at}` : ''}`, short);
 }
-// The walk-through header's short "since …" (AK-304): "since a1b2c3d", "since tag v0.1.0", "since yesterday".
-export function sinceLabel(res, { short = (s) => s.slice(0, 7) } = {}) {
-  if (!res) return 'since checkpoint';
-  if (res.kind === 'tag') return `since tag ${res.tag}`;
-  if (res.kind === 'yesterday') return 'since yesterday';
-  if (res.kind === 'week') return 'since last week';
-  const sha = res.checkpoint?.sha;
-  return sha ? `since ${short(sha)}` : 'since checkpoint';
-}
 function withFallback(res, text, short) {
   if (!res.fallback) return { text };
   const what = res.kind === 'tag' ? `Tag ${res.tag}` : short(res.fallback.sha);
   const why = res.fallback.reason === 'missing' ? 'no longer exists' : `is no longer on ${res.base} (force-pushed?)`;
   return { text, warn: res.date != null ? `${what} ${why}. Showing what landed since its date.` : `${what} ${why}.` };
-}
-
-// The counts line: merged (PRs, or commits without PRs), stuck and ready to merge, and the base's CI.
-export function countsText({ entries, stuck, ready, prsOn, ci, base }) {
-  const prs = entries.filter((e) => e.kind === 'pr').length;
-  const loose = entries.length - prs;
-  const merged = prs ? `${prs} merged${loose ? ` · ${loose} other commit${loose === 1 ? '' : 's'}` : ''}` : `${entries.length} commit${entries.length === 1 ? '' : 's'} landed`;
-  const parts = [merged, `${stuck} stuck`];
-  if (prsOn) parts.push(`${ready} ready to merge`);
-  const ciText = ci ? { passing: 'CI passing', failing: `CI failing${ci.failed?.length ? `: ${ci.failed.join(', ')}` : ''}`, pending: 'CI running' }[ci.state] : null;
-  return { parts, ci: ciText ? { state: ci.state, text: `${base} ${ciText}` } : null };
 }
 
 // The Catch up view's timeline (AK-365): entries by local day, newest first. "Today", "Yesterday",

@@ -39,7 +39,6 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   let phase = 'planning'; // planning | planned | merging | stopped | done | failed
   let stopReason = '';
   let merged = 0;
-  let total = 0;
   const status = new Map(); // unit key (PR number or stack id) → { text, kind }
   let left = ready.map((p) => p.number);
   let method = asked || 'squash';
@@ -603,7 +602,6 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
 
   async function mergeAll() {
     phase = 'merging';
-    total = plan.order.length;
     let baseSha = plan.baseSha;
     for (const step of plan.order) {
       const key = step.stack ?? step.number;

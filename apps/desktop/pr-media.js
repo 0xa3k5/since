@@ -122,4 +122,4 @@ function createMedia({ token, fetchImpl = (...a) => fetch(...a) } = {}) {
   return { register, image, video, stats };
 }
 
-module.exports = { SCHEME, MAX_BYTES, MAX_IMAGE, allowedHost, createMedia };
+module.exports = { SCHEME, MAX_BYTES, allowedHost, createMedia };

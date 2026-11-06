@@ -435,16 +435,11 @@ kbd.inline { flex: none; }
 /* Pull request badge on a branch pill, and the marks it shares with the sidebar list. */
 .pr-badge { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; padding: 0 4px; border-radius: 4px; background: var(--bg-hover); color: var(--text-2); font-size: 10.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .pr-badge:hover { color: var(--text); background: var(--bg-active); }
-.pr-badge.stale, .pr-item.stale .pr-num { opacity: 0.6; }
+.pr-badge.stale { opacity: 0.6; }
 .pr-draft { font-size: 10px; color: var(--text-3); }
-.pr-review.approved, .pr-ci.success { color: var(--green); }
-.pr-review.changes, .pr-ci.failure { color: var(--red); }
-.pr-ci.pending { color: var(--yellow); }
-.pr-ci { font-size: 9px; }
+.pr-review.approved { color: var(--green); }
+.pr-review.changes { color: var(--red); }
 .review-dot.pr-dot { width: 6px; height: 6px; flex: none; }
-.pr-num { color: var(--text-3); font-variant-numeric: tabular-nums; }
-.pr-item .pr-open { margin-left: auto; opacity: 0; }
-.pr-item:hover .pr-open, .pr-item .pr-open:focus-visible { opacity: 1; }
 .pr-quick { display: grid; gap: 4px; margin-top: 8px; }
 .pr-stale-note { color: var(--text-3); font-size: 12px; }
 .pr-merge { display: grid; gap: 4px; }
@@ -780,7 +775,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .table-row:hover { background: var(--bg-hover); }
 .reflog-sel { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reflog-action { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.config-row { grid-template-columns: 70px minmax(200px, 320px) 1fr; }
 .config-val { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .badge { justify-self: start; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: var(--fw-medium); color: var(--text-3); background: var(--bg-active); }
 .badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
@@ -823,7 +817,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-subline .catchup-warn { flex-basis: 100%; }
 .catchup-strip { flex: none; padding: 0 32px; border-bottom: 1px solid var(--border); }
 .catchup-msg { flex: 1; min-height: 0; overflow-y: auto; padding: 0 32px 24px; }
-.catchup-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; padding: 4px 0 20px; }
 .catchup-cols { --cu-col: min(var(--cu-w, 380px), max(280px, 100% - 420px)); position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: var(--cu-col) minmax(0, 1fr); }
 .catchup-cols > .pane-handle { left: calc(var(--cu-col) - 4px); }
 .catchup-list { min-height: 0; overflow-y: auto; padding: 0 12px 24px 20px; border-right: 1px solid var(--border); }
@@ -831,10 +824,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .catchup-reader:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .catchup-strip[hidden], .catchup-cols[hidden], .catchup-msg[hidden] { display: none; }
 @media (max-width: 960px) { .catchup-cols { grid-template-columns: 300px minmax(0, 1fr); } }
-.catchup-total { display: grid; gap: 6px; min-width: 0; }
-.catchup-number { font-size: 15px; color: var(--text-2); }
-.catchup-number strong { font-size: 32px; line-height: 1; font-weight: var(--fw-strong); letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
-.catchup-sinceline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: 12px; color: var(--text-3); }
 .catchup-since { flex: none; height: 22px; padding: 0 6px; margin-left: -6px; color: var(--text-2); }
 .catchup-warn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--warn); }
 .catchup-ci.passing { color: var(--green); }
@@ -889,7 +878,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .review-none { padding: 4px 16px 8px; font-size: 12px; color: var(--text-4); }
 .lanes-row.review-row { align-items: flex-start; padding: 10px 12px; border-radius: 8px; }
 .lanes-row.review-row > .icon { margin-top: 2px; }
-.landed-merged { flex: none; display: flex; margin-top: 2px; color: var(--merged); }
 .review-row-num { flex: none; color: var(--text-4); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
 .review-row-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* GitHub still checking whether a PR merges cleanly (AK-321). */
@@ -991,14 +979,13 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .mergeplan { display: flex; flex-direction: column; gap: 6px; }
 .mergeplan-row { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 13px; }
 .mergeplan-n { width: 16px; color: var(--text-4); font-variant-numeric: tabular-nums; text-align: right; }
-.mergeplan-pr, .mergeplan-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mergeplan-title { flex: 1; }
+.mergeplan-pr { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* AK-549: the PR or stack on one line, the reason it waits wrapping below it (never cut off). */
 .mergeplan-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .mergeplan-why { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; overflow-wrap: anywhere; }
 .mergeplan-range { color: var(--text-4); font-size: 12px; }
 .mergeplan-unit.has-why { align-items: flex-start; padding-top: 3px; padding-bottom: 3px; }
-.mergeplan-unit.has-why > input, .mergeplan-unit.has-why > .mergeplan-box, .mergeplan-unit.has-why > .mergeplan-chev { margin-top: 3px; }
+.mergeplan-unit.has-why > input, .mergeplan-unit.has-why > .mergeplan-chev { margin-top: 3px; }
 .mergeplan-sec { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
 .mergeplan-sec-hint { margin-left: auto; font-size: 12px; color: var(--text-4); }
 .mergeplan-who { flex: none; padding: 1px 8px; border-radius: 999px; background: var(--bg-active); color: var(--text-2); font-size: 11px; line-height: 16px; white-space: nowrap; }
@@ -1114,41 +1101,23 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .lanes-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lanes-row .list-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lanes-conflict { gap: 3px; }
-.lanes-conflicts { display: none; margin-top: 2px; font-size: 12px; color: var(--warn); }
-.lanes-conflicts > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lanes-row.active .lanes-conflicts { display: block; }
-.lanes-branch { margin-right: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
 .lanes-fix { display: flex; gap: 6px; margin-top: 6px; }
 .lanes-step, .lanes-fix-btn { flex: none; height: 28px; padding: 0 10px; font-size: 12px; }
-.lanes-step-none { flex: none; }
 .lanes-row.active .lanes-step { background: var(--accent-solid); border-color: transparent; color: var(--on-accent); box-shadow: var(--btn-highlight), var(--shadow-sm); }
 .lanes-row.active .lanes-step .icon { color: var(--on-accent); }
-.lanes-changes, .lanes-ab, .lanes-pr, .lanes-time { flex: none; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
-.lanes-changes { min-width: 72px; }
-.lanes-changes.dirty { color: var(--warn); }
-.lanes-ab { min-width: 64px; }
-.lanes-pr { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 56px; }
-.lanes-time { min-width: 36px; color: var(--text-4); }
-.lanes-ago { color: var(--text-4); font-variant-numeric: tabular-nums; }
 .lanes-count { font-size: 12px; }
 .lanes-row .list-main { min-width: min(120px, 40%); }
 /* Narrow list: the title wins, but the PR number before it never hides. The ↑↓, PR status and
    progress columns go to the row's tooltip, then the row's button keeps only its icon and tags
    shrink to dots (each keeps its tooltip). */
-@container review-list (max-width: 640px) {
-  .lanes-row .lanes-ab, .lanes-row .lanes-pr, .lanes-row .lanes-review { display: none; }
-}
 @container review-list (max-width: 480px) {
-  .lanes-row .lanes-changes, .lanes-row > .lanes-step .btn-label { display: none; }
+  .lanes-row > .lanes-step .btn-label { display: none; }
   .lanes-row > .lanes-step { width: 28px; padding: 0; justify-content: center; }
   .lanes-row .list-title .badge, .lanes-row .list-sub .badge { flex: none; width: 8px; height: 8px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; background: currentColor; }
   .lanes-row .list-title .badge .icon { display: none; }
 }
 .cleanup-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
 .cleanup-progress[hidden] { display: none; }
-.lanes-review { flex: none; min-width: 92px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
-.lanes-review.done { color: var(--accent-fg); }
-.lanes-review.moved, .lanes-moved { color: var(--warn); }
 /* Branch review (review-view.js) */
 .review-side { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
 .review-side .quick-head { margin-bottom: 0; }
@@ -1738,7 +1707,6 @@ html.has-tabs #app { height: calc(100vh - 36px); }
 .review-signals { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--red); }
 .review-signal { display: inline-flex; align-items: center; gap: 2px; }
 .review-signal .icon { flex: none; }
-.review-signal-count { font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 /* The slim bar keeps the avatar; the name stays in its tooltip. */
 .reader-mini-authors { flex: none; gap: 4px; }
 .reader-mini-authors .reader-author-name { display: none; }
@@ -1960,5 +1928,3 @@ html.has-tabs #app { height: calc(100vh - 36px); }
 .dl.flash { animation: dl-flash 1.2s ease-out; }
 @keyframes dl-flash { from { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); } }
 @media (prefers-reduced-motion: reduce) { .dl.flash { animation: none; background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); } }
-.ev-people { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px; color: var(--text-2); }
-.ev-person { display: inline-flex; align-items: center; gap: 6px; }

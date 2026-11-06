@@ -11,6 +11,7 @@ const { Journal } = require('../journal');
 const { checkGit } = require('../ipc');
 
 const load = () => import('../renderer/conflict.js');
+const conflictCount = (segs) => segs.filter((s) => s.type === 'conflict').length;
 
 async function repo() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
@@ -41,7 +42,7 @@ async function conflicted(base, ours, theirs, { op = 'merge', file = 'f.txt' } =
 }
 
 test('parseConflicts: merge and diff3 styles, CRLF, round trip', async () => {
-  const { parseConflicts, composeResult, conflictCount } = await load();
+  const { parseConflicts, composeResult } = await load();
   const text = 'a\n<<<<<<< HEAD\nours 1\nours 2\n=======\ntheirs\n>>>>>>> other\nb\n<<<<<<< HEAD\nx\r\n||||||| base\nbase\r\n=======\ny\r\n>>>>>>> other\nc\n';
   const segs = parseConflicts(text);
   assert.equal(conflictCount(segs), 2);
@@ -52,7 +53,7 @@ test('parseConflicts: merge and diff3 styles, CRLF, round trip', async () => {
 });
 
 test('parseConflicts: unterminated markers and look-alikes stay text', async () => {
-  const { parseConflicts, conflictCount, composeResult, hasMarkers } = await load();
+  const { parseConflicts, composeResult, hasMarkers } = await load();
   for (const text of ['<<<<<<< HEAD\nours\n=======\ntheirs\n', '<<<<<<<< eight\n========\n>>>>>>>>\n', '<<<<<<<x\n=======\n>>>>>>> y\n']) {
     const segs = parseConflicts(text);
     assert.equal(conflictCount(segs), 0, text);
@@ -96,7 +97,7 @@ test('getConflict reads a text conflict; resolveConflict stages it; undo brings 
 });
 
 test('conflicts from rebase and cherry-pick parse the same way', async () => {
-  const { parseConflicts, conflictCount } = await load();
+  const { parseConflicts } = await load();
   for (const op of ['rebase', 'cherry-pick']) {
     const { dir } = await conflicted('base\n', 'ours\n', 'theirs\n', { op });
     const info = await git.getConflict(dir, 'f.txt');

@@ -3,13 +3,13 @@
 
 const HOUR = 3600e3;
 // Uncommitted changes nobody has touched for this long count as stalled work.
-export const STALLED_AFTER = 2 * HOUR;
+const STALLED_AFTER = 2 * HOUR;
 // A lane with activity this recent is "active"; older ones are idle.
-export const ACTIVE_FOR = 3 * 24 * HOUR;
+const ACTIVE_FOR = 3 * 24 * HOUR;
 
 // Buckets, in the order the list shows them. `needs` marks the ones that need you. The most
 // actionable first: a conflict usually has a clear fix (rebase onto base), failing CI one link.
-export const BUCKETS = [
+const BUCKETS = [
   { id: 'conflicts', label: 'Predicted conflicts', needs: true },
   { id: 'failing', label: 'CI failing', needs: true },
   { id: 'review', label: 'Review', needs: true },
@@ -132,19 +132,6 @@ export const laneTitle = (l) => l.title || l.pr?.title || l.name;
 
 // A stable key per lane, for keeping the selection across refreshes.
 export const laneKey = (lane) => (lane.branch ? `b:${lane.branch}` : `w:${lane.worktree?.path || lane.name}`);
-
-// Filter as you type: every word must appear in the lane's name, branch, worktree path or PR.
-// `agentsOnly` keeps lanes that look agent-made; `conflictsOnly` lanes with predicted conflicts.
-export function filterLanes(lanes, query = '', { agentsOnly = false, conflictsOnly = false } = {}) {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return lanes.filter((l) => {
-    if (agentsOnly && !l.agent) return false;
-    if (conflictsOnly && !l.conflicts?.length) return false;
-    if (!words.length) return true;
-    const hay = [l.title, l.name, l.branch, l.worktree?.path, l.upstream, l.pr ? `#${l.pr.number} ${l.pr.title}` : ''].filter(Boolean).join(' ').toLowerCase();
-    return words.every((w) => hay.includes(w));
-  });
-}
 
 // "↑3 ↓12" against the base; empty for the base itself or when there is no base.
 export function aheadBehind(lane) {

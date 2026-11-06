@@ -195,14 +195,11 @@ test('badges: CI and review state, conflicts and uncommitted changes', async () 
 });
 
 test('agent-made: lane guesses and bot authors, only while marks are on', async () => {
-  const { rowBadges, rowAgent } = await load();
+  const { rowBadges } = await load();
   const texts = (r, o) => rowBadges({ conflicts: [], worktree: null, ...r }, o).map((b) => b.text);
   const botPr = pr(1, { checks: null, bot: true, author: 'app/renovate', authorName: 'renovate' });
   assert.deepEqual(texts({ pr: botPr }), []);
   assert.deepEqual(texts({ pr: botPr }, { agents: true }), [], 'no Agent badge: agents show as authors (AK-390)');
-  assert.equal(rowAgent({ pr: botPr }), 'Opened by a bot (renovate)');
-  assert.match(rowAgent({ lane: { agent: { reason: 'branch', match: 'claude/' } }, pr: pr(2) }), /Looks agent-made/);
-  assert.equal(rowAgent({ pr: pr(3) }), null);
   assert.deepEqual(rowBadges({ conflicts: [], pr: pr(4, { checks: null, review: 'required' }) }).map((b) => b.icon), ['pending']);
 });
 

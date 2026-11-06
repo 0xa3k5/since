@@ -6,8 +6,6 @@ import * as keymap from './keymap.js';
 // streamed in pages so long histories show up at once; the blame of the selected version on
 // the right. Both lists are virtual, so 100k-commit histories and huge files stay smooth.
 
-export const FILE_HISTORY_KEYS = { show: ['↵'], open: ['Space'], move: ['↑', '↓'], back: ['Esc'] };
-
 const FIRST_PAGE = 200, PAGE = 1000;
 
 // git(method, ...args) calls the main process; onShow(sha) shows a commit in the Map,

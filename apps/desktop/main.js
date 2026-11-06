@@ -205,10 +205,8 @@ const reads = {
   lfs: (s) => git.getLfs(s.repo.root),
   submodules: (s) => git.getSubmodules(s.repo.root),
   submoduleChanges: (s, p) => git.submoduleChanges(s.repo.root, p),
-  externalTools: (s) => git.getExternalTools(s.repo.root),
   // Read-only: the tool gets temporary copies; for the working tree it may edit the real file.
   difftool: (s, file, staged, commit, parent) => git.difftool(s.repo.root, file, { staged, commit, parent }),
-  opState: (s) => git.getOperationState(s.repo.gitDir),
   opInfo: (s) => git.getOperationInfo(s.repo.root, s.repo.gitDir),
   divergence: (s, fetch) => git.divergence(s.repo.root, { fetch }),
   conflict: (s, p) => git.getConflict(s.repo.root, p),
@@ -230,11 +228,6 @@ const reads = {
     const wt = await git.findWorktree(s.repo.root, dir);
     return wt.missing ? null : git.worktreeChanges(wt.path);
   },
-  // Why that worktree can't give up its branch to this one (see freeCheckout), or null.
-  freeBlocker: async (s, dir) => {
-    const wt = await git.findWorktree(s.repo.root, dir);
-    return ![undefined, s.win].includes(windowFor(wt.path)) ? 'It’s open in another window.' : git.freeBlocker(wt);
-  },
   // Whether that worktree can hand its branch and changes to this one (see moveCheckout).
   worktreeHold: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
@@ -242,10 +235,6 @@ const reads = {
   },
   // What removing that worktree stashes ({ changes }) and would abort ({ op }).
   removalFacts: async (s, dir) => git.removalFacts(await git.findWorktree(s.repo.root, dir)),
-  worktreeOp: async (s, dir) => {
-    const wt = await git.findWorktree(s.repo.root, dir);
-    return wt.missing ? null : git.worktreeOp(wt.path);
-  },
   // The same, named (AK-584): what it's merging, picking or rebasing, and how far it got.
   worktreeOpInfo: async (s, dir) => {
     const wt = await git.findWorktree(s.repo.root, dir);
@@ -504,7 +493,6 @@ handle('app:remove-recent', (e, root) => {
   buildMenu();
 });
 handle('app:repo', (e) => sessions.get(e.sender.id)?.repo || null);
-handle('app:platform', () => process.platform);
 handle('app:theme', () => currentTheme());
 
 // The git in use, and Use another git… (AK-586): pick a git program, which must run and say its
@@ -1020,41 +1008,6 @@ handle('app:pr-stack-link', okCall(async (e, remoteName, baseName, numbers) => {
   if (new Set(ns).size !== ns.length) throw new check.IpcArgError('Invalid stack');
   return github.linkStack({ ...t, base, numbers: ns });
 }));
-// Rebases a stack onto its base (AK-559), so GitHub can merge it: merge commits out, each PR on
-// the one below it. All or nothing, like linking: every PR is checked first (open, its base the one
-// below it, you can push to it), the new commits are built as objects only (git.rebaseStack), and
-// the first conflict stops it with nothing changed. Then one atomic push, each branch leased to the
-// head GitHub named, so a push someone made meanwhile fails it whole. Remote, and not undoable
-// with ⌘Z. → { rebased: [numbers] } ([] when it was already linear) | { failed: { number, reason } }
-// | { conflict: { number, files } }.
-handle('app:pr-stack-rebase', okCall(async (e, remoteName, baseName, numbers) => {
-  const { s, remote, base, t } = await planTarget(e, remoteName, baseName);
-  if (!Array.isArray(numbers) || numbers.length < 2 || numbers.length > mergePlan.MAX_STACK) throw new check.IpcArgError('Invalid stack');
-  const ns = numbers.map((n) => check.prNumber(n));
-  if (new Set(ns).size !== ns.length) throw new check.IpcArgError('Invalid stack');
-  const facts = await github.stackFacts({ ...t, numbers: ns });
-  const stop = mergePlan.linkBlocker(ns, facts, base) || ns.map((n) => (facts.get(n).head ? null : { number: n, reason: 'GitHub didn’t name its head commit.' })).find(Boolean);
-  if (stop) return { failed: stop };
-  const heads = ns.map((n) => facts.get(n).head);
-  await r(s, ['fetch', '--no-tags', '--', remote.name, `refs/heads/${base}`, ...ns.map((n) => `refs/pull/${n}/head`)]);
-  const baseSha = (await r(s, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])).trim();
-  for (const [i, h] of heads.entries()) {
-    if ((await r(s, ['cat-file', '-t', h], { allowCodes: [0, 1, 128] }).catch(() => '')).trim() !== 'commit') return { failed: { number: ns[i], reason: 'Couldn’t fetch its head commit.' } };
-  }
-  const res = await git.rebaseStack(s.repo.root, baseSha, heads);
-  if (res.conflict) return { conflict: { number: ns[res.conflict.index], files: res.conflict.files } };
-  const moved = ns.map((n, i) => ({ number: n, branch: check.rev(facts.get(n).branch, 'branch'), old: heads[i], now: res.heads[i] })).filter((_, i) => res.changed[i]);
-  if (!moved.length) return { rebased: [] };
-  const refspecs = moved.map((m) => `${m.now}:refs/heads/${m.branch}`);
-  const leases = moved.map((m) => `--force-with-lease=refs/heads/${m.branch}:${m.old}`);
-  try {
-    await r(s, ['push', '--atomic', ...leases, '--', remote.name, ...refspecs]);
-  } catch (err) {
-    const why = /stale info|fetch first|rejected/i.test(err.message) ? 'It changed on GitHub meanwhile. Nothing was pushed.' : String(err.message).split('\n').filter(Boolean).pop()?.slice(0, 200) || 'Push failed. Nothing was pushed.';
-    return { failed: { number: moved[0].number, reason: why } };
-  }
-  return { rebased: moved.map((m) => m.number) };
-}));
 // One step of a plan: { snap, baseSha, method } from the plan (or the previous merge's commit), or
 // for a stack (AK-545) { stack: [{ number, snap }] bottom…top, baseSha, method } with `number` its
 // top PR (just the bottom PR when only it merges clean, AK-619). Every PR is checked before the
@@ -1156,7 +1109,6 @@ function savedMethod(root) {
   const m = root ? readSettings().mergeMethods?.[root] : null;
   return mergePlan.METHODS.includes(m) ? m : null;
 }
-handle('app:merge-method', (e) => ({ saved: savedMethod(session(e).repo?.root || null) }));
 handle('app:merge-method-save', (e, method) => {
   const root = session(e).repo?.root;
   const m = check.oneOf(...mergePlan.METHODS)(method, 'merge method');

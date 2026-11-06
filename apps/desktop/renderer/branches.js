@@ -18,11 +18,11 @@ export const BRANCH_TABS = [
 // without the opt-in "untouched" one). The base branch never is.
 export const isFinished = (lane) => Boolean(cleanupGroup(lane));
 // Looks agent-made: the lane's own guess (branch prefix, trailers), or a bot opened its PR.
-export const isAgent = (lane) => Boolean(lane.agent || lane.pr?.bot);
+const isAgent = (lane) => Boolean(lane.agent || lane.pr?.bot);
 
 // Which tabs a lane is on. Active and Idle split the rest by the lane buckets; Agent-made and Would
 // conflict are views across them (a conflicting lane is still active). `agents`: marks are on.
-export function laneTabs(lane, { agents = true, now = Date.now() } = {}) {
+function laneTabs(lane, { agents = true, now = Date.now() } = {}) {
   if (isFinished(lane)) return ['finished'];
   const bucket = lane.bucket || laneBucket(lane, now);
   const out = [bucket === 'idle' || bucket === 'merged' ? 'idle' : 'active'];
