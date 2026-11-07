@@ -1,0 +1,9 @@
+{
+  // Type-checks the renderer (and the shared code it imports) against the DOM, without Node.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext", "dom"],
+    "types": []
+  },
+  "include": ["src/renderer", "src/shared"]
+}
