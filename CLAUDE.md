@@ -1,7 +1,7 @@
 # Since
 
-Since is a fast, keyboard-first Git client for macOS: Electron, a buildless renderer (plain JS,
-no frameworks), and the system `git`. The main screen is a live commit graph you operate on
+Since is a fast, keyboard-first Git client for macOS: Electron, TypeScript transpiled file by file
+(no bundler, no frameworks), and the system `git`. The main screen is a live commit graph you operate on
 directly, with undo/redo for every ref change. Positioning: supervise and land agent work.
 
 **Non-goals:** no accounts or hosted service, no telemetry, Mac only (no Windows/Linux).
@@ -13,12 +13,15 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
     `lockdown.js` (session lock-down), `handlers/` (IPC handlers by area), `ipc.js` (argument checks
     for every IPC call), `git/` (all git calls: `run.js` spawns git, one module per area, `index.js` exports them), `journal.js` (undo/redo),
     `updater.js`, `github.js`, `ai.js`, and `stores/` (recent repos, catch-up, window state, tabs)
-  - `src/preload/preload.js`: the sandboxed bridge (`window.since`)
-  - `src/shared/channels.js`: IPC channel names shared by main and preload
-  - `src/renderer/`: buildless UI. `app.js` wires the areas together, one folder per area
+  - `src/preload/preload.ts`: the sandboxed bridge (`window.since`)
+  - `src/shared/channels.ts`: IPC channel names; `src/shared/ipc-contract.ts`: what each channel
+    takes and returns, shared by main, preload and renderer
+  - `src/renderer/`: the UI. `app.js` wires the areas together, one folder per area
     (`graph/`, `commit/`, `history/`, `lanes/`, `review/`, `prs/`, `branches/`, `catchup/`,
     `palette/` with `keymap.js`, `shell/`, `settings/`, `welcome/`) and `lib/` (DOM toolkit, helpers).
     Imports only point down; a lower module calls a higher one through `lib/upcalls.js`
+  - `scripts/build.js`: builds `src/` into `out/`, which Electron runs and electron-builder packages.
+    esbuild transpiles each `.ts` file on its own (no bundling); every other file is copied
   - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
 - `apps/web`: the website (Astro).
 - `packages/tokens`: design tokens (`tokens.json` → `tokens.css`), the source of truth for colours.
@@ -29,8 +32,9 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
 
 - `pnpm install`
-- `pnpm test`: unit tests for every package. This is the local gate.
-- `pnpm run desktop`: start the app.
+- `pnpm test`: type check (`tsc`, strict) and unit tests for every package. This is the local gate.
+- `pnpm run desktop`: build `out/` and start the app. `pnpm --filter @gitsince/desktop watch`
+  rebuilds each file as it changes; reload the window to pick it up.
 - `pnpm run web` / `pnpm run web:build`: website dev server / build with link check.
 - One e2e spec, one worker (in `apps/desktop`):
   `pnpm exec playwright test -c e2e undo.spec.js --workers=1`
@@ -40,6 +44,8 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
 
 ## Conventions
 
+- New files are TypeScript: `strict`, erasable syntax only (no enums, namespaces or parameter
+  properties), relative imports name the `.ts` file, and no `any` without a comment saying why.
 - New actions get a ⌘K entry. Add a keyboard shortcut only for a frequent action in its context,
   with the reason in the PR body (keymap in `src/renderer/palette/keymap.js`).
 - No instructional or teaching copy in the UI: labels, values, status, errors and short warnings

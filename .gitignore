@@ -2,6 +2,7 @@ node_modules/
 test-results/
 playwright-report/
 apps/desktop/dist/
+apps/desktop/out/
 apps/web/dist/
 apps/web/.astro/
 package-lock.json

@@ -5,3 +5,5 @@ packages:
 # Windows installer tooling pulled in by electron-builder; its install script isn't needed for macOS builds.
 ignoredBuiltDependencies:
   - electron-winstaller
+  # Its install script only checks the binary from the platform package, which is installed anyway.
+  - esbuild

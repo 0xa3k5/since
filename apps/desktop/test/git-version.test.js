@@ -107,5 +107,5 @@ test('merge here checks the git version before handing off, offers the gate with
   assert.match(app, /api\.on\('git', /);
   const main = require('./main-source').mainSource();
   assert.match(main.slice(main.indexOf("handle('app:git-use'")), /broadcast\('git', info\)/);
-  assert.match(fsm.readFileSync(pth.join(__dirname, '../src/preload/preload.js'), 'utf8'), /'git'\]/);
+  assert.match(fsm.readFileSync(pth.join(__dirname, '../src/preload/preload.ts'), 'utf8'), /'git'\]/);
 });
