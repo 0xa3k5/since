@@ -8,7 +8,7 @@ const pkg = require('../../package.json');
 const prMedia = require('./pr-media.ts');
 const keymap = require('../renderer/palette/keymap.js');
 require('./user-data.ts');
-require('./handlers/git');
+require('./handlers/git.ts');
 require('./handlers/app.ts');
 require('./handlers/ai.ts');
 require('./handlers/prs');

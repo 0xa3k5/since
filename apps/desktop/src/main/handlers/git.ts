@@ -1,25 +1,36 @@
-'use strict';
 // The `git` IPC channel: every git call from the renderer, with the undo journal around ref changes.
-const path = require('node:path');
-const git = require('../git/index.ts');
-const { workOps, worktreeOps, laneOps, remoteOps } = require('../journal.ts');
-const check = require('../ipc.ts');
-const channels = require('../../shared/channels.ts');
-const { menuChanged } = require('../app-events.ts');
-const github = require('../github');
-const changeFacts = require('../change-facts.ts');
-const { windowFor, sessions, session } = require('../session.ts');
-const { handle, serializeError } = require('./handle.ts');
+import path from 'node:path';
+import * as git from '../git/index.ts';
+import { workOps, worktreeOps, laneOps, remoteOps } from '../journal.ts';
+import * as check from '../ipc.ts';
+import * as channels from '../../shared/channels.ts';
+import { menuChanged } from '../app-events.ts';
+import * as github from '../github.js';
+import * as changeFacts from '../change-facts.ts';
+import { windowFor, sessions, session } from '../session.ts';
+import { handle, serializeError } from './handle.ts';
+import type { RepoSession } from '../session.ts';
+import type { OpArgs } from '../journal.ts';
+import type { RunOptions } from '../git/run.ts';
+import type { CleanupItem } from '../git/worktrees.ts';
+import type { MergeLaneOptions } from '../git/merge.ts';
+import type { SessionWindow } from '../session.ts';
+
+// windowFor gives back the other window's tab, which closeWindow can close.
+type ClosableTab = SessionWindow & { webContents: { id: number }; once(event: 'closed', fn: () => void): unknown; destroy(): void };
+
+// One git method: the session, then its arguments as ipc.ts checked them (see OpArgs).
+type Op = (s: RepoSession, ...args: OpArgs) => unknown;
 
 // ---------------------------------------------------------------------------
 // Git API exposed to the renderer. Mutations that move refs or destroy
 // uncommitted work are recorded in the journal, giving unlimited undo/redo.
 
-async function detachedHeads(s) {
-  return (await git.getWorktrees(s.repo.root).catch(() => [])).filter((w) => !w.current && w.detached && w.head).map((w) => w.head);
+async function detachedHeads(s: RepoSession): Promise<string[]> {
+  return (await git.getWorktrees(s.repo.root).catch(() => [])).flatMap((w) => (!w.current && w.detached && w.head ? [w.head] : []));
 }
 
-const reads = {
+const reads: Record<string, Op> = {
   refs: (s) => git.getRefs(s.repo.root),
   // Other worktrees' detached HEADs are on no branch; include them so the graph can show them.
   log: async (s, opts) => git.getLog(s.repo.root, { ...opts, heads: await detachedHeads(s) }),
@@ -86,14 +97,14 @@ const reads = {
     if (wt.missing) return null;
     const info = await git.getOperationInfo(wt.path, (await git.run(wt.path, ['rev-parse', '--absolute-git-dir'])).trim());
     // Conflicted files go with the abort, so they aren't changes to stash (cleanup).
-    if (info) info.conflicts = (await git.run(wt.path, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean).length;
-    return info;
+    if (!info) return info;
+    return { ...info, conflicts: (await git.run(wt.path, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean).length };
   },
   baseTouches: (s, head, base, files) => git.baseTouches(s.repo.root, head, base, files),
 };
 
 const W = { GIT_OPTIONAL_LOCKS: '1' };
-const r = (s, args, opts = {}) => git.run(s.repo.root, args, { ...opts, env: { ...W, ...opts.env } });
+export const r = (s: RepoSession, args: string[], opts: RunOptions & { encoding?: 'utf8' } = {}) => git.run(s.repo.root, args, { ...opts, env: { ...W, ...opts.env } });
 
 // Mutations that can move refs (snapshotted for undo).
 const refMutations = {
@@ -133,10 +144,10 @@ const refMutations = {
     await r(s, [op, '--abort']);
     return { op, saved };
   },
-};
+} satisfies Record<string, Op>;
 
 // Mutations that touch only the index, config or remotes, and lose no local work.
-const plainMutations = {
+export const plainMutations = {
   stageFiles: (s, paths) => r(s, ['add', '-A', '--', ...paths]),
   unstageFiles: async (s, paths) => {
     const hasHead = await r(s, ['rev-parse', '-q', '--verify', 'HEAD'], { allowCodes: [0, 1] });
@@ -162,7 +173,7 @@ const plainMutations = {
     if (!b || !b.upstream) {
       const remotes = await git.getRemotes(s.repo.root);
       if (!remotes.length) throw new git.GitError('This repository has no remotes.');
-      const remote = remotes.find((x) => x.name === 'origin') ? 'origin' : remotes[0].name;
+      const remote = remotes.find((x) => x.name === 'origin') ? 'origin' : remotes[0]?.name ?? 'origin';
       args.push('-u', remote, head.branch);
     }
     return r(s, args);
@@ -181,56 +192,66 @@ const plainMutations = {
   pruneWorktrees: (s) => git.pruneWorktrees(s.repo.root),
   // Not undoable: the renderer asks for an explicit confirmation that says so.
   deleteRemoteBranches: (s, shorts) => git.deleteRemoteBranches(s.repo.root, shorts),
-};
+} satisfies Record<string, Op>;
 
 // Lanes → Clean up: one journal step for the whole batch, with progress sent to the window.
-async function cleanupLanes(s, items, label) {
+async function cleanupLanes(s: RepoSession, items: CleanupItem[], label?: string | null) {
   const list = await git.getWorktrees(s.repo.root);
   for (const i of items) {
     if (!i.worktree) continue;
     i.worktree = check.knownWorktree(list, i.worktree, git.samePath);
     if (![undefined, s.win].includes(windowFor(i.worktree))) throw new git.GitError(`${path.basename(i.worktree)} is open in another tab. Close that tab first.`);
   }
-  const onProgress = (p) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
+  const onProgress = (p: { done: number; total: number }) => { if (!s.win.isDestroyed()) s.win.webContents.send('cleanup:progress', p); };
   return s.journal.runCleanup(label || `Clean up ${items.length} branch${items.length === 1 ? '' : 'es'}`, items, { onProgress });
 }
 // Close another tab (it shows a worktree about to be removed), once it's not running a git step.
-function closeWindow(win, name) {
+function closeWindow(win: ClosableTab, name: string): Promise<void> {
   if (sessions.get(win.webContents.id)?.busy) throw new git.GitError(`“${name}” is busy in its tab. Try again when it’s done.`);
-  return new Promise((resolve) => { win.once('closed', resolve); win.destroy(); });
+  return new Promise((resolve) => { win.once('closed', () => resolve()); win.destroy(); });
 }
 
 // Calls whose push, pull or fetch failures get a fix offered (git.remoteFailure).
+// The ref and plain tables by method name, for the dispatch below.
+const refTable: Record<string, Op | undefined> = refMutations;
+const plainTable: Record<string, Op | undefined> = plainMutations;
+
 const REMOTE_CALLS = new Set(['push', 'pull', 'pullAndPush', 'fetch', 'pushTags', 'stashAnd', 'abortAnd']);
 
-handle(channels.GIT, async (e, method, ...args) => {
+handle(channels.GIT, async (e, rawMethod, ...args) => {
+  const method = String(rawMethod);
   try {
-    const { args: realArgs, label, worktreeArgs } = check.checkGit(method, args);
+    const checked = check.checkGit(rawMethod, args);
+    const { label, worktreeArgs } = checked;
+    // Checked against the method's ipc.ts schema, and handed on as OpArgs (see journal.ts).
+    const realArgs: OpArgs = checked.args;
     const s = session(e);
     // Worktree folders must be worktrees of this repository (in its `git worktree list`).
     if (worktreeArgs.length) {
       const list = await git.getWorktrees(s.repo.root);
       for (const i of worktreeArgs) realArgs[i] = check.knownWorktree(list, realArgs[i], git.samePath);
     }
-    if (reads[method]) return { ok: await reads[method](s, ...realArgs) };
+    const read = reads[method];
+    if (read) return { ok: await read(s, ...realArgs) };
     s.busy++;
     try {
       // Aborting isn't a step of its own: the stopped sequence it ends is dropped (Journal.abortOp).
       if (method === 'abortOp') return { ok: await s.journal.abortOp(() => refMutations.abortOp(s)) };
-      if (refMutations[method]) return { ok: await s.journal.record(label || method, method, () => refMutations[method](s, ...realArgs)) };
+      const refOp = refTable[method];
+      if (refOp) return { ok: await s.journal.record(label || method, method, async () => refOp(s, ...realArgs)) };
       if (workOps[method]) return { ok: await s.journal.runWork(method, label || method, realArgs) };
       if (remoteOps[method]) return { ok: await s.journal.runRemote(method, label || method, realArgs) };
       if (method === 'stashAnd') {
         const [inner, innerArgs] = realArgs;
-        return { ok: await s.journal.stashAnd(label || inner, inner, () => refMutations[inner](s, ...innerArgs)) };
+        return { ok: await s.journal.stashAnd(label || inner, inner, async () => refTable[inner]?.(s, ...innerArgs)) };
       }
       if (method === 'abortAnd') {
         const [inner, innerArgs] = realArgs;
-        return { ok: await s.journal.abortAnd(label || inner, inner, () => refMutations[inner](s, ...innerArgs)) };
+        return { ok: await s.journal.abortAnd(label || inner, inner, async () => refTable[inner]?.(s, ...innerArgs)) };
       }
-      if (method === 'restoreResolved') return { ok: await s.journal.restoreResolved(label || method, ...realArgs) };
-      if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, ...realArgs) };
-      if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, ...realArgs) };
+      if (method === 'restoreResolved') return { ok: await s.journal.restoreResolved(label || method, realArgs[0]) };
+      if (method === 'autostashCheckout') return { ok: await s.journal.autostash(label || method, realArgs[0], realArgs[1], realArgs[2]) };
+      if (method === 'switchDelete') return { ok: await s.journal.switchDelete(label || method, realArgs[0], realArgs[1]) };
       if (method === 'switchRewrite') {
         const [to, op, sha, extra, stash] = realArgs;
         return { ok: await s.journal.switchRewrite(label || method, to, { op, sha, extra }, stash) };
@@ -241,11 +262,11 @@ handle(channels.GIT, async (e, method, ...args) => {
       }
       if (method === 'freeCheckout') {
         if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
-        return { ok: await s.journal.freeCheckout(label || method, ...realArgs) };
+        return { ok: await s.journal.freeCheckout(label || method, realArgs[0], realArgs[1]) };
       }
       if (method === 'moveCheckout') {
         if (![undefined, s.win].includes(windowFor(realArgs[1]))) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
-        return { ok: await s.journal.moveCheckout(label || method, ...realArgs) };
+        return { ok: await s.journal.moveCheckout(label || method, realArgs[0], realArgs[1], realArgs[2]) };
       }
       if (method === 'removeWorktree') {
         // Open in another window: close that window first when asked (`close`), else refuse.
@@ -253,7 +274,7 @@ handle(channels.GIT, async (e, method, ...args) => {
         const other = windowFor(dir);
         if (![undefined, s.win].includes(other)) {
           if (!close) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
-          await closeWindow(other, path.basename(dir));
+          await closeWindow(other as ClosableTab, path.basename(dir));
         }
         return { ok: await s.journal.runWorktree(method, label || method, [dir, { stash: !!stash, abort: !!abort }]) };
       }
@@ -266,17 +287,18 @@ handle(channels.GIT, async (e, method, ...args) => {
         const other = wt && windowFor(wt.path);
         if (![undefined, s.win].includes(other)) {
           if (!close) throw new git.GitError('That worktree is open in another tab. Close the tab first.');
-          await closeWindow(other, wt.name);
+          await closeWindow(other as ClosableTab, wt?.name ?? '');
         }
-        const opts = method === 'mergeLane' ? { branch, base, message, abort } : { branch, merge: false, abort };
+        const opts: MergeLaneOptions = method === 'mergeLane' ? { branch, base, message, abort } : { branch, merge: false, abort };
         return { ok: await s.journal.runLane(label || method, method, (done) => git.mergeLane(s.repo.root, opts, done)) };
       }
       if (method === 'cleanupLanes') return { ok: await cleanupLanes(s, realArgs[0], label) };
-      if (method === 'submoduleWork') return { ok: await s.journal.runSubmoduleWork(label || 'Discard changes in submodule', ...realArgs) };
+      if (method === 'submoduleWork') return { ok: await s.journal.runSubmoduleWork(label || 'Discard changes in submodule', realArgs[0], realArgs[1]) };
       if (method === 'updateSubmodules') return { ok: await s.journal.runSubmodules(label || 'Update submodules', ...realArgs) };
-      if (plainMutations[method]) return { ok: await plainMutations[method](s, ...realArgs) };
+      const plainOp = plainTable[method];
+      if (plainOp) return { ok: await plainOp(s, ...realArgs) };
       if (method === 'undo' || method === 'redo') return { ok: await s.journal.step(method, realArgs[0] || {}) };
-      if (method === 'restoreHistory') return { ok: await s.journal.restore(...realArgs) };
+      if (method === 'restoreHistory') return { ok: await s.journal.restore(realArgs[0]) };
     } finally {
       s.busy--;
       s.pending.refs = s.pending.workdir = true;
@@ -290,4 +312,3 @@ handle(channels.GIT, async (e, method, ...args) => {
   }
 });
 
-module.exports = { r, plainMutations };

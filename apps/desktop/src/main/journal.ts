@@ -68,7 +68,7 @@ interface FinishInput {
 // only as unknown[]; each op hands them on to the git function that takes them. `any` here is
 // that hand-off and nothing else.
 // biome-ignore lint: see above
-type OpArgs = any[];
+export type OpArgs = any[];
 interface WorkOp {
   run: (cwd: string, ...args: OpArgs) => Promise<unknown>;
   paths?: (cwd: string, ...args: OpArgs) => Promise<readonly string[]> | readonly string[];
