@@ -1,4 +1,4 @@
-import { h, icon, kbd } from '../lib/ui.js';
+import { h, icon, kbd } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import {
   LESSONS, TOUR_BRANCH, TOUR_FEATURE, createTour, setLesson, select, moveTip, squash, rebase, cherryPick,

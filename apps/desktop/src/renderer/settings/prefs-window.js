@@ -1,4 +1,4 @@
-import { h, icon, brandMark, kbd, toast, dialog, prompt, palette, timeAgo } from '../lib/ui.js';
+import { h, icon, brandMark, kbd, toast, dialog, prompt, palette, timeAgo } from '../lib/ui.ts';
 import { createHistory } from '../graph/log.js';
 import { setSwatches } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';

@@ -1,4 +1,4 @@
-import { toast } from '../lib/ui.js';
+import { toast } from '../lib/ui.ts';
 import { fileRef } from './diff.js';
 import { up } from '../lib/upcalls.js';
 import { state } from '../lib/app-helpers.js';

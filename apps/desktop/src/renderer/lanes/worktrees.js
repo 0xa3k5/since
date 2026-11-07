@@ -1,4 +1,4 @@
-import { h, icon, kbd, toast, dialog, confirm, contextMenu, menuAnchor, palette, timeAgo, resolveSheet } from '../lib/ui.js';
+import { h, icon, kbd, toast, dialog, confirm, contextMenu, menuAnchor, palette, timeAgo, resolveSheet } from '../lib/ui.ts';
 import { methodFix, mergeViaNote } from '../prs/gh-gates.js';
 import { removalPlan } from './worktree-removal.js';
 import { opSentence } from '../commit/resolve-text.js';

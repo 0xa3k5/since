@@ -2,7 +2,7 @@
 // (send-back.js) to hand to whoever fixes it. Local until you click: the commits on the base come
 // from git; the failed CI log and posting a PR comment are `gh` calls on their own buttons, only
 // while pull requests are on. The clipboard is written only by Copy prompt.
-import { h, icon, kbd, toast, dialog, confirm } from '../lib/ui.js';
+import { h, icon, kbd, toast, dialog, confirm } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { TEMPLATE_IDS, TEMPLATE_LABELS, PLACEHOLDERS, templateFor, buildPrompt, appendLog } from './send-back.ts';
 import { stuckReason } from '../review/review-rows.js';

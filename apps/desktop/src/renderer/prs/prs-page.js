@@ -1,4 +1,4 @@
-import { h, icon, toast, ago, dialog, confirm, contextMenu, palette, resolveSheet } from '../lib/ui.js';
+import { h, icon, toast, ago, dialog, confirm, contextMenu, palette, resolveSheet } from '../lib/ui.ts';
 import { mergeGateFix, ghErrorFix } from './gh-gates.js';
 import * as keymap from '../palette/keymap.ts';
 import { prefetchReview } from '../lanes/lanes-view.js';

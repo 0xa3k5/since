@@ -1,4 +1,4 @@
-import { $, toast, dialog, confirm, prompt, palette } from '../lib/ui.js';
+import { $, toast, dialog, confirm, prompt, palette } from '../lib/ui.ts';
 import { up } from '../lib/upcalls.js';
 import { state, api } from '../lib/app-helpers.js';
 

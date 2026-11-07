@@ -1,6 +1,6 @@
 // The window's tab strip (AK-634): one tab per repository, shown once there are two. Each tab's page draws it
 // from the list main.js sends (`tabs`); `act(action, id)` asks main.js to select or close a tab.
-import { h, icon } from '../lib/ui.js';
+import { h, icon } from '../lib/ui.ts';
 
 export function renderTabs(el, list, act) {
   const shown = list.length > 1;

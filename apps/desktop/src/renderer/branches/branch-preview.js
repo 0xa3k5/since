@@ -1,4 +1,4 @@
-import { h, icon, timeAgo, fullDate, tipFor, loading } from '../lib/ui.js';
+import { h, icon, timeAgo, fullDate, tipFor, loading } from '../lib/ui.ts';
 import { ACTIONS, aheadBehind, laneActions, laneTitle, laneKey, conflictText, canRemove } from '../lanes/lanes.js';
 import { statusBadge, fileName } from '../commit/diff.js';
 

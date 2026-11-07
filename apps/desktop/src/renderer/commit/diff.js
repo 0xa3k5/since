@@ -1,4 +1,4 @@
-import { h, icon } from '../lib/ui.js';
+import { h, icon } from '../lib/ui.ts';
 import { findColors } from '../lib/colors.js';
 import { submoduleChange, describeSubmoduleChange } from '../lib/submodule.js';
 

@@ -1,4 +1,4 @@
-import { h } from './ui.js';
+import { h } from './ui.ts';
 
 // Markdown in commit messages and PR descriptions (AK-399), shown as prose. A small subset, cheap
 // to parse, and never HTML: everything is built as DOM nodes, so a message can't inject markup.

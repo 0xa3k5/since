@@ -1,4 +1,4 @@
-import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from '../lib/ui.js';
+import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from '../lib/ui.ts';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, savedLanes, saveLanes, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from '../review/review-rows.js';
 import * as keymap from '../palette/keymap.ts';

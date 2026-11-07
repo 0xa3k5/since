@@ -1,4 +1,4 @@
-import { toast } from '../lib/ui.js';
+import { toast } from '../lib/ui.ts';
 import { renderTabs } from './tabs-view.js';
 import { api } from '../lib/app-helpers.js';
 

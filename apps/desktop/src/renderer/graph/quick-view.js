@@ -1,4 +1,4 @@
-import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.js';
+import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.ts';
 import { renderDiff, statusBadge, fileRef } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.js';

@@ -1,4 +1,4 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from '../lib/ui.js';
+import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from '../lib/ui.ts';
 import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel } from '../lanes/lanes.js';
 import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from '../review/review-rows.js';

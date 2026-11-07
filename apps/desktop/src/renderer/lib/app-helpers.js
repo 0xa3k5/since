@@ -1,4 +1,4 @@
-import { h, icon, avatar } from './ui.js';
+import { h, icon, avatar } from './ui.ts';
 import { createHistory } from '../graph/log.js';
 import * as keymap from '../palette/keymap.ts';
 import { authorProfile } from './profile.js';

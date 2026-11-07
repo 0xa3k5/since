@@ -1,4 +1,4 @@
-import { $ } from '../lib/ui.js';
+import { $ } from '../lib/ui.ts';
 
 // Shell: the window's views and layout elements, set at boot and read by every area.
 

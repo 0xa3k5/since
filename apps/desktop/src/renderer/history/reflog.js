@@ -1,4 +1,4 @@
-import { h, contextMenu, timeAgo } from '../lib/ui.js';
+import { h, contextMenu, timeAgo } from '../lib/ui.ts';
 import { up } from '../lib/upcalls.js';
 import { state } from '../lib/app-helpers.js';
 import { act } from '../lib/bridge.js';

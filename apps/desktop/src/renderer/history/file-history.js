@@ -1,4 +1,4 @@
-import { $, toast, contextMenu, palette } from '../lib/ui.js';
+import { $, toast, contextMenu, palette } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.js';
 import { state } from '../lib/app-helpers.js';

@@ -1,4 +1,4 @@
-import { h, icon, confirm } from '../lib/ui.js';
+import { h, icon, confirm } from '../lib/ui.ts';
 import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers, keepLineEndings } from './conflict.js';
 import * as keymap from '../palette/keymap.ts';
 

@@ -1,4 +1,4 @@
-import { h, icon, kbd, toast, dialog, confirm, contextMenu } from '../lib/ui.js';
+import { h, icon, kbd, toast, dialog, confirm, contextMenu } from '../lib/ui.ts';
 import { renderDiff, hunkKeys, statusBadge, fileRef } from './diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { conflictEditor } from './conflict-view.js';

@@ -1,4 +1,4 @@
-import { h, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, resolveSheet, ref } from '../lib/ui.js';
+import { h, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, resolveSheet, ref } from '../lib/ui.ts';
 import { renderDiff } from '../commit/diff.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import * as keymap from '../palette/keymap.ts';

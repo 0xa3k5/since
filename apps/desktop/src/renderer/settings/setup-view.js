@@ -1,4 +1,4 @@
-import { h, icon, kbd } from '../lib/ui.js';
+import { h, icon, kbd } from '../lib/ui.ts';
 import { SETUP_AI, SETUP_FEATURES, SETUP_PRS, setupSummary } from './setup.js';
 import * as keymap from '../palette/keymap.ts';
 

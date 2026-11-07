@@ -1,4 +1,4 @@
-import { toast, dialog } from '../lib/ui.js';
+import { toast, dialog } from '../lib/ui.ts';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { loadPref, state, savePref } from '../lib/app-helpers.js';
 import { git } from '../lib/bridge.js';

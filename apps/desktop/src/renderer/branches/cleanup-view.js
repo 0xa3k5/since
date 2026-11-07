@@ -1,4 +1,4 @@
-import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor } from '../lib/ui.js';
+import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor } from '../lib/ui.ts';
 import { laneKey } from '../lanes/lanes.js';
 import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat } from './cleanup.js';
 import * as keymap from '../palette/keymap.ts';

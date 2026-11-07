@@ -1,7 +1,7 @@
 'use strict';
-// A menu or popover's trigger toggles it (renderer/ui.js contextMenu and popovers, AK-635):
+// A menu or popover's trigger toggles it (renderer/lib/ui.ts contextMenu and popovers, AK-635):
 // pressing the trigger of an open menu doesn't close it, so the click that follows closes it
-// instead of closing and reopening it. Runs ui.js against a minimal fake DOM.
+// instead of closing and reopening it. Runs ui.ts against a minimal fake DOM.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -41,7 +41,7 @@ const menus = () => document.body.children.filter((c) => c.classList.contains('m
 const popovers = () => document.body.children.filter((c) => c.classList.contains('popover'));
 
 test('a menu trigger toggles its menu on click, ↵ and Space; outside presses and Esc still close it', async () => {
-  const { h, contextMenu, closeMenu } = await import('../src/renderer/lib/ui.js');
+  const { h, contextMenu, closeMenu } = await import('../src/renderer/lib/ui.ts');
   const items = [{ label: 'One', run() {} }];
   const a = h('button', { 'aria-haspopup': 'menu' }), b = h('button'), other = h('div');
   document.body.append(a, b, other);
@@ -92,7 +92,7 @@ test('a menu trigger toggles its menu on click, ↵ and Space; outside presses a
 });
 
 test('↵ on an open popover trigger closes it', async () => {
-  const { h } = await import('../src/renderer/lib/ui.js');
+  const { h } = await import('../src/renderer/lib/ui.ts');
   const t = h('button', { 'data-pop': '' });
   t.popContent = () => [h('div'), h('div')];
   document.body.append(t);
@@ -105,7 +105,7 @@ test('↵ on an open popover trigger closes it', async () => {
 // SNC-671: a menu closed before its outside-press listener was added (a throttled timer in a background window)
 // left that listener behind, and it closed the next menu on the press that chose an item.
 test('a menu closed at once leaves no listener behind to close the next one', async () => {
-  const { contextMenu, closeMenu } = await import('../src/renderer/lib/ui.js');
+  const { contextMenu, closeMenu } = await import('../src/renderer/lib/ui.ts');
   const presses = () => (window.on.mousedown || []).length;
   const before = presses();
   contextMenu(0, 0, [{ label: 'Edit…', run() {} }]);

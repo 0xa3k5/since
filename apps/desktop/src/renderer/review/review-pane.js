@@ -1,4 +1,4 @@
-import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from '../lib/ui.js';
+import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from '../lib/ui.ts';
 import { draftSwitch } from '../prs/prs.js';
 import { reviewView } from './review-view.js';
 import { laneKey } from '../lanes/lanes.js';

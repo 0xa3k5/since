@@ -1,4 +1,4 @@
-import { h, icon } from '../lib/ui.js';
+import { h, icon } from '../lib/ui.ts';
 import { statusBadge, fileName, fileRef, codeSpan } from './diff.js';
 import {
   changedFiles, commitSummary, summaryText, stagedText, tickStages, hunkState, linesStage, folded, wholeFileText,

@@ -1,4 +1,4 @@
-import { h, toast, confirm } from '../lib/ui.js';
+import { h, toast, confirm } from '../lib/ui.ts';
 import { setSwatches } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { setupView } from '../settings/setup-view.js';

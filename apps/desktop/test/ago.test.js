@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 test('ago: "5m ago" and "2h ago", but "just now" and dates as they are', async () => {
-  const { ago } = await import('../src/renderer/lib/ui.js');
+  const { ago } = await import('../src/renderer/lib/ui.ts');
   const now = Date.now() / 1000;
   assert.equal(ago(now - 5), 'just now');
   assert.equal(ago(now - 5 * 60), '5m ago');

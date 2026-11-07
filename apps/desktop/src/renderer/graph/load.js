@@ -1,4 +1,4 @@
-import { h, $, icon, toast } from '../lib/ui.js';
+import { h, $, icon, toast } from '../lib/ui.ts';
 import { parseLog, createHistory, createMerge } from './log.js';
 import { forgetCounts } from '../lanes/lanes-view.js';
 import { up } from '../lib/upcalls.js';

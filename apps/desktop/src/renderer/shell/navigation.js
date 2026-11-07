@@ -1,4 +1,4 @@
-import { h, $, icon, toast, dialog, contextMenu } from '../lib/ui.js';
+import { h, $, icon, toast, dialog, contextMenu } from '../lib/ui.ts';
 import { setSwatches } from '../commit/diff.js';
 import { opSentence } from '../commit/resolve-text.js';
 import * as keymap from '../palette/keymap.ts';

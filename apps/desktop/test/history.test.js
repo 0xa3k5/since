@@ -223,7 +223,7 @@ test('merge keeps an unchanged history and rebuilds from the first difference', 
 });
 
 test('scrollMap scales lists taller than the browser allows', async () => {
-  const { scrollMap, MAX_SCROLL } = await import('../src/renderer/lib/ui.js');
+  const { scrollMap, MAX_SCROLL } = await import('../src/renderer/lib/ui.ts');
   const small = scrollMap(1000, 32, 800);
   assert.equal(small.scale, 1);
   assert.equal(small.spacer, 32000);

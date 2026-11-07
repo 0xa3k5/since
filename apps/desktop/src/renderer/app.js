@@ -1,4 +1,4 @@
-import { $, toast } from './lib/ui.js';
+import { $, toast } from './lib/ui.ts';
 import { setSwatches } from './commit/diff.js';
 import * as keymap from './palette/keymap.ts';
 import { sidebarMode, isNarrow } from './shell/sidebar.js';

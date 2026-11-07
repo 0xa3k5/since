@@ -1,4 +1,4 @@
-import { h, icon, kbd, toast, VirtualList, timeAgo, fullDate, avatar } from '../lib/ui.js';
+import { h, icon, kbd, toast, VirtualList, timeAgo, fullDate, avatar } from '../lib/ui.ts';
 import { blameRows, historyRows, splitPath } from './blame.js';
 import * as keymap from '../palette/keymap.ts';
 

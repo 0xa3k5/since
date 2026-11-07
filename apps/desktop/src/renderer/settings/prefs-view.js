@@ -1,4 +1,4 @@
-import { h, icon, contextMenu } from '../lib/ui.js';
+import { h, icon, contextMenu } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
 
