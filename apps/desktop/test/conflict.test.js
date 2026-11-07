@@ -6,11 +6,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
-const { checkGit } = require('../ipc');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
+const { checkGit } = require('../src/main/ipc');
 
-const load = () => import('../renderer/conflict.js');
+const load = () => import('../src/renderer/commit/conflict.js');
 const conflictCount = (segs) => segs.filter((s) => s.type === 'conflict').length;
 
 async function repo() {

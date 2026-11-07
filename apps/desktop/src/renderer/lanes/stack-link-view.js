@@ -4,8 +4,8 @@
 // runs bottom to top; while linking each PR is ticked off; when GitHub refuses one, that PR turns
 // red with the reason under it, nothing is linked and the button becomes Try again. A stack can't
 // be unlinked, so it always asks first. Used from Merge plan's Pick step and ⌘K.
-import { h, icon, kbd, toast } from './ui.js';
-import * as keymap from './keymap.js';
+import { h, icon, kbd, toast } from '../lib/ui.js';
+import * as keymap from '../palette/keymap.js';
 
 const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));

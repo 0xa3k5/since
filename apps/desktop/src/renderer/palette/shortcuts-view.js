@@ -1,4 +1,4 @@
-import { h, icon, kbd } from './ui.js';
+import { h, icon, kbd } from '../lib/ui.js';
 import * as keymap from './keymap.js';
 import { shortcutSections } from './shortcuts.js';
 

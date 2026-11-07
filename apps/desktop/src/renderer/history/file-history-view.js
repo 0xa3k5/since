@@ -1,6 +1,6 @@
-import { h, icon, kbd, toast, VirtualList, timeAgo, fullDate, avatar } from './ui.js';
+import { h, icon, kbd, toast, VirtualList, timeAgo, fullDate, avatar } from '../lib/ui.js';
 import { blameRows, historyRows, splitPath } from './blame.js';
-import * as keymap from './keymap.js';
+import * as keymap from '../palette/keymap.js';
 
 // File history & blame: the commits that touched a file (following renames) on the left,
 // streamed in pages so long histories show up at once; the blame of the selected version on

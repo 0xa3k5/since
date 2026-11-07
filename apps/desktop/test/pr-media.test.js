@@ -3,7 +3,7 @@
 // for the GitHub host, bounded in-memory image cache, videos streamed and never kept.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createMedia, allowedHost, MAX_BYTES } = require('../pr-media');
+const { createMedia, allowedHost, MAX_BYTES } = require('../src/main/pr-media');
 
 const fakeFetch = (routes) => {
   const calls = [];

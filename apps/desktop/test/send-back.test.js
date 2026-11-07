@@ -6,10 +6,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const github = require('../github');
+const git = require('../src/main/git');
+const github = require('../src/main/github');
 
-const load = () => import('../renderer/send-back.js');
+const load = () => import('../src/renderer/lanes/send-back.js');
 const pr = (o = {}) => ({ number: 12, title: 'Add changelog', branch: 'feat/log', base: 'main', checks: 'success', failing: [], mergeable: true, ...o });
 const CONFLICT = { pr: pr(), branch: 'feat/log', title: 'Add changelog', conflicts: [{ with: 'main', base: true, files: ['src/changelog.astro', 'README.md'] }] };
 const CI = { pr: pr({ checks: 'failure', failing: ['test', 'lint'] }), branch: 'feat/log', title: 'Add changelog', conflicts: [] };

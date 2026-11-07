@@ -1,11 +1,11 @@
-import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from './ui.js';
-import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel } from './lanes.js';
+import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from '../lib/ui.js';
+import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel } from '../lanes/lanes.js';
 import { cleanupPanel } from './cleanup-view.js';
-import { authorsOf } from './review-rows.js';
+import { authorsOf } from '../review/review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
 import { branchPreview, laneBadges } from './branch-preview.js';
-import { authorsStack } from './reader.js';
-import * as keymap from './keymap.js';
+import { authorsStack } from '../review/reader.js';
+import * as keymap from '../palette/keymap.js';
 
 // Branches (AK-396, ⌘5): every local branch and worktree on this Mac, one list at a time behind tabs
 // (branches.js BRANCH_TABS; 1–5): Active · Agent-made · Would conflict · Idle · Finished. Finished is

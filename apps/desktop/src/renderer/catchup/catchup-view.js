@@ -1,11 +1,11 @@
-import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, loading } from './ui.js';
-import { renderDiff } from './diff.js';
+import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, loading } from '../lib/ui.js';
+import { renderDiff } from '../commit/diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
-import { sharedLoad, loadGuard } from './lanes.js';
-import * as keymap from './keymap.js';
-import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from './reader.js';
-import { factsFor, peekFacts } from './evidence-store.js';
-import { authorsOf, messageAgent } from './review-rows.js';
+import { sharedLoad, loadGuard } from '../lanes/lanes.js';
+import * as keymap from '../palette/keymap.js';
+import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from '../review/reader.js';
+import { factsFor, peekFacts } from '../review/evidence-store.js';
+import { authorsOf, messageAgent } from '../review/review-rows.js';
 
 // Catch up (AK-365, was Review's catch-up card, AK-281): what landed on the base since your
 // checkpoint. Under the full-width head (the big number, PRs merged or commits with PRs off; the

@@ -1,4 +1,4 @@
-import { checkFailed, checkTally, duration } from './review-rows.js';
+import { checkFailed, checkTally, duration } from '../review/review-rows.js';
 
 // Merging with a failing check (AK-521): every merge path (Merge…, the row button and M, the
 // pane's Merge, Merge all ready, Merge and tidy…) names the failing checks in its confirmation.

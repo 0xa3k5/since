@@ -48,7 +48,7 @@ module.exports = {
   productName: 'Since',
   copyright: 'Copyright (C) 2026 0xa3k5 and Since contributors',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'preload.js', 'renderer/**', 'package.json'],
+  files: ['src/**', 'package.json'],
   // The version, when overridden, names the artifacts and is what the updater compares against the feed.
   extraMetadata: VERSION ? { version: VERSION } : {},
   asar: true,

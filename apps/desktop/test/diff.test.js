@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/diff.js');
+const load = () => import('../src/renderer/commit/diff.js');
 
 test('dragging near the pane edges scrolls it, faster further out', async () => {
   const { edgeScroll } = await load();

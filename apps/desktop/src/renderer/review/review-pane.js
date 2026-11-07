@@ -1,13 +1,13 @@
-import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from './ui.js';
-import { draftSwitch } from './prs.js';
+import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from '../lib/ui.js';
+import { draftSwitch } from '../prs/prs.js';
 import { reviewView } from './review-view.js';
-import { laneKey } from './lanes.js';
+import { laneKey } from '../lanes/lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
-import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from './pr-review.js';
+import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from '../prs/pr-review.js';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
-import * as keymap from './keymap.js';
-import { loginProfile } from './profile.js';
+import * as keymap from '../palette/keymap.js';
+import { loginProfile } from '../lib/profile.js';
 
 // Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with
 // Catch up (reader.js, AK-381): the selected row's head (‹ N of M ›, #number and title, CI and review

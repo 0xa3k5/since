@@ -30,7 +30,7 @@ test('main.js loads without errors', () => {
   const load = Module._load;
   Module._load = function (req, ...rest) { return req === 'electron' ? fake : load.call(this, req, ...rest); };
   try {
-    require('../main.js');
+    require('../src/main/main.js');
   } finally {
     Module._load = load;
   }

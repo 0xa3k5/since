@@ -5,10 +5,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
 
-const load = () => import('../renderer/autostash.js');
+const load = () => import('../src/renderer/commit/autostash.js');
 
 async function repo() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));

@@ -3,8 +3,8 @@
 // older ones on request (read back from archived pages), and restores from them.
 
 const { test, expect } = require('./fixtures');
-const git = require('../git');
-const { Journal } = require('../journal');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
 
 const STEPS = 251; // odd, so scratch ends away from where the oldest step started
 

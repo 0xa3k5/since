@@ -6,7 +6,7 @@
 // repository was opened here, or at seven days ago when that isn't known.
 const fs = require('node:fs');
 const path = require('node:path');
-const check = require('./ipc');
+const check = require('../ipc');
 
 const WEEK = 7 * 24 * 3600 * 1000;
 const MAX_REPOS = 200;

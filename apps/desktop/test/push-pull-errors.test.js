@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
-const { checkGit } = require('../ipc');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
+const { checkGit } = require('../src/main/ipc');
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 const cfg = [['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']];
@@ -112,7 +112,7 @@ test('divergence (AK-585): commits on each side, counts and the merge forecast',
 });
 
 test('divergeSheet: lists, forecast and what each button ends with', async () => {
-  const { divergeSheet } = await import('../renderer/resolve-text.js');
+  const { divergeSheet } = await import('../src/renderer/commit/resolve-text.js');
   const c = (n) => ({ sha: `${n}`.repeat(40), subject: `s${n}`, author: 'A', date: 0 });
   const d = { branch: 'feature/api', upstream: 'origin/feature/api', theirs: [c(1), c(2)], theirsCount: 2, ours: [c(3)], oursCount: 1, conflicts: [], shared: false };
   const pull = divergeSheet(d);
@@ -131,7 +131,7 @@ test('divergeSheet: lists, forecast and what each button ends with', async () =>
 });
 
 test('a continued "Rebase and push" offers the push it was on the way to', async () => {
-  const { pushIntent, pushAfterContinue } = await import('../renderer/resolve-text.js');
+  const { pushIntent, pushAfterContinue } = await import('../src/renderer/commit/resolve-text.js');
   const intent = pushIntent('pullAndPush', ['rebase'], 'feature/api', 'origin/feature/api');
   assert.deepEqual(intent, { branch: 'feature/api', remote: 'origin', mode: 'rebase' });
   assert.equal(pushIntent('stashAnd', ['pullAndPush', ['merge']], 'feature/api', null).mode, 'merge');
@@ -146,7 +146,7 @@ test('a continued "Rebase and push" offers the push it was on the way to', async
 });
 
 test('undo or redo while an operation is stopped names it and offers abort', async () => {
-  const { stoppedStepToast } = await import('../renderer/resolve-text.js');
+  const { stoppedStepToast } = await import('../src/renderer/commit/resolve-text.js');
   const info = { op: 'rebase', branch: 'feature/rebasing', onto: 'main', step: 1, total: 2, subject: 'Add footer.' };
   const u = stoppedStepToast('undo', 'rebase', info, 1);
   assert.equal(u.message, "Can't undo while this rebase is stopped");
@@ -162,7 +162,7 @@ test('undo or redo while an operation is stopped names it and offers abort', asy
 });
 
 test('a rebase-and-push stopped on a detached HEAD remembers the branch being rebased', async () => {
-  const { stoppedBranch, pushIntent } = await import('../renderer/resolve-text.js');
+  const { stoppedBranch, pushIntent } = await import('../src/renderer/commit/resolve-text.js');
   const info = { op: 'rebase', branch: 'feature/api', onto: 'origin/feature/api', step: 1, total: 1 };
   assert.equal(stoppedBranch({ branch: null, oid: 'a'.repeat(40) }, info), 'feature/api');
   assert.equal(stoppedBranch({ branch: 'main' }, { op: 'merge', branch: 'main' }), 'main');

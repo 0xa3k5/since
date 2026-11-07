@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const load = () => import('../renderer/worktree-removal.js');
+const load = () => import('../src/renderer/lanes/worktree-removal.js');
 const wt = (o = {}) => ({ name: 'wt-dirty', path: '/r/wt-dirty', ...o });
 const main = (o = {}) => ({ name: 'r', path: '/r', main: true, ...o });
 
@@ -44,7 +44,7 @@ test('removal plan: asks only for work undo can’t bring back', async () => {
 });
 
 test('removing a worktree no window shows needs no confirm, and the current one can be removed', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
   const fn = src.slice(src.indexOf('async function removeWorktree('), src.indexOf('function askAt('));
   assert.doesNotMatch(fn, /await confirm\(/);
   assert.match(src, /label: 'Remove Worktree…'[^\n]*disabled: w\.main,/);
@@ -63,8 +63,8 @@ test('removing a dirty worktree stashes its changes; undo puts them back, redo s
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
-  const git = require('../git');
-  const { Journal } = require('../journal');
+  const git = require('../src/main/git');
+  const { Journal } = require('../src/main/journal');
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
   for (const a of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']]) await git.run(dir, a);
   fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');

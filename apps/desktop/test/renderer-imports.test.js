@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const dir = path.join(__dirname, '..', 'renderer');
-const files = fs.readdirSync(dir).filter((f) => f.endsWith('.js'));
+const dir = path.join(__dirname, '..', 'src', 'renderer');
+const files = fs.readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.js'));
 const read = (f) => fs.readFileSync(path.join(dir, f), 'utf8');
 const exportsOf = (src) => [...src.matchAll(/export\s+(?:async\s+)?(?:function\*?|const|let|class)\s+(\w+)/g)].map((m) => m[1]);
 

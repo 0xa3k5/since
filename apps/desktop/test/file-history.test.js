@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const check = require('../ipc');
+const git = require('../src/main/git');
+const check = require('../src/main/ipc');
 
 async function repo() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-fh-')));
@@ -109,7 +109,7 @@ test('IPC checks reject unsafe file history and blame arguments', () => {
 });
 
 test('blame rows mark commit runs and age buckets', async () => {
-  const { blameRows, historyRows, splitPath } = await import('../renderer/blame.js');
+  const { blameRows, historyRows, splitPath } = await import('../src/renderer/history/blame.js');
   const commits = [{ time: 100 }, { time: 200 }, { time: 0, uncommitted: true }];
   const lines = [{ line: 1, commit: 0 }, { line: 2, commit: 0 }, { line: 3, commit: 1 }, { line: 4, commit: 2 }];
   assert.deepEqual(blameRows({ commits, lines }).map((l) => [l.first, l.age]), [[true, 0], [false, 0], [true, 4], [true, 4]]);

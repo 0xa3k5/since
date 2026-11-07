@@ -1,5 +1,5 @@
-import { h, icon, contextMenu } from './ui.js';
-import * as keymap from './keymap.js';
+import { h, icon, contextMenu } from '../lib/ui.js';
+import * as keymap from '../palette/keymap.js';
 import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
 
 // The Preferences window (⌘,, Since → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,

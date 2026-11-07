@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/prs.js');
+const load = () => import('../src/renderer/prs/prs.js');
 const pr = { number: 7, title: 'Add x', branch: 'x' };
 const ACTIONS = [
   ['pr-approve', { body: 'lgtm' }],

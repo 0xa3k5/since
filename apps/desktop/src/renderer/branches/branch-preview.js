@@ -1,6 +1,6 @@
-import { h, icon, timeAgo, fullDate, tipFor, loading } from './ui.js';
-import { ACTIONS, aheadBehind, laneActions, laneTitle, laneKey, conflictText, canRemove } from './lanes.js';
-import { statusBadge, fileName } from './diff.js';
+import { h, icon, timeAgo, fullDate, tipFor, loading } from '../lib/ui.js';
+import { ACTIONS, aheadBehind, laneActions, laneTitle, laneKey, conflictText, canRemove } from '../lanes/lanes.js';
+import { statusBadge, fileName } from '../commit/diff.js';
 
 // A branch at a glance, shared by Review's Everything else and Branches (AK-396): the pane's head
 // (title, badges, branch, upstream, ↑↓, worktree, its actions), predicted conflicts, its commits and

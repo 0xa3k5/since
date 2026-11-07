@@ -2,10 +2,10 @@
 // (send-back.js) to hand to whoever fixes it. Local until you click: the commits on the base come
 // from git; the failed CI log and posting a PR comment are `gh` calls on their own buttons, only
 // while pull requests are on. The clipboard is written only by Copy prompt.
-import { h, icon, kbd, toast, dialog, confirm } from './ui.js';
-import * as keymap from './keymap.js';
+import { h, icon, kbd, toast, dialog, confirm } from '../lib/ui.js';
+import * as keymap from '../palette/keymap.js';
 import { TEMPLATE_IDS, TEMPLATE_LABELS, PLACEHOLDERS, templateFor, buildPrompt, appendLog } from './send-back.js';
-import { stuckReason } from './review-rows.js';
+import { stuckReason } from '../review/review-rows.js';
 
 const FROM = { repo: 'this repository’s', default: 'your default', builtin: 'the built-in' };
 

@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
-const { checkGit } = require('../ipc');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
+const { checkGit } = require('../src/main/ipc');
 
 async function repo() {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
@@ -164,7 +164,7 @@ test('ipc: moveCheckout takes a branch, a worktree folder and an optional stash'
 });
 
 test('in-use sheet: dirty, clean, open in another window', async () => {
-  const { inUsePlan } = await import('../renderer/checkout-plan.js');
+  const { inUsePlan } = await import('../src/renderer/graph/checkout-plan.js');
   const wt = { name: 'wt-dirty', path: '/Users/ak/code/wt-dirty' };
   const now = 1e9;
   const dirty = inUsePlan(wt, { blocker: null, changes: 3, changedAt: now - 2 * 60e3 }, 2, now);
@@ -198,7 +198,7 @@ test('clean holder, my changes in the way: freeing refuses untouched; moving wit
 });
 
 test('the clean-holder checkout stashes like a plain checkout; no leftover free label', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
   const fn = src.slice(src.indexOf('async function freeCheckout('), src.indexOf('async function moveCheckout('));
   assert.match(fn, /blockedCheckout\(/);
   assert.match(fn, /act\(label, 'moveCheckout', \[branch, wt\.path, stash\]/);

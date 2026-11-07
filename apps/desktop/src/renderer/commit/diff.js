@@ -1,6 +1,6 @@
-import { h, icon } from './ui.js';
-import { findColors } from './colors.js';
-import { submoduleChange, describeSubmoduleChange } from './submodule.js';
+import { h, icon } from '../lib/ui.js';
+import { findColors } from '../lib/colors.js';
+import { submoduleChange, describeSubmoduleChange } from '../lib/submodule.js';
 
 const LIMIT = 4000;
 

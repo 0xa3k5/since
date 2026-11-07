@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
-const { checkGit } = require('../ipc');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
+const { checkGit } = require('../src/main/ipc');
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 
@@ -199,7 +199,7 @@ test('ipc: stashAnd checks the inner method and its arguments', () => {
 });
 
 test('the stash-before-checkout dialog has no explanatory line', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../renderer/app.js'), 'utf8');
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/renderer/app.js'), 'utf8');
   const fn = src.slice(src.indexOf('async function autostashCheckout('), src.indexOf('async function autostashCheckout(') + 1200);
   assert.doesNotMatch(fn, /description:/);
 });

@@ -7,9 +7,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const github = require('../github');
-const store = require('../catchup-store');
+const git = require('../src/main/git');
+const github = require('../src/main/github');
+const store = require('../src/main/stores/catchup-store');
 
 const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `since-catchup-${p}-`)));
 let clock = 1700000000;
@@ -31,7 +31,7 @@ async function repo() {
   await commit(dir, 'README.md', 'start');
   return dir;
 }
-const load = (p) => import(path.join(__dirname, '..', 'renderer', p));
+const load = (p) => import(path.join(__dirname, '..', 'src', 'renderer', 'catchup', p));
 
 test('checkpoint store: a week back at first, then the previous open’s tip; only Mark moves it', () => {
   const file = path.join(tmp('store'), 'catchup.json');
@@ -243,7 +243,7 @@ test('a root commit reads its whole tree as its files (AK-287)', async () => {
 });
 
 test('app:catchup options: default base, other branches and bad refs (AK-377)', async () => {
-  const { catchupOptions, WEEK } = require('../catchup-store');
+  const { catchupOptions, WEEK } = require('../src/main/stores/catchup-store');
   const now = 1e12;
   const cp = { sha: 'a'.repeat(40), date: now - 1000 };
   let asked = 0;

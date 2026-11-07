@@ -3,7 +3,7 @@
   "productName": "Since",
   "version": "0.1.2",
   "description": "A fast, keyboard-first Git client for macOS with a live commit graph",
-  "main": "main.js",
+  "main": "src/main/main.js",
   "license": "GPL-3.0-or-later",
   "updates": {
     "feed": "https://github.com/0xa3k5/since/releases/latest/download",

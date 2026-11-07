@@ -1,9 +1,9 @@
-import { h, icon, kbd, toast, loading } from './ui.js';
-import { renderDiff, statusBadge, fileName, fileRef } from './diff.js';
+import { h, icon, kbd, toast, loading } from '../lib/ui.js';
+import { renderDiff, statusBadge, fileName, fileRef } from '../commit/diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
-import * as keymap from './keymap.js';
-import { prStatusLine, draftSwitch } from './prs.js';
-import { PR_ACTIONS, prActionFor } from './pr-review.js';
+import * as keymap from '../palette/keymap.js';
+import { prStatusLine, draftSwitch } from '../prs/prs.js';
+import { PR_ACTIONS, prActionFor } from '../prs/pr-review.js';
 import { fileCard, foldShut, commitLines, markCommit } from './reader.js';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request

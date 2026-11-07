@@ -8,7 +8,7 @@
 // they can't be undone with ⌘Z, and the renderer's confirm sheets say so.
 
 const { findBinary, runCli, searchDirs } = require('./ai');
-const { linkBlocker } = require('./renderer/merge-plan.js');
+const { linkBlocker } = require('../renderer/lanes/merge-plan.js');
 
 const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'mergeStateStatus', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles', 'body'];
 const LIMIT = 100;

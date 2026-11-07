@@ -2,9 +2,9 @@
 // Review stages (renderer/review-rows.js reviewRows) and the PR fields they read (github.normalizePr).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const github = require('../github');
+const github = require('../src/main/github');
 
-const load = () => import('../renderer/review-rows.js');
+const load = () => import('../src/renderer/review/review-rows.js');
 const NOW = Date.parse('2026-10-15T12:00:00Z');
 const HOUR = 3600e3;
 const OLD = new Date(NOW - 10 * 24 * HOUR).toISOString();
@@ -233,7 +233,7 @@ test('filter: every word in the title, branch, number or author', async () => {
 test('rename: the view is "Review" and its user-visible strings never say "Lanes"', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const keymap = await import('../renderer/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.js');
   const labels = keymap.COMMANDS.filter((c) => c.id === 'view.lanes' || c.id?.startsWith('lanes.') || c.id === 'cleanup.back').map((c) => c.label);
   assert.ok(labels.length > 10);
   assert.ok(labels.includes('Review'));
@@ -241,13 +241,13 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   // String literals in the view, its keymap context and the menu: no "Lanes" (the brand "Since" is fine).
   const visible = (file) => (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
     .filter((s) => !/^['`][\w.:/-]*['`]$/.test(s)); // ids, keys, class names
-  for (const file of ['renderer/lanes-view.js', 'renderer/review-rows.js']) {
+  for (const file of ['src/renderer/lanes/lanes-view.js', 'src/renderer/review/review-rows.js']) {
     for (const s of visible(file)) assert.doesNotMatch(s.replace(/Since/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
   }
-  assert.match(fs.readFileSync(path.join(__dirname, '../renderer/keymap.js'), 'utf8'), /lanes: 'Review',/);
-  assert.match(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /item\('Review', acc\('view\.lanes'\)/);
-  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8'), /Pull Request Inbox/);
-  assert.match(fs.readFileSync(path.join(__dirname, '../renderer/sidebar.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/palette/keymap.js'), 'utf8'), /lanes: 'Review',/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8'), /item\('Review', acc\('view\.lanes'\)/);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8'), /Pull Request Inbox/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/shell/sidebar.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
 });
 
 // Split view (AK-272): what an action does to the row, and where the selection goes next.
@@ -323,8 +323,8 @@ test('next selection: the next row below that still needs you, else the first, e
 });
 
 test('approve: greyed with its reason on your own PR or without write access (AK-577)', async () => {
-  const { paneActions } = await import('../renderer/pr-review.js');
-  const { approveWhy } = await import('../renderer/prs.js');
+  const { paneActions } = await import('../src/renderer/prs/pr-review.js');
+  const { approveWhy } = await import('../src/renderer/prs/prs.js');
   const mine = { pr: pr(1, { author: 'Ana' }), lane: null };
   assert.equal(approveWhy(mine.pr, { login: 'ana', write: true }), 'Your own pull request');
   assert.equal(approveWhy(pr(2, { author: 'bo' }), { login: 'ana', write: false }), 'Needs write access');
@@ -337,7 +337,7 @@ test('approve: greyed with its reason on your own PR or without write access (AK
 });
 
 test('pane actions: every PR action with a primary by stage; local branches merge and tidy', async () => {
-  const { paneActions } = await import('../renderer/pr-review.js');
+  const { paneActions } = await import('../src/renderer/prs/pr-review.js');
   const ids = (r, s) => paneActions(r, s).actions.map((a) => a.id);
   const p = { pr: pr(1, { url: 'https://github.com/o/r/pull/1' }), lane: null };
   assert.deepEqual(ids(p, 'review'), ['merge', 'approve', 'close', 'checkout', 'github']);
@@ -406,10 +406,10 @@ test('failing check names: check runs by name, statuses by context, once each', 
 test('Review is home: a repository opens on Review, the Map keeps its own key', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const app = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
   assert.match(app, /let startView = 'lanes';/);
   assert.match(app, /state\.view = startView;/);
-  const keymap = await import('../renderer/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.js');
   assert.ok(keymap.keys('view.map').length);
   assert.ok(keymap.keys('view.lanes').length);
 });
@@ -509,7 +509,7 @@ test('overlaps: an open PR gets a note and no stage change; merge order names th
 
 test('Review tabs: Needs you is stuck then ready, All open is every stage, 1–5 each have a key', async () => {
   const { TABS, STAGES } = await load();
-  const keymap = await import('../renderer/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.js');
   assert.deepEqual(TABS.map((t) => t.id), ['needs', 'stuck', 'ready', 'inProgress', 'open']);
   assert.deepEqual(TABS[0].stages, ['stuck', 'ready']);
   assert.deepEqual(TABS.at(-1).stages, STAGES.map((s) => s.id));
@@ -564,8 +564,8 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
 });
 
 test('git.js and Catch up read agents from the same list (AK-393)', async () => {
-  const git = require('../git');
-  const { AGENT_HINTS } = await import('../renderer/agents.js');
+  const git = require('../src/main/git');
+  const { AGENT_HINTS } = await import('../src/renderer/lib/agents.js');
   const { messageAgent } = await load();
   assert.equal(git.AGENT_HINTS, AGENT_HINTS);
   for (const w of AGENT_HINTS.coauthors) {
@@ -799,7 +799,7 @@ test('stackShed: the head sheds count, tag, sentence, then secondary and main ac
   // Fewer actions keep the short sentence at the same width.
   assert.deepEqual(stackShed(500, { ...need, secondary: [] }), { count: false, tag: 'icon', sentence: 'short', secondary: 'inline', main: 'inline' });
   // The container queries in styles.css use the same widths.
-  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '../renderer/styles.css'), 'utf8');
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/renderer/styles.css'), 'utf8');
   for (const w of Object.values(STACK_SHED)) assert.match(css, new RegExp(`@container review-list \\(max-width: ${w}px\\) \\{[^@]*review-stack`));
 });
 

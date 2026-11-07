@@ -3,16 +3,16 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const check = require('../ipc');
+const check = require('../src/main/ipc');
 
 const root = path.join(__dirname, '..');
 const rejects = (fn, re) => assert.throws(fn, (e) => e instanceof check.IpcArgError && (!re || re.test(e.message)));
 
 test('every git method the main process serves has a schema, and nothing else does', () => {
-  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
-  const { workOps, worktreeOps, laneOps, remoteOps } = require('../journal');
+  const { workOps, worktreeOps, laneOps, remoteOps } = require('../src/main/journal');
   const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...Object.keys(remoteOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'submoduleWork', 'autostashCheckout', 'switchDelete', 'switchMerge', 'switchRewrite', 'freeCheckout', 'moveCheckout', 'stashAnd', 'abortAnd', 'restoreResolved', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });
@@ -182,7 +182,7 @@ test('worktree folders: shape in the schema, membership against git worktree lis
 test('sessions reach no network, except the updater session to its feed host over https', () => {
   for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'since-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
   for (const url of ['https://github.com/x', 'http://example.com/', 'wss://example.com/', 'not a url']) assert.ok(!check.requestAllowed(url), url);
-  const updater = require('../updater');
+  const updater = require('../src/main/updater');
   const feed = updater.feedUrl('https://github.com/0xa3k5/since/releases/latest/download', 'arm64');
   const allow = updater.feedOrigins(feed);
   assert.deepStrictEqual(allow, ['https://github.com', 'https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com']);
@@ -214,7 +214,7 @@ test('clone URLs: normal transports pass, options and helpers do not', () => {
 });
 
 test('the renderer CSP allows nothing remote and no inline code', () => {
-  const html = fs.readFileSync(path.join(root, 'renderer/index.html'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'src/renderer/index.html'), 'utf8');
   const csp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
   const dir = Object.fromEntries(csp.split(';').map((d) => d.trim().split(/\s+/)).map(([k, ...v]) => [k, v]));
   assert.deepStrictEqual(dir['default-src'], ["'none'"]);
@@ -227,7 +227,7 @@ test('the renderer CSP allows nothing remote and no inline code', () => {
 });
 
 test('windows keep the renderer isolated', () => {
-  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
   for (const pref of ['contextIsolation: true', 'sandbox: true', 'nodeIntegration: false', 'webviewTag: false', 'webSecurity: true']) {
     assert.ok(main.includes(pref), pref);
   }
@@ -252,7 +252,7 @@ test('runnable flags files that macOS would execute when opened', () => {
 });
 
 test('commit file entries, trimmed by fileRef, pass the file-entry check (AK-131)', async () => {
-  const { fileRef } = await import('../renderer/diff.js');
+  const { fileRef } = await import('../src/renderer/commit/diff.js');
   const sha = 'a'.repeat(40);
   // The shape git.commitFiles returns: status entries plus numstat counts.
   const entry = { status: 'R100', oldPath: 'old.txt', path: 'new.txt', add: 3, del: 1, binary: false };
@@ -276,7 +276,7 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
   // AK-446: a missing remote is still refused, not defaulted.
   for (const v of [undefined, null, '']) rejects(() => check.knownRemote(remotes, v), /remote: (expected a string|empty)/);
   rejects(() => check.knownRemote([], 'origin'), /not a remote/);
-  const method = check.oneOf(...require('../github').MERGE_METHODS);
+  const method = check.oneOf(...require('../src/main/github').MERGE_METHODS);
   for (const m of ['squash', 'merge', 'rebase']) assert.strictEqual(method(m, 'merge method'), m);
   for (const m of ['--admin', 'squash --admin', '', undefined]) rejects(() => method(m, 'merge method'));
   rejects(() => check.bool('true', 'delete branch'));
@@ -284,7 +284,7 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
 });
 
 test('main.js checks the PR number and remote before any PR action reaches gh', () => {
-  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
   const action = main.slice(main.indexOf('const prAction'), main.indexOf("handle('app:pr-merge-info'"));
   assert.ok(action.indexOf('check.prNumber(number)') > 0 && action.indexOf('check.knownRemote(') > action.indexOf('check.prNumber'), 'prAction checks the number, then the remote');
   assert.ok(action.indexOf('fn({') > action.indexOf('check.knownRemote('), 'checks run before gh');

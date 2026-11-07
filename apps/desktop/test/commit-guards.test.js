@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const load = () => import('../renderer/commit-guards.js');
+const load = () => import('../src/renderer/graph/commit-guards.js');
 const HEAD = 'h'.repeat(40);
 const root = { sha: 'r'.repeat(40), parents: [] };
 const plain = { sha: 'p'.repeat(40), parents: ['r'.repeat(40)] };
@@ -60,7 +60,7 @@ test('actions onto HEAD are blocked on HEAD itself', async () => {
 });
 
 test('each guarded action key and its menu item use the same check', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
   const shortcut = src.slice(src.indexOf('function commitShortcut('), src.indexOf('function commitMenu('));
   assert.match(shortcut, /guarded\(id, c, run\)/);
   const menu = src.slice(src.indexOf('function commitMenu('), src.indexOf('function refMenu('));

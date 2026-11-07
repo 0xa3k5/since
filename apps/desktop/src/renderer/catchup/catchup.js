@@ -1,4 +1,4 @@
-import { prDescription } from './pr-review.js';
+import { prDescription } from '../prs/pr-review.js';
 
 // Review's catch-up card (AK-281), the pure part: what landed on the base since a checkpoint, as
 // entries (a merged PR, or a commit that came without one) and as groups to read at a glance.

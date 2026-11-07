@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const github = require('../github');
-const { findChains, findStacks, chainWhy, isNative, linkBlocker } = require('../renderer/merge-plan.js');
+const git = require('../src/main/git');
+const github = require('../src/main/github');
+const { findChains, findStacks, chainWhy, isNative, linkBlocker } = require('../src/renderer/lanes/merge-plan.js');
 
 const pr = (number, branch, baseBranch, fork = false) => ({ number, branch, baseBranch, head: String(number).repeat(40).slice(0, 40), fork });
 

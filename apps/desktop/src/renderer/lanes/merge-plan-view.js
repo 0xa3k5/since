@@ -15,12 +15,12 @@
 //
 // AK-556: a stack row is tagged Chain or GitHub stack. In Pick, a chain that can be linked offers
 // Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
-import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from './ui.js';
-import * as keymap from './keymap.js';
+import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from '../lib/ui.js';
+import * as keymap from '../palette/keymap.js';
 import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, cleanTitle } from './merge-plan.js';
 import { buildPrompt } from './send-back.js';
 import { openStackLink } from './stack-link-view.js';
-import { stackTitle } from './review-rows.js';
+import { stackTitle } from '../review/review-rows.js';
 
 // ready / others: inbox PRs ({ number, title, head }) in Review's order; known: every inbox PR
 // (titles and links for a stack's upper PRs); base: the base branch; remote: the PRs' remote name;

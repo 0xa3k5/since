@@ -6,7 +6,7 @@ const { execFile, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { GIT_NEEDS, GIT_FEATURES, gitMeets } = require('./renderer/git-version.js');
+const { GIT_NEEDS, GIT_FEATURES, gitMeets } = require('../renderer/lib/git-version.js');
 
 // GPG_TTY is dropped so a terminal pinentry never waits on a terminal the user can't see.
 // ssh/ssh-keygen ask through SSH_ASKPASS instead of /dev/tty, so a locked SSH key fails
@@ -2323,7 +2323,7 @@ async function mergeLane(cwd, { branch, base, message = '', merge = true, abort 
 
 // "Probably an agent", guessed from a lane's commits ahead of base and its branch name. Extend
 // the lists here; matching is case-insensitive.
-const { AGENT_HINTS } = require('./renderer/agents.js'); // shared with the renderer (AK-393)
+const { AGENT_HINTS } = require('../renderer/lib/agents.js'); // shared with the renderer (AK-393)
 // Lane commits read for trailers and squash checks, and base commits searched for squash merges.
 const LANE_COMMITS = 5000;
 // Squash merges older than BASE_COMMITS base commits aren't detected: such a branch reads merged: null.

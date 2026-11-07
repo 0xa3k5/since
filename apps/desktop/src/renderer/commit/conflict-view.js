@@ -1,6 +1,6 @@
-import { h, icon, confirm } from './ui.js';
+import { h, icon, confirm } from '../lib/ui.js';
 import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers, keepLineEndings } from './conflict.js';
-import * as keymap from './keymap.js';
+import * as keymap from '../palette/keymap.js';
 
 const CONTEXT = 3; // unchanged lines shown around each conflict
 // Editor state per path, kept while the status refreshes underneath (file watcher).

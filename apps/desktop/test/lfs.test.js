@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const git = require('../git');
+const git = require('../src/main/git');
 
 const hasLfs = (() => { try { execFileSync('git', ['lfs', 'version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
 const NO_LFS = hasLfs ? false : 'git-lfs is not installed';

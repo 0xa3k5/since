@@ -7,7 +7,7 @@ What the reviewer checks before a squash merge. Working rules for authors are in
 - Data loss, or a change to refs, the work tree or stashes that ⌘Z can't undo exactly.
 - The wrong stash or branch: identity taken from a `stash@{n}` index or a name instead of a SHA.
 - Secrets or credentials shown in the UI or written to logs.
-- An IPC call whose arguments aren't validated in `apps/desktop/ipc.js`.
+- An IPC call whose arguments aren't validated in `apps/desktop/src/main/ipc.js`.
 - A network call beyond the ones documented in `docs/security.md`.
 - Breaking the update feed or its signature checks.
 - A keyboard trap.

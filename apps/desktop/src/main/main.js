@@ -7,22 +7,23 @@ const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const git = require('./git');
-const tabOrder = require('./tab-order');
+const tabOrder = require('./stores/tab-order');
 const { Journal, workOps, worktreeOps, laneOps, remoteOps } = require('./journal');
 const { LogStreams } = require('./log-streams');
 const updater = require('./updater');
-const pkg = require('./package.json');
+const pkg = require('../../package.json');
 const check = require('./ipc');
-const catchupStore = require('./catchup-store');
-const recentStore = require('./recent-store');
-const windowState = require('./window-state');
+const channels = require('../shared/channels');
+const catchupStore = require('./stores/catchup-store');
+const recentStore = require('./stores/recent-store');
+const windowState = require('./stores/window-state');
 const ai = require('./ai');
 const github = require('./github');
 const changeFacts = require('./change-facts');
 const prMedia = require('./pr-media');
 
 const isMac = process.platform === 'darwin';
-const bench = process.env.SINCE_BENCH ? require('./bench/harness')(app) : null;
+const bench = process.env.SINCE_BENCH ? require('../../bench/harness')(app) : null;
 // The app was called GitLanes before: carry its settings, recent repositories and local storage over
 // once (not Chromium's caches or locks). Never overwrites anything already there, and never into an
 // explicit --user-data-dir (e2e sandboxes).
@@ -363,7 +364,7 @@ function closeWindow(win, name) {
 
 // Every IPC channel goes through here: calls are only accepted from our own renderer page,
 // loaded from the app bundle into a window's main frame. Arguments are checked by ipc.js.
-const RENDERER_URL = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+const RENDERER_URL = pathToFileURL(path.join(__dirname, '..', 'renderer', 'index.html')).href;
 function trustedSender(e) {
   const frame = e.senderFrame;
   if (!frame || frame.parent) return false;
@@ -397,7 +398,7 @@ const okCall = (fn) => async (e, ...args) => {
   try { return { ok: await fn(e, ...args) }; } catch (err) { return { error: serializeError(err) }; }
 };
 
-handle('git', async (e, method, ...args) => {
+handle(channels.GIT, async (e, method, ...args) => {
   try {
     const { args: realArgs, label, worktreeArgs } = check.checkGit(method, args);
     const s = session(e);
@@ -846,7 +847,7 @@ handle('app:pr-comment', prAction((t, o) => github.commentPr({ ...t, body: check
 // the plan, then `gh pr merge` with the chosen method (`gh stack merge` for a stack, AK-545), then
 // `gh pr view` for the commit the base should be at next. Only while pull requests are on, and
 // remote merges can't be undone.
-const mergePlan = require('./renderer/merge-plan.js');
+const mergePlan = require('../renderer/lanes/merge-plan.js');
 const planErr = (message, code = 'gh-failed') => Object.assign(new Error(message), { code });
 const oidArg = (v, w) => check.oid(v, w);
 async function planTarget(e, remoteName, base) {
@@ -1123,7 +1124,7 @@ handle('app:merge-method-save', (e, method) => {
 });
 // Send back's templates (renderer/send-back.js): this repository's, the user-wide default, and
 // the built-in ones, resolved. Saving one with empty text resets it to the next level.
-const sendBack = require('./renderer/send-back.js');
+const sendBack = require('../renderer/lanes/send-back.js');
 handle('app:sendback-templates', (e) => sendBack.resolveTemplates(readSettings().sendBack, session(e).repo?.root || null));
 handle('app:sendback-template-save', (e, id, text, scope) => {
   const next = sendBack.saveTemplate(readSettings().sendBack, {
@@ -1467,7 +1468,7 @@ handle('app:open-submodule', async (e, p) => {
 // own session, watcher and undo, all torn down when the tab closes; only the tab showing is visible. Every tab
 // draws the window's tab strip from the list `changed()` sends it.
 const WEB_PREFERENCES = {
-  preload: path.join(__dirname, 'preload.js'),
+  preload: path.join(__dirname, '..', 'preload', 'preload.js'),
   contextIsolation: true,
   sandbox: true,
   nodeIntegration: false,
@@ -1521,7 +1522,7 @@ class Tab extends EventEmitter {
     // Development only: SINCE_START_VIEW=map opens repositories on the Map instead of Review (e2e).
     const view = !app.isPackaged && process.env.SINCE_START_VIEW === 'map' ? { view: 'map' } : {};
     const query = { ...(dir ? { repo: dir } : {}), ...view };
-    this.webContents.loadFile(path.join(__dirname, 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
+    this.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), Object.keys(query).length ? { query } : undefined);
   }
 
   isDestroyed() { return this.webContents.isDestroyed(); }
@@ -1733,7 +1734,7 @@ function openLastWindow() {
 }
 
 // Menu accelerators come from the keymap (renderer/keymap.js), the one list of every shortcut.
-const keymap = require('./renderer/keymap.js');
+const keymap = require('../renderer/palette/keymap.js');
 const acc = (id) => keymap.accelerator(id, isMac);
 
 // Custom key bindings: overrides only, under `keymap` in settings.json. A change rebuilds the menu and reaches
@@ -1993,7 +1994,7 @@ app.whenReady().then(() => {
   });
   // Packaged builds carry build/icon.icns; `pnpm start` would show Electron's icon in the Dock.
   if (!app.isPackaged && isMac) {
-    const dockIcon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.icns'));
+    const dockIcon = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'build', 'icon.icns'));
     if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
   }
   lockDownSession(electronSession.defaultSession);

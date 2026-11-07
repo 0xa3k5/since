@@ -1,5 +1,5 @@
-import { h, icon, kbd } from './ui.js';
-import * as keymap from './keymap.js';
+import { h, icon, kbd } from '../lib/ui.js';
+import * as keymap from '../palette/keymap.js';
 import {
   LESSONS, TOUR_BRANCH, TOUR_FEATURE, createTour, setLesson, select, moveTip, squash, rebase, cherryPick,
   undoTip, redoTip, filterCommands, tourHint,

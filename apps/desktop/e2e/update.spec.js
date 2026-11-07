@@ -5,7 +5,7 @@
 
 const http = require('node:http');
 const { test, expect } = require('./fixtures');
-const { buildFeed } = require('../updater');
+const { buildFeed } = require('../src/main/updater');
 const { version: CURRENT } = require('../package.json');
 
 async function feedServer(version) {
