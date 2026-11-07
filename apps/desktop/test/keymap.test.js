@@ -64,7 +64,7 @@ test('no next/previous command is bound to a vim letter', async () => {
 });
 
 // Every command id the app's source refers to must exist, and every command must be used somewhere.
-const SOURCES = ['src/main/main.js', ...fs.readdirSync(path.join(__dirname, '../src/renderer'), { recursive: true }).filter((f) => f.endsWith('.js') && f !== 'palette/keymap.js').map((f) => `src/renderer/${f}`)];
+const SOURCES = [...require('./main-source').FILES.map((f) => `src/main/${f}`), ...fs.readdirSync(path.join(__dirname, '../src/renderer'), { recursive: true }).filter((f) => f.endsWith('.js') && f !== 'palette/keymap.js').map((f) => `src/renderer/${f}`)];
 const source = SOURCES.map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 test('every handler refers to a registered command', async () => {
@@ -158,7 +158,7 @@ test('⌥⌘1…8 open the sidebar pages in their default order; the fold-out li
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {
-  const main = fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   assert.doesNotMatch(main, /'(CmdOrCtrl|Cmd|Ctrl)\+/, 'a hard-coded accelerator is left in main.js');
 });
 

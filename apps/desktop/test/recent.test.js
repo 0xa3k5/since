@@ -35,7 +35,7 @@ test('no O chord opens the repository switcher (Switch Repository… has no keys
 });
 
 test('the File menu has Switch Repository…, with no accelerator', async () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/main/main.js'), 'utf8');
+  const src = require('./main-source').mainSource();
   assert.match(src, /item\('Switch Repository…', acc\('file.repoSwitch'\), 'repoSwitch'\)/);
   const { accelerator } = await import('../src/renderer/palette/keymap.js');
   assert.equal(accelerator('file.repoSwitch'), undefined);
@@ -67,7 +67,7 @@ test('closing a repository cancels the Review, Branches and Catch up loads still
   const fs = require('node:fs');
   const path = require('node:path');
   const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
-  const main = read('src/main/main.js');
+  const main = require('./main-source').mainSource();
   const handler = (name) => { const start = main.indexOf(`handle('${name}'`); return main.slice(start, main.indexOf('\n}', start)); };
   // The session's `closed` signal is aborted on dispose (close, reopen, window closed).
   assert.match(main, /dispose\(\) \{\n\s+this\.closed\.abort\(\);/);

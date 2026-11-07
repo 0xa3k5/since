@@ -141,7 +141,7 @@ test('brand assets use the orange brand, not the retired indigo', () => {
 });
 
 test('the View menu leaves ⌘R free: no reload role on its default key (AK-362)', () => {
-  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   for (const m of main.matchAll(/\{ role: 'reload'[^}]*\}/g)) assert.match(m[0], /accelerator: '(?!CmdOrCtrl\+R')/, m[0]);
   assert.match(main, /app\.isPackaged \? \[\] : \[\{ role: 'reload'/);
 });

@@ -105,7 +105,7 @@ test('merge here checks the git version before handing off, offers the gate with
   assert.doesNotMatch(fn, /run: chooseGit/);
   assert.match(fn, /toast\(`Continue in \$\{plan\.baseWorktree\.name\}`\)/);
   assert.match(app, /api\.on\('git', /);
-  const main = fsm.readFileSync(pth.join(__dirname, '../src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   assert.match(main.slice(main.indexOf("handle('app:git-use'")), /broadcast\('git', info\)/);
   assert.match(fsm.readFileSync(pth.join(__dirname, '../src/preload/preload.js'), 'utf8'), /'git'\]/);
 });

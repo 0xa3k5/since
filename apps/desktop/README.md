@@ -22,7 +22,7 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 ## Architecture
 - `src/main/git/`: dependency-free git CLI layer, one module per area (`run.js` spawns git, `index.js` exports every call) (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
 - `src/main/updater.js`: update checks and install (see Updates).
-- `src/main/main.js`: windows, menu, IPC, FSEvents watcher (live refresh), unlimited undo/redo journal (`.git/since-history.json`).
+- `src/main/main.js`: the entry; `windows.js`, `menu.js`, `lockdown.js`, `session.js` (FSEvents watcher for live refresh, unlimited undo/redo journal in `.git/since-history.json`) and `handlers/` (IPC by area) hold the rest.
 - `src/main/ipc.js`: argument checks for every IPC call. The renderer is sandboxed, has no network access and only reaches git through these checks; see [docs/security.md](../../docs/security.md).
 - `src/preload/preload.js`: the sandboxed bridge; `src/shared/channels.js`: the IPC channel names both sides use.
 - `src/renderer/`: buildless ES modules, one folder per area. Canvas commit graph + virtualized list. The log streams in from git
