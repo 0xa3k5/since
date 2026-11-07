@@ -151,7 +151,7 @@ test('menu accelerators and keycaps per platform', async () => {
 
 test('⌥⌘1…8 open the sidebar pages in their default order; the fold-out lists have chords (AK-491, AK-634)', async () => {
   const { defaults } = await load();
-  const { NAV_ITEMS, SECTION_PAGES } = await import('../src/renderer/shell/sidebar.js');
+  const { NAV_ITEMS, SECTION_PAGES } = await import('../src/renderer/shell/sidebar.ts');
   NAV_ITEMS.forEach((p, i) => assert.equal(defaults(`view.${p.view}`, true)[0], `Mod+Alt+Digit${i + 1}`, `view.${p.view}`));
   for (const p of SECTION_PAGES) assert.ok(defaults(`view.${p.view}`, true).length, `${p.label} has a key`);
   assert.deepEqual(defaults('view.config', true), [], 'Repository Settings is ⌘K and View menu only (AK-628)');

@@ -3,7 +3,7 @@ import { createHistory } from '../graph/log.ts';
 import { setSwatches } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { stageMemory } from '../review/review-rows.js';
-import { orderedSections, moveSection, showSection } from '../shell/sidebar.js';
+import { orderedSections, moveSection, showSection } from '../shell/sidebar.ts';
 import { tourView } from '../welcome/tour-view.js';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';
 import { prefsWindow } from './prefs-view.js';

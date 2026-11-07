@@ -1,7 +1,7 @@
 import { $, toast } from './lib/ui.ts';
 import { setSwatches } from './commit/diff.js';
 import * as keymap from './palette/keymap.ts';
-import { sidebarMode, isNarrow } from './shell/sidebar.js';
+import { sidebarMode, isNarrow } from './shell/sidebar.ts';
 import { loadSizes } from './shell/pane-size.ts';
 import { openPrefsCommand } from './settings/prefs.js';
 import { state, loadPref, api, isEditable, isMac } from './lib/app-helpers.ts';

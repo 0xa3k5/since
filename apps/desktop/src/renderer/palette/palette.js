@@ -5,7 +5,7 @@ import { CONFLICT_KEYS } from '../commit/conflict-view.js';
 import { BRANCH_TABS } from '../branches/branches.js';
 import { laneTitle, canRemove, checkoutHereMode } from '../lanes/lanes.js';
 import { paneActions, fixActions } from '../prs/pr-review.js';
-import { sidebarToggleLabel, SECTION_PAGES, orderedSections, showSection } from '../shell/sidebar.js';
+import { sidebarToggleLabel, SECTION_PAGES, orderedSections, showSection } from '../shell/sidebar.ts';
 import { authorProfile, loginProfile } from '../lib/profile.ts';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';

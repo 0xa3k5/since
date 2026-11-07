@@ -21,7 +21,11 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 
 /** A part of the state whose module is still JavaScript. It gets its real type when that module moves (SNC-696). */
 type Later = unknown;
-export type View = 'map' | 'commit' | 'lanes' | 'branches' | 'catchup' | 'worktrees' | 'stashes' | 'reflog' | 'snapshots';
+export type View =
+  | 'map' | 'commit' | 'lanes' | 'branches' | 'catchup' | 'worktrees' | 'stashes' | 'reflog' | 'snapshots'
+  | 'submoduleList' | 'remoteList' | 'tagList';
+/** Which sidebar rows show, in what order (Preferences → Sidebar). */
+export interface SidebarSections { order?: string[]; hidden?: string[] }
 /** What the map shows (View menu). */
 export interface Show { tags: boolean; remotes: boolean; swatches: boolean; agentLanes: boolean; unified: boolean }
 /** The Commit view: the list and file on screen, the selected files, and the picked lines of the diff. */
@@ -64,7 +68,7 @@ export interface AppState {
   cv: CommitViewState;
   amend: boolean;
   collapsed: Record<string, boolean>;
-  sections: Later;
+  sections: SidebarSections;
   theme: Theme;
   prs: Later;
   review?: Later;

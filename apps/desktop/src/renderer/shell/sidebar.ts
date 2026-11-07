@@ -3,13 +3,25 @@
 //   rail:     icons only, in the layout
 //   overlay:  full sidebar floating over the content, next to the rail (narrow windows only)
 
+import type { View } from '../lib/app-helpers.ts';
+
+/** The sidebar's saved choice and overlay state, with the window width. */
+export interface SidebarState { width: number; expanded: boolean; pinned?: boolean; hover?: boolean }
+export type SidebarMode = 'expanded' | 'rail' | 'overlay';
+/** A sidebar row: the page it opens. `fixed` rows can move but not hide. */
+export interface Page { id: string; label: string; icon: string; view: View; fixed?: boolean }
+export interface SectionRow extends Page { group: 'nav' | 'list'; hidden: boolean }
+/** The saved layout as it comes from prefs: anything unknown is dropped (see sectionLayout). */
+export interface SavedSections { order?: unknown; hidden?: unknown }
+export interface SectionLayout { order: string[]; hidden: string[] }
+
 // Below this window width the sidebar collapses to the rail on its own.
 export const SIDEBAR_BREAKPOINT = 1100;
 
-export const isNarrow = (width) => width < SIDEBAR_BREAKPOINT;
+export const isNarrow = (width: number): boolean => width < SIDEBAR_BREAKPOINT;
 
 // expanded: the saved choice for wide windows. pinned/hover: the overlay on narrow windows.
-export function sidebarMode({ width, expanded, pinned = false, hover = false }) {
+export function sidebarMode({ width, expanded, pinned = false, hover = false }: SidebarState): SidebarMode {
   if (!isNarrow(width)) return expanded ? 'expanded' : 'rail';
   return pinned || hover ? 'overlay' : 'rail';
 }
@@ -17,21 +29,21 @@ export function sidebarMode({ width, expanded, pinned = false, hover = false }) 
 // What the toggle (button, ⌘\, ⌘K, menu) does. Wide windows flip the saved choice;
 // narrow ones pin or unpin the overlay and never touch the saved choice. Clicking the toggle
 // while hover has the overlay open pins it, so it doesn't vanish under the pointer.
-export function toggleSidebarState(s, width) {
+export function toggleSidebarState<S extends { expanded: boolean; pinned: boolean; hover: boolean }>(s: S, width: number): S {
   if (!isNarrow(width)) return { ...s, expanded: !s.expanded, pinned: false, hover: false };
   return { ...s, pinned: !s.pinned, hover: false };
 }
 
 // Label for the toggle (tooltip, ⌘K) in the current state.
 // While hover has the overlay open, the toggle pins it rather than showing it.
-export function sidebarToggleLabel({ width, expanded, pinned = false, hover = false }) {
+export function sidebarToggleLabel({ width, expanded, pinned = false, hover = false }: SidebarState): string {
   if (isNarrow(width)) return pinned ? 'Hide sidebar' : hover ? 'Pin sidebar' : 'Show sidebar';
   return expanded ? 'Minimize sidebar' : 'Expand sidebar';
 }
 
 // The sidebar, top to bottom (AK-491): one row per page (keys ⌘1–⌘8), a divider, then the smaller fold-out lists.
 // `view` is the page a row opens; `fixed` rows can move but not hide. Each row keeps its key wherever it sits.
-export const NAV_ITEMS = [
+export const NAV_ITEMS: Page[] = [
   { id: 'catchup', label: 'Since', icon: 'catchup', view: 'catchup', fixed: true },
   { id: 'lanes', label: 'Review', icon: 'lanes', view: 'lanes', fixed: true },
   { id: 'map', label: 'Map', icon: 'map', view: 'map', fixed: true },
@@ -42,57 +54,59 @@ export const NAV_ITEMS = [
   { id: 'submodules', label: 'Submodules', icon: 'submodule', view: 'submoduleList' },
 ];
 // Below the divider: a click on the header folds the list, a double-click (or its key, or ⌘K) opens its full page.
-export const SECTION_PAGES = [
+export const SECTION_PAGES: Page[] = [
   { id: 'remotes', label: 'Remotes', icon: 'cloud', view: 'remoteList' },
   { id: 'tags', label: 'Tags', icon: 'tag', view: 'tagList' },
   { id: 'worktrees', label: 'Worktrees', icon: 'worktree', view: 'worktrees' },
 ];
-const ITEMS = [...NAV_ITEMS.map((p) => ({ ...p, group: 'nav' })), ...SECTION_PAGES.map((p) => ({ ...p, group: 'list' }))];
+const ITEMS: (Page & { group: 'nav' | 'list' })[] = [...NAV_ITEMS.map((p) => ({ ...p, group: 'nav' as const })), ...SECTION_PAGES.map((p) => ({ ...p, group: 'list' as const }))];
 
 // Snapshots and the reflog are one page, History, with a tab each.
-const HISTORY_VIEWS = ['snapshots', 'reflog'];
+const HISTORY_VIEWS: string[] = ['snapshots', 'reflog'];
 
 // The sidebar row that stays highlighted while `view` is on screen, or null.
-export const sectionOf = (view) => (HISTORY_VIEWS.includes(view) ? 'history' : ITEMS.find((p) => p.view === view)?.id || null);
+export const sectionOf = (view: string): string | null => (HISTORY_VIEWS.includes(view) ? 'history' : ITEMS.find((p) => p.view === view)?.id || null);
 // The row (either group) whose page is `view`.
-export const pageOf = (view) => ITEMS.find((p) => p.view === view) || null;
+export const pageOf = (view: string): (Page & { group: 'nav' | 'list' }) | null => ITEMS.find((p) => p.view === view) || null;
 
 // The page title for the top bar.
-export const pageLabel = (view) => (HISTORY_VIEWS.includes(view) ? 'History' : pageOf(view)?.label || '');
+export const pageLabel = (view: string): string => (HISTORY_VIEWS.includes(view) ? 'History' : pageOf(view)?.label || '');
 
 // Which rows show, and in what order (AK-464, Preferences → Sidebar; long-press drag, AK-491). Saved as
 // { order: [ids], hidden: [ids] }; anything unknown is dropped and rows it doesn't mention keep their default
 // place, so the default (nothing saved) is NAV_ITEMS then SECTION_PAGES, all shown. Rows never leave their group.
-export function sectionLayout(saved = {}) {
+export function sectionLayout(saved: SavedSections | null | undefined = {}): SectionLayout {
   const known = ITEMS.map((p) => p.id);
-  const order = (Array.isArray(saved.order) ? saved.order : []).filter((id, i, a) => known.includes(id) && a.indexOf(id) === i);
+  const listed = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const order = listed(saved?.order).filter((id, i, a): id is string => typeof id === 'string' && known.includes(id) && a.indexOf(id) === i);
   // A row the saved order doesn't know goes right after the one before it by default (or first).
-  known.forEach((id, k) => { if (!order.includes(id)) order.splice(k ? order.indexOf(known[k - 1]) + 1 : 0, 0, id); });
-  const hidden = (Array.isArray(saved.hidden) ? saved.hidden : []).filter((id) => known.includes(id) && !ITEMS.find((p) => p.id === id).fixed);
+  known.forEach((id, k) => { if (!order.includes(id)) order.splice(k ? order.indexOf(known[k - 1]!) + 1 : 0, 0, id); });
+  const hidden = listed(saved?.hidden).filter((id): id is string => typeof id === 'string' && known.includes(id) && !ITEMS.find((p) => p.id === id)?.fixed);
   return { order, hidden: [...new Set(hidden)] };
 }
 
 // Every row in the saved order, each with `group` ('nav' or 'list') and `hidden`; pass a group for just that one.
-export const orderedSections = (saved, group = null) => {
+export const orderedSections = (saved: SavedSections | null | undefined, group: 'nav' | 'list' | null = null): SectionRow[] => {
   const l = sectionLayout(saved);
-  return l.order.map((id) => ({ ...ITEMS.find((p) => p.id === id), hidden: l.hidden.includes(id) })).filter((p) => !group || p.group === group);
+  // Every id in the layout is a known row.
+  return l.order.map((id) => ({ ...ITEMS.find((p) => p.id === id)!, hidden: l.hidden.includes(id) })).filter((p) => !group || p.group === group);
 };
 
-const groupOf = (id) => ITEMS.find((p) => p.id === id)?.group;
+const groupOf = (id: string | null | undefined) => ITEMS.find((p) => p.id === id)?.group;
 
 // Move a row one place up (dir -1) or down (dir 1) within its group; stays put at either end.
-export function moveSection(saved, id, dir) {
+export function moveSection(saved: SavedSections | null | undefined, id: string, dir: number): SectionLayout {
   const { order, hidden } = sectionLayout(saved);
   const i = order.indexOf(id);
   let j = i + dir;
   while (j >= 0 && j < order.length && groupOf(order[j]) !== groupOf(id)) j += dir;
   if (i < 0 || j < 0 || j >= order.length) return { order, hidden };
-  [order[i], order[j]] = [order[j], order[i]];
+  [order[i], order[j]] = [order[j]!, order[i]!];
   return { order, hidden };
 }
 
 // Drop a dragged row just before `before` (null: after the last row of its group). Other groups don't take it.
-export function placeSection(saved, id, before = null) {
+export function placeSection(saved: SavedSections | null | undefined, id: string, before: string | null = null): SectionLayout {
   const { order, hidden } = sectionLayout(saved);
   if (!order.includes(id) || id === before || (before && groupOf(before) !== groupOf(id))) return { order, hidden };
   const rest = order.filter((x) => x !== id);
@@ -101,7 +115,7 @@ export function placeSection(saved, id, before = null) {
   return { order: rest, hidden };
 }
 
-export function showSection(saved, id, show) {
+export function showSection(saved: SavedSections | null | undefined, id: string, show: boolean): SectionLayout {
   const { order, hidden } = sectionLayout(saved);
   if (!show && ITEMS.find((p) => p.id === id)?.fixed) return { order, hidden };
   return { order, hidden: show ? hidden.filter((x) => x !== id) : [...new Set([...hidden, id])] };

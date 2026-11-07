@@ -5,7 +5,7 @@ import * as keymap from '../palette/keymap.ts';
 import { fileHistoryView } from '../history/file-history-view.js';
 import { createNav } from './nav.ts';
 import { reviewView } from '../review/review-view.js';
-import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.js';
+import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.ts';
 import { PANES, clampPane, stepPane, defaultSizes } from './pane-size.ts';
 import { authorProfile } from '../lib/profile.ts';
 import { approveWhy, draftSwitch } from '../prs/prs.js';
