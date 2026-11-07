@@ -855,7 +855,7 @@ handle('app:open-window', async (e, dir) => {
   const target = await worktreeFolder(session(e), dir);
   const win = windowFor(target);
   if (win) win.focus(); else tabOf(e).host.add(target);
-}); // webContents.id -> handoff
+});
 handle('app:handoff', async (e, payload) => {
   const s = session(e);
   const h = { ...check.handoff(payload) };

@@ -250,7 +250,7 @@ test('merge and tidy that aborts a merge stopped here saves the resolved files, 
 });
 
 test('the banner’s Abort offers the saved files back, without an Undo (the abort is not a step)', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const src = require('./app-source').appSource();
   const banner = src.slice(src.indexOf('function renderBanner('), src.indexOf('function renderBanner(') + 1500);
   assert.match(banner, /act\(label, 'abortOp', \[\], \{ quiet: true, then: \(res\) => aborted\(label, res, \{ success: label, undoable: false \}\) \}\)/);
   const fn = src.slice(src.indexOf('async function aborted('), src.indexOf('async function resolveOp('));

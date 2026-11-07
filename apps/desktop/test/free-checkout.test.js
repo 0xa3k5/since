@@ -198,7 +198,7 @@ test('clean holder, my changes in the way: freeing refuses untouched; moving wit
 });
 
 test('the clean-holder checkout stashes like a plain checkout; no leftover free label', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const src = require('./app-source').appSource();
   const fn = src.slice(src.indexOf('async function freeCheckout('), src.indexOf('async function moveCheckout('));
   assert.match(fn, /blockedCheckout\(/);
   assert.match(fn, /act\(label, 'moveCheckout', \[branch, wt\.path, stash\]/);

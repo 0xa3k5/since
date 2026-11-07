@@ -406,9 +406,9 @@ test('failing check names: check runs by name, statuses by context, once each', 
 test('Review is home: a repository opens on Review, the Map keeps its own key', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const app = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const app = require('./app-source').appSource();
   assert.match(app, /let startView = 'lanes';/);
-  assert.match(app, /state\.view = startView;/);
+  assert.match(app, /state\.view = (?:up\.)?startView;/);
   const keymap = await import('../src/renderer/palette/keymap.js');
   assert.ok(keymap.keys('view.map').length);
   assert.ok(keymap.keys('view.lanes').length);

@@ -60,7 +60,7 @@ test('actions onto HEAD are blocked on HEAD itself', async () => {
 });
 
 test('each guarded action key and its menu item use the same check', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const src = require('./app-source').appSource();
   const shortcut = src.slice(src.indexOf('function commitShortcut('), src.indexOf('function commitMenu('));
   assert.match(shortcut, /guarded\(id, c, run\)/);
   const menu = src.slice(src.indexOf('function commitMenu('), src.indexOf('function refMenu('));

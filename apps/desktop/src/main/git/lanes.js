@@ -3,7 +3,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { AGENT_HINTS } = require('../../renderer/lib/agents.js');
+const { AGENT_HINTS } = require('../../renderer/lib/agents.js'); // shared with the renderer (AK-393)
 const { run, GitError, mapLimit, REC, SEP, onGitPathChange, BASE_ENV, gitPath } = require('./run');
 const { canForecast } = require('./support');
 const { diffTreeFiles, LOG_FORMATS, LOG_ENV, parseCoAuthors } = require('./log');
@@ -15,7 +15,6 @@ const { getWorktrees } = require('./worktrees');
 // for-each-ref, one worktree list, one log, three patch-id passes), plus one status per worktree
 // for its uncommitted-file count. Read-only.
 
- // shared with the renderer (AK-393)
 // Lane commits read for trailers and squash checks, and base commits searched for squash merges.
 const LANE_COMMITS = 5000;
 // Squash merges older than BASE_COMMITS base commits aren't detected: such a branch reads merged: null.

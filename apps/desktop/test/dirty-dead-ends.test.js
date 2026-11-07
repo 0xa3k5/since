@@ -199,7 +199,7 @@ test('ipc: stashAnd checks the inner method and its arguments', () => {
 });
 
 test('the stash-before-checkout dialog has no explanatory line', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const src = require('./app-source').appSource();
   const fn = src.slice(src.indexOf('async function autostashCheckout('), src.indexOf('async function autostashCheckout(') + 1200);
   assert.doesNotMatch(fn, /description:/);
 });

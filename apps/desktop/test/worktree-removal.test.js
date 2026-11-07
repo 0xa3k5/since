@@ -44,7 +44,7 @@ test('removal plan: asks only for work undo can’t bring back', async () => {
 });
 
 test('removing a worktree no window shows needs no confirm, and the current one can be removed', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const src = require('./app-source').appSource();
   const fn = src.slice(src.indexOf('async function removeWorktree('), src.indexOf('function askAt('));
   assert.doesNotMatch(fn, /await confirm\(/);
   assert.match(src, /label: 'Remove Worktree…'[^\n]*disabled: w\.main,/);
