@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 const { Journal } = require('../src/main/journal');
-const { checkGit } = require('../src/main/ipc');
+const { checkGit } = require('../src/main/ipc.ts');
 
 const load = () => import('../src/renderer/commit/conflict.js');
 const conflictCount = (segs) => segs.filter((s) => s.type === 'conflict').length;

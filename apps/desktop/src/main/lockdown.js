@@ -1,8 +1,8 @@
 'use strict';
 // Lock-down: sandbox every renderer, refuse navigation, permissions and requests outside the allow-list.
 const { app, shell, protocol } = require('electron');
-const check = require('./ipc');
-const prMedia = require('./pr-media');
+const check = require('./ipc.ts');
+const prMedia = require('./pr-media.ts');
 
 // ---------------------------------------------------------------------------
 // Lockdown. Since talks to the network only through the git processes it starts; the

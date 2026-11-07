@@ -322,7 +322,7 @@ test('mergeInfo: one pr view and one repo view, with the gate', async () => {
 });
 
 test('ipc: prNumber and knownRemote', () => {
-  const check = require('../src/main/ipc');
+  const check = require('../src/main/ipc.ts');
   assert.equal(check.prNumber(3), 3);
   for (const bad of [0, -1, 1.5, '3', null]) assert.throws(() => check.prNumber(bad), check.IpcArgError);
   assert.equal(check.knownRemote([ORIGIN], 'origin'), ORIGIN);

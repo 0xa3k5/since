@@ -33,7 +33,7 @@ test('every invoke channel the main process handles is git or app:', () => {
 
 test('the git methods in the contract are exactly the ones ipc.js checks', () => {
   const { GIT_METHODS } = require('../src/shared/channels.ts');
-  const { gitSchemas } = require('../src/main/ipc.js');
+  const { gitSchemas } = require('../src/main/ipc.ts');
   assert.deepEqual([...GIT_METHODS].sort(), Object.keys(gitSchemas).sort());
 });
 

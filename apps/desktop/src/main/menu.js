@@ -3,8 +3,8 @@
 const { app, BaseWindow, dialog, Menu } = require('electron');
 const fs = require('node:fs');
 const updater = require('./updater');
-const check = require('./ipc');
-const { onMenuChange, menuChanged } = require('./app-events');
+const check = require('./ipc.ts');
+const { onMenuChange, menuChanged } = require('./app-events.ts');
 const keymap = require('../renderer/palette/keymap.js');
 const { isMac, writeSettings, readRecent, THEMES, THEME_LABELS, currentTheme } = require('./settings');
 const { sessions } = require('./session');

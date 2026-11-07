@@ -3,7 +3,7 @@
 const { app, nativeTheme } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const recentStore = require('./stores/recent-store');
+const recentStore = require('./stores/recent-store.ts');
 
 const isMac = process.platform === 'darwin';
 

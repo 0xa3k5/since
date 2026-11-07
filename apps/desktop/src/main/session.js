@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const git = require('./git/index.ts');
 const { Journal } = require('./journal');
-const { LogStreams } = require('./log-streams');
+const { LogStreams } = require('./log-streams.ts');
 
 const sessions = new Map(); // webContents.id -> RepoSession
 // Bumped on every repository change any window sees (watcher events, our own git commands): a lanes

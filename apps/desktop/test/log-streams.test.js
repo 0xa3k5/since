@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
-const { LogStreams, CLOSED } = require('../src/main/log-streams');
+const { LogStreams, CLOSED } = require('../src/main/log-streams.ts');
 const { generate } = require('../bench/synth');
 
 async function tmp() {

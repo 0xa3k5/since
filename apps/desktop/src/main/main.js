@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const updater = require('./updater');
 const pkg = require('../../package.json');
-const prMedia = require('./pr-media');
+const prMedia = require('./pr-media.ts');
 const keymap = require('../renderer/palette/keymap.js');
 require('./user-data');
 require('./handlers/git');

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const check = require('../src/main/ipc');
+const check = require('../src/main/ipc.ts');
 
 const root = path.join(__dirname, '..');
 const rejects = (fn, re) => assert.throws(fn, (e) => e instanceof check.IpcArgError && (!re || re.test(e.message)));

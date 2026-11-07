@@ -3,9 +3,9 @@
 const path = require('node:path');
 const git = require('../git/index.ts');
 const { workOps, worktreeOps, laneOps, remoteOps } = require('../journal');
-const check = require('../ipc');
+const check = require('../ipc.ts');
 const channels = require('../../shared/channels.ts');
-const { menuChanged } = require('../app-events');
+const { menuChanged } = require('../app-events.ts');
 const github = require('../github');
 const changeFacts = require('../change-facts');
 const { windowFor, sessions, session } = require('../session');
