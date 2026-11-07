@@ -12,7 +12,7 @@ import { AUTOSTASH_DEFAULT } from '../commit/autostash.js';
 import { GIT_NEEDS } from '../lib/git-version.ts';
 import { draftSwitch } from '../prs/prs.js';
 import { up } from '../lib/upcalls.ts';
-import { api, state, tildePath, loadPref, savePref, MOD } from '../lib/app-helpers.js';
+import { api, state, tildePath, loadPref, savePref, MOD } from '../lib/app-helpers.ts';
 import { stashShown, commitView, lanesPage, branchesPage, catchupPage } from '../shell/shell.js';
 import { THEMES, setTheme, cycleTheme, THEME_KBD } from '../shell/theme.js';
 import { canReopenTab, tabList, TAB_KEYS, update, installUpdate, checkUpdates, toggleAutoUpdate } from '../shell/updates.js';

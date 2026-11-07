@@ -1,6 +1,6 @@
 import { h, contextMenu, timeAgo } from '../lib/ui.ts';
 import { up } from '../lib/upcalls.ts';
-import { state } from '../lib/app-helpers.js';
+import { state } from '../lib/app-helpers.ts';
 import { act } from '../lib/bridge.js';
 import { historyTabs } from './snapshots.js';
 

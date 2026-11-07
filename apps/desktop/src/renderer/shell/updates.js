@@ -1,6 +1,6 @@
 import { toast } from '../lib/ui.ts';
 import { renderTabs } from './tabs-view.js';
-import { api } from '../lib/app-helpers.js';
+import { api } from '../lib/app-helpers.ts';
 
 // Updates
 // here we tell the user and offer the restart. Results of a manual check show in the window that asked.

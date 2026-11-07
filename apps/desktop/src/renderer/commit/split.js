@@ -2,7 +2,7 @@ import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.ts';
 import { renderDiff, hunkKeys, statusBadge } from './diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
-import { state, isEditable } from '../lib/app-helpers.js';
+import { state, isEditable } from '../lib/app-helpers.ts';
 import { git, act } from '../lib/bridge.js';
 
 // Split commit: pick the lines that become the first commit; the rest become the second.

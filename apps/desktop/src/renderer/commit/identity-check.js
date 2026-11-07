@@ -1,6 +1,6 @@
 import { toast, dialog } from '../lib/ui.ts';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
-import { loadPref, state, savePref } from '../lib/app-helpers.js';
+import { loadPref, state, savePref } from '../lib/app-helpers.ts';
 import { git } from '../lib/bridge.js';
 import { refreshAux } from '../graph/load.js';
 

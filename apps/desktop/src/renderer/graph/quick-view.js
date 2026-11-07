@@ -2,7 +2,7 @@ import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.ts';
 import { renderDiff, statusBadge, fileRef } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
-import { state } from '../lib/app-helpers.js';
+import { state } from '../lib/app-helpers.ts';
 import { git } from '../lib/bridge.js';
 import { openFileHistory, withHistoryMenu } from '../history/file-history.js';
 

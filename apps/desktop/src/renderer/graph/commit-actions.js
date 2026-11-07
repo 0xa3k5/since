@@ -6,7 +6,7 @@ import { authorProfile } from '../lib/profile.ts';
 import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from '../commit/autostash.js';
 import { commitBlock } from './commit-guards.js';
 import { up } from '../lib/upcalls.ts';
-import { state, MOD, api, loadPref, savePref } from '../lib/app-helpers.js';
+import { state, MOD, api, loadPref, savePref } from '../lib/app-helpers.ts';
 import { stashFocus, setStashFocus, contentEl } from '../shell/shell.js';
 import { act, resolveOp, git, undo } from '../lib/bridge.js';
 import { worktreeOf, refreshAll } from './load.js';

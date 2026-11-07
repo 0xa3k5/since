@@ -1,7 +1,7 @@
 import { toast } from '../lib/ui.ts';
 import { fileRef } from './diff.js';
 import { up } from '../lib/upcalls.ts';
-import { state } from '../lib/app-helpers.js';
+import { state } from '../lib/app-helpers.ts';
 import { git } from '../lib/bridge.js';
 
 // External diff & merge tools: git difftool / mergetool with the user's diff.tool / merge.tool.

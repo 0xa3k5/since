@@ -4,7 +4,7 @@ import * as keymap from './palette/keymap.ts';
 import { sidebarMode, isNarrow } from './shell/sidebar.js';
 import { loadSizes } from './shell/pane-size.js';
 import { openPrefsCommand } from './settings/prefs.js';
-import { state, loadPref, api, isEditable, isMac } from './lib/app-helpers.js';
+import { state, loadPref, api, isEditable, isMac } from './lib/app-helpers.ts';
 import { sidebarEl, mapView } from './shell/shell.js';
 import { themeLabel } from './shell/theme.js';
 import { showUpdate, showTabs } from './shell/updates.js';

@@ -1,6 +1,6 @@
 import { h, icon, avatar, avatarStack, tipFor, timeAgo, fullDate } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
-import { markdown } from '../lib/markdown.js';
+import { markdown } from '../lib/markdown.ts';
 import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.js';
 
 // The reader (AK-381): one set of building blocks for Review's right-hand pane (review-pane.js +

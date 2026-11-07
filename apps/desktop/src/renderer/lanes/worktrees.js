@@ -22,7 +22,7 @@ import { AUTOSTASH_DEFAULT, stashMessage } from '../commit/autostash.js';
 import { mergeHereBlock } from '../lib/git-version.ts';
 import { needsCheckConfirm } from './check-confirm.js';
 import { up } from '../lib/upcalls.ts';
-import { state, sentence, tip, isEditable, tildify, keyText, api, loadPref, savePref, MOD, parentDir } from '../lib/app-helpers.js';
+import { state, sentence, tip, isEditable, tildify, keyText, api, loadPref, savePref, MOD, parentDir } from '../lib/app-helpers.ts';
 import { lanesPage, setLanesPage, catchupPage, setCatchupPage, catchupCount, assignCatchupCount, countRun, setCountRun, branchesPage, setBranchesPage, finishedCount, assignFinishedCount, finishedRun, setFinishedRun, reviewCount, assignReviewCount, reviewRun, setReviewRun } from '../shell/shell.js';
 import { git, updateGit, gitWhy, undo, coalesce, abortAnd, act } from '../lib/bridge.js';
 import { refreshAll, refreshHistory, worktreeOf } from '../graph/load.js';

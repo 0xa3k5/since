@@ -1,6 +1,6 @@
 import { $, toast, dialog, confirm, prompt, palette } from '../lib/ui.ts';
 import { up } from '../lib/upcalls.ts';
-import { state, api } from '../lib/app-helpers.js';
+import { state, api } from '../lib/app-helpers.ts';
 
 // Opt-in AI commit messages: the user's own Claude Code / Codex CLI, or Ollama on this Mac.
 // Before the first use with a provider, the user sees the exact text that will be sent.

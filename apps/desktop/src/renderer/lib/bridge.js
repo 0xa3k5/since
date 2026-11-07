@@ -3,7 +3,7 @@ import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToa
 import { blockedByChanges } from '../commit/autostash.js';
 import { GIT_NEEDS, GIT_FEATURES, gitMeets } from './git-version.ts';
 import { up } from './upcalls.ts';
-import { api, state } from './app-helpers.js';
+import { api, state } from './app-helpers.ts';
 import { bannerEl } from '../shell/shell.js';
 
 // Git bridge

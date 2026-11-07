@@ -10,7 +10,7 @@ import { PANES, clampPane, stepPane, defaultSizes } from './pane-size.js';
 import { authorProfile } from '../lib/profile.ts';
 import { approveWhy, draftSwitch } from '../prs/prs.js';
 import { up } from '../lib/upcalls.ts';
-import { state, tildePath, api, savePref, tip, MOD } from '../lib/app-helpers.js';
+import { state, tildePath, api, savePref, tip, MOD } from '../lib/app-helpers.ts';
 import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, mapView, branchesPage, commitView, catchupPage, reviewPage, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage } from './shell.js';
 import { git, undoTitle, undo, redoTitle, redo, act, aborted } from '../lib/bridge.js';
 import { refreshAux, refreshHistory, worktreeOf } from '../graph/load.js';

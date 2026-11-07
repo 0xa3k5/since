@@ -1,5 +1,5 @@
 import * as keymap from '../palette/keymap.ts';
-import { api } from '../lib/app-helpers.js';
+import { api } from '../lib/app-helpers.ts';
 
 // Theme (System / Light / Dark). The main process owns the setting and applies it via
 // nativeTheme, which flips prefers-color-scheme here; we only repaint the canvas graph.
