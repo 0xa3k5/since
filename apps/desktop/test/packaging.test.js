@@ -100,10 +100,10 @@ test('the main process opens no connections of its own, apart from updates', () 
   // git and gh make their own requests; Since only spawns them. Only updater.js may request
   // anything, and it's listed in docs/security.md.
   const files = ['src/main', 'src/preload', 'src/shared'].flatMap((d) => fs.readdirSync(path.join(root, d), { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)));
-  assert.ok(files.includes('src/main/updater.js'));
+  assert.ok(files.includes('src/main/updater.js') && files.includes('src/main/git/run.js'));
   const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
   for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);
-  for (const file of ['git.js', 'ai.js', 'github.js', 'ipc.js', 'journal.js'].map((f) => `src/main/${f}`)) {
+  for (const file of [...files.filter((f) => f.startsWith('src/main/git/')), ...['ai.js', 'github.js', 'ipc.js', 'journal.js'].map((f) => `src/main/${f}`)]) {
     assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), /\bfetch\(|XMLHttpRequest|WebSocket/, file);
   }
 });
