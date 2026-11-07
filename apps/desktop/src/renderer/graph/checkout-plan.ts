@@ -3,7 +3,10 @@
 //   { kind: 'remote', remote, local } only a remote branch is here: offer a local tracking branch
 //   { kind: 'commit' }                a plain commit: offer a new branch here or a detached checkout
 //   null                              already HEAD: nothing to do
-export function checkoutPlan(c, refs, head) {
+import type { Head, Ref } from '../../shared/git-types.ts';
+
+export type CheckoutPlan = { kind: 'switch'; branch: string } | { kind: 'remote'; remote: string; local: string } | { kind: 'commit' };
+export function checkoutPlan(c: { sha: string } | null | undefined, refs: readonly Ref[], head: Head): CheckoutPlan | null {
   if (!c) return null;
   const at = refs.filter((r) => r.target === c.sha);
   const branch = at.find((r) => r.kind === 'branch' && r.short !== head.branch);
@@ -27,7 +30,13 @@ export function checkoutPlan(c, refs, head) {
 //   { kind: 'dirty', where, changes, changed, stash, actions: ['move', 'open'] }
 //     its changes come along; `changed` ("Last changed 2 min ago") only under 10 minutes,
 //     `stash` (this window's changes) only when there are some
-export function inUsePlan(wt, hold, mine = 0, now = Date.now()) {
+/** git.worktreeHold: why the worktree can't give its branch up, or how many changes it would carry. */
+export interface WorktreeHold { blocker?: string | null; changes?: number; changedAt?: number | null }
+export type InUsePlan =
+  | { kind: 'blocked'; where: string; why: string; actions: 'open'[] }
+  | { kind: 'clean'; where: string; actions: ('free' | 'open')[] }
+  | { kind: 'dirty'; where: string; changes: string; changed: string | null; stash: string | null; actions: ('move' | 'open')[] };
+export function inUsePlan(wt: { path: string; missing?: boolean }, hold: WorktreeHold, mine = 0, now = Date.now()): InUsePlan {
   const where = wt.path.replace(/^\/Users\/[^/]+/, '~').replace(/^(~?)\/.+\/([^/]+)$/, '$1/…/$2');
   if (hold.blocker) return { kind: 'blocked', where, why: hold.blocker, actions: wt.missing ? [] : ['open'] };
   if (!hold.changes) return { kind: 'clean', where, actions: ['free', 'open'] };

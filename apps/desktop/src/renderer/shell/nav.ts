@@ -5,9 +5,19 @@
 // Oldest entries drop off past this many steps back.
 export const NAV_LIMIT = 100;
 
-export function createNav(limit = NAV_LIMIT) {
-  let back = [];
-  let fwd = [];
+/** Back and forward over places `E` (each names itself with `key`). */
+export interface Nav<E> {
+  readonly canBack: boolean;
+  readonly canForward: boolean;
+  record(from: E | null | undefined, toKey: string): boolean;
+  back(here: E | null | undefined): E | null;
+  forward(here: E | null | undefined): E | null;
+  undo(dir: 'back' | 'forward', here: E | null | undefined, to: E): void;
+  clear(): void;
+}
+export function createNav<E extends { key: string }>(limit = NAV_LIMIT): Nav<E> {
+  let back: E[] = [];
+  let fwd: E[] = [];
   return {
     get canBack() { return back.length > 0; },
     get canForward() { return fwd.length > 0; },

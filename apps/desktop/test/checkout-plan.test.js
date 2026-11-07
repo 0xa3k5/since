@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/graph/checkout-plan.js');
+const load = () => import('../src/renderer/graph/checkout-plan.ts');
 const b = (short, target) => ({ kind: 'branch', short, target });
 const rb = (short, target) => ({ kind: 'remote', short, target });
 const head = { branch: 'main', oid: 'h' };

@@ -3,12 +3,16 @@
 // Ids are keymap command ids, plus 'swapParent' (menu only). `c` is a graph commit ({ sha, parents }); `headOid`
 // is HEAD's sha; `get` (optional) looks up a loaded graph commit by sha. null: the action can run.
 
-const MERGE = { 'commit.squash': 'squashed', 'commit.fixup': 'fixed up', 'swapParent': 'swapped', 'commit.split': 'split', 'commit.drop': 'deleted' };
-const ON_HEAD = { 'commit.diffHead': 'compared with itself', 'commit.merge': 'merged into itself', 'commit.rebase': 'rebased onto itself', 'commit.cherryPick': 'cherry-picked onto itself' };
-const NEEDS_PARENT = new Set(['commit.squash', 'commit.fixup', 'swapParent']);
-const REWRITE = new Set(['commit.edit', 'commit.split', 'commit.drop', ...NEEDS_PARENT]);
+const MERGE: Record<string, string> = { 'commit.squash': 'squashed', 'commit.fixup': 'fixed up', 'swapParent': 'swapped', 'commit.split': 'split', 'commit.drop': 'deleted' };
+const ON_HEAD: Record<string, string> = { 'commit.diffHead': 'compared with itself', 'commit.merge': 'merged into itself', 'commit.rebase': 'rebased onto itself', 'commit.cherryPick': 'cherry-picked onto itself' };
+const NEEDS_PARENT = new Set<string>(['commit.squash', 'commit.fixup', 'swapParent']);
+const REWRITE = new Set<string>(['commit.edit', 'commit.split', 'commit.drop', ...NEEDS_PARENT]);
 
-export function commitBlock(id, c, headOid, get = null) {
+/** What the guards need from a commit. */
+export interface GuardCommit { sha: string; parents?: readonly string[] }
+/** Looks up a loaded graph commit by sha (undefined when it isn't loaded). */
+export type CommitLookup = (sha: string | null | undefined) => { parents?: readonly string[] } | null | undefined;
+export function commitBlock(id: string, c: GuardCommit | null | undefined, headOid: string | null | undefined, get: CommitLookup | null = null): string | null {
   const parents = c?.parents?.length ?? 0;
   if (ON_HEAD[id] && c?.sha === headOid) return `HEAD can’t be ${ON_HEAD[id]}`;
   if (MERGE[id] && parents > 1) return `Merge commits can’t be ${MERGE[id]}`;
@@ -21,12 +25,12 @@ export function commitBlock(id, c, headOid, get = null) {
 // Whether rewriting `c` on HEAD would replay a merge commit (git.rewriteRange refuses): a merge
 // reachable from HEAD but not from where the rebase starts (`c`'s parent, or its grandparent when
 // `grand`). false when `c` isn't on HEAD (that rewrite runs on another branch) or isn't loaded.
-function mergeInWay(c, headOid, grand, get) {
-  const reach = (from, stop = null) => {
-    const seen = new Set();
+function mergeInWay(c: GuardCommit | null | undefined, headOid: string | null | undefined, grand: boolean, get: CommitLookup): boolean {
+  const reach = (from: string | null | undefined, stop: Set<string> | null = null) => {
+    const seen = new Set<string>();
     const todo = from ? [from] : [];
     while (todo.length) {
-      const sha = todo.pop();
+      const sha = todo.pop()!;
       if (seen.has(sha) || stop?.has(sha)) continue;
       seen.add(sha);
       for (const p of get(sha)?.parents || []) todo.push(p);
@@ -37,7 +41,7 @@ function mergeInWay(c, headOid, grand, get) {
   const onHead = reach(headOid);
   if (!onHead.has(c.sha)) return false;
   const base = grand ? get(c.parents?.[0])?.parents?.[0] : c.parents?.[0];
-  const below = base ? reach(base) : new Set();
+  const below = base ? reach(base) : new Set<string>();
   for (const sha of reach(headOid, below)) if ((get(sha)?.parents?.length ?? 0) > 1) return true;
   return false;
 }

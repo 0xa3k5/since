@@ -6,8 +6,8 @@ import { shortcutsWindow } from '../palette/shortcuts-view.js';
 import { SETUP_PREF, setupValues } from '../settings/setup.js';
 import { up } from '../lib/upcalls.ts';
 import { state, api, savePref, MOD } from '../lib/app-helpers.ts';
-import { THEMES, setTheme } from '../shell/theme.js';
-import { update, setUpdate } from '../shell/updates.js';
+import { THEMES, setTheme } from '../shell/theme.ts';
+import { update, setUpdate } from '../shell/updates.ts';
 import { aiOn, setupAi } from '../commit/ai-message.js';
 
 // Welcome screen / repository lifecycle

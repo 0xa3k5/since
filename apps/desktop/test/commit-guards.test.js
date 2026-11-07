@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const load = () => import('../src/renderer/graph/commit-guards.js');
+const load = () => import('../src/renderer/graph/commit-guards.ts');
 const HEAD = 'h'.repeat(40);
 const root = { sha: 'r'.repeat(40), parents: [] };
 const plain = { sha: 'p'.repeat(40), parents: ['r'.repeat(40)] };

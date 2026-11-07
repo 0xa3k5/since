@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/shell/pane-size.js');
+const load = () => import('../src/renderer/shell/pane-size.ts');
 
 test('widths stay between the floor and the ceiling', async () => {
   const { clampPane, PANES } = await load();

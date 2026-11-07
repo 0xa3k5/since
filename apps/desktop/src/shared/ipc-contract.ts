@@ -64,6 +64,7 @@ export interface AppResults {
   /** ok is null when the file picker was cancelled. */
   'git-choose': IpcResult<GitInfo | null>;
   'git-use': IpcResult<GitInfo>;
+  'set-auto-update': UpdateState;
 }
 export type AppResult<C extends AppChannel> = C extends keyof AppResults ? AppResults[C] : unknown;
 

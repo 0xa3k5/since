@@ -7,6 +7,7 @@ import type {
   ConfigEntry, FileDiff, GitInfo, Head, LfsInfo, OperationInfo, OperationKind, ReflogEntry, Ref, RepoInfo,
   Remote, Stash, Submodule, WorkStatus, Worktree, JournalList,
 } from '../../shared/git-types.ts';
+import type { Theme } from '../../shared/ipc-contract.ts';
 
 // Small helpers the views share: labels, paths, links and tooltips.
 
@@ -21,7 +22,6 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 /** A part of the state whose module is still JavaScript. It gets its real type when that module moves (SNC-696). */
 type Later = unknown;
 export type View = 'map' | 'commit' | 'lanes' | 'branches' | 'catchup' | 'worktrees' | 'stashes' | 'reflog' | 'snapshots';
-export type Theme = 'system' | 'light' | 'dark';
 /** What the map shows (View menu). */
 export interface Show { tags: boolean; remotes: boolean; swatches: boolean; agentLanes: boolean; unified: boolean }
 /** The Commit view: the list and file on screen, the selected files, and the picked lines of the diff. */
