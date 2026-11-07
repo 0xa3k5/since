@@ -9,7 +9,7 @@ import { sidebarToggleLabel, SECTION_PAGES, orderedSections, showSection } from 
 import { authorProfile, loginProfile } from '../lib/profile.js';
 import { SUBMODULE_STATES } from '../lib/submodule.js';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.js';
-import { GIT_NEEDS } from '../lib/git-version.js';
+import { GIT_NEEDS } from '../lib/git-version.ts';
 import { draftSwitch } from '../prs/prs.js';
 import { up } from '../lib/upcalls.js';
 import { api, state, tildePath, loadPref, savePref, MOD } from '../lib/app-helpers.js';

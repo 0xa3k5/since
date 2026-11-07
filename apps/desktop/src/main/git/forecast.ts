@@ -1,4 +1,4 @@
-import { gitMeets } from '../../renderer/lib/git-version.js';
+import { gitMeets } from '../../renderer/lib/git-version.ts';
 import { run, mapLimit, onGitPathChange } from './run.ts';
 import { canForecast } from './support.ts';
 import type { ConflictForecast, ConflictHunk, ConflictReview, ForecastPair, LaneWho, MergeSim } from '../../shared/git-types.ts';

@@ -9,7 +9,7 @@ const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 const github = require('../src/main/github.ts');
 
-const load = () => import('../src/renderer/lanes/send-back.js');
+const load = () => import('../src/renderer/lanes/send-back.ts');
 const pr = (o = {}) => ({ number: 12, title: 'Add changelog', branch: 'feat/log', base: 'main', checks: 'success', failing: [], mergeable: true, ...o });
 const CONFLICT = { pr: pr(), branch: 'feat/log', title: 'Add changelog', conflicts: [{ with: 'main', base: true, files: ['src/changelog.astro', 'README.md'] }] };
 const CI = { pr: pr({ checks: 'failure', failing: ['test', 'lint'] }), branch: 'feat/log', title: 'Add changelog', conflicts: [] };

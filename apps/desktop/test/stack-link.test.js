@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 const github = require('../src/main/github.ts');
-const { findChains, findStacks, chainWhy, isNative, linkBlocker } = require('../src/renderer/lanes/merge-plan.js');
+const { findChains, findStacks, chainWhy, isNative, linkBlocker } = require('../src/renderer/lanes/merge-plan.ts');
 
 const pr = (number, branch, baseBranch, fork = false) => ({ number, branch, baseBranch, head: String(number).repeat(40).slice(0, 40), fork });
 

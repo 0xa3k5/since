@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { AGENT_HINTS } from '../../renderer/lib/agents.js'; // shared with the renderer (AK-393)
+import { AGENT_HINTS } from '../../renderer/lib/agents.ts'; // shared with the renderer (AK-393)
 import { run, GitError, mapLimit, REC, SEP, onGitPathChange, BASE_ENV, gitPath } from './run.ts';
 import { canForecast } from './support.ts';
 import { diffTreeFiles, LOG_FORMATS, LOG_ENV, parseCoAuthors } from './log.ts';

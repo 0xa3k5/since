@@ -10,20 +10,57 @@
 // AK-545): a stack takes one place in the order, merges as a whole, and `head` is its top PR's.
 
 // At most this many PRs are planned, and this many simulated merges per plan.
+/** A simulated merge: the commit when it merges clean, else the conflicting files. */
+export interface Sim { files: string[]; commit: string | null }
+/** A merge unit: one PR (`number`) or a stack (`stack` id and its `prs`), and the head it merges. */
+export interface PlanUnit { number?: number; stack?: string; prs?: number[]; head: string; snap?: Snap }
+/** A unit's key: its PR number, or its stack id. */
+export type Key = number | string;
+export interface StackInfo { id: string; prs: number[]; heads?: (string | null)[] }
+/** An open PR as github.openPrBranches lists it. */
+export interface OpenPr { number: number; branch: string; baseBranch: string; head: string | null; fork: boolean }
+export interface Chain extends StackInfo { fork: boolean; forkPr?: number; branch?: { number: number; kids: number[] } }
+/** What github.stackFacts says about a PR. */
+export interface StackFact { state: string; baseBranch: string; branch: string; head: string | null; fork: boolean; canUpdate: boolean; canPush: boolean; stack: { number: number; size: number } | null }
+export interface Check { name: string; result: string; required?: boolean; duration?: number; url?: string; run?: string }
+/** What github.planFacts says about a PR (or why it couldn't). */
+export interface PlanFacts {
+  error?: string; number?: number | null; state?: string; draft?: boolean; conflicts?: boolean; conflictFiles?: string[]; checking?: boolean;
+  mergeState?: string; review?: string | null; checks?: string | null; checkList?: Check[]; failing?: string[];
+  branch?: string; headOid?: string | null; author?: string; approvals?: number | null; requested?: string[]; canApprove?: boolean;
+}
+/** Where a PR stood when the plan was made, to tell whether it changed since. */
+export interface Snap { head?: string | null; checks?: string | null; review?: string | null }
+export interface BlockerCheck { name: string; required: boolean; url?: string; run?: string; quick?: boolean }
+/** Why a PR can't merge yet; `required` ones hold it back even with Merge anyway. */
+export interface Blocker {
+  kind: string; required: boolean; detail?: string; who?: string[]; files?: string[];
+  checks?: BlockerCheck[]; rerun?: boolean; approvals?: number | null; canApprove?: boolean; changes?: boolean;
+  number?: number; with?: Key | null;
+}
+interface Step { pr: PlanUnit; before: string; tip: string }
+export interface PlanResult {
+  order: { number?: number; stack?: string; prs?: number[]; after: Key | null }[];
+  forced: { first: Key; then: Key; files: string[] }[];
+  blocked: { number?: number; stack?: string; files: string[]; with: Key | null }[];
+  warnings: { number: number; files: string[] }[];
+  tip: string; complete: boolean;
+}
+
 export const MAX_READY = 10;
 export const MAX_OTHERS = 20;
 const MAX_MERGES = 300;
 // PRs in one stack, and PRs across all stacks, that a plan looks at.
 export const MAX_STACK = 10;
 export const MAX_STACKED = 20;
-export const METHODS = ['squash', 'merge', 'rebase'];
+export const METHODS: readonly string[] = ['squash', 'merge', 'rebase'];
 
 // A unit's key in order / forced / blocked: a PR's number or a stack's id.
-const keyOf = (u) => u.stack ?? u.number;
+const keyOf = (u: PlanUnit): Key => u.stack ?? u.number ?? 0;
 // PRs bottom…top as copy: "#275 → #278", or "#275" when there's one.
-export const rangeLabel = (prs) => (prs.length > 1 ? `#${prs[0]} → #${prs[prs.length - 1]}` : `#${prs[0]}`);
+export const rangeLabel = (prs: readonly number[]): string => (prs.length > 1 ? `#${prs[0]} → #${prs[prs.length - 1]}` : `#${prs[0]}`);
 // "#41", or "the stack #41–#43" for a stack id.
-export const unitLabel = (key, stacks = []) => {
+export const unitLabel = (key: Key | null | undefined, stacks: readonly StackInfo[] = []): string => {
   if (typeof key === 'number') return `#${key}`;
   const s = stacks.find((x) => x.id === key);
   return s ? `the stack #${s.prs[0]}–#${s.prs[s.prs.length - 1]}` : 'a stack';
@@ -40,19 +77,20 @@ export const unitLabel = (key, stacks = []) => {
 //   the unit in the plan after which they stop merging clean (null if that's the base itself).
 // warnings: PRs that aren't ready and merge clean today but would conflict once the plan merges.
 // complete: false when the search ran out of MAX_MERGES before trying every order.
-export async function planOrder({ prs = [], others = [], baseSha, merge, budget = MAX_MERGES }) {
-  const cache = new Map();
+export async function planOrder({ prs = [], others = [], baseSha, merge, budget = MAX_MERGES }: { prs?: PlanUnit[]; others?: readonly { number: number; head: string | null }[]; baseSha: string; merge: (tip: string, head: string) => Sim | null | Promise<Sim | null>; budget?: number }): Promise<PlanResult> {
+  const cache = new Map<string, Promise<Sim>>();
   let calls = 0;
-  const sim = (tip, head) => {
+  const sim = (tip: string, head: string): Promise<Sim> => {
     const key = `${tip} ${head}`;
-    if (!cache.has(key)) { calls++; cache.set(key, Promise.resolve(merge(tip, head)).then((r) => r || { files: [], commit: null }, () => ({ files: [], commit: null }))); }
-    return cache.get(key);
+    let hit = cache.get(key);
+    if (!hit) { calls++; hit = Promise.resolve(merge(tip, head)).then((r) => r || { files: [], commit: null }, () => ({ files: [], commit: null })); cache.set(key, hit); }
+    return hit;
   };
   const ready = prs.slice(0, MAX_READY);
-  let best = [];
+  let best: Step[] = [];
   let complete = true;
   const tried = new Set(); // sets of merged PRs already explored. Heuristic: assumes a clean set merges to the same tree in any order (true for nearly all text merges)
-  async function dfs(tip, done, left) {
+  async function dfs(tip: string, done: Step[], left: PlanUnit[]): Promise<void> {
     if (done.length > best.length) best = done;
     if (!left.length || best.length === ready.length) return;
     const key = done.map((d) => String(keyOf(d.pr))).sort().join(',');
@@ -69,24 +107,26 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
   await dfs(baseSha, [], ready);
 
   const tips = [baseSha, ...best.map((s) => s.tip)];
-  const order = [];
-  for (let i = 0; i < best.length; i++) {
+  const tipAt = (k: number): string => tips[k] ?? baseSha;
+  const unitAt = (k: number): PlanUnit => (best[k] as Step).pr; // k is inside best
+  const order: PlanResult['order'] = [];
+  for (const [i, step] of best.entries()) {
     // The first point in the plan where it merges clean; the PR just before that is what it waits for.
     let k = 0;
-    while (k < i && !(await sim(tips[k], best[i].pr.head)).commit) k++;
-    const u = best[i].pr;
-    order.push({ ...(u.stack ? { stack: u.stack, prs: u.prs } : { number: u.number }), after: k ? keyOf(best[k - 1].pr) : null });
+    while (k < i && !(await sim(tipAt(k), step.pr.head)).commit) k++;
+    const u = step.pr;
+    order.push({ ...(u.stack ? { stack: u.stack, prs: u.prs } : { number: u.number }), after: k ? keyOf(unitAt(k - 1)) : null });
   }
 
   const rank = new Map(ready.map((p, i) => [keyOf(p), i]));
-  const forced = [];
-  const explained = new Set();
-  for (let i = 0; i < best.length; i++) {
-    const x = best[i].pr;
+  const forced: PlanResult['forced'] = [];
+  const explained = new Set<Key>();
+  for (const [i, step] of best.entries()) {
+    const x = step.pr;
     // A PR later in the plan that comes earlier naturally: say what goes wrong if it went first.
     for (const y of best.slice(i + 1).map((s) => s.pr)) {
-      if (rank.get(keyOf(y)) > rank.get(keyOf(x)) || explained.has(keyOf(y))) continue;
-      const first = await sim(best[i].before, y.head);
+      if ((rank.get(keyOf(y)) ?? -1) > (rank.get(keyOf(x)) ?? -1) || explained.has(keyOf(y))) continue;
+      const first = await sim(step.before, y.head);
       const files = first.commit ? (await sim(first.commit, x.head)).files : first.files;
       if (!files.length) continue;
       explained.add(keyOf(y));
@@ -94,15 +134,15 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
     }
   }
 
-  const tip = tips[tips.length - 1];
+  const tip = tipAt(tips.length - 1);
   const inPlan = new Set(best.map((s) => keyOf(s.pr)));
-  const blocked = [];
+  const blocked: PlanResult['blocked'] = [];
   for (const p of ready) {
     if (inPlan.has(keyOf(p))) continue;
     // The plan step after which it stops merging clean names the PR it conflicts with (AK-550).
     let k = 0;
-    while (k < tips.length && (await sim(tips[k], p.head)).commit) k++;
-    blocked.push({ ...(p.stack ? { stack: p.stack } : { number: p.number }), files: (await sim(tip, p.head)).files, with: k > 0 && k < tips.length ? keyOf(best[k - 1].pr) : null });
+    while (k < tips.length && (await sim(tipAt(k), p.head)).commit) k++;
+    blocked.push({ ...(p.stack ? { stack: p.stack } : { number: p.number }), files: (await sim(tip, p.head)).files, with: k > 0 && k < tips.length ? keyOf(unitAt(k - 1)) : null });
   }
 
   const warnings = [];
@@ -119,22 +159,22 @@ export async function planOrder({ prs = [], others = [], baseSha, merge, budget 
 }
 
 // "global.css", "a.css and b.css", "a.css, b.css and 3 more files".
-function fileList(files = [], max = 2) {
+function fileList(files: readonly string[] = [], max = 2): string {
   const names = files.slice(0, max);
   const more = files.length - names.length;
   if (more > 0) return `${names.join(', ')} and ${more} more file${more === 1 ? '' : 's'}`;
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || 'some files';
 }
 
-export const statusText = (step, stacks) => (step.after ? `clean after ${unitLabel(step.after, stacks)}` : 'clean');
-export const forcedText = (f, stacks) => `${unitLabel(f.first, stacks)} before ${unitLabel(f.then, stacks)} would conflict in ${fileList(f.files)}`;
-export const blockedText = (b) => `Conflicts in ${fileList(b.files)} with the PRs above, so it’s left out`;
-export const warningText = (w) => `#${w.number} will conflict in ${fileList(w.files)} after these merge`;
+export const statusText = (step: { after: Key | null }, stacks?: readonly StackInfo[]): string => (step.after ? `clean after ${unitLabel(step.after, stacks)}` : 'clean');
+export const forcedText = (f: { first: Key; then: Key; files: string[] }, stacks?: readonly StackInfo[]): string => `${unitLabel(f.first, stacks)} before ${unitLabel(f.then, stacks)} would conflict in ${fileList(f.files)}`;
+export const blockedText = (b: { files?: string[] }): string => `Conflicts in ${fileList(b.files)} with the PRs above, so it’s left out`;
+export const warningText = (w: { number: number; files: string[] }): string => `#${w.number} will conflict in ${fileList(w.files)} after these merge`;
 
 // The method a plan starts with (AK-545): the one last used in this repo, else the repo's GitHub
 // default, else squash, as long as the repo allows it; else the first one it does allow.
-export function startMethod({ saved, allowed = METHODS, fallback } = {}) {
-  for (const m of [saved, fallback, 'squash']) if (allowed.includes(m)) return m;
+export function startMethod({ saved, allowed = METHODS, fallback }: { saved?: string | null; allowed?: readonly string[]; fallback?: string | null } = {}): string {
+  for (const m of [saved, fallback, 'squash']) if (m && allowed.includes(m)) return m;
   return allowed[0] || 'squash';
 }
 
@@ -142,7 +182,7 @@ export function startMethod({ saved, allowed = METHODS, fallback } = {}) {
 // `base` and each PR above targets the branch of the one below. open: [{ number, branch,
 // baseBranch, head }]. A chain that branches (two PRs on one branch) or crosses a fork isn't a stack,
 // and its bottom PR plans on its own. → [{ id, prs: [bottom…top], heads }], two PRs or more, at most MAX_STACK.
-export function findStacks(open = [], base) {
+export function findStacks(open: readonly OpenPr[] = [], base: string): StackInfo[] {
   return findChains(open, base).filter((c) => !c.branch && !c.fork && c.prs.length > 1).map(({ id, prs, heads }) => ({ id, prs, heads }));
 }
 
@@ -151,26 +191,28 @@ export function findStacks(open = [], base) {
 // straight ones (they plan as one unit); findChains also returns the ones that can't be linked as a
 // GitHub stack, and why. open: as findStacks, plus `fork` (head in another repo). → [{ id, prs,
 // heads, fork, forkPr?, branch?: { number, kids: [a, b] } }].
-export function findChains(open = [], base) {
-  const byBase = new Map();
+export function findChains(open: readonly OpenPr[] = [], base: string): Chain[] {
+  const byBase = new Map<string, OpenPr[]>();
   for (const p of open) {
     if (!p.branch || !p.baseBranch) continue;
-    if (!byBase.has(p.baseBranch)) byBase.set(p.baseBranch, []);
-    byBase.get(p.baseBranch).push(p);
+    let list = byBase.get(p.baseBranch);
+    if (!list) byBase.set(p.baseBranch, list = []);
+    list.push(p);
   }
-  const chains = [];
+  const chains: Chain[] = [];
   for (const bottom of byBase.get(base) || []) {
     const chain = [bottom];
     const seen = new Set([base, bottom.branch]);
-    let branch = null;
+    let branch: Chain['branch'] | null = null;
     for (;;) {
-      const top = chain[chain.length - 1];
+      const top = chain[chain.length - 1] as OpenPr; // the chain starts with `bottom`
       // A fork's branch isn't a branch here, so nothing in this repo stacks on it.
       const kids = top.fork ? [] : (byBase.get(top.branch) || []).filter((k) => !seen.has(k.branch));
       if (kids.length > 1) { branch = { number: top.number, kids: kids.slice(0, 2).map((k) => k.number) }; break; }
-      if (!kids.length || chain.length >= MAX_STACK) break;
-      seen.add(kids[0].branch);
-      chain.push(kids[0]);
+      const next = kids[0];
+      if (!next || chain.length >= MAX_STACK) break;
+      seen.add(next.branch);
+      chain.push(next);
     }
     if (chain.length < 2 && !branch) continue;
     const fork = chain.find((p) => p.fork);
@@ -181,7 +223,7 @@ export function findChains(open = [], base) {
 
 // Why a chain can't be linked as a GitHub stack, or null when it can. host: the remote's host
 // (stacks are github.com only); enabled: pull requests on for this repo.
-export function chainWhy(chain, { host = 'github.com', enabled = true } = {}) {
+export function chainWhy(chain: Chain, { host = 'github.com', enabled = true }: { host?: string | null; enabled?: boolean } = {}): string | null {
   if (!enabled) return 'Pull requests are off for this repository.';
   if (chain.branch) return `It branches: #${chain.branch.kids[0]} and #${chain.branch.kids[1]} both build on #${chain.branch.number}.`;
   if (String(host).toLowerCase() !== 'github.com') return 'Stacks aren’t available on GitHub Enterprise Server.';
@@ -197,8 +239,9 @@ export function chainWhy(chain, { host = 'github.com', enabled = true } = {}) {
 // time); a plain chain's PRs merge one by one. The rest of the chain waits for this part.
 // chain: { id, prs, heads }; facts: Map number → { stack: { number } | null }. A plain part of a
 // single PR isn't a chain any more (null): it plans as a single PR.
-export function bottomPart(chain, facts) {
-  const stackOf = (n) => facts.get?.(n)?.stack?.number ?? null;
+type FactsOf = ReadonlyMap<number, { stack?: { number: number } | null } | undefined> | null | undefined;
+export function bottomPart(chain: StackInfo, facts: FactsOf): StackInfo | null {
+  const stackOf = (n: number | undefined) => (n === undefined ? null : facts?.get(n)?.stack?.number ?? null);
   const first = stackOf(chain.prs[0]);
   let k = 1;
   while (k < chain.prs.length && stackOf(chain.prs[k]) === first) k++;
@@ -213,21 +256,22 @@ export function bottomPart(chain, facts) {
 // one at a time) and as a single PR for a plain chain. stack: { id, prs }; heads: their head
 // commits; merge(head) → { commit, files } against the base. → { prs, head, partial }, partial
 // { upTo, at, files } when it doesn't merge whole (upTo null when not even the bottom PR merges).
-export async function cleanPart(stack, heads, merge) {
+export async function cleanPart(stack: StackInfo, heads: readonly string[], merge: (head: string) => Promise<Sim>): Promise<{ prs: number[]; head: string; partial: { upTo: number | null; at: number | undefined; files: string[] } | null }> {
   const top = heads.length - 1;
-  if ((await merge(heads[top])).commit) return { prs: stack.prs, head: heads[top], partial: null };
+  const headAt = (k: number): string => heads[k] ?? '';
+  if ((await merge(headAt(top))).commit) return { prs: stack.prs, head: headAt(top), partial: null };
   let k = top - 1;
-  while (k >= 0 && !(await merge(heads[k])).commit) k--;
-  const partial = { upTo: k >= 0 ? stack.prs[k] : null, at: stack.prs[k + 1], files: (await merge(heads[k + 1])).files };
-  return k >= 0 ? { prs: stack.prs.slice(0, k + 1), head: heads[k], partial } : { prs: stack.prs, head: heads[top], partial };
+  while (k >= 0 && !(await merge(headAt(k))).commit) k--;
+  const partial = { upTo: k >= 0 ? stack.prs[k] ?? null : null, at: stack.prs[k + 1], files: (await merge(headAt(k + 1))).files };
+  return k >= 0 ? { prs: stack.prs.slice(0, k + 1), head: headAt(k), partial } : { prs: stack.prs, head: headAt(top), partial };
 }
 
 // A merge step's stack (the merge-plan-merge IPC check): its PR numbers bottom…top, one PR or more
 // (AK-619: just the bottom PR when only it merges clean), at most MAX_STACK, ending at `top`.
-export const stackStepOk = (numbers, top) => numbers.length >= 1 && numbers.length <= MAX_STACK && numbers[numbers.length - 1] === top;
+export const stackStepOk = (numbers: readonly number[], top: number): boolean => numbers.length >= 1 && numbers.length <= MAX_STACK && numbers[numbers.length - 1] === top;
 
-export function isNative(chain, facts) {
-  const ids = chain.prs.map((n) => facts.get?.(n)?.stack?.number ?? null);
+export function isNative(chain: { prs: readonly number[] }, facts: FactsOf): boolean {
+  const ids = chain.prs.map((n) => facts?.get(n)?.stack?.number ?? null);
   return ids[0] != null && ids.every((x) => x === ids[0]);
 }
 
@@ -235,14 +279,14 @@ export function isNative(chain, facts) {
 // branch, and its base is what the chain says (the bottom one `base`, each next one the branch
 // below it). facts: Map number → github.stackFacts entry. → { number, reason } for the first PR
 // that fails, else null.
-export function linkBlocker(numbers, facts, base) {
-  for (let i = 0; i < numbers.length; i++) {
-    const n = numbers[i], f = facts.get(n);
+export function linkBlocker(numbers: readonly number[], facts: ReadonlyMap<number, StackFact>, base: string): { number: number; reason: string } | null {
+  for (const [i, n] of numbers.entries()) {
+    const f = facts.get(n);
     if (!f) return { number: n, reason: 'GitHub didn’t return this pull request.' };
     if (f.state !== 'open') return { number: n, reason: `It’s ${f.state || 'not open'}.` };
     if (f.fork) return { number: n, reason: 'It comes from a fork.' };
     if (!f.canPush || !f.canUpdate) return { number: n, reason: 'No write access to this branch.' };
-    const want = i === 0 ? base : facts.get(numbers[i - 1])?.branch;
+    const want = i === 0 ? base : facts.get(numbers[i - 1] ?? -1)?.branch;
     if (f.baseBranch !== want) return { number: n, reason: `It targets ${f.baseBranch || 'another branch'}, not ${want}.` };
   }
   return null;
@@ -251,15 +295,15 @@ export function linkBlocker(numbers, facts, base) {
 // The first PR that keeps a stack from merging: reasons maps a PR number to why it isn't ready
 // (absent when it is). → { number, reason } | null. A stack plans only when this is null and its
 // history is linear.
-export function stackBlocker(stack, reasons) {
-  for (const n of stack.prs) if (reasons.has(n)) return { number: n, reason: reasons.get(n) };
+export function stackBlocker(stack: StackInfo, reasons: ReadonlyMap<number, string>): { number: number; reason: string } | null {
+  for (const n of stack.prs) if (reasons.has(n)) return { number: n, reason: reasons.get(n) ?? '' };
   return null;
 }
 
 // What has to still hold before each merge, from the plan's snapshot of a PR ({ head, checks,
 // review }) and what `gh pr view` says now (github.mergeInfo). null when nothing changed, else the
 // reason to stop and re-plan.
-export function changedSince(snap, now) {
+export function changedSince(snap: Snap, now: PlanFacts | null | undefined): string | null {
   if (!now) return 'GitHub didn’t say where it stands';
   if (now.state && now.state !== 'open') return `it’s ${now.state} now`;
   if (snap.head && now.headOid && now.headOid !== snap.head) return 'new commits were pushed';
@@ -280,11 +324,11 @@ export function changedSince(snap, now) {
 // conflicts-pr { with, files } and stack { number }. `who` is who has to act.
 const QUICK_FAIL = 5; // seconds: a check that failed this fast probably didn't run
 const FAILED = new Set(['failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure']);
-const checkOf = (c) => ({ name: c.name, required: c.required === true, ...(c.url ? { url: c.url } : {}), ...(c.run ? { run: c.run } : {}) });
-export function blockersOf(f) {
+const checkOf = (c: Check): BlockerCheck => ({ name: c.name, required: c.required === true, ...(c.url ? { url: c.url } : {}), ...(c.run ? { run: c.run } : {}) });
+export function blockersOf(f: PlanFacts | null | undefined): Blocker[] {
   if (!f || f.error) return [{ kind: 'error', required: true, detail: f?.error || 'GitHub didn’t say where it stands.' }];
   if (f.state && f.state !== 'open') return [{ kind: 'closed', required: true, detail: `It’s ${f.state}.` }];
-  const out = [];
+  const out: Blocker[] = [];
   const who = f.author ? [f.author] : [];
   if (f.draft) out.push({ kind: 'draft', required: true, who });
   if (f.conflicts) out.push({ kind: 'conflicts-base', required: true, who, files: f.conflictFiles || [] });
@@ -308,25 +352,25 @@ export function blockersOf(f) {
   return out;
 }
 // Whether the plan leaves a PR out: anything GitHub requires, and with `anyway` off, anything at all.
-export const waits = (blockers, anyway = false) => blockers.some((b) => b.required || !anyway);
+export const waits = (blockers: readonly Blocker[], anyway = false): boolean => blockers.some((b) => b.required || !anyway);
 // Only checks GitHub doesn't require stand in the way: Merge anyway would take it.
-export const anywayOnly = (blockers) => blockers.length > 0 && blockers.every((b) => !b.required);
+export const anywayOnly = (blockers: readonly Blocker[]): boolean => blockers.length > 0 && blockers.every((b) => !b.required);
 // The blocker a one-line reason names: the first GitHub requires, else the first.
-export const mainBlocker = (blockers) => blockers.find((b) => b.required) || blockers[0] || null;
+export const mainBlocker = (blockers: readonly Blocker[]): Blocker | null => blockers.find((b) => b.required) || blockers[0] || null;
 
-const names = (list, max = 2) => {
+const names = (list: readonly { name: string }[], max = 2): string => {
   const n = list.map((c) => c.name);
   if (n.length <= max) return n.join(' and ');
   return `${n.slice(0, max).join(', ')} and ${n.length - max} more`;
 };
-export function blockerText(b, stacks) {
+export function blockerText(b: Blocker | null | undefined, stacks?: readonly StackInfo[]): string {
   switch (b?.kind) {
     case 'draft': return 'It’s a draft.';
     case 'conflicts-base': return b.files?.length ? `Conflicts with the base in ${fileList(b.files)}` : 'It has conflicts with its base branch.';
     case 'conflicts-pr': return b.with ? `Conflicts with ${unitLabel(b.with, stacks)} in ${fileList(b.files)}` : blockedText(b);
     case 'check-failed': return b.checks?.length ? `${names(b.checks)} failed${b.required ? '' : ', not required'}` : 'Checks failed.';
     case 'check-running': return b.checks?.length ? `${names(b.checks)} still running` : 'Checks are still running.';
-    case 'needs-review': return b.changes ? 'Changes were requested.' : b.approvals > 1 ? `Needs ${b.approvals} approvals.` : 'Needs an approval.';
+    case 'needs-review': return b.changes ? 'Changes were requested.' : (b.approvals ?? 0) > 1 ? `Needs ${b.approvals} approvals.` : 'Needs an approval.';
     case 'behind': return 'It’s behind its base, and the base must be up to date.';
     case 'stack': return `#${b.number} below it can’t merge yet`;
     default: return b?.detail || 'GitHub won’t merge it yet.';
@@ -334,16 +378,16 @@ export function blockerText(b, stacks) {
 }
 
 // Whether GitHub would merge a PR now (no blockers at all): what Review's Ready to merge means.
-export const isReady = (info) => Boolean(info) && !waits(blockersOf(info));
+export const isReady = (info: PlanFacts | null | undefined): boolean => Boolean(info) && !waits(blockersOf(info));
 
 // Clean up after merging (AK-543): what git.cleanupLanes should remove for PRs GitHub confirmed
 // merged. `merged` is [{ number, branch, head }] (head: the PR's tip, so a local branch with other
 // commits is kept); `local` is the set of local branch names; `worktrees` is git.getWorktrees,
 // each optionally marked `elsewhere` when another window shows it. A worktree in this window, the
 // main worktree or one open elsewhere is skipped, branch included. → { items, skipped: [{ name, message }] }
-export function cleanupItems(merged, local, worktrees) {
-  const items = [];
-  const skipped = [];
+export function cleanupItems(merged: readonly { branch?: string | null; head?: string | null }[], local: ReadonlySet<string>, worktrees: readonly { branch: string | null; path: string; current?: boolean; main?: boolean; elsewhere?: boolean; locked?: boolean }[]) {
+  const items: { branch: string; head?: string; worktree?: string }[] = [];
+  const skipped: { name: string; message: string }[] = [];
   for (const pr of merged) {
     if (!pr.branch || !local.has(pr.branch)) continue;
     const wt = worktrees.find((w) => w.branch === pr.branch);
@@ -356,42 +400,43 @@ export function cleanupItems(merged, local, worktrees) {
 }
 
 // What a clean up did, for the sheet: { worktrees, branches, skipped } from git.cleanupLanes' result.
-export const cleanupSummary = (res, skipped = []) => ({
+export const cleanupSummary = (res: { removed: unknown[]; deleted: unknown[]; failed: { name: string; message: string }[] }, skipped: { name: string; message: string }[] = []) => ({
   worktrees: res.removed.length, branches: res.deleted.length, skipped: [...skipped, ...res.failed],
 });
 
 // The sheet's split button and method menu (AK-542). `merge` is "Create a Merge Commit" in the menu, but the
 // button just says "Merge 3 in order".
-export const METHOD_NAMES = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
-const VERBS = { squash: 'Squash & Merge', merge: 'Merge', rebase: 'Rebase & Merge' };
-export const mergeLabel = (method, n) => `${VERBS[method] || VERBS.squash} ${n}${n > 1 ? ' in order' : ''}`;
+export const METHOD_NAMES: Record<string, string> = { squash: 'Squash & Merge', merge: 'Create a Merge Commit', rebase: 'Rebase & Merge' };
+const VERBS: Record<string, string> = { squash: 'Squash & Merge', merge: 'Merge', rebase: 'Rebase & Merge' };
+export const mergeLabel = (method: string, n: number): string => `${VERBS[method] || VERBS.squash} ${n}${n > 1 ? ' in order' : ''}`;
 
 // ── What the sheet shows for PRs that can't merge yet (AK-549) ──
 // A PR title without its Conventional Commits prefix, the "[k/n]" and the issue key.
-export const cleanTitle = (t) => {
+export const cleanTitle = (t: unknown): string => {
   const s = String(t || '').replace(/^\s*[a-z]+(\([^)]*\))?!?:\s*/i, '').replace(/\s*\[\d+\/\d+\]\s*$/, '').replace(/\s*\([A-Z][A-Z0-9]*-\d+\)\s*$/, '').trim();
   return s.replace(/^./, (c) => c.toUpperCase());
 };
 
 // "Needs something first", grouped by what's in the way, in the order to deal with them.
 export const GROUPS = ['check-failed', 'check-running', 'conflicts', 'review', 'draft', 'behind', 'other'];
-const GROUP_OF = { 'check-failed': 'check-failed', 'check-running': 'check-running', 'conflicts-base': 'conflicts', 'conflicts-pr': 'conflicts', 'needs-review': 'review', draft: 'draft', behind: 'behind' };
-export const groupOf = (b) => GROUP_OF[b?.kind] || 'other';
+const GROUP_OF: Record<string, string> = { 'check-failed': 'check-failed', 'check-running': 'check-running', 'conflicts-base': 'conflicts', 'conflicts-pr': 'conflicts', 'needs-review': 'review', draft: 'draft', behind: 'behind' };
+export const groupOf = (b: Blocker | null | undefined): string => GROUP_OF[b?.kind ?? ''] || 'other';
 // A PR's own blockers: the plan also marks every PR above a stack's blocker with `stack`.
-export const ownBlockers = (list = []) => list.filter((b) => b.kind !== 'stack');
+export const ownBlockers = (list: readonly Blocker[] = []): Blocker[] => list.filter((b) => b.kind !== 'stack');
 // entries: [{ key, prs, blockers }] (a stack's blockers are its blocking PR's). → [{ id, entries }].
-export function groupNeeds(entries = []) {
-  const by = new Map();
+export function groupNeeds<E extends { blockers?: Blocker[] }>(entries: readonly E[] = []): { id: string; entries: E[] }[] {
+  const by = new Map<string, E[]>();
   for (const e of entries) {
     const id = groupOf(mainBlocker(e.blockers || []));
-    if (!by.has(id)) by.set(id, []);
-    by.get(id).push(e);
+    let list = by.get(id);
+    if (!list) by.set(id, list = []);
+    list.push(e);
   }
-  return GROUPS.filter((id) => by.has(id)).map((id) => ({ id, entries: by.get(id) }));
+  return GROUPS.flatMap((id) => { const list = by.get(id); return list ? [{ id, entries: list }] : []; });
 }
 // Failing (or running) check names across a group, each once.
-export const groupChecks = (entries, kind = 'check-failed') => {
-  const seen = new Map();
+export const groupChecks = (entries: readonly { blockers?: Blocker[] }[], kind = 'check-failed'): BlockerCheck[] => {
+  const seen = new Map<string, BlockerCheck>();
   for (const e of entries) for (const b of e.blockers || []) if (b.kind === kind) for (const c of b.checks || []) if (!seen.has(c.name)) seen.set(c.name, c);
   return [...seen.values()];
 };

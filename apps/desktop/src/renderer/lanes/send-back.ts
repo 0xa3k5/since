@@ -10,13 +10,26 @@
 //   {{checks}}     one line per failing check
 //   {{log}}        the last lines of the failed CI log, once fetched (empty until then)
 
-export const TEMPLATE_IDS = ['conflict', 'ci', 'both'];
-export const TEMPLATE_LABELS = { conflict: 'Conflict', ci: 'CI failing', both: 'Both' };
+/** A lane or PR row as the send-back prompt reads it. */
+export interface SendBackRow {
+  branch?: string | null; title?: string | null;
+  conflicts?: { files?: string[]; base?: boolean; with: string }[];
+  pr?: { number: number; title: string; branch?: string; base?: string; mergeable?: boolean | null; checks?: string | null; failing?: string[] } | null;
+}
+export type TemplateId = 'conflict' | 'ci' | 'both';
+/** settings.json `sendBack`: templates saved for all repositories and per repository root. */
+export interface SendBackSaved { default?: Record<string, string>; repos?: Record<string, Record<string, string>> }
+/** A commit on the base that changed a conflicting file (git.baseTouches). */
+export interface BaseTouch { sha: string; pr: number | null }
+export interface PromptOptions { base?: string | null; touches?: Record<string, BaseTouch[]>; log?: string; reason?: string }
+
+export const TEMPLATE_IDS: readonly TemplateId[] = ['conflict', 'ci', 'both'];
+export const TEMPLATE_LABELS: Record<TemplateId, string> = { conflict: 'Conflict', ci: 'CI failing', both: 'Both' };
 export const PLACEHOLDERS = ['subject', 'number', 'title', 'head', 'base', 'reason', 'conflicts', 'checks', 'log'];
 // Longest template kept (characters); a prompt is pasted into an agent, not a novel.
 export const MAX_TEMPLATE = 16 * 1024;
 
-export const DEFAULT_TEMPLATES = {
+export const DEFAULT_TEMPLATES: Record<TemplateId, string> = {
   conflict: `{{subject}} can't merge: it has conflicts.
 
 Conflicting files:
@@ -44,20 +57,20 @@ Failing checks:
 Rebase {{head}} onto {{base}} and resolve the conflicts, keeping the intent of both sides. Then fix the failing checks, run them locally, and push.`,
 };
 
-const conflicted = (row) => Boolean((row.conflicts || []).length || row.pr?.mergeable === false);
-const failing = (row) => row.pr?.checks === 'failure';
+const conflicted = (row: SendBackRow): boolean => Boolean((row.conflicts || []).length || row.pr?.mergeable === false);
+const failing = (row: SendBackRow): boolean => row.pr?.checks === 'failure';
 
 // The template that fits the row: Both when it conflicts and fails CI, else whichever applies.
-export function templateFor(row) {
+export function templateFor(row: SendBackRow): TemplateId {
   if (conflicted(row) && failing(row)) return 'both';
   return failing(row) ? 'ci' : 'conflict';
 }
 
 // `touches`: { [file]: [{ sha, subject, pr }] }, the commits on the base since the branch left it
 // that changed the file (git.baseTouches), newest first.
-function conflictLines(row, base, touches = {}) {
+function conflictLines(row: SendBackRow, base: string | null, touches: Record<string, BaseTouch[]> = {}): string {
   const list = row.conflicts || [];
-  const lines = [];
+  const lines: string[] = [];
   for (const c of list) {
     for (const f of c.files || []) {
       const by = c.base ? (touches[f] || []) : [];
@@ -70,18 +83,18 @@ function conflictLines(row, base, touches = {}) {
   return lines.join('\n') || '- none';
 }
 
-function checkLines(row) {
+function checkLines(row: SendBackRow): string {
   const names = row.pr?.failing || [];
   if (names.length) return names.map((n) => `- ${n}`).join('\n');
   return failing(row) ? '- (GitHub didn’t name them)' : '- none';
 }
 
-const logBlock = (log) => (log && log.trim() ? `Last lines of the failed log:\n\`\`\`\n${log.trim()}\n\`\`\`` : '');
+const logBlock = (log: string | null | undefined): string => (log && log.trim() ? `Last lines of the failed log:\n\`\`\`\n${log.trim()}\n\`\`\`` : '');
 // A fetched log at the end of a hand-edited prompt, when the user keeps their edits (AK-289).
-export const appendLog = (text, log) => (logBlock(log) ? `${String(text || '').trimEnd()}\n\n${logBlock(log)}` : String(text || ''));
+export const appendLog = (text: string | null | undefined, log: string | null | undefined): string => (logBlock(log) ? `${String(text || '').trimEnd()}\n\n${logBlock(log)}` : String(text || ''));
 
 // The facts a template is filled from. `reason` is stuckReason's text for the row.
-function promptFacts(row, { base = null, touches = {}, log = '', reason = '' } = {}) {
+function promptFacts(row: SendBackRow, { base = null, touches = {}, log = '', reason = '' }: PromptOptions = {}): Record<string, string> {
   const { pr } = row;
   const head = pr?.branch || row.branch || row.title || 'the branch';
   const to = pr?.base || base || 'the base';
@@ -100,50 +113,52 @@ function promptFacts(row, { base = null, touches = {}, log = '', reason = '' } =
 
 // Fills `{{name}}` placeholders; unknown ones stay as typed. Lines left empty by a missing fact
 // collapse, so an unfetched log doesn't leave a gap.
-function fillTemplate(template, facts) {
+function fillTemplate(template: string | undefined, facts: Record<string, string>): string {
   return String(template || '')
-    .replace(/\{\{\s*(\w+)\s*\}\}/g, (all, k) => (Object.hasOwn(facts, k) ? facts[k] : all))
+    .replace(/\{\{\s*(\w+)\s*\}\}/g, (all, k: string) => (Object.hasOwn(facts, k) ? facts[k] ?? all : all))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-export const buildPrompt = (row, id, templates = DEFAULT_TEMPLATES, opts = {}) =>
+export const buildPrompt = (row: SendBackRow, id: TemplateId, templates: Partial<Record<TemplateId, string>> = DEFAULT_TEMPLATES, opts: PromptOptions = {}): string =>
   fillTemplate(templates[id] ?? DEFAULT_TEMPLATES[id], promptFacts(row, opts));
 
 // --- Template storage (settings.json `sendBack`) ----------------------------------------------
 // { default: { [id]: text }, repos: { [repo root]: { [id]: text } } }: a repository's own template
 // wins, then the user-wide default, then the built-in one.
 
-const clean = (v) => (typeof v === 'string' && v.trim() ? v.slice(0, MAX_TEMPLATE) : null);
+const clean = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.slice(0, MAX_TEMPLATE) : null);
 
 // The templates in force for `root`: { [id]: { text, from: 'repo' | 'default' | 'builtin' } }.
-export function resolveTemplates(saved = {}, root = null) {
-  const repo = (root && saved?.repos?.[root]) || {};
-  const user = saved?.default || {};
+export function resolveTemplates(saved: SendBackSaved | null | undefined = {}, root: string | null = null): Record<TemplateId, { text: string; from: 'repo' | 'default' | 'builtin' }> {
+  const repo: Record<string, string> = (root && saved?.repos?.[root]) || {};
+  const user: Record<string, string> = saved?.default || {};
   return Object.fromEntries(TEMPLATE_IDS.map((id) => {
-    if (clean(repo[id])) return [id, { text: clean(repo[id]), from: 'repo' }];
-    if (clean(user[id])) return [id, { text: clean(user[id]), from: 'default' }];
-    return [id, { text: DEFAULT_TEMPLATES[id], from: 'builtin' }];
-  }));
+    const mine = clean(repo[id]), all = clean(user[id]);
+    if (mine) return [id, { text: mine, from: 'repo' as const }];
+    if (all) return [id, { text: all, from: 'default' as const }];
+    return [id, { text: DEFAULT_TEMPLATES[id], from: 'builtin' as const }];
+  })) as Record<TemplateId, { text: string; from: 'repo' | 'default' | 'builtin' }>;
 }
 
 // A new `saved` with template `id` set for `root` (scope 'repo') or everywhere (scope 'default').
 // Empty text removes it, so the next level shows through. Never mutates `saved`.
-export function saveTemplate(saved = {}, { root = null, id, text, scope = 'repo' } = {}) {
-  if (!TEMPLATE_IDS.includes(id)) throw new Error(`Unknown template: ${id}`);
+export function saveTemplate(saved: SendBackSaved | null | undefined = {}, { root = null, id, text, scope = 'repo' }: { root?: string | null; id: string; text?: string; scope?: string }): SendBackSaved {
+  if (!(TEMPLATE_IDS as readonly string[]).includes(id)) throw new Error(`Unknown template: ${id}`);
   if (scope !== 'repo' && scope !== 'default') throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'repo' && !root) throw new Error('No repository to save the template for');
-  const set = (obj = {}) => {
+  const set = (obj: Record<string, string> = {}) => {
     const next = { ...obj };
     const v = clean(text);
     if (v) next[id] = v; else delete next[id];
     return next;
   };
-  const out = { default: { ...(saved?.default || {}) }, repos: { ...(saved?.repos || {}) } };
+  const out: Required<SendBackSaved> = { default: { ...(saved?.default || {}) }, repos: { ...(saved?.repos || {}) } };
   if (scope === 'default') out.default = set(out.default);
   else {
-    out.repos[root] = set(out.repos[root]);
-    if (!Object.keys(out.repos[root]).length) delete out.repos[root];
+    const key = root ?? '';
+    out.repos[key] = set(out.repos[key]);
+    if (!Object.keys(out.repos[key] ?? {}).length) delete out.repos[key];
   }
   return out;
 }

@@ -19,7 +19,7 @@ import { storeKey, readTicks, progress as reviewProgress } from '../review/revie
 import { pageOf } from '../shell/sidebar.js';
 import { SUBMODULE_STATES } from '../lib/submodule.js';
 import { AUTOSTASH_DEFAULT, stashMessage } from '../commit/autostash.js';
-import { mergeHereBlock } from '../lib/git-version.js';
+import { mergeHereBlock } from '../lib/git-version.ts';
 import { needsCheckConfirm } from './check-confirm.js';
 import { up } from '../lib/upcalls.js';
 import { state, sentence, tip, isEditable, tildify, keyText, api, loadPref, savePref, MOD, parentDir } from '../lib/app-helpers.js';

@@ -2,7 +2,7 @@ import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, savedLanes, saveLanes, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.js';
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from '../review/review-rows.js';
 import * as keymap from '../palette/keymap.js';
-import { GIT_NEEDS } from '../lib/git-version.js';
+import { GIT_NEEDS } from '../lib/git-version.ts';
 import { updateBranchBlock } from '../prs/pr-review.js';
 import { draftSwitch } from '../prs/prs.js';
 import { navPos, authorsStack } from '../review/reader.js';

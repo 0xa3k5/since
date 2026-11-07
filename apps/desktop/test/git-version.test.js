@@ -37,7 +37,7 @@ async function repo() {
 }
 
 test('gitMeets compares major.minor; unparsable is too old', async () => {
-  const { gitMeets } = require('../src/renderer/lib/git-version.js');
+  const { gitMeets } = require('../src/renderer/lib/git-version.ts');
   assert.equal(gitMeets('2.37.3', '2.38'), false);
   assert.equal(gitMeets('git version 2.38.0 (Apple Git-150)', '2.38'), true);
   assert.equal(gitMeets('3.0', '2.40'), true);
@@ -89,7 +89,7 @@ test('merge here on an old git: git-version before trying merge-tree; another gi
 });
 
 test('merge here decision: old git → version toast with the git in use; new git + failure → error', () => {
-  const { mergeHereBlock } = require('../src/renderer/lib/git-version.js');
+  const { mergeHereBlock } = require('../src/renderer/lib/git-version.ts');
   assert.equal(mergeHereBlock({ mergeBlocker: null }, '2.34.1'), null);
   assert.deepEqual(mergeHereBlock({ mergeBlocker: 'Merging here needs git 2.38 or later.', mergeBlockerCode: 'git-version' }, '2.34.1'),
     { kind: 'git-version', message: 'Merging here needs git 2.38 or later', detail: 'In use: git 2.34.1' });
