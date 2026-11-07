@@ -3,7 +3,7 @@ import { renderDiff, statusBadge, fileRef } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';
-import { git } from '../lib/bridge.js';
+import { git } from '../lib/bridge.ts';
 import { openFileHistory, withHistoryMenu } from '../history/file-history.js';
 
 // Quick view (full-height commit inspector)

@@ -1,6 +1,6 @@
 import { h, $, icon, toast, dialog, contextMenu } from '../lib/ui.ts';
 import { setSwatches } from '../commit/diff.js';
-import { opSentence } from '../commit/resolve-text.js';
+import { opSentence } from '../commit/resolve-text.ts';
 import * as keymap from '../palette/keymap.ts';
 import { fileHistoryView } from '../history/file-history-view.js';
 import { createNav } from './nav.js';
@@ -11,8 +11,8 @@ import { authorProfile } from '../lib/profile.ts';
 import { approveWhy, draftSwitch } from '../prs/prs.js';
 import { up } from '../lib/upcalls.ts';
 import { state, tildePath, api, savePref, tip, MOD } from '../lib/app-helpers.ts';
-import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, mapView, branchesPage, commitView, catchupPage, reviewPage, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage } from './shell.js';
-import { git, undoTitle, undo, redoTitle, redo, act, aborted } from '../lib/bridge.js';
+import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, mapView, branchesPage, commitView, catchupPage, reviewPage, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage } from './shell.ts';
+import { git, undoTitle, undo, redoTitle, redo, act, aborted } from '../lib/bridge.ts';
 import { refreshAux, refreshHistory, worktreeOf } from '../graph/load.js';
 import { stashSave, stashesView } from '../commit/stashes.js';
 import { snapshotsView } from '../history/snapshots.js';

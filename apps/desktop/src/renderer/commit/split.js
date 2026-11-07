@@ -3,7 +3,7 @@ import { renderDiff, hunkKeys, statusBadge } from './diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, isEditable } from '../lib/app-helpers.ts';
-import { git, act } from '../lib/bridge.js';
+import { git, act } from '../lib/bridge.ts';
 
 // Split commit: pick the lines that become the first commit; the rest become the second.
 

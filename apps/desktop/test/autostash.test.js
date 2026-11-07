@@ -8,7 +8,7 @@ const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 const { Journal } = require('../src/main/journal.ts');
 
-const load = () => import('../src/renderer/commit/autostash.js');
+const load = () => import('../src/renderer/commit/autostash.ts');
 
 async function repo() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));

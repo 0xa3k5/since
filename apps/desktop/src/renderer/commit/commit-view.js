@@ -5,7 +5,7 @@ import { conflictEditor } from './conflict-view.js';
 import { unifiedChanges } from './unified-view.js';
 import { up } from '../lib/upcalls.ts';
 import { state, tip, api, baseName, MOD, isEditable } from '../lib/app-helpers.ts';
-import { git, act, quiet, gitTooOld, gitWhy } from '../lib/bridge.js';
+import { git, act, quiet, gitTooOld, gitWhy } from '../lib/bridge.ts';
 import { refreshStatus } from '../graph/load.js';
 import { identityOk } from './identity-check.js';
 import { stashSave } from './stashes.js';

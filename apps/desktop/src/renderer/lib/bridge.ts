@@ -1,18 +1,42 @@
-import { h, toast, ago, confirm, closeMenu, resolveSheet } from './ui.ts';
-import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch, SWITCHES } from '../commit/resolve-text.js';
-import { blockedByChanges } from '../commit/autostash.js';
-import { GIT_NEEDS, GIT_FEATURES, gitMeets } from './git-version.ts';
+import { h, toast, ago, confirm, closeMenu, resolveSheet, type Child, type SheetAction, type SheetOptions, type Toast, type ToastAction } from './ui.ts';
+import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch, SWITCHES, type PushIntent } from '../commit/resolve-text.ts';
+import { blockedByChanges } from '../commit/autostash.ts';
+import { GIT_NEEDS, GIT_FEATURES, gitMeets, type GitFeature } from './git-version.ts';
 import { up } from './upcalls.ts';
 import { api, state } from './app-helpers.ts';
-import { bannerEl } from '../shell/shell.js';
+import { bannerEl } from '../shell/shell.ts';
+import type { GitMethod } from '../../shared/channels.ts';
+import type { GitResult, IpcError } from '../../shared/ipc-contract.ts';
+import type { Aborted, Divergence } from '../../shared/git-types.ts';
 
 // Git bridge
 
-async function git(method, ...args) {
-  const r = await api.git(method, ...args);
-  if (r.error) { const e = new Error(r.error.message); e.stderr = r.error.stderr; e.code = r.error.code; e.moved = r.error.moved; throw e; }
-  return r.ok;
+/** A failed git call: git's message, plus what the main process attached (see IpcError). Any other error lacks the extras. */
+export interface GitError extends Error {
+  stderr?: string | null; code?: string | number | null; moved?: IpcError['moved'] | undefined; step?: IpcError['step'] | undefined;
 }
+// A field of an argument that may be an options object (or anything else).
+const field = (v: unknown, k: string): unknown => (v && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined);
+
+async function git<M extends GitMethod>(method: M, ...args: unknown[]): Promise<GitResult<M>> {
+  const r = await api.git(method, ...args);
+  if (r.error) {
+    const { stderr, code, moved, step } = r.error;
+    throw Object.assign(new Error(r.error.message), { stderr, code, moved, step }) as GitError;
+  }
+  return r.ok as GitResult<M>;
+}
+
+/** act()'s options. `then` gets the method's result; `after` runs a switch its own way once a stopped operation is aborted. */
+export interface ActOptions<R = unknown> {
+  busy?: string; success?: string; detail?: Child; undoable?: boolean; quiet?: boolean;
+  actions?: ToastAction[]; after?: () => unknown;
+  // A method, so options forward between act() calls for other methods (their results differ).
+  then?(res: R): unknown;
+}
+type AbortResult = Aborted & { result?: unknown };
+// mergeLane with { abort: true } reports what the abort saved; other results don't carry `saved`.
+const abortedOf = (v: unknown): AbortResult | null => (field(v, 'saved') ? v as AbortResult : null);
 
 // Ref mutations git can refuse over uncommitted changes; act() then offers to stash and retry (stashAnd).
 const STASH_AND = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'setBranchTip']);
@@ -21,11 +45,11 @@ const STASH_AND = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert
 // to continue it (or open its conflicts), or abort it and go on (abortAnd).
 const OP_BLOCKED = new Set(['merge', 'pull', 'pullAndPush', 'cherryPick', 'revert', 'rebaseOnto', 'rebaseBranch']);
 
-async function act(label, method, args = [], opts = {}) {
+async function act<M extends GitMethod>(label: string, method: M, args: readonly unknown[] = [], opts: ActOptions<GitResult<M>> = {}): Promise<boolean> {
   const { busy, success, detail, undoable = true, quiet = false, then, actions } = opts;
   closeMenu();
   closeStickyToast();
-  if (state.opState && (OP_BLOCKED.has(method) || (method === 'mergeLane' && args[1] === state.head?.branch && !args[3]?.abort))) return resolveOp(label, method, args, opts);
+  if (state.opState && (OP_BLOCKED.has(method) || (method === 'mergeLane' && args[1] === state.head?.branch && !field(args[3], 'abort')))) return resolveOp(label, method, args, opts);
   if (state.opState && SWITCHES.has(method)) return resolveOp(label, method, args, { ...opts, after: () => act(label, method, args, opts) });
   const t = busy ? toast(busy, { kind: 'busy', timeout: 0 }) : null;
   try {
@@ -37,7 +61,7 @@ async function act(label, method, args = [], opts = {}) {
       if (quiet) return;
       const undoBtn = undoable ? { label: 'Undo', run: undo } : null;
       // A toast with a choice stays until it's dismissed or used.
-      toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [undoBtn, ...actions].filter(Boolean) } : { kind: 'success', detail, action: undoBtn });
+      toast(success || label, actions?.length ? { kind: 'success', detail, timeout: 0, actions: [undoBtn, ...actions].filter((a): a is ToastAction => Boolean(a)) } : { kind: 'success', detail, action: undoBtn });
     };
     if (!offer) done();
     await up.refreshAll();
@@ -45,15 +69,16 @@ async function act(label, method, args = [], opts = {}) {
     if (!state.opState) pendingPush = null;
     await then?.(res);
     return true;
-  } catch (e) {
+  } catch (caught) {
+    const e = caught as GitError;
     t?.close();
     // An old git refused `stash push --staged`: Update git, then stash.
-    if (method === 'stashSave' && args[2]?.staged && 'git-version' === e.code) return updateGit('stashStaged', () => act(label, method, args, opts));
+    if (method === 'stashSave' && field(args[2], 'staged') && 'git-version' === e.code) return updateGit('stashStaged', () => act(label, method, args, opts));
     const fixed = await offerFix(label, method, args, opts, e);
     if (fixed !== undefined) return fixed;
     if (STASH_AND.has(method) && blockedByChanges(`${e.stderr || ''}\n${e.message}`)) {
-      const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${label.split(' ')[0].toLowerCase()}` }] });
-      if (v) return act(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
+      const v = await resolveSheet({ title: label, reason: 'Uncommitted changes are in the way.', actions: [{ id: 'stash', label: `Stash and ${(label.split(' ')[0] ?? '').toLowerCase()}` }] });
+      if (v) return act<'stashAnd'>(label, 'stashAnd', [method, args], { busy, success: `Stashed changes · ${success || label}`, detail, undoable, quiet, then });
     } else {
       await up.refreshAll();
       // Stopped on conflicts (rebase, merge, cherry-pick, continue): point at them, not at git's output.
@@ -70,10 +95,10 @@ async function act(label, method, args = [], opts = {}) {
     return false;
   }
 }
-const gitTooOld = (feature) => Boolean(state.gitInfo && !gitMeets(state.gitInfo.version, GIT_NEEDS[feature]));
-const gitWhy = (feature) => (gitTooOld(feature) ? `Needs git ${GIT_NEEDS[feature]}` : null);
+const gitTooOld = (feature: GitFeature): boolean => Boolean(state.gitInfo && !gitMeets(state.gitInfo.version, GIT_NEEDS[feature]));
+const gitWhy = (feature: GitFeature): string | null => (gitTooOld(feature) ? `Needs git ${GIT_NEEDS[feature]}` : null);
 // The Update git sheet: the git in use and Use another git…; `then` carries on once the git is new enough.
-async function updateGit(feature, then) {
+async function updateGit(feature: GitFeature, then?: () => unknown): Promise<boolean> {
   const need = GIT_NEEDS[feature];
   const cur = await api.app('git-info').catch(() => null);
   if (cur?.ok) state.gitInfo = cur.ok;
@@ -98,7 +123,7 @@ const chooseGit = async () => {
   if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
   if (res.ok) return useGit('chosen');
 };
-async function useGit(which, then) {
+async function useGit(which: string, then?: () => unknown): Promise<unknown> {
   const res = await api.app('git-use', which);
   if (res.error) return toast('Can’t use that git', { kind: 'error', detail: res.error.message });
   state.gitInfo = res.ok;
@@ -110,13 +135,13 @@ async function useGit(which, then) {
 // action, as one undo step. undefined: not one of those, act() reports it as before.
 // Pull and Push decide in a panel above their sidebar buttons (AK-598); force push asks once more
 // inside it, since it can't be undone.
-const syncButton = (name) => document.querySelector(`.sb-action[aria-label="${name}"]`);
-const forcePush = (d) => ({ id: 'force', label: 'Force push…', danger: true, primary: false, confirm: { note: d?.theirsCount ? `Drops ${d.theirsCount} commit${d.theirsCount === 1 ? '' : 's'} on ${d.upstream.split('/')[0]}.` : 'Drops the commits only on the remote.', label: 'Force push' } });
-async function offerFix(label, method, args, opts, err) {
+const syncButton = (name: string) => document.querySelector<HTMLElement>(`.sb-action[aria-label="${name}"]`);
+const forcePush = (d: Divergence | null): SheetAction => ({ id: 'force', label: 'Force push…', danger: true, primary: false, confirm: { note: d?.theirsCount ? `Drops ${d.theirsCount} commit${d.theirsCount === 1 ? '' : 's'} on ${d.upstream.split('/')[0] ?? ''}.` : 'Drops the commits only on the remote.', label: 'Force push' } });
+async function offerFix(label: string, method: GitMethod, args: readonly unknown[], opts: ActOptions, err: GitError): Promise<boolean | undefined> {
   const branch = state.head?.branch || '';
-  if (err.code === 'rejected' && method === 'push' && !args[0]?.force && !args[0]?.all) {
+  if (err.code === 'rejected' && method === 'push' && !field(args[0], 'force') && !field(args[0], 'all')) {
     const d = await git('divergence', true).catch(() => null);
-    const sheet = d ? divergeSheet(d, { push: true, age: ago }) : {
+    const sheet: Pick<SheetOptions, 'reason' | 'lists' | 'forecast'> & { actions: SheetAction[] } = d ? divergeSheet(d, { push: true, age: ago }) : {
       reason: `The remote has commits ${branch} doesn’t have.`,
       actions: [{ id: 'rebase', label: 'Rebase and push' }, { id: 'merge', label: 'Merge and push' }],
     };
@@ -133,7 +158,7 @@ async function offerFix(label, method, args, opts, err) {
   if (err.code === 'empty-pick' && method === 'cherryPick' && !args[1]) {
     // Nothing to do is the obvious outcome (AK-598): say so, offer the rare alternative.
     const c = await up.loadCommit(args[0]).catch(() => null);
-    toast(`Already on ${branch || 'this branch'}`, { detail: `${args[0].slice(0, 7)}${c?.subject ? ` ${c.subject}` : ''}. Nothing to cherry-pick.`, actions: [{ label: 'Commit anyway', run: () => act(label, method, [args[0], true], opts) }] });
+    toast(`Already on ${branch || 'this branch'}`, { detail: `${String(args[0]).slice(0, 7)}${c?.subject ? ` ${c.subject}` : ''}. Nothing to cherry-pick.`, actions: [{ label: 'Commit anyway', run: () => act(label, method, [args[0], true], opts) }] });
     return false;
   }
 }
@@ -141,17 +166,17 @@ async function offerFix(label, method, args, opts, err) {
 // `label` is blocked by the operation stopped here: continue it (then offer `label` again), open its
 // conflicts, or abort it and run `label`, as one undo step.
 // "Abort rebase and merge", but "Abort and merge" when the stopped op is a merge too.
-const abortAnd = (op, verb) => (op === verb ? `Abort and ${verb}` : `Abort ${op} and ${verb}`);
+const abortAnd = (op: string | null, verb: string): string => (op === verb ? `Abort and ${verb}` : `Abort ${op} and ${verb}`);
 // After abortAnd: when resolved files were saved, say so and offer them back until the next action.
-async function aborted(label, res, opts) {
-  const { op, saved } = res || {};
+async function aborted(label: string, res: AbortResult | null | undefined, opts: ActOptions): Promise<void> {
+  const op = res?.op, saved = res?.saved;
   if (saved && op && !saved.sha) {
-    toast(`Aborted the ${op}`, { kind: 'success', detail: `${saved.unchanged} resolved file${saved.unchanged > 1 ? 's match' : ' matches'} HEAD. Nothing to save.` });
+    toast(`Aborted the ${op}`, { kind: 'success', detail: `${saved.unchanged} resolved file${(saved.unchanged ?? 0) > 1 ? 's match' : ' matches'} HEAD. Nothing to save.` });
   } else if (saved && op) {
     const n = saved.paths.length;
     toast(`Aborted the ${op}`, {
       kind: 'success', detail: `${n} resolved file${n > 1 ? 's' : ''} saved.`, timeout: 0,
-      actions: [{ label: 'Restore', primary: true, run: () => act('Restore resolved files', 'restoreResolved', [saved.sha], { success: `Restored ${n} resolved file${n > 1 ? 's' : ''}` }) }, opts.undoable !== false && { label: 'Undo', run: undo }].filter(Boolean),
+      actions: [{ label: 'Restore', primary: true, run: () => act('Restore resolved files', 'restoreResolved', [saved.sha], { success: `Restored ${n} resolved file${n > 1 ? 's' : ''}` }) }, opts.undoable !== false && { label: 'Undo', run: undo }].filter((a) => a !== false),
     });
   } else if (!opts.quiet) {
     toast(opts.success || label, { kind: 'success', action: opts.undoable === false ? null : { label: 'Undo', run: undo } });
@@ -159,13 +184,13 @@ async function aborted(label, res, opts) {
   await opts.then?.(res?.result);
 }
 
-async function resolveOp(label, method, args, opts) {
+async function resolveOp(label: string, method: GitMethod, args: readonly unknown[], opts: ActOptions): Promise<boolean> {
   const op = state.opState;
   const n = state.status.conflicts.length;
-  const verb = label.split(' ')[0];
+  const verb = label.split(' ')[0] ?? '';
   // The banner already says what's stopped (AK-598): point at it and offer the next step. Aborting
   // can't be undone, so it confirms.
-  const banner = document.querySelector('.banner-slot .banner');
+  const banner = document.querySelector<HTMLElement>('.banner-slot .banner');
   if (banner) { banner.classList.remove('flash'); void banner.offsetWidth; banner.classList.add('flash'); setTimeout(() => banner.classList.remove('flash'), 2000); }
   const why = opSentence(state.opInfo, n);
   const abortLabel = abortAnd(op, verb.toLowerCase());
@@ -175,7 +200,8 @@ async function resolveOp(label, method, args, opts) {
     if (opts.after) return abortThen(op, opts.after);
     return method === 'mergeLane'
       ? act(label, method, [...args.slice(0, 3), { abort: true }], { ...opts, then: async (res) => {
-        if (res?.saved) await aborted(label, res, { quiet: true });
+        const a = abortedOf(res);
+        if (a) await aborted(label, a, { quiet: true });
         await opts.then?.(res);
       } })
       : act(label, 'abortAnd', [method, args], { ...opts, quiet: true, then: (res) => aborted(label, res, opts) });
@@ -186,9 +212,9 @@ async function resolveOp(label, method, args, opts) {
   ] });
   return false;
 }
-async function continueThen(label, method, args, opts) {
+async function continueThen(label: string, method: GitMethod, args: readonly unknown[], opts: ActOptions): Promise<boolean> {
   const op = state.opState;
-  const verb = label.split(' ')[0];
+  const verb = label.split(' ')[0] ?? '';
   const ok = await act(`Continue ${op}`, 'continueOp', [], { quiet: true });
   const next = opts.after || (() => act(label, method, args, opts));
   if (ok && !state.opState && !stickyToast) toast(`Continued ${op}`, { kind: 'success', detail: `${label} is next.`, timeout: 0, actions: [{ label: `${verb} now`, primary: true, run: next }, { label: 'Undo', run: undo }] });
@@ -197,15 +223,15 @@ async function continueThen(label, method, args, opts) {
 
 // "Rebase and push" stopped on conflicts: once the operation is continued to the end, offer the push
 // it was on the way to. The toast stays until the next action (so does the one for ⌘Z while stopped).
-let pendingPush = null, stickyToast = null;
-function rememberPush(method, args) {
+let pendingPush: (PushIntent & { root: string | undefined }) | null = null, stickyToast: Toast | null = null;
+function rememberPush(method: string, args: readonly unknown[]) {
   const branch = stoppedBranch(state.head, state.opInfo);
   const upstream = state.refs.find((r) => r.kind === 'branch' && r.short === branch)?.upstream;
   const intent = pushIntent(method, args, branch, upstream);
   if (intent) pendingPush = { ...intent, root: state.repo?.root };
 }
 function closeStickyToast() { stickyToast?.close(); stickyToast = null; }
-function offerPushAfterContinue() {
+function offerPushAfterContinue(): boolean {
   if (pendingPush && pendingPush.root !== state.repo?.root) pendingPush = null;
   const t = pushAfterContinue(pendingPush, { opState: state.opState, branch: state.head?.branch });
   if (!state.opState) pendingPush = null;
@@ -217,30 +243,30 @@ function offerPushAfterContinue() {
 // ⌘Z / ⇧⌘Z while a rebase, merge, cherry-pick or revert is stopped: flash its banner and say so, with
 // its conflicts or aborting it (confirmed: can't be undone) and then taking the step. true: handled here.
 function flashBanner() {
-  const b = bannerEl?.querySelector('.banner');
+  const b = bannerEl?.querySelector<HTMLElement>('.banner');
   if (!b) return;
   b.classList.remove('flash');
   void b.offsetWidth;
   b.classList.add('flash');
 }
-function stepWhileStopped(dir) {
+function stepWhileStopped(dir: 'undo' | 'redo'): boolean {
   const op = state.opState;
   if (!op) return false;
   flashBanner();
   const t = stoppedStepToast(dir, op, state.opInfo, state.status.conflicts.length);
-  const run = { open: up.openConflicts, continue: () => act(`Continue ${op}`, 'continueOp'), abort: () => abortThenStep(dir, op) };
+  const run: Record<'open' | 'continue' | 'abort', () => unknown> = { open: up.openConflicts, continue: () => act(`Continue ${op}`, 'continueOp'), abort: () => abortThenStep(dir, op) };
   stickyToast = toast(t.message, { kind: 'info', detail: t.detail, timeout: 0, actions: t.actions.map((a, i) => ({ label: a.label, primary: i === 0, run: run[a.id] })) });
   return true;
 }
-async function abortThenStep(dir, op) {
+async function abortThenStep(dir: 'undo' | 'redo', op: string): Promise<void> {
   if (!(await confirm(`Abort ${op}?`, "Aborting can't be undone.", { submit: 'Abort' }))) return;
   await abortThen(op, dir === 'undo' ? undo : redo);
 }
 // Abort the operation stopped here, then run `step`. Resolved files it saved are offered back, as after abortAnd.
-async function abortThen(op, step) {
-  let res;
+async function abortThen(op: string | null, step: () => unknown): Promise<unknown> {
+  let res: GitResult<'abortOp'>;
   try { res = await git('abortOp'); } catch (e) {
-    toast(`Abort ${op} failed`, { kind: 'error', detail: e.message });
+    toast(`Abort ${op} failed`, { kind: 'error', detail: (e as Error).message });
     await up.refreshAll();
     return false;
   }
@@ -251,24 +277,28 @@ async function abortThen(op, step) {
   return ok;
 }
 
-async function quiet(method, ...args) {
-  try { await git(method, ...args); } catch (e) { toast('Git error', { kind: 'error', detail: e.message }); }
+async function quiet(method: GitMethod, ...args: unknown[]): Promise<void> {
+  try { await git(method, ...args); } catch (e) { toast('Git error', { kind: 'error', detail: (e as Error).message }); }
   await up.refreshStatus();
 }
 
 // `opts.stash`: stash what's in the way first (offerStashStep); `opts.discard`: discard it instead,
 // kept on the step so the opposite step brings it back. `opts.force`: take the step though
 // branches moved since (offerMovedStep). Click handlers pass an event here.
-const stepOpts = (o) => (o?.stash || o?.force || o?.skip || o?.discard ? Object.fromEntries(['stash', 'force', 'skip', 'discard'].filter((k) => o[k]).map((k) => [k, true])) : null);
-async function undo(opts) {
-  opts = stepOpts(opts);
+type StepKey = 'stash' | 'force' | 'skip' | 'discard';
+type StepOpts = Partial<Record<StepKey, true>>;
+const STEP_KEYS: StepKey[] = ['stash', 'force', 'skip', 'discard'];
+const stepOpts = (o: unknown): StepOpts | null => (STEP_KEYS.some((k) => field(o, k)) ? Object.fromEntries(STEP_KEYS.filter((k) => field(o, k)).map((k) => [k, true])) : null);
+async function undo(given?: unknown): Promise<void> {
+  const opts = stepOpts(given);
   closeStickyToast();
   if (!opts && stepWhileStopped('undo')) return;
   try {
     const label = await git('undo', ...(opts ? [opts] : []));
     if (opts?.skip) toast(`Skipped “${label}”`);
     else toast(label ? `Undid “${label}”` : 'Nothing to undo', { action: label ? { label: 'Redo', run: redo } : null });
-  } catch (e) {
+  } catch (caught) {
+    const e = caught as GitError;
     if (await offerSkipStep('undo', e)) return;
     if (!opts?.force && await offerMovedStep('undo', e, opts)) return;
     if (!opts?.stash && !opts?.discard && await offerStashStep('undo', e, opts)) return;
@@ -278,7 +308,7 @@ async function undo(opts) {
 }
 
 // Undo or redo refused over uncommitted changes: offer to stash them and try again.
-async function offerStashStep(dir, err, opts) {
+async function offerStashStep(dir: 'undo' | 'redo', err: GitError, opts: StepOpts | null): Promise<boolean> {
   const { code } = err;
   if (code !== 'dirty' && code !== 'dirty-submodule') return false;
   // A safe default (AK-598): keep the newer edit in a stash and take the step; the toast offers
@@ -298,7 +328,8 @@ async function offerStashStep(dir, err, opts) {
       detail: code === 'dirty-submodule' ? 'The newer changes in the submodule are stashed there.' : what ? `Your newer edit${many ? 's' : ''} to ${what} ${many ? 'are' : 'is'} stashed.` : 'Your newer edit is stashed.',
       actions: code === 'dirty' ? [dropIt, up.showStashAction(message), other] : [other],
     });
-  } catch (e) {
+  } catch (caught) {
+    const e = caught as GitError;
     // Branches moved since too: the moved-since sheet still asks (keeping the stash step).
     if (await offerSkipStep(dir, e) || await offerMovedStep(dir, e, { ...opts, stash: true })) return true;
     toast(`${dir === 'undo' ? 'Undo' : 'Redo'} failed`, { kind: 'error', detail: e.message });
@@ -308,12 +339,12 @@ async function offerStashStep(dir, err, opts) {
 }
 
 // The step's stash was applied or dropped since: it can never be taken, so offer to drop it.
-const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-async function offerSkipStep(dir, err) {
+const clock = (ms: number): string => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+async function offerSkipStep(dir: 'undo' | 'redo', err: GitError): Promise<boolean> {
   if (err.code !== 'stash-gone') return false;
   const title = dir === 'undo' ? undoTitle() : redoTitle();
   const step = err.step;
-  const rows = step ? [
+  const rows: SheetOptions['rows'] = step ? [
     ['stash', [step.stash.message, h('span.muted', null, ` · saved ${clock(step.stash.time || step.time)}`)]],
     ['step', `${step.label} · ${clock(step.time)}`],
   ] : null;
@@ -326,11 +357,11 @@ async function offerSkipStep(dir, err) {
 // Undo or redo refused because branches or HEAD moved since: list what moved and offer to take
 // the step anyway (the opposite step puts the moved refs back).
 const MOVED_ROWS = 4;
-async function offerMovedStep(dir, err, opts) {
+async function offerMovedStep(dir: 'undo' | 'redo', err: GitError, opts: StepOpts | null): Promise<boolean> {
   if (err.code !== 'moved' || !err.moved?.length) return false;
   const title = dir === 'undo' ? undoTitle() : redoTitle();
-  const side = (v) => v ?? 'none';
-  const rows = err.moved.slice(0, MOVED_ROWS).map((m) => [m.ref, `${side(m.from)} → ${side(m.to)}`]);
+  const side = (v: string | null) => v ?? 'none';
+  const rows: [string, string][] = err.moved.slice(0, MOVED_ROWS).map((m) => [m.ref, `${side(m.from)} → ${side(m.to)}`]);
   if (err.moved.length > MOVED_ROWS) rows.push([`${err.moved.length - MOVED_ROWS} more`, '']);
   const v = await resolveSheet({ title, reason: 'Branches or HEAD have moved since.', rows, actions: [{ id: 'force', label: dir === 'undo' ? 'Undo anyway' : 'Redo anyway' }] });
   if (!v) return false;
@@ -338,17 +369,18 @@ async function offerMovedStep(dir, err, opts) {
   return true;
 }
 // "Undo Discard 3 lines in app.js" style labels for the next undo/redo step.
-const undoTitle = () => { const e = state.history.undo.at(-1); return e ? `Undo ${e.label}` : 'Undo'; };
-const redoTitle = () => { const e = state.history.redo.at(-1); return e ? `Redo ${e.label}` : 'Redo'; };
+const undoTitle = (): string => { const e = state.history.undo.at(-1); return e ? `Undo ${e.label}` : 'Undo'; };
+const redoTitle = (): string => { const e = state.history.redo.at(-1); return e ? `Redo ${e.label}` : 'Redo'; };
 
-async function redo(opts) {
-  opts = stepOpts(opts);
+async function redo(given?: unknown): Promise<void> {
+  const opts = stepOpts(given);
   closeStickyToast();
   if (!opts && stepWhileStopped('redo')) return;
   try {
     const label = await git('redo', ...(opts ? [opts] : []));
     toast(opts?.skip ? `Skipped “${label}”` : label ? `Redid “${label}”` : 'Nothing to redo');
-  } catch (e) {
+  } catch (caught) {
+    const e = caught as GitError;
     if (await offerSkipStep('redo', e)) return;
     if (!opts?.force && await offerMovedStep('redo', e, opts)) return;
     if (!opts?.stash && !opts?.discard && await offerStashStep('redo', e, opts)) return;
@@ -358,8 +390,8 @@ async function redo(opts) {
 }
 
 // Run at most one instance of fn at a time; calls made meanwhile collapse into one rerun.
-function coalesce(fn) {
-  let running = null, again = false;
+function coalesce(fn: () => unknown): () => Promise<void> {
+  let running: Promise<void> | null = null, again = false;
   const wrapped = async () => {
     if (running) { again = true; return running; }
     running = (async () => {

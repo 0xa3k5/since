@@ -116,6 +116,8 @@ export interface ConflictFile {
 }
 /** Resolved files of a stopped operation, saved as a stash-shaped commit; `sha` null when they all matched HEAD. */
 export interface SavedResolved { sha: string | null; paths: string[]; unchanged?: number }
+/** What aborting a stopped operation did: which one it was, and the resolved files it saved first (null when saving failed). */
+export interface Aborted { op: OperationKind; saved: SavedResolved | null }
 
 export type RewriteOp = 'drop' | 'split' | 'reword' | 'squash' | 'fixup' | 'swapParent';
 

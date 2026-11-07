@@ -10,8 +10,8 @@ import { peekEvidence } from '../review/evidence-store.js';
 import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, draftSwitch, withDraft, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
 import { up } from '../lib/upcalls.ts';
 import { state, api, prop, tildify, parentDir, MOD, keyText } from '../lib/app-helpers.ts';
-import { lanesPage, catchupPage, mapView, reviewPage } from '../shell/shell.js';
-import { undo, act } from '../lib/bridge.js';
+import { lanesPage, catchupPage, mapView, reviewPage } from '../shell/shell.ts';
+import { undo, act } from '../lib/bridge.ts';
 import { addRemote, fetchAll } from '../branches/remote-ops.js';
 import { openQuick } from '../graph/quick-view.js';
 

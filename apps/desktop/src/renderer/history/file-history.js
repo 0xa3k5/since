@@ -2,8 +2,8 @@ import { $, toast, contextMenu, palette } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';
-import { commitView } from '../shell/shell.js';
-import { git } from '../lib/bridge.js';
+import { commitView } from '../shell/shell.ts';
+import { git } from '../lib/bridge.ts';
 import { refreshStatus } from '../graph/load.js';
 
 // File history & blame

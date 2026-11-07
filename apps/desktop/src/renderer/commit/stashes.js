@@ -3,8 +3,8 @@ import { renderDiff } from './diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, keyText, isEditable, MOD, baseName } from '../lib/app-helpers.ts';
-import { stashFocus, stashShown, setStashFocus, setStashShown } from '../shell/shell.js';
-import { git, act, gitTooOld, updateGit } from '../lib/bridge.js';
+import { stashFocus, stashShown, setStashFocus, setStashShown } from '../shell/shell.ts';
+import { git, act, gitTooOld, updateGit } from '../lib/bridge.ts';
 
 // Stashes
 

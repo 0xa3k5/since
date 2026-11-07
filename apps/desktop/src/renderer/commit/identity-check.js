@@ -1,7 +1,7 @@
 import { toast, dialog } from '../lib/ui.ts';
 import { checkIdentity, matchRule, suggestPattern, upsertRule } from './identity.js';
 import { loadPref, state, savePref } from '../lib/app-helpers.ts';
-import { git } from '../lib/bridge.js';
+import { git } from '../lib/bridge.ts';
 import { refreshAux } from '../graph/load.js';
 
 // Commit identity: warn before committing as someone this repo doesn't usually commit as, or

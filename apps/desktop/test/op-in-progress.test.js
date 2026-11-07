@@ -137,7 +137,7 @@ test('abort with files left in the worktree: tidy and clean up stash them instea
 });
 
 test('opInfo and opSentence (AK-584): name what is stopped', async () => {
-  const { opSentence } = await import('../src/renderer/commit/resolve-text.js');
+  const { opSentence } = await import('../src/renderer/commit/resolve-text.ts');
   const r = await repo();
   await git.run(r.dir, ['checkout', '-q', '-b', 'feature/conflict']);
   await r.commit('app.js', 'feature\n', 'Add footer');
@@ -259,7 +259,7 @@ test('the banner’s Abort offers the saved files back, without an Undo (the abo
 });
 
 test('every branch switch is a git method that gets the stopped-op toast (AK-577)', async () => {
-  const { SWITCHES } = await import('../src/renderer/commit/resolve-text.js');
+  const { SWITCHES } = await import('../src/renderer/commit/resolve-text.ts');
   const { gitSchemas } = require('../src/main/ipc.ts');
   assert.ok(SWITCHES.has('checkout') && SWITCHES.has('moveCheckout'));
   for (const m of SWITCHES) assert.ok(gitSchemas[m], `${m} is a git method`);
