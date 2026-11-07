@@ -1,8 +1,8 @@
 import { h, icon, avatar } from './ui.ts';
 import { createHistory } from '../graph/log.js';
 import * as keymap from '../palette/keymap.ts';
-import { authorProfile } from './profile.js';
-import { up } from './upcalls.js';
+import { authorProfile } from './profile.ts';
+import { up } from './upcalls.ts';
 
 // Small helpers the views share: labels, paths, links and tooltips.
 

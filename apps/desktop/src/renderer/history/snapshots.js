@@ -1,6 +1,6 @@
 import { h, icon, kbd, toast, dialog, timeAgo, fullDate } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { tip, state, MOD } from '../lib/app-helpers.js';
 import { undo, redo, git, act } from '../lib/bridge.js';
 import { refreshHistory } from '../graph/load.js';

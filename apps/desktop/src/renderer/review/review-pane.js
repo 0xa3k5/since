@@ -7,7 +7,7 @@ import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } fro
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
 import * as keymap from '../palette/keymap.ts';
-import { loginProfile } from '../lib/profile.js';
+import { loginProfile } from '../lib/profile.ts';
 
 // Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with
 // Catch up (reader.js, AK-381): the selected row's head (‹ N of M ›, #number and title, CI and review

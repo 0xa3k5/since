@@ -9,9 +9,9 @@ const HEX = /(?<![\w\-/?=&#])(?<!\]\()#([0-9a-f]{3,8})(?![\w-])/gi;
 // Colour functions. The argument may not nest parens (var(), calc()); CSS.supports would reject most anyway.
 const FN = /(?<![\w-])(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^()\n]{1,120}\)/gi;
 
-const cache = new Map();
-function supported(value) {
-  const css = globalThis.CSS;
+const cache = new Map<string, boolean>();
+function supported(value: string): boolean {
+  const css = (globalThis as { CSS?: { supports?(property: string, value: string): boolean } }).CSS;
   if (!css?.supports) return true;
   let ok = cache.get(value);
   if (ok === undefined) {
@@ -26,21 +26,23 @@ function supported(value) {
 // words in prose. Only accept them in a CSS-ish position: right after `:`, `=`, `,`, a quote or a
 // function's `(`, or right before `;`, `}` or `!important`. A code that ends an indented declaration
 // with no `;` (`  border: 1px solid #fff`, Stylus `  color #fff`) counts too.
-function cssPosition(text, start, end) {
+function cssPosition(text: string, start: number, end: number): boolean {
   const before = text.slice(Math.max(0, start - 8), start);
   if (/(?:[:=,]|['"`]|[\w-]\()\s*$/.test(before) || /^\s*(?:[;}]|!\s*important)/i.test(text.slice(end, end + 16))) return true;
   return /^\s*$/.test(text.slice(end)) && /^\s+[a-z][\w-]*(?:\s*:[^:;{}]*|\s+)$/i.test(text.slice(0, start));
 }
 
+export interface ColorMatch { start: number; end: number; value: string }
 // Returns [{ start, end, value }] sorted by position, at most `max` entries.
-export function findColors(text, { max = MAX_PER_LINE, isColor = supported } = {}) {
+export function findColors(text: string | null | undefined, { max = MAX_PER_LINE, isColor = supported }: { max?: number; isColor?: (value: string) => boolean } = {}): ColorMatch[] {
   if (!text || (!text.includes('#') && !text.includes('('))) return [];
-  const out = [];
+  const out: ColorMatch[] = [];
   for (const m of text.matchAll(HEX)) {
-    const n = m[1].length;
+    const code = m[1] ?? '';
+    const n = code.length;
     if (n === 5 || n === 7) continue;
     const end = m.index + m[0].length;
-    if (n <= 4 && /^(?:\d+|[a-f]+)$/i.test(m[1]) && !cssPosition(text, m.index, end)) continue;
+    if (n <= 4 && /^(?:\d+|[a-f]+)$/i.test(code) && !cssPosition(text, m.index, end)) continue;
     out.push({ start: m.index, end, value: m[0] });
   }
   if (text.includes('(')) {
@@ -51,7 +53,7 @@ export function findColors(text, { max = MAX_PER_LINE, isColor = supported } = {
     }
   }
   out.sort((a, b) => a.start - b.start);
-  const res = [];
+  const res: ColorMatch[] = [];
   for (const c of out) {
     if (res.length >= max) break;
     if (isColor(c.value)) res.push(c);

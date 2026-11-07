@@ -9,7 +9,7 @@ import { AUTOSTASH_DEFAULT } from '../commit/autostash.js';
 import { prefsWindow } from './prefs-view.js';
 import { prefRows, prRemoteChoice } from './prefs.js';
 import { SETUP_PREF, needsSetup } from './setup.js';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { loadPref, state, api, savePref, tildePath, MOD } from '../lib/app-helpers.js';
 import { root, finishedCount, reviewCount, mapView, assignFinishedCount, assignReviewCount, catchupPage, lanesPage, branchesPage, reviewPage, sidebarEl, topbarEl, bannerEl, contentEl, setCatchupPage, setLanesPage, setBranchesPage, setReviewPage, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, setMapView } from '../shell/shell.js';
 import { THEMES, setTheme } from '../shell/theme.js';

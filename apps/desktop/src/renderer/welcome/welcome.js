@@ -4,7 +4,7 @@ import * as keymap from '../palette/keymap.ts';
 import { setupView } from '../settings/setup-view.js';
 import { shortcutsWindow } from '../palette/shortcuts-view.js';
 import { SETUP_PREF, setupValues } from '../settings/setup.js';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { state, api, savePref, MOD } from '../lib/app-helpers.js';
 import { THEMES, setTheme } from '../shell/theme.js';
 import { update, setUpdate } from '../shell/updates.js';

@@ -1,6 +1,6 @@
 import { toast, dialog, confirm, contextMenu, palette } from '../lib/ui.ts';
 import { remoteNameError, remoteUsage, removeRemoteWarning } from '../settings/remotes.js';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { state, keyText, api } from '../lib/app-helpers.js';
 import { act } from '../lib/bridge.js';
 

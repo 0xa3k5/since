@@ -1,6 +1,6 @@
 import { toast } from '../lib/ui.ts';
 import { fileRef } from './diff.js';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.js';
 import { git } from '../lib/bridge.js';
 

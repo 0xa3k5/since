@@ -2,10 +2,10 @@ import { h, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, r
 import { renderDiff } from '../commit/diff.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
 import * as keymap from '../palette/keymap.ts';
-import { authorProfile } from '../lib/profile.js';
+import { authorProfile } from '../lib/profile.ts';
 import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from '../commit/autostash.js';
 import { commitBlock } from './commit-guards.js';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { state, MOD, api, loadPref, savePref } from '../lib/app-helpers.js';
 import { stashFocus, setStashFocus, contentEl } from '../shell/shell.js';
 import { act, resolveOp, git, undo } from '../lib/bridge.js';

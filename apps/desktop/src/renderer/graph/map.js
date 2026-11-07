@@ -4,7 +4,7 @@ import { statusBadge, fileName } from '../commit/diff.js';
 import { rowDoubleClick } from './keys.js';
 import * as keymap from '../palette/keymap.ts';
 import { markdown } from '../lib/markdown.js';
-import { up } from '../lib/upcalls.js';
+import { up } from '../lib/upcalls.ts';
 import { state, ROW_H, isEditable, prop, personLink } from '../lib/app-helpers.js';
 import { mapView, sidebarEl, lanesPage } from '../shell/shell.js';
 import { git } from '../lib/bridge.js';

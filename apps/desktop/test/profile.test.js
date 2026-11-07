@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/lib/profile.js');
+const load = () => import('../src/renderer/lib/profile.ts');
 
 test('githubLogin reads the login from GitHub noreply emails only', async () => {
   const { githubLogin } = await load();

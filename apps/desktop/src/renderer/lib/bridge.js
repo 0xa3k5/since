@@ -2,7 +2,7 @@ import { h, toast, ago, confirm, closeMenu, resolveSheet } from './ui.ts';
 import { opSentence, divergeSheet, pushIntent, pushAfterContinue, stoppedStepToast, stoppedBranch, SWITCHES } from '../commit/resolve-text.js';
 import { blockedByChanges } from '../commit/autostash.js';
 import { GIT_NEEDS, GIT_FEATURES, gitMeets } from './git-version.ts';
-import { up } from './upcalls.js';
+import { up } from './upcalls.ts';
 import { api, state } from './app-helpers.js';
 import { bannerEl } from '../shell/shell.js';
 

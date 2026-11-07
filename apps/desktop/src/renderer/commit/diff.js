@@ -1,6 +1,6 @@
 import { h, icon } from '../lib/ui.ts';
-import { findColors } from '../lib/colors.js';
-import { submoduleChange, describeSubmoduleChange } from '../lib/submodule.js';
+import { findColors } from '../lib/colors.ts';
+import { submoduleChange, describeSubmoduleChange } from '../lib/submodule.ts';
 
 const LIMIT = 4000;
 
