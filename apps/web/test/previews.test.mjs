@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
-const dir = new URL('../../desktop/renderer/', import.meta.url);
-const app = readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
+const dir = new URL('../../desktop/src/renderer/', import.meta.url);
+const app = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
 const preview = (name) => readFileSync(new URL(`../src/components/landing/previews/${name}.astro`, import.meta.url), 'utf8');
 
 const strings = {
@@ -19,6 +19,6 @@ const strings = {
 for (const [name, list] of Object.entries(strings)) {
   test(`${name} uses the app's wording`, () => {
     preview(name); // the preview still exists
-    for (const s of list) assert.ok(app.includes(s), `"${s}" is no longer in apps/desktop/renderer; update ${name}`);
+    for (const s of list) assert.ok(app.includes(s), `"${s}" is no longer in apps/desktop/src/renderer; update ${name}`);
   });
 }

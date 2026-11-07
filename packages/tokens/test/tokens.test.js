@@ -20,7 +20,7 @@ test('light and dark define the same tokens', () => {
 });
 
 test('desktop styles.css uses the same values', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'apps', 'desktop', 'renderer', 'styles.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'apps', 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');
   const block = (from) => {
     const start = css.indexOf('{', css.indexOf(from)) + 1;
     let depth = 1, i = start;
