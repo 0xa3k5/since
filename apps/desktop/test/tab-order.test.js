@@ -35,7 +35,7 @@ test('launch shows the tab that was showing, else the last one', () => {
 });
 
 test('tabs are views in one window; tab keys and IPC go through the keymap and ipc.js', async () => {
-  const main = fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   assert.doesNotMatch(main, /BrowserWindow/, 'every page is a tab in a BaseWindow');
   assert.match(main, /check\.tabAction\(action\)/);
   const { tabAction } = require('../src/main/ipc');

@@ -112,7 +112,7 @@ test('colours outside the token blocks come from tokens', () => {
 
 test('retired indigo accent is gone', () => {
   const root = path.join(__dirname, '..', '..', '..');
-  const files = ['README.md', 'apps/desktop/src/main/main.js', 'apps/desktop/README.md', 'apps/desktop/test/theme.test.js', ...fs.readdirSync(renderer, { recursive: true }).filter((f) => /\.(js|css|html|json)$/.test(f)).map((f) => `apps/desktop/src/renderer/${f}`)];
+  const files = ['README.md', ...require('./main-source').FILES.map((f) => `apps/desktop/src/main/${f}`), 'apps/desktop/README.md', 'apps/desktop/test/theme.test.js', ...fs.readdirSync(renderer, { recursive: true }).filter((f) => /\.(js|css|html|json)$/.test(f)).map((f) => `apps/desktop/src/renderer/${f}`)];
   for (const f of files) {
     const p = path.join(root, f);
     if (!fs.existsSync(p)) continue;

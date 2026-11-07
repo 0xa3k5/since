@@ -9,7 +9,7 @@ const root = path.join(__dirname, '..');
 const rejects = (fn, re) => assert.throws(fn, (e) => e instanceof check.IpcArgError && (!re || re.test(e.message)));
 
 test('every git method the main process serves has a schema, and nothing else does', () => {
-  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
   const { workOps, worktreeOps, laneOps, remoteOps } = require('../src/main/journal');
@@ -227,7 +227,7 @@ test('the renderer CSP allows nothing remote and no inline code', () => {
 });
 
 test('windows keep the renderer isolated', () => {
-  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   for (const pref of ['contextIsolation: true', 'sandbox: true', 'nodeIntegration: false', 'webviewTag: false', 'webSecurity: true']) {
     assert.ok(main.includes(pref), pref);
   }
@@ -284,7 +284,7 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
 });
 
 test('main.js checks the PR number and remote before any PR action reaches gh', () => {
-  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+  const main = require('./main-source').mainSource();
   const action = main.slice(main.indexOf('const prAction'), main.indexOf("handle('app:pr-merge-info'"));
   assert.ok(action.indexOf('check.prNumber(number)') > 0 && action.indexOf('check.knownRemote(') > action.indexOf('check.prNumber'), 'prAction checks the number, then the remote');
   assert.ok(action.indexOf('fn({') > action.indexOf('check.knownRemote('), 'checks run before gh');

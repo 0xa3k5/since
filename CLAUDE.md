@@ -9,8 +9,9 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 ## Layout
 
 - `apps/desktop`: the app.
-  - `src/main/`: the main process. `main.js` (window, menus, session lock-down), `ipc.js`
-    (argument checks for every IPC call), `git/` (all git calls: `run.js` spawns git, one module per area, `index.js` exports them), `journal.js` (undo/redo),
+  - `src/main/`: the main process. `main.js` (entry, app lifecycle), `windows.js`, `menu.js`,
+    `lockdown.js` (session lock-down), `handlers/` (IPC handlers by area), `ipc.js` (argument checks
+    for every IPC call), `git/` (all git calls: `run.js` spawns git, one module per area, `index.js` exports them), `journal.js` (undo/redo),
     `updater.js`, `github.js`, `ai.js`, and `stores/` (recent repos, catch-up, window state, tabs)
   - `src/preload/preload.js`: the sandboxed bridge (`window.since`)
   - `src/shared/channels.js`: IPC channel names shared by main and preload

@@ -26,7 +26,7 @@ test('every channel the main process pushes is a shared push channel', () => {
 });
 
 test('every invoke channel the main process handles is git or app:', () => {
-  const handled = [...read('main/main.js').matchAll(/\bhandle\('([^']+)'/g)].map((m) => m[1]);
+  const handled = [...require('./main-source').mainSource().matchAll(/\bhandle\('([^']+)'/g)].map((m) => m[1]);
   assert.ok(handled.length > 20);
   for (const c of handled) assert.ok(c === GIT || c.startsWith(APP_PREFIX), c);
 });

@@ -80,7 +80,7 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
 
 | Measure | Where |
 | --- | --- |
-| `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` for every window, plus `app.enableSandbox()` for any other renderer | `main.js` `createWindow`, lockdown section |
+| `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` for every window, plus `app.enableSandbox()` for any other renderer | `windows.js` `createWindow`, `lockdown.js` |
 | `webviewTag: false`, `nodeIntegrationInSubFrames: false`, `webSecurity: true`, `allowRunningInsecureContent: false`, `navigateOnDragDrop: false`, `safeDialogs: true` | `createWindow` |
 | DevTools only in development builds (or with `SINCE_DEVTOOLS=1`) | `createWindow`, View menu |
 | Narrow preload API: `since.git(method, …)`, `since.app(channel, …)` and four listen-only event channels. No Node objects cross the bridge | `preload.js` |
@@ -88,7 +88,7 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
 | No navigation, redirects, `window.open` or `<webview>` in any webContents. `http(s)` links open in the default browser; everything else is dropped | `web-contents-created` handler |
 | Every permission request (camera, notifications, clipboard-read, HID, USB, …) is denied | `lockDownSession` |
 | Network requests other than `file:`/`data:`/DevTools/`since-media:` (served by the main process, PR videos) are cancelled in every session; the updater's own session may also reach the update feed's host over HTTPS | `lockDownSession` |
-| IPC only from our own page: each handler checks the sender is the main frame of `renderer/index.html` in the app bundle | `handle()` in `main.js` |
+| IPC only from our own page: each handler checks the sender is the main frame of `renderer/index.html` in the app bundle | `handle()` in `handlers/handle.js` |
 | Every IPC argument is validated before use (below) | `ipc.js` |
 
 ### IPC argument validation
