@@ -9,7 +9,8 @@ import { COMMANDS, keys } from '../../../desktop/src/renderer/palette/keymap.js'
 export function findDesktop(start = process.cwd()) {
   for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
     for (const c of [path.join(dir, 'apps/desktop'), path.join(dir, '../desktop')]) {
-      if (fs.existsSync(path.join(c, 'src/main/main.js')) && fs.existsSync(path.join(c, 'src/renderer/app.js'))) return c;
+      const has = (f) => ['.ts', '.js'].some((ext) => fs.existsSync(path.join(c, `${f}${ext}`)));
+      if (has('src/main/main') && has('src/renderer/app')) return c;
     }
     if (path.dirname(dir) === dir) throw new Error(`apps/desktop not found from ${start}`);
   }
@@ -18,7 +19,7 @@ export function findDesktop(start = process.cwd()) {
 /** Every renderer script, joined: the ⌘K commands may live in any area module. */
 export function readSources(desktop = findDesktop()) {
   const dir = path.join(desktop, 'src/renderer');
-  const files = fs.readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.js')).sort();
+  const files = fs.readdirSync(dir, { recursive: true }).filter((f) => /\.(js|ts)$/.test(f) && !f.endsWith('.d.ts')).sort();
   return { app: files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') };
 }
 
