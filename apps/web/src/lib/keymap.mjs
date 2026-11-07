@@ -1,22 +1,25 @@
-// Builds the /shortcuts table from the desktop app's keymap registry (apps/desktop/renderer/keymap.js), the same
+// Builds the /shortcuts table from the desktop app's keymap registry (apps/desktop/src/renderer/palette/keymap.js), the same
 // list the app's handlers, menus and ⌘K read, so the site can't drift from the app. The ⌘K command list is read
 // from the app's source, since those are commands rather than keys.
 import fs from 'node:fs';
 import path from 'node:path';
-import { COMMANDS, keys } from '../../../desktop/renderer/keymap.js';
+import { COMMANDS, keys } from '../../../desktop/src/renderer/palette/keymap.js';
 
 /** Finds apps/desktop from the current directory (the build runs in apps/web; tests may run from the root). */
 export function findDesktop(start = process.cwd()) {
   for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
     for (const c of [path.join(dir, 'apps/desktop'), path.join(dir, '../desktop')]) {
-      if (fs.existsSync(path.join(c, 'main.js')) && fs.existsSync(path.join(c, 'renderer/app.js'))) return c;
+      if (fs.existsSync(path.join(c, 'src/main/main.js')) && fs.existsSync(path.join(c, 'src/renderer/app.js'))) return c;
     }
     if (path.dirname(dir) === dir) throw new Error(`apps/desktop not found from ${start}`);
   }
 }
 
+/** Every renderer script, joined: the ⌘K commands may live in any area module. */
 export function readSources(desktop = findDesktop()) {
-  return { app: fs.readFileSync(path.join(desktop, 'renderer/app.js'), 'utf8') };
+  const dir = path.join(desktop, 'src/renderer');
+  const files = fs.readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.js')).sort();
+  return { app: files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') };
 }
 
 /** The text between `anchor` and the end of the block that follows it (first `close` after it). */

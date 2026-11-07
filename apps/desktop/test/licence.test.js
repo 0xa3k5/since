@@ -13,13 +13,13 @@ test('the repo carries the GPLv3 text', () => {
 });
 
 test('every package declares GPL-3.0-or-later', () => {
-  for (const p of ['package.json', 'apps/desktop/package.json', 'apps/desktop/renderer/package.json', 'apps/web/package.json', 'packages/tokens/package.json']) {
+  for (const p of ['package.json', 'apps/desktop/package.json', 'apps/desktop/src/renderer/package.json', 'apps/web/package.json', 'packages/tokens/package.json']) {
     assert.strictEqual(JSON.parse(read(p)).license, 'GPL-3.0-or-later', p);
   }
 });
 
 test('the app bundle and the About panel carry the same copyright line', () => {
   assert.ok(read('apps/desktop/electron-builder.config.js').includes(`copyright: '${COPYRIGHT}'`));
-  assert.ok(read('apps/desktop/main.js').includes(`copyright: '${COPYRIGHT}'`));
+  assert.ok(read('apps/desktop/src/main/main.js').includes(`copyright: '${COPYRIGHT}'`));
   assert.ok(read('apps/web/src/config.ts').includes(`COPYRIGHT = '${COPYRIGHT}'`));
 });

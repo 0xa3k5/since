@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const updater = require('../updater');
+const updater = require('../src/main/updater');
 const { compareVersions, buildFeed, readFeed, feedUrl, feedName, squirrelFeedName, squirrelFeedUrl, zipName, isSignedOutput } = updater;
 const pkg = require('../package.json');
 

@@ -7,8 +7,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const ai = require('../ai');
-const git = require('../git');
+const ai = require('../src/main/ai');
+const git = require('../src/main/git');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'since-ai-test-'));
 
@@ -142,7 +142,7 @@ test('runCli stops the CLI when its signal aborts, and never starts it once abor
 });
 
 test('PR draft prompt and split', () => {
-  const ai = require('../ai');
+  const ai = require('../src/main/ai');
   const p = ai.buildPrPrompt({ branch: 'feat/x', base: 'main', log: '- Add x\n', stat: ' a.js | 2 +\n', diff: '+x\n' });
   assert.match(p, /merging feat\/x into main/);
   assert.match(p, /Commits:\n- Add x\n/);

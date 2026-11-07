@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/tour.js');
+const load = () => import('../src/renderer/welcome/tour.js');
 const shas = (s) => s.commits.map((c) => c.sha);
 
 test('moving the branch is one undoable step and clears redo', async () => {

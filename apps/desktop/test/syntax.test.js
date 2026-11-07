@@ -8,10 +8,10 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
-const renderer = path.join(root, 'renderer');
+const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []);
 const files = [
   ...fs.readdirSync(root).filter((f) => f.endsWith('.js')).map((f) => path.join(root, f)),
-  ...fs.readdirSync(renderer).filter((f) => f.endsWith('.js')).map((f) => path.join(renderer, f)),
+  ...walk(path.join(root, 'src')),
 ];
 
 for (const file of files) {

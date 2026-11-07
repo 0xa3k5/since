@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
+const git = require('../src/main/git');
 
-const load = () => import('../renderer/review.js');
+const load = () => import('../src/renderer/review/review.js');
 
 // localStorage stand-in.
 function memoryStore() {

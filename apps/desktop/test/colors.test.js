@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/colors.js');
+const load = () => import('../src/renderer/lib/colors.js');
 const values = (find, text, opts) => find(text, opts).map((c) => c.value);
 
 test('finds hex codes of every valid length', async () => {

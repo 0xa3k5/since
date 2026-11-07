@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/markdown.js');
+const load = () => import('../src/renderer/lib/markdown.js');
 
 test('parse: headings, lists, tasks, quotes, fences and rules; paragraphs keep their line breaks', async () => {
   const { parse } = await load();

@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
+const git = require('../src/main/git');
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 const cfg = [['config', 'user.name', 'Test'], ['config', 'user.email', 't@example.com'], ['config', 'commit.gpgsign', 'false']];
@@ -37,7 +37,7 @@ async function repo() {
 }
 
 test('gitMeets compares major.minor; unparsable is too old', async () => {
-  const { gitMeets } = require('../renderer/git-version.js');
+  const { gitMeets } = require('../src/renderer/lib/git-version.js');
   assert.equal(gitMeets('2.37.3', '2.38'), false);
   assert.equal(gitMeets('git version 2.38.0 (Apple Git-150)', '2.38'), true);
   assert.equal(gitMeets('3.0', '2.40'), true);
@@ -89,7 +89,7 @@ test('merge here on an old git: git-version before trying merge-tree; another gi
 });
 
 test('merge here decision: old git → version toast with the git in use; new git + failure → error', () => {
-  const { mergeHereBlock } = require('../renderer/git-version.js');
+  const { mergeHereBlock } = require('../src/renderer/lib/git-version.js');
   assert.equal(mergeHereBlock({ mergeBlocker: null }, '2.34.1'), null);
   assert.deepEqual(mergeHereBlock({ mergeBlocker: 'Merging here needs git 2.38 or later.', mergeBlockerCode: 'git-version' }, '2.34.1'),
     { kind: 'git-version', message: 'Merging here needs git 2.38 or later', detail: 'In use: git 2.34.1' });
@@ -98,14 +98,14 @@ test('merge here decision: old git → version toast with the git in use; new gi
 
 test('merge here checks the git version before handing off, offers the gate with carry-on, and every window hears a new git', () => {
   const fsm = require('node:fs'), pth = require('node:path');
-  const app = fsm.readFileSync(pth.join(__dirname, '../renderer/app.js'), 'utf8');
+  const app = fsm.readFileSync(pth.join(__dirname, '../src/renderer/app.js'), 'utf8');
   const fn = app.slice(app.indexOf('async function mergeLane('), app.indexOf('async function mergeLane(') + 6000);
   assert.ok(fn.indexOf("kind === 'git-version'") < fn.indexOf("kind: 'mergeLane'"), 'version first');
   assert.match(fn, /updateGit\('mergeHere', \(\) => mergeLane\(/);
   assert.doesNotMatch(fn, /run: chooseGit/);
   assert.match(fn, /toast\(`Continue in \$\{plan\.baseWorktree\.name\}`\)/);
   assert.match(app, /api\.on\('git', /);
-  const main = fsm.readFileSync(pth.join(__dirname, '../main.js'), 'utf8');
+  const main = fsm.readFileSync(pth.join(__dirname, '../src/main/main.js'), 'utf8');
   assert.match(main.slice(main.indexOf("handle('app:git-use'")), /broadcast\('git', info\)/);
-  assert.match(fsm.readFileSync(pth.join(__dirname, '../preload.js'), 'utf8'), /'git'\]/);
+  assert.match(fsm.readFileSync(pth.join(__dirname, '../src/preload/preload.js'), 'utf8'), /'git'\]/);
 });

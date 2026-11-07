@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const github = require('../github');
+const github = require('../src/main/github');
 
-const remote = (name, url) => ({ name, url, web: require('../git').remoteWebUrl(url) });
+const remote = (name, url) => ({ name, url, web: require('../src/main/git').remoteWebUrl(url) });
 const ORIGIN = remote('origin', 'git@github.com:acme/app.git');
 
 // A folder with a fake `gh` so findBinary finds it; the exec stub records calls instead of running it.
@@ -182,7 +182,7 @@ test('ghStatus: the fresh-install default is on only when gh is installed and lo
 });
 
 test('renderer: PRs land on their branches, fork PRs only on branches tracking that fork', async () => {
-  const { prsByRef, prRef, prTitle } = await import('../renderer/prs.js');
+  const { prsByRef, prRef, prTitle } = await import('../src/renderer/prs/prs.js');
   const mine = { number: 1, title: 'Mine', branch: 'lanes', headOwner: 'acme', base: 'main', draft: false, review: 'approved', checks: 'failure', author: 'kim' };
   const theirs = { number: 2, title: 'Fork', branch: 'main', headOwner: 'kim', base: 'main', draft: true, review: null, checks: null, author: 'kim' };
   const refs = [
@@ -322,7 +322,7 @@ test('mergeInfo: one pr view and one repo view, with the gate', async () => {
 });
 
 test('ipc: prNumber and knownRemote', () => {
-  const check = require('../ipc');
+  const check = require('../src/main/ipc');
   assert.equal(check.prNumber(3), 3);
   for (const bad of [0, -1, 1.5, '3', null]) assert.throws(() => check.prNumber(bad), check.IpcArgError);
   assert.equal(check.knownRemote([ORIGIN], 'origin'), ORIGIN);
@@ -687,7 +687,7 @@ test('markReady, markDraft and rerunFailed: gh arguments, Actions runs only (AK-
 });
 
 test('joinLanes: a lane’s PR keeps its author, so Approve is greyed on your own (AK-577)', async () => {
-  const { approveWhy } = await import('../renderer/prs.js');
+  const { approveWhy } = await import('../src/renderer/prs/prs.js');
   const [lane] = github.joinLanes([{ name: 'f', branch: 'f' }], { owners: {}, prs: [{ number: 4, title: 'Mine', branch: 'f', author: '0xa3k5' }] });
   assert.equal(lane.pr.author, '0xa3k5');
   assert.equal(approveWhy(lane.pr, { login: '0xA3K5', write: true }), 'Your own pull request');

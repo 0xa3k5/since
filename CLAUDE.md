@@ -9,9 +9,14 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 ## Layout
 
 - `apps/desktop`: the app.
-  - `main.js` (window, menus, session lock-down), `ipc.js` (argument checks for every IPC call),
-    `git.js` (all git calls), `journal.js` (undo/redo), `updater.js`
-  - `renderer/`: buildless UI (`app.js`, `graph.js`, `keymap.js`, views)
+  - `src/main/`: the main process. `main.js` (window, menus, session lock-down), `ipc.js`
+    (argument checks for every IPC call), `git.js` (all git calls), `journal.js` (undo/redo),
+    `updater.js`, `github.js`, `ai.js`, and `stores/` (recent repos, catch-up, window state, tabs)
+  - `src/preload/preload.js`: the sandboxed bridge (`window.since`)
+  - `src/shared/channels.js`: IPC channel names shared by main and preload
+  - `src/renderer/`: buildless UI. `app.js` wires the areas together, one folder per area
+    (`graph/`, `commit/`, `history/`, `lanes/`, `review/`, `prs/`, `branches/`, `catchup/`,
+    `palette/` with `keymap.js`, `shell/`, `settings/`, `welcome/`) and `lib/` (DOM toolkit, helpers)
   - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
 - `apps/web`: the website (Astro).
 - `packages/tokens`: design tokens (`tokens.json` → `tokens.css`), the source of truth for colours.
@@ -34,7 +39,7 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
 ## Conventions
 
 - New actions get a ⌘K entry. Add a keyboard shortcut only for a frequent action in its context,
-  with the reason in the PR body (keymap in `renderer/keymap.js`).
+  with the reason in the PR body (keymap in `src/renderer/palette/keymap.js`).
 - No instructional or teaching copy in the UI: labels, values, status, errors and short warnings
   about irreversible actions only. Teaching goes on the website docs.
 - Light and dark themes are both first-class for every UI change.

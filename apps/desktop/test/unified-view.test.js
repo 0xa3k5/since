@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/unified.js');
+const load = () => import('../src/renderer/commit/unified.js');
 
 test('changedFiles lists each path once, conflicts first, keeping the staged status and old path', async () => {
   const { changedFiles } = await load();
@@ -73,7 +73,7 @@ test('cursor steps clamp, and line ranges include both ends in page order', asyn
 });
 
 test('Preferences → Git has the one-list switch, off by default', async () => {
-  const { prefRows } = await import('../renderer/prefs.js');
+  const { prefRows } = await import('../src/renderer/settings/prefs.js');
   const row = (show) => prefRows({ show, themes: [] }).find((r) => r.id === 'unified');
   assert.equal(row({}).section, 'git');
   assert.equal(row({}).value, false);

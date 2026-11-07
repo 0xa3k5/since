@@ -9,7 +9,7 @@
 // to the release that "latest" points at, next to the zips they reference.
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildFeed, feedName, squirrelFeedName, zipName } = require('../updater');
+const { buildFeed, feedName, squirrelFeedName, zipName } = require('../src/main/updater');
 
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];

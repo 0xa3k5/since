@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 test('peopleOrder: agents first, then people; a header only above 8', async () => {
-  const { peopleOrder, POP_ROWS } = await import('../renderer/ui.js');
+  const { peopleOrder, POP_ROWS } = await import('../src/renderer/lib/ui.js');
   const people = [{ name: 'Ada' }, { name: 'Claude', agent: true }, { name: 'Linus' }];
   const { agents, humans, head } = peopleOrder(people);
   assert.deepEqual(agents.map((p) => p.name), ['Claude']);

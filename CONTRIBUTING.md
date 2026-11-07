@@ -28,8 +28,8 @@ The renderer is buildless: plain JavaScript, no frameworks and no bundler. See
 ## Rules for changes
 
 - Everything that changes a local repo (refs, work tree, stashes, config) is undoable through
-  `apps/desktop/journal.js`.
-- Every IPC argument is validated in `apps/desktop/ipc.js`. The renderer stays sandboxed with no
+  `apps/desktop/src/main/journal.js`.
+- Every IPC argument is validated in `apps/desktop/src/main/ipc.js`. The renderer stays sandboxed with no
   network access.
 - No new network calls beyond those listed in [docs/security.md](docs/security.md). No telemetry,
   no accounts.

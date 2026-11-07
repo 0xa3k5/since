@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 // Remote name checks and the remove confirmation (renderer/remotes.js).
-const load = () => import('../renderer/remotes.js');
+const load = () => import('../src/renderer/settings/remotes.js');
 
 test('remote names follow the IPC rule and must be unused', async () => {
   const { remoteNameError } = await load();

@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
-const { checkGit } = require('../ipc');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
+const { checkGit } = require('../src/main/ipc');
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 
@@ -137,7 +137,7 @@ test('abort with files left in the worktree: tidy and clean up stash them instea
 });
 
 test('opInfo and opSentence (AK-584): name what is stopped', async () => {
-  const { opSentence } = await import('../renderer/resolve-text.js');
+  const { opSentence } = await import('../src/renderer/commit/resolve-text.js');
   const r = await repo();
   await git.run(r.dir, ['checkout', '-q', '-b', 'feature/conflict']);
   await r.commit('app.js', 'feature\n', 'Add footer');
@@ -250,7 +250,7 @@ test('merge and tidy that aborts a merge stopped here saves the resolved files, 
 });
 
 test('the banner’s Abort offers the saved files back, without an Undo (the abort is not a step)', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../renderer/app.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
   const banner = src.slice(src.indexOf('function renderBanner('), src.indexOf('function renderBanner(') + 1500);
   assert.match(banner, /act\(label, 'abortOp', \[\], \{ quiet: true, then: \(res\) => aborted\(label, res, \{ success: label, undoable: false \}\) \}\)/);
   const fn = src.slice(src.indexOf('async function aborted('), src.indexOf('async function resolveOp('));
@@ -259,8 +259,8 @@ test('the banner’s Abort offers the saved files back, without an Undo (the abo
 });
 
 test('every branch switch is a git method that gets the stopped-op toast (AK-577)', async () => {
-  const { SWITCHES } = await import('../renderer/resolve-text.js');
-  const { gitSchemas } = require('../ipc');
+  const { SWITCHES } = await import('../src/renderer/commit/resolve-text.js');
+  const { gitSchemas } = require('../src/main/ipc');
   assert.ok(SWITCHES.has('checkout') && SWITCHES.has('moveCheckout'));
   for (const m of SWITCHES) assert.ok(gitSchemas[m], `${m} is a git method`);
 });

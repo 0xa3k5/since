@@ -7,11 +7,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
-const { Journal } = require('../journal');
-const { checkGit } = require('../ipc');
+const git = require('../src/main/git');
+const { Journal } = require('../src/main/journal');
+const { checkGit } = require('../src/main/ipc');
 
-const load = () => import('../renderer/cleanup.js');
+const load = () => import('../src/renderer/branches/cleanup.js');
 let clock = 1700000000;
 const g = (dir, args, opts = {}) => git.run(dir, args, { ...opts, env: { GIT_COMMITTER_DATE: `${clock} +0000`, GIT_AUTHOR_DATE: `${clock} +0000`, ...opts.env } });
 async function commit(dir, file, content, msg = `edit ${file}`) {
@@ -288,11 +288,11 @@ test('remoteWhere: names the one remote, else "the remote"', async () => {
 });
 
 test('the clean-up confirm names worktree-only items and leaves conflicts an abort removes out of the count', async () => {
-  const { cleanupWhat } = await import('../renderer/cleanup.js');
+  const { cleanupWhat } = await import('../src/renderer/branches/cleanup.js');
   assert.equal(cleanupWhat([{ worktree: { path: '/w' } }]), '1 worktree');
   assert.equal(cleanupWhat([{ branch: 'a' }, { branch: 'b' }]), '2 branches');
   assert.equal(cleanupWhat([{ branch: 'a' }, { worktree: { path: '/w' } }]), '1 branch and 1 worktree');
-  const src = fs.readFileSync(path.join(__dirname, '../renderer/cleanup-view.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/branches/cleanup-view.js'), 'utf8');
   assert.match(src, /dirty\(l\) - \(ops\[k\] \? conflicted\[k\] : 0\)/);
   assert.match(src, /title: `Clean up \$\{cleanupWhat\(lanesToGo\)\}\?`/);
 });

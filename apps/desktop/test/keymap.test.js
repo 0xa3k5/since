@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const load = () => import('../renderer/keymap.js');
+const load = () => import('../src/renderer/palette/keymap.js');
 const ev = (key, mods = {}) => ({ key, code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
 
 // A binding step as one comparable string: letters fold case, so "Shift+S" and "Shift+s" collide.
@@ -64,7 +64,7 @@ test('no next/previous command is bound to a vim letter', async () => {
 });
 
 // Every command id the app's source refers to must exist, and every command must be used somewhere.
-const SOURCES = ['main.js', ...fs.readdirSync(path.join(__dirname, '../renderer')).filter((f) => f.endsWith('.js') && f !== 'keymap.js').map((f) => `renderer/${f}`)];
+const SOURCES = ['src/main/main.js', ...fs.readdirSync(path.join(__dirname, '../src/renderer'), { recursive: true }).filter((f) => f.endsWith('.js') && f !== 'palette/keymap.js').map((f) => `src/renderer/${f}`)];
 const source = SOURCES.map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 test('every handler refers to a registered command', async () => {
@@ -89,7 +89,7 @@ test('no inline key checks remain outside text inputs', () => {
   const inline = SOURCES.flatMap((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n')
     .map((l, i) => [`${f}:${i + 1}`, l]).filter(([, l]) => /\be\.(key|code) ===/.test(l)));
   assert.deepEqual(inline.map(([at]) => at.split(':')[0]).sort(), [
-    'renderer/app.js', 'renderer/app.js', 'renderer/app.js', 'renderer/shortcuts-view.js', 'renderer/shortcuts-view.js', 'renderer/tour-view.js',
+    'src/renderer/app.js', 'src/renderer/app.js', 'src/renderer/app.js', 'src/renderer/palette/shortcuts-view.js', 'src/renderer/palette/shortcuts-view.js', 'src/renderer/welcome/tour-view.js',
   ], inline.map(([at, l]) => `${at} ${l.trim()}`).join('\n'));
 });
 
@@ -151,14 +151,14 @@ test('menu accelerators and keycaps per platform', async () => {
 
 test('⌥⌘1…8 open the sidebar pages in their default order; the fold-out lists have chords (AK-491, AK-634)', async () => {
   const { defaults } = await load();
-  const { NAV_ITEMS, SECTION_PAGES } = await import('../renderer/sidebar.js');
+  const { NAV_ITEMS, SECTION_PAGES } = await import('../src/renderer/shell/sidebar.js');
   NAV_ITEMS.forEach((p, i) => assert.equal(defaults(`view.${p.view}`, true)[0], `Mod+Alt+Digit${i + 1}`, `view.${p.view}`));
   for (const p of SECTION_PAGES) assert.ok(defaults(`view.${p.view}`, true).length, `${p.label} has a key`);
   assert.deepEqual(defaults('view.config', true), [], 'Repository Settings is ⌘K and View menu only (AK-628)');
 });
 
 test('main.js takes every menu accelerator from the keymap', () => {
-  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8');
   assert.doesNotMatch(main, /'(CmdOrCtrl|Cmd|Ctrl)\+/, 'a hard-coded accelerator is left in main.js');
 });
 
@@ -258,7 +258,7 @@ test('Ctrl+Mod needs ⌘ on macOS, so plain ⌃T doesn’t match ⌃⌘T (AK-207
 });
 
 test('tipFor: the label, two spaces, then the first binding as joined keycaps (AK-300)', async () => {
-  const { tipFor } = await import('../renderer/ui.js');
+  const { tipFor } = await import('../src/renderer/lib/ui.js');
   const { keys } = await load();
   assert.equal(tipFor('Reload pull requests', 'lanes.reload'), `Reload pull requests  ${keys('lanes.reload').join('')}`);
   assert.ok(keys('lanes.reload').length > 1); // ⇧ and R run together, as on a keycap

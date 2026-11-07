@@ -27,7 +27,7 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['main.js', 'git.js', 'journal.js', 'ipc.js', 'log-streams.js', 'updater.js', 'ai.js', 'github.js', 'catchup-store.js', 'recent-store.js', 'window-state.js', 'tab-order.js', 'change-facts.js', 'pr-media.js', 'preload.js', 'renderer/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['src/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
@@ -89,20 +89,21 @@ test('every module the main process requires is packaged', () => {
     const src = fs.readFileSync(path.join(root, file), 'utf8');
     for (const [, rel] of src.matchAll(/require\('(\.\.?\/[^']+)'\)/g)) visit(resolve(file, rel));
   };
-  visit('main.js');
-  visit('preload.js');
+  visit('src/main/main.js');
+  visit('src/preload/preload.js');
   const packaged = (file) => config.files.some((f) => f === file || (f.endsWith('/**') && file.startsWith(f.slice(0, -2))));
-  assert.ok(seen.has('ipc.js') && seen.has('updater.js'));
+  assert.ok(seen.has('src/main/ipc.js') && seen.has('src/main/updater.js'));
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
 });
 
 test('the main process opens no connections of its own, apart from updates', () => {
   // git and gh make their own requests; Since only spawns them. Only updater.js may request
   // anything, and it's listed in docs/security.md.
-  const files = config.files.filter((f) => f.endsWith('.js'));
+  const files = ['src/main', 'src/preload', 'src/shared'].flatMap((d) => fs.readdirSync(path.join(root, d), { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)));
+  assert.ok(files.includes('src/main/updater.js'));
   const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
   for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);
-  for (const file of ['git.js', 'ai.js', 'github.js', 'ipc.js', 'journal.js']) {
+  for (const file of ['git.js', 'ai.js', 'github.js', 'ipc.js', 'journal.js'].map((f) => `src/main/${f}`)) {
     assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), /\bfetch\(|XMLHttpRequest|WebSocket/, file);
   }
 });
@@ -140,7 +141,7 @@ test('brand assets use the orange brand, not the retired indigo', () => {
 });
 
 test('the View menu leaves ⌘R free: no reload role on its default key (AK-362)', () => {
-  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
   for (const m of main.matchAll(/\{ role: 'reload'[^}]*\}/g)) assert.match(m[0], /accelerator: '(?!CmdOrCtrl\+R')/, m[0]);
   assert.match(main, /app\.isPackaged \? \[\] : \[\{ role: 'reload'/);
 });

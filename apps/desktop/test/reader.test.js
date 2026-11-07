@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../renderer/reader.js');
+const load = () => import('../src/renderer/review/reader.js');
 const ev = (key, mods = {}) => ({ key, code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: { closest: () => null }, prevented: 0, preventDefault() { this.prevented++; }, stopPropagation() {}, ...mods });
 
 test('scrollDelta: ↑/↓ a few lines, Page Up/Down a page minus a few lines, nothing for other keys', async () => {
@@ -50,13 +50,13 @@ test('readerKey: arrows scroll and never step, ←/→ step, , and . jump files,
 });
 
 test('the description keys are gone and the walk-through mode with them (AK-381, AK-390)', async () => {
-  const { command } = await import('../renderer/keymap.js');
+  const { command } = await import('../src/renderer/palette/keymap.js');
   for (const id of ['review.description', 'catchup.description', 'lanes.description', 'catchup.walkNext', 'catchup.walkPrev', 'catchup.walkDone', 'catchup.walk']) assert.equal(command(id), undefined, id);
 });
 
 test('⇧↑/⇧↓ scroll the reader four times as far (AK-390)', async () => {
-  const { scrollDelta, readerKey, LINE } = await import('../renderer/reader.js');
-  const keymap = await import('../renderer/keymap.js');
+  const { scrollDelta, readerKey, LINE } = await import('../src/renderer/review/reader.js');
+  const keymap = await import('../src/renderer/palette/keymap.js');
   assert.ok(keymap.command('reader.downFast') && keymap.command('reader.upFast'));
   assert.equal(scrollDelta('reader.downFast', 600), 4 * scrollDelta('reader.down', 600));
   assert.equal(scrollDelta('reader.upFast', 600), -12 * LINE);

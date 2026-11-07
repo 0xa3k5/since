@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../git');
+const git = require('../src/main/git');
 
-const load = () => import('../renderer/identity.js');
+const load = () => import('../src/renderer/commit/identity.js');
 const used = (email, count, name = 'Me') => ({ email, name, count });
 
 test('history: warns only for an email that never committed in this clone', async () => {

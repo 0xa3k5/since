@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const renderer = path.join(__dirname, '..', 'renderer');
+const renderer = path.join(__dirname, '..', 'src', 'renderer');
 const css = fs.readFileSync(path.join(renderer, 'styles.css'), 'utf8');
 
 function block(src, from) {
@@ -104,7 +104,7 @@ test('both themes define the same tokens', () => {
 test('colours outside the token blocks come from tokens', () => {
   const rest = css.slice(darkMedia.end);
   assert.deepEqual(rest.match(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/gi) || [], []);
-  for (const f of ['app.js', 'ui.js', 'graph.js', 'diff.js']) {
+  for (const f of ['app.js', 'lib/ui.js', 'graph/graph.js', 'commit/diff.js']) {
     const src = fs.readFileSync(path.join(renderer, f), 'utf8');
     assert.deepEqual(src.match(/['"`]#[0-9a-f]{3,8}['"`]/gi) || [], [], `${f} has hard-coded colours`);
   }
@@ -112,7 +112,7 @@ test('colours outside the token blocks come from tokens', () => {
 
 test('retired indigo accent is gone', () => {
   const root = path.join(__dirname, '..', '..', '..');
-  const files = ['README.md', 'apps/desktop/main.js', 'apps/desktop/README.md', 'apps/desktop/test/theme.test.js', ...fs.readdirSync(renderer).map((f) => `apps/desktop/renderer/${f}`)];
+  const files = ['README.md', 'apps/desktop/src/main/main.js', 'apps/desktop/README.md', 'apps/desktop/test/theme.test.js', ...fs.readdirSync(renderer, { recursive: true }).filter((f) => /\.(js|css|html|json)$/.test(f)).map((f) => `apps/desktop/src/renderer/${f}`)];
   for (const f of files) {
     const p = path.join(root, f);
     if (!fs.existsSync(p)) continue;
