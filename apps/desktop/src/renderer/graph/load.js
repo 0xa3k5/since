@@ -1,5 +1,5 @@
 import { h, $, icon, toast } from '../lib/ui.ts';
-import { parseLog, createHistory, createMerge } from './log.js';
+import { parseLog, createHistory, createMerge } from './log.ts';
 import { forgetCounts } from '../lanes/lanes-view.js';
 import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';

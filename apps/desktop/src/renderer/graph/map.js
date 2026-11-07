@@ -1,5 +1,5 @@
 import { h, $, icon, kbd, loading, VirtualList, timeAgo, fullDate, avatar, avatarStack } from '../lib/ui.ts';
-import { paint, graphWidth, laneColor, readPalette } from './graph.js';
+import { paint, graphWidth, laneColor, readPalette } from './graph.ts';
 import { statusBadge, fileName } from '../commit/diff.js';
 import { rowDoubleClick } from './keys.js';
 import * as keymap from '../palette/keymap.ts';

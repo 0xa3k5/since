@@ -9,12 +9,32 @@
 // Co-authors are Co-authored-by trailer values separated by \x1f.
 // Commits from the topo stream start with `subject: null` until their details arrive.
 
-import { createGraph } from './graph.js';
+import { createGraph, type Graph } from './graph.ts';
+import type { CoAuthor } from '../../shared/git-types.ts';
+
+/** A commit on the map. One from the topo stream has `subject: null` (and no co-authors) until its details arrive. */
+export interface LogCommit {
+  sha: string; parents: string[]; author: string; email: string; time: number; subject: string | null;
+  coAuthors?: readonly CoAuthor[];
+}
+type Details = Pick<LogCommit, 'author' | 'email' | 'time' | 'subject'> & { coAuthors: readonly CoAuthor[] };
+/** The commits, their index by sha and the incremental graph, kept in step (see createHistory). */
+export interface History {
+  commits: LogCommit[]; index: Map<string, number>; graph: Graph; complete: boolean;
+  readonly length: number;
+  add(list: readonly LogCommit[]): History;
+  seed(c: LogCommit): void;
+  fill(text: string): number;
+  fork(m: number, head?: string | null): History;
+  missingDetails(from?: number, max?: number): string[];
+}
+/** Replays a fresh log against a history (see createMerge). */
+export interface Merge { readonly next: History | null; readonly matched: number; push(list: readonly LogCommit[]): Merge; finish(): History | null }
 
 const REC = '\x1e';
 const SEP = '\0';
 
-function records(text, fn) {
+function records(text: string, fn: (record: string) => void): void {
   let i = 0;
   while (i < text.length) {
     const end = text.indexOf(REC, i);
@@ -25,47 +45,49 @@ function records(text, fn) {
   }
 }
 
-const splitParents = (p) => (p ? p.split(' ') : []);
-const NONE = Object.freeze([]); // shared by the many commits without co-authors
+const splitParents = (p: string | undefined): string[] => (p ? p.split(' ') : []);
+const NONE: readonly CoAuthor[] = Object.freeze([]); // shared by the many commits without co-authors
 
 // `Name <email>` trailer values (\x1f-separated) to [{ name, email }], deduped by email
 // (case-insensitive) and without the author. Lines that aren't `Name <email>` are skipped.
-export function parseCoAuthors(raw, author) {
+export function parseCoAuthors(raw: string | null | undefined, author: string | null | undefined): readonly CoAuthor[] {
   if (!raw) return NONE;
-  const seen = new Set([(author || '').toLowerCase()]), out = [];
+  const seen = new Set([(author || '').toLowerCase()]), out: CoAuthor[] = [];
   for (const v of raw.split('\x1f')) {
     const m = /^\s*(.*?)\s*<([^<>\s]+)>\s*$/.exec(v);
-    if (!m || seen.has(m[2].toLowerCase())) continue;
-    seen.add(m[2].toLowerCase());
-    out.push({ name: m[1] || m[2], email: m[2] });
+    const email = m?.[2];
+    if (!m || !email || seen.has(email.toLowerCase())) continue;
+    seen.add(email.toLowerCase());
+    out.push({ name: m[1] || email, email });
   }
   return out.length ? out : NONE;
 }
 
-export function parseLog(text, kind) {
-  const out = [];
+export function parseLog(text: string, kind: string): LogCommit[] {
+  const out: LogCommit[] = [];
   records(text, (r) => {
     const f = r.split(SEP);
-    if (kind === 'topo') out.push({ sha: f[0], parents: splitParents(f[1]), author: '', email: '', time: 0, subject: null });
-    else out.push({ sha: f[0], parents: splitParents(f[1]), author: f[2], email: f[3], time: +f[4], subject: f[5], coAuthors: parseCoAuthors(f[6], f[3]) });
+    const sha = f[0] ?? '';
+    if (kind === 'topo') out.push({ sha, parents: splitParents(f[1]), author: '', email: '', time: 0, subject: null });
+    else out.push({ sha, parents: splitParents(f[1]), author: f[2] ?? '', email: f[3] ?? '', time: +(f[4] ?? ''), subject: f[5] ?? '', coAuthors: parseCoAuthors(f[6], f[3]) });
   });
   return out;
 }
 
 // Calls fn(sha, author, email, time, subject, coAuthors) for each DETAILS record.
-export function parseDetails(text, fn) {
+export function parseDetails(text: string, fn: (sha: string, author: string, email: string, time: number, subject: string, coAuthors: readonly CoAuthor[]) => void): void {
   records(text, (r) => {
     const f = r.split(SEP);
-    fn(f[0], f[1], f[2], +f[3], f[4], parseCoAuthors(f[5], f[2]));
+    fn(f[0] ?? '', f[1] ?? '', f[2] ?? '', +(f[3] ?? ''), f[4] ?? '', parseCoAuthors(f[5], f[2]));
   });
 }
 
 // commits + sha index + incremental graph, always kept in step.
 // `head` is HEAD's sha: the graph keeps its first-parent chain in lane 0.
-export function createHistory(head = null, commits = [], index = new Map(), graph = null) {
-  graph ||= createGraph(commits, head);
-  const early = new Map(); // details that arrived before their commit did
-  const hist = {
+export function createHistory(head: string | null = null, commits: LogCommit[] = [], index = new Map<string, number>(), from: Graph | null = null): History {
+  const graph = from || createGraph(commits, head);
+  const early = new Map<string, Details>(); // details that arrived before their commit did
+  const hist: History = {
     commits,
     index,
     graph,
@@ -86,7 +108,7 @@ export function createHistory(head = null, commits = [], index = new Map(), grap
     },
     // Remember c's details for when the same commit arrives without them.
     seed(c) {
-      if (c.subject !== null) early.set(c.sha, { author: c.author, email: c.email, time: c.time, subject: c.subject, coAuthors: c.coAuthors });
+      if (c.subject !== null) early.set(c.sha, { author: c.author, email: c.email, time: c.time, subject: c.subject, coAuthors: c.coAuthors ?? NONE });
     },
     // Fill in subjects/authors from DETAILS text. Returns how many commits changed.
     fill(text) {
@@ -105,13 +127,13 @@ export function createHistory(head = null, commits = [], index = new Map(), grap
     // for `head`.
     fork(m, head = graph.head) {
       const list = commits.slice(0, m);
-      const idx = new Map();
-      for (let i = 0; i < m; i++) idx.set(list[i].sha, i);
+      const idx = new Map<string, number>();
+      for (let i = 0; i < m; i++) idx.set(list[i]!.sha, i);
       return createHistory(head, list, idx, graph.fork(list, m, head));
     },
     missingDetails(from = 0, max = Infinity) {
-      const out = [];
-      for (let i = from; i < commits.length && out.length < max; i++) if (commits[i].subject === null) out.push(commits[i].sha);
+      const out: string[] = [];
+      for (let i = from; i < commits.length && out.length < max; i++) if (commits[i]!.subject === null) out.push(commits[i]!.sha);
       return out;
     },
   };
@@ -125,12 +147,12 @@ export function createHistory(head = null, commits = [], index = new Map(), grap
 // `next` stays null while the stream matches; finish() returns null if nothing changed.
 // If HEAD moved, every row may be laid out differently, so the layout is redone (the commit
 // objects are still reused).
-export function createMerge(current, head = current.graph.head) {
+export function createMerge(current: History, head: string | null = current.graph.head): Merge {
   head ||= null;
   const moved = head !== current.graph.head;
   let i = 0;
-  let next = null;
-  const m = {
+  let next: History | null = null;
+  const m: Merge = {
     get next() { return next; },
     get matched() { return i; },
     push(list) {
@@ -138,17 +160,18 @@ export function createMerge(current, head = current.graph.head) {
       if (!next) {
         for (; k < list.length; k++) {
           const o = current.commits[i];
-          if (!o || o.sha !== list[k].sha) break;
+          if (!o || o.sha !== list[k]!.sha) break;
           i++;
         }
         if (k === list.length) return m;
         next = current.fork(i, head);
       }
       // Commits we already have (just at another position) keep their loaded details.
-      const add = [];
+      const add: LogCommit[] = [];
       for (; k < list.length; k++) {
-        const o = current.index.get(list[k].sha);
-        add.push(o === undefined ? list[k] : current.commits[o]);
+        const c = list[k]!;
+        const o = current.index.get(c.sha);
+        add.push(o === undefined ? c : current.commits[o]!);
       }
       next.add(add);
       return m;

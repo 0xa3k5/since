@@ -1,5 +1,5 @@
 import { h, icon, avatar, type Child } from './ui.ts';
-import { createHistory } from '../graph/log.js';
+import { createHistory, type History } from '../graph/log.ts';
 import * as keymap from '../palette/keymap.ts';
 import { authorProfile } from './profile.ts';
 import { up } from './upcalls.ts';
@@ -20,7 +20,6 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 
 /** A part of the state whose module is still JavaScript. It gets its real type when that module moves (SNC-696). */
 type Later = unknown;
-type History = ReturnType<typeof createHistory>;
 export type View = 'map' | 'commit' | 'lanes' | 'branches' | 'catchup' | 'worktrees' | 'stashes' | 'reflog' | 'snapshots';
 export type Theme = 'system' | 'light' | 'dark';
 /** What the map shows (View menu). */

@@ -4,15 +4,43 @@
 // HEAD's first-parent chain (the "trunk") always sits in lane 0, so the current branch reads as
 // one straight line down the left edge; every other branch fans out to the right of it.
 
+// Indexed reads inside loop bounds carry `!`: they can't be out of range, and this path runs for every row of
+// million-commit histories, so it adds no checks.
+
+/** What the layout needs from a commit. */
+export interface GraphCommit { sha: string; parents: readonly string[] }
+/** A row's lane and colour index. */
+export interface Row { col: number; color: number }
+/** A row with the lines through it, as [lane, colour] pairs: ending here (top), passing by, and leaving (bottom). */
+export interface FullRow extends Row { top: number[]; pass: number[]; bottom: number[]; merge: boolean }
+interface LaneState {
+  lanes: (string | null | undefined)[]; laneColor: number[]; colorSeq: number; maxLanes: number;
+  pos: Map<string, number | number[]>; trunk: string | null;
+}
+type Checkpoint = Omit<LaneState, 'pos'>;
+/** The incremental layout over a commit list (see createGraph). `col` and `color` are for rows below `length`. */
+export interface Graph {
+  readonly head: string | null;
+  readonly length: number;
+  readonly maxLanes: number;
+  col(i: number): number;
+  color(i: number): number;
+  sync(): Graph;
+  truncate(m: number): Graph;
+  row(i: number): FullRow | null;
+  fork(other: readonly GraphCommit[], m: number, newHead?: string | null): Graph;
+  _arrays(): { cols: Int32Array; colors: Int32Array; checkpoints: Checkpoint[] };
+}
+
 const LANE_W = 14;
 const GRAPH_PAD = 12;
 const MAX_LANES = 28;
 
 // Lane colours live in styles.css (--lane-0 … --lane-9) so they follow the theme.
 const LANES = 10;
-const laneVar = (n) => `var(--lane-${n % LANES})`;
+const laneVar = (n: number): string => `var(--lane-${n % LANES})`;
 
-export function readPalette(el = document.documentElement) {
+export function readPalette(el: Element = document.documentElement): string[] {
   const cs = getComputedStyle(el);
   return Array.from({ length: LANES }, (_, i) => cs.getPropertyValue(`--lane-${i}`).trim());
 }
@@ -24,25 +52,25 @@ export function readPalette(el = document.documentElement) {
 // hundreds of lanes wide.
 // `trunk` is the next commit expected on HEAD's first-parent chain (null once the chain has
 // ended, or with no HEAD). While it is set, lane 0 is held for the trunk alone.
-const newState = (head = null) => ({ lanes: [], laneColor: [], colorSeq: 0, maxLanes: 1, pos: new Map(), trunk: head });
+const newState = (head: string | null = null): LaneState => ({ lanes: [], laneColor: [], colorSeq: 0, maxLanes: 1, pos: new Map(), trunk: head });
 // Checkpoints keep only the arrays; `pos` is rebuilt when one is restored.
-const snapshot = (s) => ({ lanes: s.lanes.slice(), laneColor: s.laneColor.slice(), colorSeq: s.colorSeq, maxLanes: s.maxLanes, trunk: s.trunk });
-function restore(cp) {
-  const st = { ...cp, lanes: cp.lanes.slice(), laneColor: cp.laneColor.slice(), pos: new Map() };
+const snapshot = (s: LaneState): Checkpoint => ({ lanes: s.lanes.slice(), laneColor: s.laneColor.slice(), colorSeq: s.colorSeq, maxLanes: s.maxLanes, trunk: s.trunk });
+function restore(cp: Checkpoint): LaneState {
+  const st: LaneState = { ...cp, lanes: cp.lanes.slice(), laneColor: cp.laneColor.slice(), pos: new Map() };
   st.lanes.forEach((sha, j) => { if (sha !== null && sha !== undefined) occupy(st, j, sha); });
   return st;
 }
 
-function occupy(st, j, sha) {
+function occupy(st: LaneState, j: number, sha: string): void {
   st.lanes[j] = sha;
   const p = st.pos.get(sha);
   if (p === undefined) st.pos.set(sha, j);
   else if (typeof p === 'number') st.pos.set(sha, p < j ? [p, j] : [j, p]);
   else { p.push(j); p.sort((x, y) => x - y); }
 }
-const laneOf = (st, sha) => {
+const laneOf = (st: LaneState, sha: string): number => {
   const p = st.pos.get(sha);
-  return p === undefined ? -1 : typeof p === 'number' ? p : p[0];
+  return p === undefined ? -1 : typeof p === 'number' ? p : p[0]!;
 };
 
 // Debug check that only the trunk takes lane 0 while it is held. Off by default (it runs on
@@ -50,7 +78,9 @@ const laneOf = (st, sha) => {
 export const debugChecks = { trunk: false };
 
 // Lay out one commit, advancing `st`. With `full`, also returns the lines through the row.
-function step(st, c, full) {
+function step(st: LaneState, c: GraphCommit, full: true): FullRow;
+function step(st: LaneState, c: GraphCommit, full: false): Row;
+function step(st: LaneState, c: GraphCommit, full: boolean): Row | FullRow {
   const { lanes, laneColor } = st;
   const first = st.trunk === null ? 0 : 1; // lane 0 is the trunk's
   const freeSlot = () => {
@@ -60,17 +90,17 @@ function step(st, c, full) {
   const onTrunk = c.sha === st.trunk;
   // A trunk commit already waiting in a lane is waiting in lane 0 (see the parents below).
   let col = laneOf(st, c.sha);
-  let color;
-  const top = full ? [] : null;
-  const pass = full ? [] : null;
+  let color: number;
+  const top: number[] | null = full ? [] : null;
+  const pass: number[] | null = full ? [] : null;
   if (col === -1) {
     col = onTrunk ? 0 : freeSlot();
     color = st.colorSeq++;
   } else {
-    color = laneColor[col];
+    color = laneColor[col]!;
   }
   if (onTrunk) {
-    st.trunk = c.parents.length ? c.parents[0] : null;
+    st.trunk = c.parents.length ? c.parents[0]! : null;
     // Lane 0 may still be an unset hole (branches drawn before HEAD start at lane 1); once the
     // trunk ends, mark it free so freeSlot() can hand it out again.
     if (st.trunk === null && lanes.length && lanes[0] === undefined) lanes[0] = null;
@@ -82,17 +112,17 @@ function step(st, c, full) {
     if (typeof mine === 'number') lanes[mine] = null;
     else for (const j of mine) lanes[j] = null;
   }
-  if (full) {
+  if (top && pass) {
     const ends = mine === undefined ? [] : typeof mine === 'number' ? [mine] : mine;
     for (let j = 0, e = 0; j < lanes.length; j++) {
-      if (e < ends.length && ends[e] === j) { top.push(j, laneColor[j]); e++; continue; }
+      if (e < ends.length && ends[e] === j) { top.push(j, laneColor[j]!); e++; continue; }
       const s = lanes[j];
-      if (s !== null && s !== undefined) pass.push(j, laneColor[j]);
+      if (s !== null && s !== undefined) pass.push(j, laneColor[j]!);
     }
   }
-  const bottom = full ? [] : null;
+  const bottom: number[] | null = full ? [] : null;
   for (let p = 0; p < c.parents.length; p++) {
-    const ps = c.parents[p];
+    const ps = c.parents[p]!;
     let k = laneOf(st, ps);
     const colFree = lanes[col] === null || lanes[col] === undefined;
     if (k === -1 && ps === st.trunk) {
@@ -115,7 +145,7 @@ function step(st, c, full) {
       }
       occupy(st, k, ps);
     }
-    if (full) bottom.push(k, laneColor[k]);
+    if (bottom) bottom.push(k, laneColor[k]!);
   }
   while (lanes.length && (lanes[lanes.length - 1] === null || lanes[lanes.length - 1] === undefined)) lanes.pop();
   if (lanes.length > st.maxLanes) st.maxLanes = lanes.length;
@@ -124,7 +154,7 @@ function step(st, c, full) {
     if (first === 1 && col === 0 && !onTrunk) throw new Error(`graph: ${c.sha} took lane 0, held for the trunk`);
     if (st.trunk !== null && lanes[0] != null && lanes[0] !== st.trunk) throw new Error(`graph: ${lanes[0]} waits in lane 0, held for ${st.trunk}`);
   }
-  return full ? { col, color, top, pass, bottom, merge: c.parents.length > 1 } : { col, color };
+  return top && pass && bottom ? { col, color, top, pass, bottom, merge: c.parents.length > 1 } : { col, color };
 }
 
 // Rows per checkpoint. Only each row's lane and colour are stored; the lines through a row are
@@ -138,10 +168,10 @@ const CACHED_RUNS = 64;
 
 // Rows before the first one that meets HEAD `a` or `b` (as the commit or as a parent) lay out the
 // same for both: until then the only difference is which commit the trunk is waiting for.
-function sharedRows(commits, m, a, b) {
+function sharedRows(commits: readonly GraphCommit[], m: number, a: string | null, b: string | null): number {
   if (a === null || b === null) return 0; // without a HEAD, lane 0 is open from the first row
   for (let i = 0; i < m; i++) {
-    const c = commits[i];
+    const c = commits[i]!;
     if (c.sha === a || c.sha === b || c.parents.includes(a) || c.parents.includes(b)) return i;
   }
   return m;
@@ -151,16 +181,16 @@ function sharedRows(commits, m, a, b) {
 // `head` is HEAD's sha (null when unborn); its first-parent chain is laid out in lane 0.
 // With `from`, the first `upTo` rows replace a graph over the same commits, reusing its layout of
 // the first `keep` of them.
-export function createGraph(commits, head = null, from = null, upTo = 0, keep = upTo) {
+export function createGraph(commits: readonly GraphCommit[], head: string | null = null, from: Graph | null = null, upTo = 0, keep = upTo): Graph {
   head ||= null;
   let n = 0;
   let cols = new Int32Array(1024);
   let colors = new Int32Array(1024);
-  let checkpoints = [snapshot(newState(head))]; // checkpoints[b] = lane state before row b * BLOCK
+  let checkpoints: Checkpoint[] = [snapshot(newState(head))]; // checkpoints[b] = lane state before row b * BLOCK
   let st = newState(head);
-  const runs = new Map(); // run -> full rows, most recently used last
+  const runs = new Map<number, FullRow[]>(); // run -> full rows, most recently used last
 
-  const grow = (need) => {
+  const grow = (need: number) => {
     if (need <= cols.length) return;
     let size = cols.length;
     while (size < need) size *= 2;
@@ -169,10 +199,10 @@ export function createGraph(commits, head = null, from = null, upTo = 0, keep = 
   };
 
   // Advance from row n to `end`.
-  const advance = (end) => {
+  const advance = (end: number) => {
     grow(end);
     for (let i = n; i < end; i++) {
-      const r = step(st, commits[i], false);
+      const r = step(st, commits[i]!, false);
       cols[i] = r.col;
       colors[i] = r.color;
       if ((i + 1) % BLOCK === 0) checkpoints.push(snapshot(st));
@@ -182,10 +212,10 @@ export function createGraph(commits, head = null, from = null, upTo = 0, keep = 
   };
 
   // Rewind to a prefix of `m` rows.
-  const rewind = (m) => {
+  const rewind = (m: number) => {
     const b = Math.floor(m / BLOCK);
     checkpoints.length = b + 1;
-    st = restore(checkpoints[b]);
+    st = restore(checkpoints[b]!);
     for (const k of [...runs.keys()]) if (k * RUN >= b * BLOCK) runs.delete(k);
     n = b * BLOCK;
     advance(m);
@@ -200,17 +230,17 @@ export function createGraph(commits, head = null, from = null, upTo = 0, keep = 
     colors.set(src.colors.subarray(0, b * BLOCK));
     checkpoints = src.checkpoints.slice(0, b + 1); // checkpoints are never mutated, so sharing is safe
     if (from.head !== head) checkpoints = checkpoints.map((cp) => ({ ...cp, trunk: head }));
-    st = restore(checkpoints[b]);
+    st = restore(checkpoints[b]!);
     n = b * BLOCK;
     advance(end);
   }
 
-  const g = {
+  const g: Graph = {
     head,
     get length() { return n; },
     get maxLanes() { return st.maxLanes; },
-    col: (i) => cols[i],
-    color: (i) => colors[i],
+    col: (i) => cols[i]!,
+    color: (i) => colors[i]!,
     // Lay out any commits appended since the last call.
     sync() { if (commits.length > n) advance(commits.length); return g; },
     // Forget rows from `m` on (the caller trims `commits` to match).
@@ -220,18 +250,19 @@ export function createGraph(commits, head = null, from = null, upTo = 0, keep = 
       if (i < 0 || i >= n) return null;
       const r = Math.floor(i / RUN);
       let rows = runs.get(r);
-      if (rows) { runs.delete(r); runs.set(r, rows); return rows[i - r * RUN]; }
+      if (rows) { runs.delete(r); runs.set(r, rows); return rows[i - r * RUN]!; }
       const start = r * RUN;
       const end = Math.min(n, start + RUN);
-      const s = restore(checkpoints[Math.floor(start / BLOCK)]);
-      for (let k = Math.floor(start / BLOCK) * BLOCK; k < start; k++) step(s, commits[k], false);
+      const s = restore(checkpoints[Math.floor(start / BLOCK)]!);
+      for (let k = Math.floor(start / BLOCK) * BLOCK; k < start; k++) step(s, commits[k]!, false);
       rows = [];
-      for (let k = start; k < end; k++) rows.push(step(s, commits[k], true));
+      for (let k = start; k < end; k++) rows.push(step(s, commits[k]!, true));
       if (end === start + RUN) {
         runs.set(r, rows);
-        if (runs.size > CACHED_RUNS) runs.delete(runs.keys().next().value);
+        const oldest = runs.keys().next().value;
+        if (runs.size > CACHED_RUNS && oldest !== undefined) runs.delete(oldest);
       }
-      return rows[i - start];
+      return rows[i - start]!;
     },
     // A new graph over `other` (whose first `m` commits match ours), reusing our layout of them.
     // For another HEAD, only the rows before the first one that meets either HEAD are reused.
@@ -245,24 +276,28 @@ export function createGraph(commits, head = null, from = null, upTo = 0, keep = 
 }
 
 // Lay out a complete list in one go.
-export function layout(commits, head = null) {
+export function layout(commits: readonly GraphCommit[], head: string | null = null): Graph {
   return createGraph(commits, head).sync();
 }
 
-export function graphWidth(maxLanes) {
+export function graphWidth(maxLanes: number): number {
   return GRAPH_PAD * 2 + (Math.min(maxLanes, MAX_LANES) - 1) * LANE_W + 2;
 }
 
-const laneX = (l) => GRAPH_PAD + Math.min(l, MAX_LANES - 1) * LANE_W;
+const laneX = (l: number): number => GRAPH_PAD + Math.min(l, MAX_LANES - 1) * LANE_W;
 
 // Paint rows [first, last] onto ctx. y of row i = i * rowH - scrollTop.
-export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height, headSha, commits, selected, bg, colors }) {
+export interface PaintOptions {
+  first: number; last: number; rowH: number; scrollTop: number; width: number; height: number;
+  headSha: string | null; commits: readonly GraphCommit[]; selected: string | null; bg: string; colors: string[];
+}
+export function paint(ctx: CanvasRenderingContext2D, graph: Graph, { first, last, rowH, scrollTop, width, height, headSha, commits, selected, bg, colors }: PaintOptions): void {
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.lineWidth = 1.6;
   ctx.lineCap = 'round';
-  const col = (c) => colors[c % colors.length];
+  const col = (c: number) => colors[c % colors.length]!;
 
   for (let i = first; i <= last; i++) {
     const r = graph.row(i);
@@ -273,22 +308,22 @@ export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height,
     const xc = laneX(r.col);
     for (let k = 0; k < r.pass.length; k += 2) {
       // Lanes past MAX_LANES all share the last column: one line there is enough.
-      if (k && r.pass[k - 2] >= MAX_LANES - 1) break;
-      const x = laneX(r.pass[k]);
-      ctx.strokeStyle = col(r.pass[k + 1]);
+      if (k && r.pass[k - 2]! >= MAX_LANES - 1) break;
+      const x = laneX(r.pass[k]!);
+      ctx.strokeStyle = col(r.pass[k + 1]!);
       ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
     }
     for (let k = 0; k < r.top.length; k += 2) {
-      const x = laneX(r.top[k]);
-      ctx.strokeStyle = col(r.top[k + 1]);
+      const x = laneX(r.top[k]!);
+      ctx.strokeStyle = col(r.top[k + 1]!);
       ctx.beginPath(); ctx.moveTo(x, y0);
       if (x === xc) ctx.lineTo(xc, mid);
       else ctx.bezierCurveTo(x, mid, xc, y0, xc, mid);
       ctx.stroke();
     }
     for (let k = 0; k < r.bottom.length; k += 2) {
-      const x = laneX(r.bottom[k]);
-      ctx.strokeStyle = col(r.bottom[k + 1]);
+      const x = laneX(r.bottom[k]!);
+      ctx.strokeStyle = col(r.bottom[k + 1]!);
       ctx.beginPath(); ctx.moveTo(xc, mid);
       if (x === xc) ctx.lineTo(x, y1);
       else ctx.bezierCurveTo(xc, y1, x, mid, x, y1);
@@ -302,7 +337,7 @@ export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height,
     const mid = i * rowH - scrollTop + rowH / 2;
     const xc = laneX(r.col);
     const c = col(r.color);
-    const isHead = commits[i].sha === headSha;
+    const isHead = commits[i]!.sha === headSha;
     ctx.beginPath();
     ctx.arc(xc, mid, isHead ? 5 : 4, 0, Math.PI * 2);
     if (r.merge) {
@@ -316,12 +351,12 @@ export function paint(ctx, graph, { first, last, rowH, scrollTop, width, height,
       ctx.strokeStyle = c; ctx.globalAlpha = 0.45; ctx.lineWidth = 1.5; ctx.stroke();
       ctx.globalAlpha = 1; ctx.lineWidth = 1.6;
     }
-    if (selected && commits[i].sha === selected) {
+    if (selected && commits[i]!.sha === selected) {
       ctx.beginPath(); ctx.arc(xc, mid, 2, 0, Math.PI * 2); ctx.fillStyle = bg; ctx.fill();
     }
   }
 }
 
-export function laneColor(graph, i) {
+export function laneColor(graph: Graph, i: number | null | undefined): string {
   return laneVar(i != null && i < graph.length ? graph.color(i) : 0);
 }
