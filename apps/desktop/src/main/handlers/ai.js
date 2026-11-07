@@ -2,7 +2,7 @@
 // IPC for opt-in AI commit messages (ai.js).
 const git = require('../git/index.ts');
 const check = require('../ipc.ts');
-const ai = require('../ai');
+const ai = require('../ai.ts');
 const { readSettings, writeSettings } = require('../settings');
 const { session } = require('../session');
 const { handle, okCall } = require('./handle');

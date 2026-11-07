@@ -210,3 +210,15 @@ export interface MergeLanePlan {
   baseWorktree: { path: string; name: string } | null;
   blocker: string | null; blockerOp: string | null; mergeBlocker: string | null; mergeBlockerCode?: string;
 }
+
+/** A dependency whose version changed, was added (`from` null) or removed (`to` null). */
+export interface DepChange { name: string; from: string | null; to: string | null; file: string }
+/** A fact about a branch's diff: `flag` is worth a look on its own, `info` is neutral detail. */
+export interface ChangeFact { id: string; level: 'flag' | 'info'; title: string; details: string[]; paths?: string[]; count?: number }
+export interface ChangeSize {
+  files: number; added: number; deleted: number; lines: number;
+  areas: { area: string; files: number; lines: number }[];
+  lockfiles: { path: string; added: number; deleted: number }[];
+  assets: number; generated: number;
+}
+export interface ChangeFacts { base: string; head: string; mergeBase: string; size: ChangeSize; facts: ChangeFact[] }

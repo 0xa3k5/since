@@ -7,7 +7,7 @@
 // Approve, request changes, merge and close (`mergeInfo`, `approvePr`, `requestChangesPr`, `mergePr`, `closePr`) are remote actions:
 // they can't be undone with ⌘Z, and the renderer's confirm sheets say so.
 
-const { findBinary, runCli, searchDirs } = require('./ai');
+const { findBinary, runCli, searchDirs } = require('./ai.ts');
 const { linkBlocker } = require('../renderer/lanes/merge-plan.js');
 
 const PR_FIELDS = ['number', 'title', 'headRefName', 'headRefOid', 'headRepositoryOwner', 'baseRefName', 'isDraft', 'reviewDecision', 'statusCheckRollup', 'author', 'url', 'updatedAt', 'mergeable', 'mergeStateStatus', 'latestReviews', 'reviewRequests', 'additions', 'deletions', 'changedFiles', 'body'];

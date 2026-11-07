@@ -7,7 +7,7 @@ const check = require('../ipc.ts');
 const channels = require('../../shared/channels.ts');
 const { menuChanged } = require('../app-events.ts');
 const github = require('../github');
-const changeFacts = require('../change-facts');
+const changeFacts = require('../change-facts.ts');
 const { windowFor, sessions, session } = require('../session');
 const { handle, serializeError } = require('./handle');
 
