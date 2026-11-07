@@ -1,6 +1,6 @@
 import { h, icon, toast, ago, dialog, confirm, contextMenu, palette, resolveSheet } from '../lib/ui.js';
 import { mergeGateFix, ghErrorFix } from './gh-gates.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { prefetchReview } from '../lanes/lanes-view.js';
 import { stageMemory, STAGES } from '../review/review-rows.js';
 import { prefetchCatchup } from '../catchup/catchup-view.js';

@@ -1,5 +1,5 @@
 import { toast, confirm, contextMenu, palette, closePalette, timeAgo } from '../lib/ui.js';
-import * as keymap from './keymap.js';
+import * as keymap from './keymap.ts';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
 import { CONFLICT_KEYS } from '../commit/conflict-view.js';
 import { BRANCH_TABS } from '../branches/branches.js';

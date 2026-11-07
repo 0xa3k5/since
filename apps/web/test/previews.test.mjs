@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
 const dir = new URL('../../desktop/src/renderer/', import.meta.url);
-const app = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
+const app = readdirSync(dir, { recursive: true }).filter((f) => /\.(js|ts)$/.test(f) && !f.endsWith('.d.ts')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
 const preview = (name) => readFileSync(new URL(`../src/components/landing/previews/${name}.astro`, import.meta.url), 'utf8');
 
 const strings = {

@@ -1,6 +1,6 @@
 import { h, toast, confirm } from '../lib/ui.js';
 import { setSwatches } from '../commit/diff.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { setupView } from '../settings/setup-view.js';
 import { shortcutsWindow } from '../palette/shortcuts-view.js';
 import { SETUP_PREF, setupValues } from '../settings/setup.js';

@@ -1,5 +1,5 @@
 import { h, icon, kbd } from '../lib/ui.js';
-import * as keymap from './keymap.js';
+import * as keymap from './keymap.ts';
 import { shortcutSections } from './shortcuts.js';
 
 // The Keyboard Shortcuts window (⌘/, Help → Keyboard Shortcuts, ⌘K). Lists every keymap command once, the

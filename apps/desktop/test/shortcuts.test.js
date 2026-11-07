@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = async () => ({ ...(await import('../src/renderer/palette/keymap.js')), ...(await import('../src/renderer/palette/shortcuts.js')) });
+const load = async () => ({ ...(await import('../src/renderer/palette/keymap.ts')), ...(await import('../src/renderer/palette/shortcuts.js')) });
 const find = (sections, id) => sections.flatMap((s) => s.rows.map((r) => ({ ...r, in: s.id }))).find((r) => r.ids.includes(id));
 
 test('every keymap command with keys appears exactly once', async () => {

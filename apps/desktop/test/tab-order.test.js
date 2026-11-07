@@ -41,7 +41,7 @@ test('tabs are views in one window; tab keys and IPC go through the keymap and i
   const { tabAction } = require('../src/main/ipc.ts');
   assert.equal(tabAction('next', 'tab action'), 'next');
   assert.throws(() => tabAction('reload', 'tab action'));
-  const { defaults } = await import('../src/renderer/palette/keymap.js');
+  const { defaults } = await import('../src/renderer/palette/keymap.ts');
   assert.deepEqual(defaults('file.newTab', true), ['Mod+T']);
   assert.deepEqual(defaults('file.close', true), ['Mod+W']);
   assert.deepEqual(defaults('file.reopenTab', true), ['Mod+Shift+T']);

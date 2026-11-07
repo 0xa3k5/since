@@ -1,6 +1,6 @@
 import { h, icon, kbd } from '../lib/ui.js';
 import { SETUP_AI, SETUP_FEATURES, SETUP_PRS, setupSummary } from './setup.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 
 // The "choose your defaults" step (data in setup.js). Switches apply at once, so what you see is
 // what you get; Continue (⌘↵) only marks the step done. Returns { el, refresh }.

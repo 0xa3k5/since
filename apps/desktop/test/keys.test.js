@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const load = () => import('../src/renderer/graph/keys.js');
-const isCheckoutKey = async (e) => (await import('../src/renderer/palette/keymap.js')).match('map', e) === 'commit.checkoutBranch';
+const isCheckoutKey = async (e) => (await import('../src/renderer/palette/keymap.ts')).match('map', e) === 'commit.checkoutBranch';
 const key = (k, mods = {}) => ({ key: k, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
 
 test('⌘↵ and Ctrl+↵ are the checkout key', async () => {

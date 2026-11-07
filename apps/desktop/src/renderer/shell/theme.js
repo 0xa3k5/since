@@ -1,4 +1,4 @@
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { api } from '../lib/app-helpers.js';
 
 // Theme (System / Light / Dark). The main process owns the setting and applies it via

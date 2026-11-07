@@ -1,9 +1,9 @@
-// Builds the /shortcuts table from the desktop app's keymap registry (apps/desktop/src/renderer/palette/keymap.js), the same
+// Builds the /shortcuts table from the desktop app's keymap registry (apps/desktop/src/renderer/palette/keymap.ts), the same
 // list the app's handlers, menus and ⌘K read, so the site can't drift from the app. The ⌘K command list is read
 // from the app's source, since those are commands rather than keys.
 import fs from 'node:fs';
 import path from 'node:path';
-import { COMMANDS, keys } from '../../../desktop/src/renderer/palette/keymap.js';
+import { COMMANDS, keys } from '../../../desktop/src/renderer/palette/keymap.ts';
 
 /** Finds apps/desktop from the current directory (the build runs in apps/web; tests may run from the root). */
 export function findDesktop(start = process.cwd()) {

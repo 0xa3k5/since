@@ -6,7 +6,7 @@ import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReaso
 import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from '../prs/pr-review.js';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { loginProfile } from '../lib/profile.js';
 
 // Review's right-hand pane, one scroll from top to bottom (AK-379), built from the reader shared with

@@ -1,6 +1,6 @@
 import { h, icon, kbd, loading, toast, dialog, confirm, contextMenu, timeAgo } from '../lib/ui.js';
 import { renderDiff } from './diff.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.js';
 import { state, keyText, isEditable, MOD, baseName } from '../lib/app-helpers.js';
 import { stashFocus, stashShown, setStashFocus, setStashShown } from '../shell/shell.js';

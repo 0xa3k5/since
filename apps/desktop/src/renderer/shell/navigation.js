@@ -1,7 +1,7 @@
 import { h, $, icon, toast, dialog, contextMenu } from '../lib/ui.js';
 import { setSwatches } from '../commit/diff.js';
 import { opSentence } from '../commit/resolve-text.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { fileHistoryView } from '../history/file-history-view.js';
 import { createNav } from './nav.js';
 import { reviewView } from '../review/review-view.js';

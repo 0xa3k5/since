@@ -71,7 +71,7 @@ test('loadPrReview: errors pass through; no remote makes no call', async () => {
 
 test('PR actions: every action has a review key; keys map back; merge and close leave', async () => {
   const { PR_ACTIONS, prActionFor, leavesPage } = await load();
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.deepEqual(PR_ACTIONS.map((a) => a.id), ['approve', 'changes', 'merge', 'close', 'checkout']);
   for (const a of PR_ACTIONS) {
     assert.ok(keymap.keys(a.key).length, `${a.key} has no key`);
@@ -93,7 +93,7 @@ test('prDescription: plain text without template comments, null when not sent', 
 
 test('fixActions: a stuck row offers its fixes in order, with keys in both scopes', async () => {
   const { fixActions } = await import('../src/renderer/prs/pr-review.js');
-  const { COMMANDS } = await import('../src/renderer/palette/keymap.js');
+  const { COMMANDS } = await import('../src/renderer/palette/keymap.ts');
   const ids = new Set(COMMANDS.map((c) => c.id));
   const pr = { number: 7, url: 'https://github.com/o/r/pull/7', checks: 'failure' };
   const lane = { branch: 'feat', name: 'feat' };

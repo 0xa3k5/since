@@ -5,7 +5,7 @@ import { authorsOf } from '../review/review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.js';
 import { branchPreview, laneBadges } from './branch-preview.js';
 import { authorsStack } from '../review/reader.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 
 // Branches (AK-396, ⌘5): every local branch and worktree on this Mac, one list at a time behind tabs
 // (branches.js BRANCH_TABS; 1–5): Active · Agent-made · Would conflict · Idle · Finished. Finished is

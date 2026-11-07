@@ -1,4 +1,4 @@
-import { COMMANDS, SCOPES, command, bindings, keys } from './keymap.js';
+import { COMMANDS, SCOPES, command, bindings, keys } from './keymap.ts';
 
 // The Keyboard Shortcuts window's contents, built from the keymap: one section per scope (the menu bar split by
 // menu), every command once. A `pair` command (↓ ↑) shares a row with the command it pairs. `first` is the active

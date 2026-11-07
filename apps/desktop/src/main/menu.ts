@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import * as updater from './updater.ts';
 import * as check from './ipc.ts';
 import { onMenuChange, menuChanged } from './app-events.ts';
-import * as keymap from '../renderer/palette/keymap.js';
+import * as keymap from '../renderer/palette/keymap.ts';
 import { isMac, writeSettings, readRecent, THEMES, THEME_LABELS, currentTheme } from './settings.ts';
 import { sessions } from './session.ts';
 import { handle } from './handlers/handle.ts';

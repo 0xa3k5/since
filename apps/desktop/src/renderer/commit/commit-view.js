@@ -1,6 +1,6 @@
 import { h, icon, kbd, toast, dialog, confirm, contextMenu } from '../lib/ui.js';
 import { renderDiff, hunkKeys, statusBadge, fileRef } from './diff.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { conflictEditor } from './conflict-view.js';
 import { unifiedChanges } from './unified-view.js';
 import { up } from '../lib/upcalls.js';

@@ -233,7 +233,7 @@ test('filter: every word in the title, branch, number or author', async () => {
 test('rename: the view is "Review" and its user-visible strings never say "Lanes"', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   const labels = keymap.COMMANDS.filter((c) => c.id === 'view.lanes' || c.id?.startsWith('lanes.') || c.id === 'cleanup.back').map((c) => c.label);
   assert.ok(labels.length > 10);
   assert.ok(labels.includes('Review'));
@@ -244,7 +244,7 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   for (const file of ['src/renderer/lanes/lanes-view.js', 'src/renderer/review/review-rows.js']) {
     for (const s of visible(file)) assert.doesNotMatch(s.replace(/Since/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
   }
-  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/palette/keymap.js'), 'utf8'), /lanes: 'Review',/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/palette/keymap.ts'), 'utf8'), /lanes: 'Review',/);
   assert.match(require('./main-source').mainSource(), /item\('Review', acc\('view\.lanes'\)/);
   assert.doesNotMatch(require('./main-source').mainSource(), /Pull Request Inbox/);
   assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/shell/sidebar.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
@@ -409,7 +409,7 @@ test('Review is home: a repository opens on Review, the Map keeps its own key', 
   const app = require('./app-source').appSource();
   assert.match(app, /let startView = 'lanes';/);
   assert.match(app, /state\.view = (?:up\.)?startView;/);
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.ok(keymap.keys('view.map').length);
   assert.ok(keymap.keys('view.lanes').length);
 });
@@ -509,7 +509,7 @@ test('overlaps: an open PR gets a note and no stage change; merge order names th
 
 test('Review tabs: Needs you is stuck then ready, All open is every stage, 1–5 each have a key', async () => {
   const { TABS, STAGES } = await load();
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.deepEqual(TABS.map((t) => t.id), ['needs', 'stuck', 'ready', 'inProgress', 'open']);
   assert.deepEqual(TABS[0].stages, ['stuck', 'ready']);
   assert.deepEqual(TABS.at(-1).stages, STAGES.map((s) => s.id));

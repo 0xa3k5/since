@@ -16,7 +16,7 @@
 // AK-556: a stack row is tagged Chain or GitHub stack. In Pick, a chain that can be linked offers
 // Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
 import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from '../lib/ui.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, cleanTitle } from './merge-plan.ts';
 import { buildPrompt } from './send-back.ts';
 import { openStackLink } from './stack-link-view.js';

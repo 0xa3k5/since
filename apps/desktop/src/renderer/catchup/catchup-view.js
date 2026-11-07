@@ -2,7 +2,7 @@ import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, load
 import { renderDiff } from '../commit/diff.js';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from '../lanes/lanes.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from '../review/reader.js';
 import { factsFor, peekFacts } from '../review/evidence-store.js';
 import { authorsOf, messageAgent } from '../review/review-rows.js';

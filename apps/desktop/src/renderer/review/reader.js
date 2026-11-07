@@ -1,5 +1,5 @@
 import { h, icon, avatar, avatarStack, tipFor, timeAgo, fullDate } from '../lib/ui.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { markdown } from '../lib/markdown.js';
 import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.js';
 

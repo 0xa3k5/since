@@ -1,6 +1,6 @@
 import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.js';
 import { renderDiff, hunkKeys, statusBadge } from './diff.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.js';
 import { state, isEditable } from '../lib/app-helpers.js';
 import { git, act } from '../lib/bridge.js';

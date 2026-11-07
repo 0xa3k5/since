@@ -2,7 +2,7 @@ import { h, icon, kbd, toast, dialog, confirm, contextMenu, menuAnchor, palette,
 import { methodFix, mergeViaNote } from '../prs/gh-gates.js';
 import { removalPlan } from './worktree-removal.js';
 import { opSentence } from '../commit/resolve-text.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { lanesView, reviewCounts, cachedPrs } from './lanes-view.js';
 import { branchesView } from '../branches/branches-view.js';
 import { isFinished } from '../branches/branches.js';

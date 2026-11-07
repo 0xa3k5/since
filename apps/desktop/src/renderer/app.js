@@ -1,6 +1,6 @@
 import { $, toast } from './lib/ui.js';
 import { setSwatches } from './commit/diff.js';
-import * as keymap from './palette/keymap.js';
+import * as keymap from './palette/keymap.ts';
 import { sidebarMode, isNarrow } from './shell/sidebar.js';
 import { loadSizes } from './shell/pane-size.js';
 import { openPrefsCommand } from './settings/prefs.js';

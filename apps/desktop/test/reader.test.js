@@ -50,13 +50,13 @@ test('readerKey: arrows scroll and never step, ←/→ step, , and . jump files,
 });
 
 test('the description keys are gone and the walk-through mode with them (AK-381, AK-390)', async () => {
-  const { command } = await import('../src/renderer/palette/keymap.js');
+  const { command } = await import('../src/renderer/palette/keymap.ts');
   for (const id of ['review.description', 'catchup.description', 'lanes.description', 'catchup.walkNext', 'catchup.walkPrev', 'catchup.walkDone', 'catchup.walk']) assert.equal(command(id), undefined, id);
 });
 
 test('⇧↑/⇧↓ scroll the reader four times as far (AK-390)', async () => {
   const { scrollDelta, readerKey, LINE } = await import('../src/renderer/review/reader.js');
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.ok(keymap.command('reader.downFast') && keymap.command('reader.upFast'));
   assert.equal(scrollDelta('reader.downFast', 600), 4 * scrollDelta('reader.down', 600));
   assert.equal(scrollDelta('reader.upFast', 600), -12 * LINE);

@@ -1,7 +1,7 @@
 import { h, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, resolveSheet, ref } from '../lib/ui.js';
 import { renderDiff } from '../commit/diff.js';
 import { checkoutPlan, inUsePlan } from './checkout-plan.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { authorProfile } from '../lib/profile.js';
 import { AUTOSTASH_DEFAULT, blockedCheckout, stashMessage, autostashPlan, returnOffer, stashRefBySha } from '../commit/autostash.js';
 import { commitBlock } from './commit-guards.js';

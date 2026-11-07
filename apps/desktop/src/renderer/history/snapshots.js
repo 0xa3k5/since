@@ -1,5 +1,5 @@
 import { h, icon, kbd, toast, dialog, timeAgo, fullDate } from '../lib/ui.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.js';
 import { tip, state, MOD } from '../lib/app-helpers.js';
 import { undo, redo, git, act } from '../lib/bridge.js';

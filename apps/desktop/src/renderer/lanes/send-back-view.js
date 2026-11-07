@@ -3,7 +3,7 @@
 // from git; the failed CI log and posting a PR comment are `gh` calls on their own buttons, only
 // while pull requests are on. The clipboard is written only by Copy prompt.
 import { h, icon, kbd, toast, dialog, confirm } from '../lib/ui.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { TEMPLATE_IDS, TEMPLATE_LABELS, PLACEHOLDERS, templateFor, buildPrompt, appendLog } from './send-back.ts';
 import { stuckReason } from '../review/review-rows.js';
 

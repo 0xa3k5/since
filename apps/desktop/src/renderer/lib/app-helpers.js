@@ -1,6 +1,6 @@
 import { h, icon, avatar } from './ui.js';
 import { createHistory } from '../graph/log.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { authorProfile } from './profile.js';
 import { up } from './upcalls.js';
 

@@ -1,5 +1,5 @@
 // Small DOM toolkit: hyperscript, icons, toasts, dialogs, menus, command palette, virtual list.
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 
 export function h(tag, props, ...children) {
   const [name, ...classes] = tag.split('.');

@@ -1,5 +1,5 @@
 import { $, toast, contextMenu, palette } from '../lib/ui.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.js';
 import { state } from '../lib/app-helpers.js';
 import { commitView } from '../shell/shell.js';

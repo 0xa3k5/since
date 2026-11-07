@@ -12,7 +12,7 @@
 // Keys `[]`: no default shortcut (AK-628), so ⌘K and the menu item only; keys a user set earlier keep working.
 // The user can rebind the rest (Keyboard Shortcuts window): `setOverrides` layers their changes over `keys`.
 
-export const SCOPES = {
+export const SCOPES: Record<string, string> = {
   global: 'Anywhere in a repository',
   menu: 'Menu bar',
   map: 'Map',
@@ -44,9 +44,29 @@ export const SCOPES = {
   tour: 'Tour',
 };
 
-const c = (scope, group, id, label, keys, extra) => ({ id, label, scope, group, keys: [].concat(keys), ...extra });
+/** A command that can have a shortcut: its scope, its group in the shortcuts window, and its default bindings. */
+export interface Command {
+  id: string; label: string; scope: string; group: string | null; keys: string[];
+  /** macOS or the app menu owns it: the user can't rebind it. */
+  reserved?: boolean;
+  /** A menu role (Quit, Hide): the menu runs it, not the app. */
+  role?: boolean;
+  /** The binding off macOS, when it differs. */
+  other?: string;
+  /** Listed with this command as one row. */
+  pair?: string;
+}
+/** A key press, from a DOM KeyboardEvent or Electron's before-input-event. */
+export interface KeyLike { key?: string; code?: string; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean }
+/** One step of a binding: its modifiers and key. A chord ("g c") has two. */
+interface Step { mods: Set<string>; key: string }
+/** The user's bindings by command id. */
+export type Overrides = Record<string, string[]>;
 
-export const COMMANDS = [
+const c = (scope: string, group: string | null, id: string, label: string, keys: string | string[], extra?: Partial<Command>): Command =>
+  ({ id, label, scope, group, keys: ([] as string[]).concat(keys), ...extra });
+
+export const COMMANDS: Command[] = [
   // Menu bar: accelerators in main.js. `menu` is the menu the item sits in.
   c('menu', 'file', 'app.settings', 'Settings…', 'Mod+,', { reserved: true }),
   c('menu', 'file', 'file.newTab', 'New Tab', 'Mod+T'),
@@ -420,34 +440,36 @@ export const COMMANDS = [
 ];
 
 const BY_ID = new Map(COMMANDS.map((x) => [x.id, x]));
-export const command = (id) => BY_ID.get(id);
+export const command = (id: string): Command | undefined => BY_ID.get(id);
 
-const IS_MAC = typeof process !== 'undefined' && process.platform
-  ? process.platform === 'darwin'
-  : /^Mac/.test(globalThis.navigator?.platform ?? '');
+// The main process asks Node, the renderer asks the browser.
+const platform = (globalThis as { process?: { platform?: string } }).process?.platform;
+const IS_MAC = platform
+  ? platform === 'darwin'
+  : /^Mac/.test((globalThis as { navigator?: { platform?: string } }).navigator?.platform ?? '');
 
 /** The default bindings of a command on this platform. */
-export function defaults(id, mac = IS_MAC) {
+export function defaults(id: string, mac = IS_MAC): string[] {
   const cmd = BY_ID.get(id);
   if (!cmd) throw new Error(`keymap: unknown command ${id}`);
-  return !mac && cmd.other ? [].concat(cmd.other) : cmd.keys;
+  return !mac && cmd.other ? [cmd.other] : cmd.keys;
 }
 
 // Custom bindings: the user's overrides from settings.json `keymap`, { id: [binding…] } ([] means no keys).
 // Only changed commands are stored; a command with no override uses its defaults.
-let overrides = {};
+let overrides: Overrides = {};
 
 /**
  * Valid overrides only: known, non-reserved commands with bindings the recorder would accept (or the command's
  * own defaults). Drops everything else, so an imported file can't set a bare-key menu accelerator, say.
  */
-export function sanitize(o) {
-  const out = {};
+export function sanitize(o: unknown): Overrides {
+  const out: Overrides = {};
   if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
-  for (const [id, list] of Object.entries(o)) {
+  for (const [id, list] of Object.entries(o as Record<string, unknown>)) {
     const cmd = BY_ID.get(id);
     if (!cmd || cmd.reserved || !Array.isArray(list) || list.length > 4) continue;
-    const ok = list.filter((b) => {
+    const ok = list.filter((b: unknown): b is string => {
       if (typeof b !== 'string' || !b || b.length > 40) return false;
       try { if (parse(b).length > 2) return false; } catch { return false; }
       return defaults(id).includes(b) || !refusal(id, b);
@@ -457,42 +479,42 @@ export function sanitize(o) {
   return out;
 }
 
-export function setOverrides(o) { overrides = sanitize(o); }
-export const getOverrides = () => structuredClone(overrides);
-export const isCustom = (id) => Object.hasOwn(overrides, id);
+export function setOverrides(o: unknown): void { overrides = sanitize(o); }
+export const getOverrides = (): Overrides => structuredClone(overrides);
+export const isCustom = (id: string): boolean => Object.hasOwn(overrides, id);
 
 /** The bindings of a command on this platform: the user's if they changed it, else the defaults. */
-export function bindings(id, mac = IS_MAC) {
-  return isCustom(id) ? overrides[id] : defaults(id, mac);
+export function bindings(id: string, mac = IS_MAC): string[] {
+  return isCustom(id) ? overrides[id] ?? [] : defaults(id, mac);
 }
 
 /** The overrides with `id` set to `list`; a list equal to the defaults removes the override. */
-export function withBinding(o, id, list, mac = IS_MAC) {
+export function withBinding(o: Overrides, id: string, list: string[], mac = IS_MAC): Overrides {
   const next = { ...o };
-  const same = list.length === defaults(id, mac).length && list.every((b, i) => normalize(b) === normalize(defaults(id, mac)[i]));
+  const same = list.length === defaults(id, mac).length && list.every((b, i) => normalize(b) === normalize(defaults(id, mac)[i] ?? ''));
   if (same) delete next[id]; else next[id] = [...new Set(list)];
   return next;
 }
 
 const MOD_TOKENS = ['Mod', 'Ctrl', 'Alt', 'Shift'];
-const CODES = { Comma: ',', Backslash: '\\', Period: '.', Slash: '/' };
-const isCode = (k) => /^(Key[A-Z]|Digit\d)$/.test(k) || k in CODES;
+const CODES: Record<string, string> = { Comma: ',', Backslash: '\\', Period: '.', Slash: '/' };
+const isCode = (k: string): boolean => /^(Key[A-Z]|Digit\d)$/.test(k) || k in CODES;
 
 /** "Mod+Shift+F" → { mods: Set, key: 'f' }. A chord is several of these. */
-export function parse(binding) {
+export function parse(binding: string): Step[] {
   return binding.split(' ').map((step) => {
     const parts = step.split('+');
     // A trailing "+" key would split into empty parts; no binding uses one.
-    const key = parts.pop();
+    const key = parts.pop() ?? '';
     for (const m of parts) if (!MOD_TOKENS.includes(m)) throw new Error(`keymap: bad modifier ${m} in ${binding}`);
     return { mods: new Set(parts), key };
   });
 }
 
-const isLetter = (k) => /^[a-z]$/i.test(k);
+const isLetter = (k: string): boolean => /^[a-z]$/i.test(k);
 
 /** Does a keydown event press this step? `loose` lets ⇧ through for keys that aren't letters. */
-function pressed(step, e, loose, mac = IS_MAC) {
+function pressed(step: Step, e: KeyLike, loose: boolean, mac = IS_MAC): boolean {
   const { mods, key } = step;
   // Mod is ⌘ or ⌃; with Ctrl also named (⌃⌘T), Mod must be ⌘ on macOS, or plain ⌃T would match.
   if (mods.has('Mod') ? !(mac && mods.has('Ctrl') ? e.metaKey : e.metaKey || e.ctrlKey) : (e.metaKey || (e.ctrlKey && !mods.has('Ctrl')))) return false;
@@ -502,25 +524,26 @@ function pressed(step, e, loose, mac = IS_MAC) {
   if (mods.has('Alt') !== !!e.altKey) return false;
   const shift = mods.has('Shift');
   if (isCode(key)) return e.code === key && shift === !!e.shiftKey;
-  if (isLetter(key)) return e.key?.length === 1 && e.key.toLowerCase() === key.toLowerCase() && shift === !!e.shiftKey;
+  if (isLetter(key)) return e.key?.length === 1 && (e.key ?? '').toLowerCase() === key.toLowerCase() && shift === !!e.shiftKey;
   if (e.key !== (key === 'Space' ? ' ' : key)) return false;
   return shift === !!e.shiftKey || (loose && !mods.size);
 }
 
-const inScope = (scope) => COMMANDS.filter((x) => x.scope === scope);
+const inScope = (scope: string): Command[] => COMMANDS.filter((x) => x.scope === scope);
 
 /**
  * The command a keydown event runs in `scope`, or null. `pending` is the first key of a chord already pressed
  * (see `chordStart`); without it, chord bindings don't match.
  */
-export function match(scope, e, pending = null, mac = IS_MAC) {
+export function match(scope: string, e: KeyLike, pending: string | null = null, mac = IS_MAC): string | null {
   const cmds = inScope(scope);
   for (const loose of [false, true]) {
     for (const cmd of cmds) {
       for (const b of bindings(cmd.id, mac)) {
         const steps = parse(b);
-        if (pending ? steps.length === 2 && steps[0].key === pending && pressed(steps[1], e, loose, mac)
-          : steps.length === 1 && pressed(steps[0], e, loose, mac)) return cmd.id;
+        const [first, second] = steps;
+        if (pending ? steps.length === 2 && first?.key === pending && !!second && pressed(second, e, loose, mac)
+          : steps.length === 1 && !!first && pressed(first, e, loose, mac)) return cmd.id;
       }
     }
   }
@@ -528,47 +551,50 @@ export function match(scope, e, pending = null, mac = IS_MAC) {
 }
 
 /** If the event starts a chord in `scope` (the G of "G then C"), its key; otherwise null. */
-export function chordStart(scope, e, mac = IS_MAC) {
+export function chordStart(scope: string, e: KeyLike, mac = IS_MAC): string | null {
   for (const cmd of inScope(scope)) {
     for (const b of bindings(cmd.id, mac)) {
       const steps = parse(b);
-      if (steps.length === 2 && pressed(steps[0], e, false, mac)) return steps[0].key;
+      const [first] = steps;
+      if (steps.length === 2 && first && pressed(first, e, false, mac)) return first.key;
     }
   }
   return null;
 }
 
-const KEY_LABELS = { Enter: '↵', Backspace: '⌫', Delete: '⌫', Escape: 'Esc', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Space: 'Space', PageUp: 'Page Up', PageDown: 'Page Down' };
-const keyLabel = (k) => KEY_LABELS[k] ?? CODES[k] ?? (/^Key[A-Z]$/.test(k) ? k.slice(3) : /^Digit\d$/.test(k) ? k.slice(5) : k.toUpperCase());
+const KEY_LABELS: Record<string, string> = { Enter: '↵', Backspace: '⌫', Delete: '⌫', Escape: 'Esc', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Space: 'Space', PageUp: 'Page Up', PageDown: 'Page Down' };
+const keyLabel = (k: string): string => KEY_LABELS[k] ?? CODES[k] ?? (/^Key[A-Z]$/.test(k) ? k.slice(3) : /^Digit\d$/.test(k) ? k.slice(5) : k.toUpperCase());
 
 /**
  * A binding as the keycaps the app shows: ['⌘', '⇧', 'F'] (['Ctrl', '⇧', 'F'] off macOS), in binding order.
  * Defaults to the command's first binding; `index` picks another one (null if there's none). A chord shows its
  * steps in a row.
  */
-export function keys(id, { index = 0, mac = IS_MAC } = {}) {
+export function keys(id: string, { index = 0, mac = IS_MAC }: { index?: number; mac?: boolean } = {}): string[] | null {
   const b = bindings(id, mac)[index];
   if (b == null) return index ? null : []; // [] when the user removed every key, so callers can spread it
   return caps(b, mac);
 }
 
 /** Any binding as keycaps, like `keys`. */
-export function caps(binding, mac = IS_MAC) {
-  const MOD = { Mod: mac ? '⌘' : 'Ctrl', Ctrl: mac ? '⌃' : 'Ctrl', Alt: '⌥', Shift: '⇧' };
+export function caps(binding: string, mac = IS_MAC): string[] {
+  const MOD: Record<string, string> = { Mod: mac ? '⌘' : 'Ctrl', Ctrl: mac ? '⌃' : 'Ctrl', Alt: '⌥', Shift: '⇧' };
   // macOS lists modifiers as ⌃⌥⇧⌘ (⇧⌘F, not ⌘⇧F), like its menus and the website.
   const ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod'];
-  const order = (mods) => (mac ? [...mods].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)) : [...mods]);
-  return parse(binding).flatMap((s) => [...order(s.mods).map((m) => MOD[m]), keyLabel(s.key)]);
+  const order = (mods: Set<string>) => (mac ? [...mods].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)) : [...mods]);
+  return parse(binding).flatMap((s) => [...order(s.mods).map((m) => MOD[m] ?? m), keyLabel(s.key)]);
 }
 
-const ACCEL = { Mod: 'CmdOrCtrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' };
-const ACCEL_KEYS = { Backslash: '\\', Comma: ',', Space: 'Space', Enter: 'Enter', Escape: 'Escape' };
+const ACCEL: Record<string, string> = { Mod: 'CmdOrCtrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' };
+const ACCEL_KEYS: Record<string, string> = { Backslash: '\\', Comma: ',', Space: 'Space', Enter: 'Enter', Escape: 'Escape' };
 
 /** The Electron menu accelerator for a command ("CmdOrCtrl+Shift+F"), from its first single-step binding. */
-export function accelerator(id, mac = IS_MAC) {
+export function accelerator(id: string, mac = IS_MAC): string | undefined {
   const b = bindings(id, mac).find((x) => !x.includes(' '));
   if (!b) return undefined;
-  const [{ mods, key }] = parse(b);
+  const [step] = parse(b);
+  if (!step) return undefined;
+  const { mods, key } = step;
   const k = ACCEL_KEYS[key] ?? CODES[key] ?? (/^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : key.length === 1 ? key.toUpperCase() : key);
   const mod = [...mods].map((m) => (m === 'Mod' && mods.has('Ctrl') && mac ? 'Cmd' : ACCEL[m]));
   return [...mod, k].join('+');
@@ -580,7 +606,7 @@ export function accelerator(id, mac = IS_MAC) {
 const MAC_ORDER = ['Mod', 'Ctrl', 'Alt', 'Shift'];
 
 /** A binding in one spelling, for comparing: "Mod+Alt+KeyO" and "Mod+Alt+o" are the same keys. */
-export function normalize(binding) {
+export function normalize(binding: string): string {
   return parse(binding).map(({ mods, key }) => {
     let k = /^Key[A-Z]$/.test(key) ? key.slice(3) : /^Digit\d$/.test(key) ? key.slice(5) : CODES[key] ?? key;
     if (k.length === 1) k = k.toLowerCase();
@@ -592,17 +618,17 @@ export function normalize(binding) {
  * A keydown event as one binding step ("Mod+Shift+F"), or null while only modifiers are down. Letters use the
  * typed letter, except with ⌥ (which changes the character) where the key code is used, like the defaults.
  */
-export function fromEvent(e, mac = IS_MAC) {
-  if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'Fn', 'Dead', 'Unidentified'].includes(e.key)) return null;
-  const mods = [];
+export function fromEvent(e: KeyLike, mac = IS_MAC): string | null {
+  if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'Fn', 'Dead', 'Unidentified'].includes(e.key ?? '')) return null;
+  const mods: string[] = [];
   if (mac ? e.metaKey : e.ctrlKey) mods.push('Mod');
   if (mac && e.ctrlKey) mods.push('Ctrl');
   if (e.altKey) mods.push('Alt');
   if (e.shiftKey) mods.push('Shift');
   const code = e.code || '';
-  let key;
+  let key: string | undefined;
   if (e.key === ' ') key = 'Space';
-  else if (/^[a-z]$/i.test(e.key) && !e.altKey) key = e.key.toLowerCase();
+  else if (/^[a-z]$/i.test(e.key ?? '') && !e.altKey) key = (e.key ?? '').toLowerCase();
   else if (/^Key[A-Z]$/.test(code)) key = e.altKey ? code : code.slice(3).toLowerCase();
   else if (/^Digit\d$/.test(code)) key = e.altKey || e.shiftKey ? code : code.slice(5);
   else if (code in CODES && (e.altKey || e.shiftKey)) key = code;
@@ -611,20 +637,21 @@ export function fromEvent(e, mac = IS_MAC) {
 }
 
 // Scopes that are live at the same time: the menu bar and the "anywhere" keys run in every view.
-const overlaps = (a, b) => a === b || [a, b].some((s) => s === 'menu' || s === 'global');
+const overlaps = (a: string, b: string): boolean => a === b || [a, b].some((s) => s === 'menu' || s === 'global');
 
 /**
  * The commands that `binding` would collide with if given to `id`: the same keys in the same or an overlapping
  * scope, or a single key that starts one of their chords (or the reverse).
  */
-export function conflicts(id, binding, mac = IS_MAC) {
+export function conflicts(id: string, binding: string, mac = IS_MAC): string[] {
   const me = BY_ID.get(id);
+  if (!me) throw new Error(`keymap: unknown command ${id}`);
   return COMMANDS.filter((cmd) => cmd.id !== id && overlaps(cmd.scope, me.scope)
     && bindings(cmd.id, mac).some((b) => collides(b, binding))).map((cmd) => cmd.id);
 }
 
 /** Do two bindings clash: the same keys, or one is a single key that starts the other's chord? */
-export function collides(a, b) {
+export function collides(a: string, b: string): boolean {
   const [m, n] = [normalize(a), normalize(b)];
   if (m === n) return true;
   if (m.includes(' ') === n.includes(' ')) return false;
@@ -632,7 +659,7 @@ export function collides(a, b) {
 }
 
 // Keys macOS keeps for itself. The app's own reserved commands (⌘Q, ⌘W, ⌘H, ⌘,) are added from the keymap.
-const SYSTEM = {
+const SYSTEM: Record<string, string> = {
   'Mod+Tab': 'switches apps', 'Mod+Shift+Tab': 'switches apps', 'Mod+`': 'switches windows',
   'Mod+Space': 'opens Spotlight', 'Ctrl+Space': 'switches input sources', 'Mod+Alt+Space': 'opens a Finder search',
   'Mod+Alt+Escape': 'opens Force Quit', 'Mod+M': 'minimises the window', 'Mod+Alt+H': 'hides other apps', 'Mod+Alt+D': 'shows or hides the Dock',
@@ -644,15 +671,15 @@ const SYSTEM = {
 const SYSTEM_KEYS = new Map(Object.entries(SYSTEM).map(([k, v]) => [normalize(k), v]));
 
 /** Why `binding` can't be given to `id` (a sentence), or null when it can. */
-export function refusal(id, binding, mac = IS_MAC) {
+export function refusal(id: string, binding: string, mac = IS_MAC): string | null {
   const cmd = BY_ID.get(id);
   if (!cmd) return 'Unknown command.';
   if (cmd.reserved) return 'macOS and the app menu own this shortcut, so it can’t be changed.';
-  let steps;
+  let steps: Step[];
   try { steps = parse(binding); } catch { return 'Those keys can’t be used.'; }
   const n = normalize(binding);
   const reserved = COMMANDS.find((x) => x.reserved && defaults(x.id, mac).some((b) => normalize(b) === n));
-  if (reserved) return `${keys(reserved.id, { mac }).join('')} is kept for “${reserved.label}”.`;
+  if (reserved) return `${(keys(reserved.id, { mac }) ?? []).join('')} is kept for “${reserved.label}”.`;
   // Off macOS, Mod is Ctrl, so a few system keys read differently; only macOS's list is enforced there too.
   const why = SYSTEM_KEYS.get(n) ?? (n.startsWith('Ctrl+') ? SYSTEM_KEYS.get(n.replace('Ctrl+', 'Mod+')) : null);
   if (mac && why) return `macOS uses these keys: it ${why}.`;
@@ -661,7 +688,8 @@ export function refusal(id, binding, mac = IS_MAC) {
   if (steps.length === 2 && !id.startsWith('view.')) return 'Only the views (G then C) take a two-key shortcut.';
   if (cmd.scope === 'menu') {
     // Menu items run anywhere, even while typing, so they need ⌘, ⌃ or ⌥.
-    if (steps.length === 1 && !['Mod', 'Ctrl', 'Alt'].some((m) => steps[0].mods.has(m)) && !/^F\d+$/.test(steps[0].key)) return 'Menu commands need ⌘, ⌃ or ⌥, so they don’t fire while you type.';
+    const [only] = steps;
+    if (only && steps.length === 1 && !['Mod', 'Ctrl', 'Alt'].some((m) => only.mods.has(m)) && !/^F\d+$/.test(only.key)) return 'Menu commands need ⌘, ⌃ or ⌥, so they don’t fire while you type.';
   }
   return null;
 }

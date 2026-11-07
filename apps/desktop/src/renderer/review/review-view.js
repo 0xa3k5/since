@@ -1,7 +1,7 @@
 import { h, icon, kbd, toast, loading } from '../lib/ui.js';
 import { renderDiff, statusBadge, fileName, fileRef } from '../commit/diff.js';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 import { prStatusLine, draftSwitch } from '../prs/prs.js';
 import { PR_ACTIONS, prActionFor } from '../prs/pr-review.js';
 import { fileCard, foldShut, commitLines, markCommit } from './reader.js';

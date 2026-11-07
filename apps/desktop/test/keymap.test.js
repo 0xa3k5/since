@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const load = () => import('../src/renderer/palette/keymap.js');
+const load = () => import('../src/renderer/palette/keymap.ts');
 const ev = (key, mods = {}) => ({ key, code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
 
 // A binding step as one comparable string: letters fold case, so "Shift+S" and "Shift+s" collide.
@@ -64,7 +64,7 @@ test('no next/previous command is bound to a vim letter', async () => {
 });
 
 // Every command id the app's source refers to must exist, and every command must be used somewhere.
-const SOURCES = [...require('./main-source').FILES.map((f) => `src/main/${f}`), ...fs.readdirSync(path.join(__dirname, '../src/renderer'), { recursive: true }).filter((f) => f.endsWith('.js') && f !== 'palette/keymap.js').map((f) => `src/renderer/${f}`)];
+const SOURCES = [...require('./main-source').FILES.map((f) => `src/main/${f}`), ...fs.readdirSync(path.join(__dirname, '../src/renderer'), { recursive: true }).filter((f) => /\.(js|ts)$/.test(f) && !f.endsWith('.d.ts') && f !== 'palette/keymap.ts').map((f) => `src/renderer/${f}`)];
 const source = SOURCES.map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 test('every handler refers to a registered command', async () => {

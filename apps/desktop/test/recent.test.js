@@ -22,7 +22,7 @@ test('the switcher shows every other recent repository and keeps all when none i
 });
 
 test('no O chord opens the repository switcher (Switch Repository… has no keys, AK-628)', async () => {
-  const { match } = await import('../src/renderer/palette/keymap.js');
+  const { match } = await import('../src/renderer/palette/keymap.ts');
   const isRepoSwitchKey = (e) => match('menu', e) === 'file.repoSwitch';
   const k = (o) => ({ code: 'KeyO', key: 'ø', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
   assert.equal(isRepoSwitchKey(k({ metaKey: true, altKey: true })), false);
@@ -37,7 +37,7 @@ test('no O chord opens the repository switcher (Switch Repository… has no keys
 test('the File menu has Switch Repository…, with no accelerator', async () => {
   const src = require('./main-source').mainSource();
   assert.match(src, /item\('Switch Repository…', acc\('file.repoSwitch'\), 'repoSwitch'\)/);
-  const { accelerator } = await import('../src/renderer/palette/keymap.js');
+  const { accelerator } = await import('../src/renderer/palette/keymap.ts');
   assert.equal(accelerator('file.repoSwitch'), undefined);
 });
 

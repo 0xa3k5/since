@@ -1,7 +1,7 @@
 import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor } from '../lib/ui.js';
 import { laneKey } from '../lanes/lanes.js';
 import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat } from './cleanup.js';
-import * as keymap from '../palette/keymap.js';
+import * as keymap from '../palette/keymap.ts';
 
 // Clean up, the Finished tab of Branches (AK-396): finished branches and worktrees (merged, shipped,
 // deleted on GitHub, folder missing; untouched ones as your call), one card per reason (cleanup.js
