@@ -37,7 +37,7 @@ test('launch shows the tab that was showing, else the last one', () => {
 test('tabs are views in one window; tab keys and IPC go through the keymap and ipc.js', async () => {
   const main = require('./main-source').mainSource();
   assert.doesNotMatch(main, /BrowserWindow/, 'every page is a tab in a BaseWindow');
-  assert.match(main, /check\.tabAction\(action\)/);
+  assert.match(main, /check\.tabAction\(action(?:, '[^']+')?\)/);
   const { tabAction } = require('../src/main/ipc.ts');
   assert.equal(tabAction('next', 'tab action'), 'next');
   assert.throws(() => tabAction('reload', 'tab action'));

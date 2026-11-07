@@ -5,7 +5,7 @@ import * as git from './git/index.ts';
 import { Journal } from './journal.ts';
 import { LogStreams } from './log-streams.ts';
 import type { Handoff } from './ipc.ts';
-import type { RepoInfo } from '../shared/git-types.ts';
+import type { Lane, RepoInfo } from '../shared/git-types.ts';
 
 /** What a session needs of its window's tab: whether it is gone, and a way to push to it. */
 export interface SessionWindow { isDestroyed(): boolean; focus(): void; webContents: { send(channel: string, ...args: unknown[]): void } }
@@ -30,6 +30,8 @@ export class RepoSession {
   graphChecked: boolean;
   closed: AbortController;
   logs: LogStreams;
+  /** The last lanes list this window asked for, which the conflict forecast reads. */
+  lanes?: { root: string; baseSha: string | null; lanes: readonly Lane[] } | null;
   /** The conflict forecast running for this window, aborted when another starts or the repository closes. */
   forecast?: AbortController | null;
   constructor(win: SessionWindow, repo: RepoInfo) {
