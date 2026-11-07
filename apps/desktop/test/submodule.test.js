@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
-const { Journal } = require('../src/main/journal');
+const { Journal } = require('../src/main/journal.ts');
 const ipc = require('../src/main/ipc.ts');
 const load = () => import('../src/renderer/lib/submodule.js');
 

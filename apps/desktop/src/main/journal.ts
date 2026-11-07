@@ -1,4 +1,3 @@
-'use strict';
 // Undo journal: unlimited undo/redo for every recorded operation.
 // Each entry stores the refs before and after an operation. Operations that
 // destroy uncommitted work also store an exact snapshot of the paths they touch
@@ -14,27 +13,86 @@
 // memory and the cost of each save stay flat. Archiving also compacts a page's
 // pins into one set under refs/since/undo/<worktree>/p<n>.
 
-const fs = require('node:fs');
-const path = require('node:path');
-const git = require('./git/index.ts');
+import fs from 'node:fs';
+import path from 'node:path';
+import * as git from './git/index.ts';
+import type { GitError } from './git/run.ts';
+import type { RefState, WorkSnapshot, PinnedObjects } from './git/undo.ts';
+import type { StashPushOptions } from './git/stash.ts';
+import type { SubmoduleChange } from './git/submodules.ts';
+import type { RemoteChange } from './git/remotes.ts';
+import type { CleanupItem } from './git/worktrees.ts';
+import type { MergeLaneDone } from './git/merge.ts';
+import type { RewriteExtra } from './git/rewrite.ts';
+import type { ChangeFile } from './git/changes.ts';
+import type { CleanupResult, JournalItem, JournalList, OperationKind, RefChange, RestorePreview, RewriteOp, SavedResolved, SavedWorktree, Stash, Worktree } from '../shared/git-types.ts';
 
-const PAGE = 100; // entries per archived page; up to 2 × PAGE stay in memory per stack
+/** Which way a step goes. */
+export type Dir = 'undo' | 'redo';
+/** A stash made before a switch, popped again on undo. */
+interface AutostashInfo { sha: string; message: string; untracked: boolean; branch: string | null }
+/** A stash a step dropped (popped back on undo) or `added`. Its `time` is git's, in seconds. */
+interface EntryStash { sha: string; message: string; time: number; index: number; added?: boolean }
+interface EntryWorktree { op: 'add' | 'remove'; path: string; branch: string | null; head: string | null; stash?: string; saved?: SavedWorktree }
+interface CleanupWorktree { path: string; branch: string | null; head: string | null; pruned: boolean; saved?: SavedWorktree }
+/** Stash this worktree's own changes first. */
+interface StashOpts { message: string; untracked?: boolean | null }
+/** A branch taken from another worktree, with that worktree's changes (moveCheckout). */
+interface Moved { path: string; name: string; branch: string; stash: StashOpts | null; mine: string | null; theirs: string | null }
+/** One undoable step: the refs before and after, plus whatever else it changed. */
+export interface JournalEntry {
+  id: number; label: string; method: string; time: number;
+  before: RefState; after: RefState;
+  /** The pin key of an archived page that keeps this entry's objects. */
+  pin?: string;
+  worktree?: EntryWorktree; cleanup?: CleanupWorktree[]; submodules?: SubmoduleChange[];
+  autostash?: AutostashInfo; freed?: { path: string; branch: string }; moved?: Moved; remote?: RemoteChange;
+  resolved?: { sha: string };
+  work?: { before: WorkSnapshot; after: WorkSnapshot | null };
+  stash?: EntryStash;
+  /** Changes dropped to take the step one way; they come back with the opposite step. */
+  discarded?: { sha: string; dir: Dir };
+}
+/** An archived page of entries (since-history/<n>.json). */
+interface Page { n: number; count: number; first: number; last: number; pins: string[] }
+interface StackData { hot?: JournalEntry[]; pages?: Page[] }
+interface SavedJournal { version?: number; legacyPins?: boolean; nextPage?: number; undo?: StackData | JournalEntry[]; redo?: StackData | JournalEntry[] }
+interface RecordOptions { paths?: (() => Promise<readonly string[]> | readonly string[]) | undefined; stash?: boolean | undefined; indexOnly?: boolean | undefined; resolved?: { sha: string } | null }
+interface FinishInput {
+  id: number; label: string; method: string; before: RefState;
+  workBefore?: WorkSnapshot | null; stashesBefore?: Stash[] | null; worktree?: EntryWorktree | null | undefined;
+  cleanup?: CleanupWorktree[]; submodules?: SubmoduleChange[]; autostash?: AutostashInfo | null;
+  freed?: { path: string; branch: string }; moved?: Moved; remote?: RemoteChange; midSequence?: boolean; resolved?: { sha: string } | null;
+}
+// A journal method's arguments arrive over IPC already checked against its ipc.ts schema, but
+// only as unknown[]; each op hands them on to the git function that takes them. `any` here is
+// that hand-off and nothing else.
+// biome-ignore lint: see above
+type OpArgs = any[];
+interface WorkOp {
+  run: (cwd: string, ...args: OpArgs) => Promise<unknown>;
+  paths?: (cwd: string, ...args: OpArgs) => Promise<readonly string[]> | readonly string[];
+  stash?: boolean; indexOnly?: boolean; mustChange?: boolean;
+}
+type FailWith = (why: string) => GitError;
+
+export const PAGE = 100; // entries per archived page; up to 2 × PAGE stay in memory per stack
 let nextId = Date.now();
 
 // Ref states compare by refs and HEAD only: the branch config they carry (for redo) isn't a move.
-const bare = (s) => { if (!s) return s; const { config, ...rest } = s; return rest; };
-const same = (a, b) => JSON.stringify(bare(a)) === JSON.stringify(bare(b));
+const bare = (s: RefState | null | undefined) => { if (!s) return s; const { config, ...rest } = s; return rest; };
+const same = (a: RefState | null | undefined, b: RefState | null | undefined): boolean => JSON.stringify(bare(a)) === JSON.stringify(bare(b));
 
 // Stash in `cwd` (git.stashPush options) and return the new stash's sha, or null when there was
 // nothing to stash. The stash list is shared by every worktree; `stashRef` finds a stash in it.
-const stashTop = (cwd) => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
-async function newStash(cwd, opts) {
+const stashTop = (cwd: string): Promise<string> => git.run(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
+async function newStash(cwd: string, opts: StashPushOptions): Promise<string | null> {
   const prev = await stashTop(cwd);
   await git.stashPush(cwd, opts);
   const sha = await stashTop(cwd);
   return sha && sha !== prev ? sha : null;
 }
-async function stashRef(cwd, sha) {
+async function stashRef(cwd: string, sha: string): Promise<string> {
   const i = (await git.getStashes(cwd)).findIndex((x) => x.sha === sha);
   if (i === -1) throw new git.GitError('That stash no longer exists.');
   return `stash@{${i}}`;
@@ -43,8 +101,8 @@ async function stashRef(cwd, sha) {
 // What restoring ref state `target` over `current` would change: where HEAD
 // points (a branch name, or a commit when detached), then each branch and tag.
 // [{ ref, kind: 'head' | 'move' | 'create' | 'delete', from, to }]
-function refChanges(current, target) {
-  const out = [];
+export function refChanges(current: RefState, target: RefState): RefChange[] {
+  const out: RefChange[] = [];
   const detachedMove = !target.head && !current.head && target.headOid && target.headOid !== current.headOid;
   if ((target.head && target.head !== current.head) || (!target.head && current.head) || detachedMove) {
     out.push({ ref: 'HEAD', kind: 'head', from: current.head || current.headOid, to: target.head || target.headOid });
@@ -58,8 +116,8 @@ function refChanges(current, target) {
   return out;
 }
 
-function pins(entry) {
-  const objects = [];
+function pins(entry: JournalEntry): { blobs: string[]; objects: (string | null | undefined)[] } {
+  const objects: (string | null | undefined)[] = [];
   const { before, after } = entry;
   if (!same(before, after)) {
     for (const n of new Set([...Object.keys(before.refs), ...Object.keys(after.refs)])) {
@@ -73,52 +131,52 @@ function pins(entry) {
   if (entry.resolved) objects.push(entry.resolved.sha);
   if (entry.worktree) objects.push(entry.worktree.head, entry.worktree.stash, entry.worktree.saved?.sha);
   for (const w of entry.cleanup || []) objects.push(w.head, w.saved?.sha);
-  for (const [, oid, sym] of entry.remote?.saved?.refs || []) if (!sym) objects.push(oid);
+  for (const [, oid, sym] of entry.remote?.op === 'remove' ? entry.remote.saved.refs : []) if (!sym) objects.push(oid);
   return { blobs: [...git.snapshotBlobs(entry.work?.before), ...git.snapshotBlobs(entry.work?.after)], objects };
 }
 
 // Adding and removing worktrees. Removal is only allowed on a clean worktree (its changes can
 // be stashed first), so its branch (or commit, when detached) and that stash are all undo needs.
-const worktreeOps = {
-  addWorktree: { op: 'add', run: async (cwd, opts) => git.findWorktree(cwd, await git.addWorktree(cwd, opts)) },
+export const worktreeOps: Record<string, { op: 'add' | 'remove'; run: (cwd: string, ...args: OpArgs) => Promise<Worktree & { stash?: string }> }> = {
+  addWorktree: { op: 'add', run: async (cwd: string, opts: Parameters<typeof git.addWorktree>[1]) => git.findWorktree(cwd, await git.addWorktree(cwd, opts)) },
   removeWorktree: { op: 'remove', run: git.removeWorktree },
 };
 
 // Operations that destroy uncommitted work or stashes, or move work into a new
 // stash, with the paths each may change; the journal snapshots those paths (and
 // a dropped or added stash) around them.
-const workOps = {
-  discardFiles: { run: git.discardFiles, paths: (cwd, files) => files.map((f) => f.path), mustChange: true },
-  discardLines: { run: git.discardLines, paths: (cwd, file) => [file.path], mustChange: true },
-  resetHard: { run: git.resetHard, paths: (cwd, sha) => git.resetHardPaths(cwd, sha || 'HEAD') },
-  chooseSide: { run: git.chooseSide, paths: (cwd, p) => [p] },
-  resolveConflict: { run: git.resolveConflict, paths: (cwd, p) => [p] },
+export const workOps: Record<string, WorkOp> = {
+  discardFiles: { run: git.discardFiles, paths: (cwd: string, files: { path: string }[]) => files.map((f) => f.path), mustChange: true },
+  discardLines: { run: git.discardLines, paths: (cwd: string, file: { path: string }) => [file.path], mustChange: true },
+  resetHard: { run: git.resetHard, paths: (cwd: string, sha?: string | null) => git.resetHardPaths(cwd, sha || 'HEAD') },
+  chooseSide: { run: git.chooseSide, paths: (cwd: string, p: string) => [p] },
+  resolveConflict: { run: git.resolveConflict, paths: (cwd: string, p: string) => [p] },
   stashApply: { run: git.stashApply, paths: git.stashPaths, stash: true },
   stashDrop: { run: git.stashDrop, stash: true },
-  stashSave: { run: (cwd, message, untracked, opts = {}) => git.stashPush(cwd, { message, untracked, ...opts }), paths: git.stashPushPaths, stash: true },
+  stashSave: { run: (cwd: string, message?: string | null, untracked?: boolean, opts: { staged?: boolean; paths?: readonly string[] } = {}) => git.stashPush(cwd, { message, ...(untracked === undefined ? {} : { untracked }), ...opts }), paths: git.stashPushPaths, stash: true },
   // Unified changes: stage or unstage a file, hunk or lines. Only the index changes.
-  stageChanges: { run: (cwd, file, sel) => git.setStaged(cwd, file, sel, true), paths: git.changePaths, indexOnly: true },
-  unstageChanges: { run: (cwd, file, sel) => git.setStaged(cwd, file, sel, false), paths: git.changePaths, indexOnly: true },
-  stashLines: { run: git.stashLines, paths: (cwd, file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])], stash: true },
+  stageChanges: { run: (cwd: string, file: ChangeFile, sel: 'all' | readonly string[]) => git.setStaged(cwd, file, sel, true), paths: git.changePaths, indexOnly: true },
+  unstageChanges: { run: (cwd: string, file: ChangeFile, sel: 'all' | readonly string[]) => git.setStaged(cwd, file, sel, false), paths: git.changePaths, indexOnly: true },
+  stashLines: { run: git.stashLines, paths: (cwd: string, file: { path: string; oldPath?: string | null }) => [file.path, ...(file.oldPath ? [file.oldPath] : [])], stash: true },
 };
 
 // Managing remotes (git.changeRemote): the git op for each journal method.
-const remoteOps = { addRemote: 'add', setRemoteUrl: 'url', renameRemote: 'rename', removeRemote: 'remove' };
+export const remoteOps: Record<string, RemoteChange['op']> = { addRemote: 'add', setRemoteUrl: 'url', renameRemote: 'rename', removeRemote: 'remove' };
 
 // Lane steps (runLane) that can also remove a worktree.
-const laneOps = new Set(['mergeLane', 'tidyLane']);
+export const laneOps = new Set(['mergeLane', 'tidyLane']);
 
 // Git refusing to move the working copy over uncommitted changes.
 const DIRTY = /not uptodate|would be overwritten|commit your changes or stash them|you have unstaged changes|your index contains uncommitted changes/i;
 
-const listPaths = (paths) => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
-const shortRef = (r) => r.replace(/^refs\/(heads|tags)\//, '');
+const listPaths = (paths: readonly string[]): string => (paths.length > 3 ? `${paths.slice(0, 3).join(', ')} and ${paths.length - 3} more` : paths.join(', '));
+const shortRef = (r: string): string => r.replace(/^refs\/(heads|tags)\//, '');
 
 // "Can't undo X: branches or HEAD have moved since", with what moved (code 'moved', `moved`:
 // [{ ref, from, to }], short names and SHAs, null when created or deleted). The renderer
 // offers "Undo anyway" (step with `force`).
-function movedError(fail, expected, now) {
-  const short = (v) => (v ? (/^[0-9a-f]{40,64}$/.test(v) ? v.slice(0, 7) : shortRef(v)) : null);
+function movedError(fail: FailWith, expected: RefState, now: RefState): GitError {
+  const short = (v: string | null) => (v ? (/^[0-9a-f]{40,64}$/.test(v) ? v.slice(0, 7) : shortRef(v)) : null);
   const moved = refChanges(expected, now).map((c) => ({ ref: shortRef(c.ref), from: short(c.from), to: short(c.to) }));
   return Object.assign(fail(`${listPaths(moved.map((m) => m.ref))} moved since.`), { code: 'moved', moved });
 }
@@ -126,30 +184,35 @@ function movedError(fail, expected, now) {
 // One side of the journal. `hot` holds the newest entries (top of the stack
 // last); `pages` describes archived pages, oldest first.
 class Stack {
-  constructor({ hot = [], pages = [] } = {}) {
+  hot: JournalEntry[];
+  pages: Page[];
+  constructor({ hot = [], pages = [] }: StackData = {}) {
     this.hot = hot;
     this.pages = pages;
   }
 
-  get length() { return this.pages.reduce((n, p) => n + p.count, 0) + this.hot.length; }
-  get top() { return this.hot.at(-1); }
+  get length(): number { return this.pages.reduce((n, p) => n + p.count, 0) + this.hot.length; }
+  get top(): JournalEntry | undefined { return this.hot.at(-1); }
   // Pin keys still needed by this stack.
-  pinKeys() { return [...this.pages.flatMap((p) => p.pins), ...this.hot.map((e) => e.pin || e.id)]; }
+  pinKeys(): (string | number)[] { return [...this.pages.flatMap((p) => p.pins), ...this.hot.map((e) => e.pin || e.id)]; }
 }
 
-const writeAtomic = (file, data) => {
+const writeAtomic = (file: string, data: string): void => {
   fs.writeFileSync(file + '.tmp', data);
   fs.renameSync(file + '.tmp', file);
 };
 
-class Journal {
-  constructor(repo, { pageSize = PAGE } = {}) {
+export class Journal {
+  root: string; gitDir: string; file: string; dir: string; ns: string;
+  pageSize: number; nextPage: number; undo: Stack; redo: Stack;
+  legacyPins: boolean; damaged: boolean; queue: Promise<unknown>;
+  constructor(repo: { root: string; gitDir: string; commonDir?: string | null }, { pageSize = PAGE }: { pageSize?: number } = {}) {
     this.root = repo.root;
     this.gitDir = repo.gitDir;
     this.file = path.join(repo.gitDir, 'since-history.json');
     this.dir = path.join(repo.gitDir, 'since-history');
     // From before the rename to Since: move the old index and pages to the new names.
-    for (const [from, to] of [['gitlanes-history.json', this.file], ['gitlanes-history', this.dir]]) {
+    for (const [from, to] of [['gitlanes-history.json', this.file], ['gitlanes-history', this.dir]] as const) {
       const was = path.join(repo.gitDir, from);
       if (!fs.existsSync(to) && fs.existsSync(was)) try { fs.renameSync(was, to); } catch { /* read-only repo */ }
     }
@@ -161,23 +224,23 @@ class Journal {
     this.legacyPins = false; // pins still at the top level, from before namespaces
     this.damaged = false; // the index was unreadable: keep every page and pin
     this.queue = Promise.resolve();
-    let text = null;
+    let text: string | null = null;
     try { text = fs.readFileSync(this.file, 'utf8'); } catch { /* no history yet */ }
     if (text != null) try {
-      const saved = JSON.parse(text);
+      const saved = JSON.parse(text) as SavedJournal;
       this.legacyPins = saved.legacyPins !== false;
       if (saved.version === 2) {
-        this.nextPage = saved.nextPage;
-        this.undo = new Stack(saved.undo);
-        this.redo = new Stack(saved.redo);
+        this.nextPage = saved.nextPage ?? 1;
+        this.undo = new Stack(saved.undo as StackData);
+        this.redo = new Stack(saved.redo as StackData);
       } else {
         // The first format: two flat arrays. They are archived on the next save.
-        this.undo = new Stack({ hot: saved.undo || [] });
-        this.redo = new Stack({ hot: saved.redo || [] });
+        this.undo = new Stack({ hot: (saved.undo as JournalEntry[] | undefined) || [] });
+        this.redo = new Stack({ hot: (saved.redo as JournalEntry[] | undefined) || [] });
       }
     } catch (err) {
       // Start empty but leave the old index, its pages and pins untouched.
-      console.warn('history index unreadable', err.message);
+      console.warn('history index unreadable', (err as Error).message);
       try { fs.copyFileSync(this.file, `${this.file}.bad`); } catch { /* best effort */ }
       this.undo = new Stack();
       this.redo = new Stack();
@@ -192,36 +255,36 @@ class Journal {
 
   // Run journal mutations one at a time, so overlapping steps (a held ⌘Z) can't
   // pop the same entry or archive the same page twice.
-  lock(fn) {
+  lock<T>(fn: () => Promise<T> | T): Promise<T> {
     const run = this.queue.then(fn);
     this.queue = run.catch(() => {});
     return run;
   }
 
-  pin(key, objs) { return git.pinUndo(this.root, `${this.ns}/${key}`, objs); }
+  pin(key: string | number, objs?: PinnedObjects): Promise<void> { return git.pinUndo(this.root, `${this.ns}/${key}`, objs); }
 
   // Newest `limit` entries of each stack, plus the full sizes.
-  list(limit = 100) {
-    const strip = (e) => ({ id: e.id, label: e.label, time: e.time, movesRefs: (!e.worktree || laneOps.has(e.method)) && !same(e.before, e.after) });
-    const newest = (s) => {
+  list(limit = 100): JournalList {
+    const strip = (e: JournalEntry): JournalItem => ({ id: e.id, label: e.label, time: e.time, movesRefs: (!e.worktree || laneOps.has(e.method)) && !same(e.before, e.after) });
+    const newest = (s: Stack) => {
       let out = s.hot.slice(-limit);
-      for (let i = s.pages.length - 1; i >= 0 && out.length < limit; i--) out = [...this.readPage(s.pages[i]).slice(out.length - limit), ...out];
+      for (let i = s.pages.length - 1; i >= 0 && out.length < limit; i--) { const page = s.pages[i]; if (page) out = [...this.readPage(page).slice(out.length - limit), ...out]; }
       return out.map(strip);
     };
     return { undo: newest(this.undo), redo: newest(this.redo), undoCount: this.undo.length, redoCount: this.redo.length };
   }
 
-  persist() {
+  persist(): boolean {
     const data = JSON.stringify({ version: 2, legacyPins: this.legacyPins, nextPage: this.nextPage, undo: this.undo, redo: this.redo });
     try { writeAtomic(this.file, data); return true; } catch { return false; /* read-only repo */ }
   }
 
   // Drop the pins of entries that have left the journal (run once per session).
-  prune() {
-    return this.lock(() => this.prunePins()).catch((err) => console.warn('prune failed', err.message));
+  prune(): Promise<void> {
+    return this.lock(() => this.prunePins()).catch((err: Error) => console.warn('prune failed', err.message));
   }
 
-  async prunePins() {
+  async prunePins(): Promise<void> {
     await git.moveOldPins(this.root);
     if (this.damaged) return;
     const keys = [...this.undo.pinKeys(), ...this.redo.pinKeys()];
@@ -233,22 +296,22 @@ class Journal {
     await git.pruneUndoPins(this.root, this.ns, keys);
   }
 
-  pagePath(page) { return path.join(this.dir, `${page.n}.json`); }
+  pagePath(page: Page): string { return path.join(this.dir, `${page.n}.json`); }
 
-  readPage(page) {
-    try { return JSON.parse(fs.readFileSync(this.pagePath(page), 'utf8')); } catch (err) {
-      console.warn('history page unreadable', page.n, err.message);
+  readPage(page: Page): JournalEntry[] {
+    try { return JSON.parse(fs.readFileSync(this.pagePath(page), 'utf8')) as JournalEntry[]; } catch (err) {
+      console.warn('history page unreadable', page.n, (err as Error).message);
       return [];
     }
   }
 
-  removePages(pages) {
+  removePages(pages: readonly Page[]): void {
     for (const p of pages) fs.rmSync(this.pagePath(p), { force: true });
   }
 
   // Page files left behind by a save that never completed.
-  removeOrphanPages() {
-    let files = [];
+  removeOrphanPages(): void {
+    let files: string[] = [];
     try { files = fs.readdirSync(this.dir); } catch { return; }
     const live = new Set([...this.undo.pages, ...this.redo.pages].map((p) => `${p.n}.json`));
     for (const f of files) if (!live.has(f)) fs.rmSync(path.join(this.dir, f), { force: true });
@@ -258,14 +321,14 @@ class Journal {
   // 2 × pageSize remain. Each page's objects are pinned under one key before
   // the page is written, so the entries stay restorable throughout. Returns
   // whether anything was archived (the old pins are then pruned).
-  async archive(stack) {
+  async archive(stack: Stack): Promise<boolean> {
     let moved = false;
     while (stack.hot.length > 2 * this.pageSize) {
       const entries = stack.hot.slice(0, this.pageSize);
       const n = this.nextPage;
       const key = `p${n}`;
       try {
-        const objs = { blobs: [], objects: [] };
+        const objs: { blobs: string[]; objects: (string | null | undefined)[] } = { blobs: [], objects: [] };
         for (const e of entries) {
           const p = pins(e);
           objs.blobs.push(...p.blobs);
@@ -275,7 +338,7 @@ class Journal {
         fs.mkdirSync(this.dir, { recursive: true });
         writeAtomic(path.join(this.dir, `${n}.json`), JSON.stringify(entries.map((e) => ({ ...e, pin: key }))));
       } catch (err) {
-        console.warn('archive failed', err.message);
+        console.warn('archive failed', (err as Error).message);
         break;
       }
       const ids = entries.map((e) => e.id);
@@ -289,17 +352,19 @@ class Journal {
 
   // Read the newest page back once the hot entries run out. Returns the pages
   // read, whose files are removed after the next save.
-  unarchive(stack) {
-    const read = [];
+  unarchive(stack: Stack): Page[] {
+    const read: Page[] = [];
     while (!stack.hot.length && stack.pages.length) {
-      read.push(stack.pages.pop());
-      stack.hot = this.readPage(read.at(-1));
+      const page = stack.pages.pop();
+      if (!page) break;
+      read.push(page);
+      stack.hot = this.readPage(page);
     }
     return read;
   }
 
   // Find an entry anywhere in the journal, reading archived pages if needed.
-  find(id) {
+  find(id: number): JournalEntry | null {
     for (const s of [this.undo, this.redo]) {
       const hit = s.hot.find((e) => e.id === id);
       if (hit) return hit;
@@ -315,17 +380,17 @@ class Journal {
   // Run `fn` and record it as one undoable step. `paths` (returns the paths fn
   // may change) turns on work snapshots; `stash` records a stash that fn drops or adds.
   // If the snapshot can't be saved, fn never runs.
-  record(label, method, fn, opts) {
+  record<T>(label: string, method: string, fn: () => Promise<T>, opts?: RecordOptions): Promise<T> {
     return this.lock(() => this.recordNow(label, method, fn, opts));
   }
 
-  async recordNow(label, method, fn, { paths, stash = false, indexOnly = false, resolved = null } = {}) {
+  async recordNow<T>(label: string, method: string, fn: () => Promise<T>, { paths, stash = false, indexOnly = false, resolved = null }: RecordOptions = {}): Promise<T> {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
     // A step taken while a rebase, cherry-pick or revert is stopped on a conflict.
     const midSequence = !before.head && !!(await git.getOperationState(this.gitDir));
-    let workBefore = null, stashesBefore = null;
+    let workBefore: WorkSnapshot | null = null, stashesBefore: Stash[] | null = null;
     try {
       if (paths) {
         workBefore = await git.snapshotWork(cwd, await paths(), { indexOnly });
@@ -334,25 +399,28 @@ class Journal {
       if (stash) stashesBefore = await git.getStashes(cwd);
     } catch (err) {
       await this.pin(id).catch(() => {});
-      const why = `${err.stderr || ''}\n${err.message || ''}`.split('\n').map((l) => l.replace(/^(fatal|error): /, '').trim()).filter(Boolean).pop();
+      const e = err as GitError;
+      const why = `${e.stderr || ''}\n${e.message || ''}`.split('\n').map((l) => l.replace(/^(fatal|error): /, '').trim()).filter(Boolean).pop();
       throw new git.GitError(`Nothing was changed: the undo snapshot could not be saved${why ? ` (${why.replace(/\.$/, '')})` : ''}.`);
     }
     try {
       return await fn();
     } finally {
       // Record whatever changed, even if fn failed part-way.
-      await this.finish({ id, label, method, before, workBefore, stashesBefore, midSequence, resolved }).catch((err) => console.warn('journal failed', err.message));
+      await this.finish({ id, label, method, before, workBefore, stashesBefore, midSequence, resolved }).catch((err: Error) => console.warn('journal failed', err.message));
     }
   }
 
   // Run one of `workOps` as an undoable step.
   // A discard that changed nothing fails, so the app never reports it as done.
-  runWork(method, label, args) {
+  runWork(method: string, label: string, args: OpArgs): Promise<unknown> {
     const op = workOps[method];
+    if (!op) throw new git.GitError(`Unknown step ${method}`);
+    const paths = op.paths;
     const cwd = this.root;
     return this.lock(async () => {
       const top = this.undo.top;
-      const res = await this.recordNow(label, method, () => op.run(cwd, ...args), { paths: op.paths && (() => op.paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
+      const res = await this.recordNow(label, method, () => op.run(cwd, ...args), { paths: paths && (() => paths(cwd, ...args)), stash: op.stash, indexOnly: op.indexOnly });
       if (op.mustChange && this.undo.top === top) throw new git.GitError('Nothing changed.');
       return res;
     });
@@ -361,31 +429,31 @@ class Journal {
   // Stash the changes that block switching to `branch`, then switch, as one undoable step.
   // Undo switches back and pops that stash; redo stashes again and switches. If the switch
   // still fails, the stash is popped right away and nothing is recorded.
-  autostash(label, branch, message, untracked) {
+  autostash(label: string, branch: string, message: string, untracked?: boolean): Promise<AutostashInfo | null> {
     return this.lock(() => this.switchNow(label, 'autostashCheckout', branch, { stash: { message, untracked } }));
   }
 
   // Switch to `branch`, then delete the branch that was checked out, as one undoable step.
   // `stash` ({ message, untracked }) stashes uncommitted changes first. Undo brings the branch
   // (and its upstream config) back, checks it out and pops the stash; redo does it all again.
-  switchDelete(label, branch, stash) {
+  switchDelete(label: string, branch: string, stash?: StashOpts | null): Promise<AutostashInfo | null> {
     return this.lock(() => this.switchNow(label, 'switchDelete', branch, { stash, del: true }));
   }
 
   // Switch to `branch`, then merge and tidy the branch that was checked out (git.mergeLane onto
   // `merge.base` with `merge.message`), as one undoable step. `stash` as for switchDelete.
-  switchMerge(label, branch, merge, stash) {
+  switchMerge(label: string, branch: string, merge: { branch: string; base: string; message: string }, stash?: StashOpts | null): Promise<AutostashInfo | null> {
     return this.lock(() => this.switchNow(label, 'switchMerge', branch, { stash, del: true, merge }));
   }
 
   // Switch to `branch`, then rewrite a commit on it (git.rewrite: `rw` is { op, sha, extra }), as
   // one undoable step. `stash` as for switchDelete. Undo puts the branch back where it was, switches
   // back and pops the stash; redo does it all again. If the rewrite fails, nothing is kept.
-  switchRewrite(label, branch, rw, stash) {
+  switchRewrite(label: string, branch: string, rw: { op: RewriteOp; sha: string; extra?: RewriteExtra }, stash?: StashOpts | null): Promise<AutostashInfo | null> {
     return this.lock(() => this.switchNow(label, 'switchRewrite', branch, { stash, rewrite: rw }));
   }
 
-  async switchNow(label, method, branch, { stash, del = false, merge = null, rewrite = null }) {
+  async switchNow(label: string, method: string, branch: string, { stash, del = false, merge = null, rewrite = null }: { stash?: StashOpts | null | undefined; del?: boolean; merge?: { branch: string; base: string; message: string } | null; rewrite?: { op: RewriteOp; sha: string; extra?: RewriteExtra } | null }): Promise<AutostashInfo | null> {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
@@ -405,10 +473,10 @@ class Journal {
       await git.rewriteRange(cwd, rewrite.op, rewrite.sha, branch);
     }
     const env = { GIT_OPTIONAL_LOCKS: '1' };
-    let sha = null, made = false;
+    let sha: string | null = null, made = false;
     if (stash) {
       const prev = await stashTop(cwd);
-      await git.stashPush(cwd, { message: stash.message, untracked: stash.untracked });
+      await git.stashPush(cwd, { message: stash.message, untracked: !!stash.untracked });
       sha = await stashTop(cwd);
       made = !!sha && sha !== prev;
     }
@@ -418,14 +486,14 @@ class Journal {
       if (made) await git.stashApply(cwd, 'stash@{0}', true).catch(() => {});
       throw err;
     }
-    const autostash = made ? { sha, message: stash.message, untracked: !!stash.untracked, branch: del ? null : from } : null;
+    const autostash: AutostashInfo | null = made && stash && sha ? { sha, message: stash.message, untracked: !!stash.untracked, branch: del ? null : from } : null;
     if (rewrite) {
       try {
         await git.rewrite(cwd, rewrite.op, rewrite.sha, rewrite.extra || {});
       } catch (err) {
         // Put everything back as it was: no half-done rebase on a branch the user didn't pick.
         if (await git.getOperationState(this.gitDir)) await git.run(cwd, ['rebase', '--abort'], { env }).catch(() => {});
-        await git.run(cwd, ['checkout', before.head ? from : before.headOid], { env }).catch(() => {});
+        await git.run(cwd, ['checkout', (before.head ? from : before.headOid) ?? ''], { env }).catch(() => {});
         if (made) await git.stashApply(cwd, 'stash@{0}', true).catch(() => {});
         throw err;
       }
@@ -433,11 +501,11 @@ class Journal {
       return autostash;
     }
     try {
-      if (merge) await git.mergeLane(cwd, { branch: from, base: merge.base, message: merge.message });
-      else if (del) await git.run(cwd, ['branch', '-D', from], { env });
+      if (merge) await git.mergeLane(cwd, { branch: from ?? '', base: merge.base, message: merge.message });
+      else if (del) await git.run(cwd, ['branch', '-D', from ?? ''], { env });
     } finally {
       // Record the switch even if the delete failed, so it can be undone.
-      await this.finish({ id, label, method, before, autostash }).catch((err) => console.warn('journal failed', err.message));
+      await this.finish({ id, label, method, before, autostash }).catch((err: Error) => console.warn('journal failed', err.message));
     }
     return autostash;
   }
@@ -446,7 +514,7 @@ class Journal {
   // `args` here (default `checkout <branch>`), as one undoable step. Undo switches back here and
   // re-attaches the branch there; redo detaches it again and switches. Refused (git.freeBlocker)
   // when that worktree has changes or an operation in progress.
-  freeCheckout(label, branch, dir, args = ['checkout', branch]) {
+  freeCheckout(label: string, branch: string, dir: string, args: string[] = ['checkout', branch]): Promise<boolean> {
     return this.lock(async () => {
       const cwd = this.root;
       const id = ++nextId;
@@ -476,7 +544,7 @@ class Journal {
   // changes overlap ones here) or anything else fails, both worktrees go back as they were. Undo
   // moves the changes here back there, re-attaches the branch there, switches back here and pops
   // this worktree's own stash; redo moves them again.
-  moveCheckout(label, branch, dir, stash) {
+  moveCheckout(label: string, branch: string, dir: string, stash?: StashOpts | null): Promise<{ conflicts: boolean }> {
     return this.lock(async () => {
       const cwd = this.root;
       const id = ++nextId;
@@ -485,7 +553,7 @@ class Journal {
       const { blocker } = await git.worktreeHold(wt);
       if (blocker) throw new git.GitError(`Can’t free ${branch} in “${wt.name}”. ${blocker}`);
       const before = await git.captureRefState(cwd);
-      const moved = { path: wt.path, name: wt.name, branch, stash: stash || null, mine: null, theirs: null };
+      const moved: Moved = { path: wt.path, name: wt.name, branch, stash: stash || null, mine: null, theirs: null };
       await this.moveNow(moved, before.head?.replace(/^refs\/heads\//, '') || before.headOid);
       await this.finish({ id, label, method: 'moveCheckout', before, moved });
       return { conflicts: !!moved.theirs };
@@ -494,10 +562,10 @@ class Journal {
 
   // Do (or redo) a moveCheckout. `from` is what is checked out here, for the stash messages. Sets
   // `m.mine` (this worktree's stash) and `m.theirs` (their stash, kept only when popping conflicted).
-  async moveNow(m, from) {
+  async moveNow(m: Moved, from: string | null): Promise<void> {
     const cwd = this.root;
     const env = { GIT_OPTIONAL_LOCKS: '1' };
-    m.mine = m.stash ? await newStash(cwd, m.stash) : null;
+    m.mine = m.stash ? await newStash(cwd, { message: m.stash.message, ...(m.stash.untracked == null ? {} : { untracked: m.stash.untracked }) }) : null;
     const theirs = await newStash(m.path, { message: `Moved from ${m.name} to ${path.basename(cwd)} (${m.branch})`, untracked: true }).catch(async (err) => {
       if (m.mine) await git.stashApply(cwd, await stashRef(cwd, m.mine), true).catch(() => {});
       throw err;
@@ -521,25 +589,26 @@ class Journal {
     } catch (err) {
       // Conflicts stay for the user to resolve; anything else (nothing applied) puts both sides back.
       if ((await git.run(cwd, ['ls-files', '-u'])).trim()) { m.theirs = theirs; return; }
-      await git.run(cwd, ['checkout', '-q', from], { env }).catch(() => {});
+      await git.run(cwd, ['checkout', '-q', from ?? ''], { env }).catch(() => {});
       await back();
-      if (/would be overwritten|already exists/.test(err.stderr || '')) throw new git.GitError(`The changes from “${m.name}” overlap the changes here. Nothing changed.`);
+      if (/would be overwritten|already exists/.test((err as GitError).stderr || '')) throw new git.GitError(`The changes from “${m.name}” overlap the changes here. Nothing changed.`);
       throw err;
     }
   }
 
   // Undo or redo a moveCheckout. Branches and HEAD here must be where the step left them, and the
   // other worktree still detached (undo) or back on the branch (redo).
-  async restoreMoved(entry, dir) {
+  async restoreMoved(entry: JournalEntry, dir: Dir): Promise<void> {
     const cwd = this.root;
     const m = entry.moved;
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    if (!m) return;
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
     const there = await git.run(m.path, ['symbolic-ref', '-q', 'HEAD'], { allowCodes: [0, 1] }).then((o) => o.trim(), () => null);
     if (there === null) throw fail(`${m.name} no longer exists.`);
     if (there !== (dir === 'undo' ? '' : `refs/heads/${m.branch}`)) throw fail(`${m.name} has switched branch since.`);
     if (dir === 'redo') {
-      try { await this.moveNow(m, entry.before.head?.replace(/^refs\/heads\//, '') || entry.before.headOid); } catch (err) { throw fail(err.message); }
+      try { await this.moveNow(m, entry.before.head?.replace(/^refs\/heads\//, '') || entry.before.headOid); } catch (err) { throw fail((err as Error).message); }
       return;
     }
     const env = { GIT_OPTIONAL_LOCKS: '1' };
@@ -562,14 +631,14 @@ class Journal {
       if (back) await git.stashApply(m.path, await stashRef(m.path, back), true);
       m.mine = m.theirs = null;
     } catch (err) {
-      throw fail(err.message);
+      throw fail((err as Error).message);
     }
   }
 
   // Stash every uncommitted change, then run `fn` (a ref mutation git refused over them), as one
   // undoable step like autostash: undo moves the refs back and pops the stash, redo stashes again
   // and moves them forward. If fn fails without moving anything, the stash is popped right away.
-  stashAnd(label, method, fn) {
+  stashAnd<T>(label: string, method: string, fn: () => Promise<T>): Promise<T> {
     return this.lock(async () => {
       const cwd = this.root;
       const id = ++nextId;
@@ -588,7 +657,7 @@ class Journal {
       } finally {
         // The stash is part of the step only if refs moved (a failed merge leaves it listed, unrecorded).
         const keep = made && !same(await git.captureRefState(cwd), before) && (await git.getStashes(cwd)).some((x) => x.sha === sha);
-        await this.finish({ id, label, method, before, autostash: keep ? autostash : null }).catch((err) => console.warn('journal failed', err.message));
+        await this.finish({ id, label, method, before, autostash: keep ? autostash : null }).catch((err: Error) => console.warn('journal failed', err.message));
       }
     });
   }
@@ -598,7 +667,7 @@ class Journal {
   // back into a stopped operation, so undo returns to the state right after the abort. Files
   // already resolved are saved first (git.saveResolved) and pinned with the step, for
   // restoreResolved. Returns { result, op, saved: { sha, paths } | null }.
-  abortAnd(label, method, fn) {
+  abortAnd<T>(label: string, method: string, fn: () => Promise<T>): Promise<{ result: T; op: OperationKind | null; saved: SavedResolved | null }> {
     return this.lock(async () => {
       const op = await git.getOperationState(this.gitDir);
       const saved = op ? await git.saveResolved(this.root, this.gitDir) : null;
@@ -614,7 +683,7 @@ class Journal {
   // Abort the operation stopped here (`fn`) without making the abort a step (AK-577): it put HEAD
   // back, so the steps that started the stopped sequence are dropped and the next ⌘Z undoes the
   // step before them, never landing on a detached HEAD.
-  abortOp(fn) {
+  abortOp<T>(fn: () => Promise<T>): Promise<T> {
     return this.lock(async () => {
       const res = await fn();
       await this.dropAborted();
@@ -624,10 +693,10 @@ class Journal {
 
   // After an abort: drop the step that stopped on a detached HEAD and any taken while it was
   // stopped, when the repository is back exactly where that step started.
-  async dropAborted() {
+  async dropAborted(): Promise<void> {
     const hot = this.undo.hot;
     let i = hot.length - 1;
-    while (i >= 0 && !hot[i].before.head && !hot[i].after.head) i--;
+    while (i >= 0 && !hot[i]?.before.head && !hot[i]?.after.head) i--;
     const start = hot[i];
     if (!start || !start.before.head || start.after.head) return;
     if (hot.slice(i).some((e) => e.work || e.stash || e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.moved || e.remote)) return;
@@ -640,28 +709,30 @@ class Journal {
   }
 
   // Put back the files abortAnd saved (git.restoreResolved), as an undoable work step.
-  restoreResolved(label, sha) {
+  restoreResolved(label: string, sha: string): Promise<string | undefined> {
     return this.lock(async () => this.recordNow(label, 'restoreResolved', () => git.restoreResolved(this.root, this.gitDir, sha), { paths: () => git.resolvedPaths(this.root, sha) }));
   }
 
   // Add or remove a worktree as an undoable step. Adding can also create a branch.
-  runWorktree(method, label, args) {
+  runWorktree(method: string, label: string, args: OpArgs): Promise<EntryWorktree> {
     return this.lock(() => this.runWorktreeNow(method, label, args));
   }
 
-  async runWorktreeNow(method, label, args) {
+  async runWorktreeNow(method: string, label: string, args: OpArgs): Promise<EntryWorktree> {
     const cwd = this.root;
     const id = ++nextId;
     const before = await git.captureRefState(cwd);
-    let wt;
+    const op = worktreeOps[method];
+    if (!op) throw new git.GitError(`Unknown step ${method}`);
+    let wt: Worktree & { stash?: string };
     try {
-      wt = await worktreeOps[method].run(cwd, ...args);
+      wt = await op.run(cwd, ...args);
     } catch (err) {
       // A failed add can still have created the branch; record that so it can be undone.
       await this.finish({ id, label, method, before }).catch(() => {});
       throw err;
     }
-    const worktree = { op: worktreeOps[method].op, path: wt.path, branch: wt.branch, head: wt.head, ...(wt.stash ? { stash: wt.stash } : {}) };
+    const worktree: EntryWorktree = { op: op.op, path: wt.path, branch: wt.branch, head: wt.head, ...(wt.stash ? { stash: wt.stash } : {}) };
     await this.finish({ id, label, method, before, worktree });
     return worktree;
   }
@@ -670,42 +741,42 @@ class Journal {
   // removed and the branch deleted all come back with one undo. `fn(done)` fills `done`; resolved
   // files it saved before aborting an operation stopped here (`done.saved`) are pinned with the step
   // and returned with the result as { op, saved }, for restoreResolved.
-  runLane(label, method, fn) {
+  runLane<R extends object>(label: string, method: string, fn: (done: MergeLaneDone) => Promise<R>): Promise<R | (R & { op: OperationKind | undefined; saved: SavedResolved })> {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
-      const done = {};
+      const done: MergeLaneDone = {};
       try {
         const res = await fn(done);
         return done.saved ? { ...res, op: done.op, saved: done.saved } : res;
       } finally {
         const wt = done.worktree;
-        const worktree = wt && { op: 'remove', path: wt.path, branch: wt.branch, head: wt.head };
+        const worktree: EntryWorktree | undefined = wt && { op: 'remove', path: wt.path, branch: wt.branch, head: wt.head };
         const resolved = done.saved?.sha ? { sha: done.saved.sha } : null;
-        await this.finish({ id, label, method, before, worktree, resolved }).catch((err) => console.warn('journal failed', err.message));
+        await this.finish({ id, label, method, before, worktree, resolved }).catch((err: Error) => console.warn('journal failed', err.message));
       }
     });
   }
 
   // Lanes → Clean up (git.cleanupLanes): every worktree removed and branch deleted is one
   // undoable step. Returns git.cleanupLanes' result; `onProgress` is passed through.
-  runCleanup(label, items, opts) {
+  runCleanup(label: string, items: CleanupItem[], opts?: { onProgress?: (p: { done: number; total: number }) => void }): Promise<CleanupResult> {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
-      let res = { removed: [], deleted: [], failed: [] };
+      let res: CleanupResult = { removed: [], deleted: [], failed: [] };
       try {
         res = await git.cleanupLanes(this.root, items, opts);
       } finally {
         const cleanup = res.removed.map(({ path: p, branch, head, pruned, saved }) => ({ path: p, branch, head, pruned, ...(saved ? { saved } : {}) }));
-        await this.finish({ id, label, method: 'cleanupLanes', before, cleanup }).catch((err) => console.warn('journal failed', err.message));
+        await this.finish({ id, label, method: 'cleanupLanes', before, cleanup }).catch((err: Error) => console.warn('journal failed', err.message));
       }
       return res;
     });
   }
 
   // Initialise or update submodules as an undoable step (see git.updateSubmodules).
-  runSubmodules(label, paths, opts) {
+  runSubmodules(label: string, paths?: readonly string[], opts?: { stash?: boolean }): Promise<number> {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
@@ -718,7 +789,7 @@ class Journal {
 
   // Stash or discard the uncommitted changes inside submodule `p` as an undoable step. Undo
   // pops the stash or puts the discarded changes back (see git.restoreSubmodules).
-  runSubmoduleWork(label, p, mode) {
+  runSubmoduleWork(label: string, p: string, mode: 'stash' | 'discard'): Promise<boolean> {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
@@ -727,27 +798,29 @@ class Journal {
       const message = `Stashed from ${p}`;
       const sha = await (mode === 'discard' ? git.discardSubmodule(this.root, p) : git.stashSubmodule(this.root, p, message));
       if (!sha) throw new git.GitError(`${p} has no uncommitted changes.`);
-      const change = { path: p, before: head, after: head, stash: sha, ...(mode === 'discard' ? { discarded: true } : { message }) };
+      const change: SubmoduleChange = { path: p, before: head, after: head, stash: sha, ...(mode === 'discard' ? { discarded: true } : { message }) };
       await this.finish({ id, label, method: 'submoduleWork', before, submodules: [change] });
       return true;
     });
   }
 
   // Add, change the URL of, rename or remove a remote as an undoable step (see git.changeRemote).
-  runRemote(method, label, args) {
+  runRemote(method: string, label: string, args: OpArgs): Promise<boolean> {
     return this.lock(async () => {
       const id = ++nextId;
       const before = await git.captureRefState(this.root);
-      const remote = await git.changeRemote(this.root, remoteOps[method], ...args);
+      const op = remoteOps[method];
+      if (!op) throw new git.GitError(`Unknown step ${method}`);
+      const remote = await git.changeRemote(this.root, op, ...(args as [string, string?]));
       await this.finish({ id, label, method, before, remote });
       return true;
     });
   }
 
-  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, moved, remote, midSequence, resolved }) {
+  async finish({ id, label, method, before, workBefore, stashesBefore, worktree, cleanup, submodules, autostash, freed, moved, remote, midSequence, resolved }: FinishInput): Promise<void> {
     const cwd = this.root;
     const after = await git.captureRefState(cwd).catch(() => null);
-    const entry = { id, label, method, time: Date.now(), before, after: after || before };
+    const entry: JournalEntry = { id, label, method, time: Date.now(), before, after: after || before };
     if (worktree) entry.worktree = worktree;
     let changed = !same(entry.before, entry.after) || !!worktree;
     if (cleanup) { entry.cleanup = cleanup; changed ||= cleanup.length > 0; }
@@ -768,11 +841,12 @@ class Journal {
       const now = await git.getStashes(cwd).catch(() => null);
       const index = now ? stashesBefore.findIndex((x) => !now.some((y) => y.sha === x.sha)) : -1;
       const added = now ? now.findIndex((x) => !stashesBefore.some((y) => y.sha === x.sha)) : -1;
-      if (index !== -1) {
-        entry.stash = { sha: stashesBefore[index].sha, message: stashesBefore[index].message, time: stashesBefore[index].time, index };
+      const gone = stashesBefore[index], made = now?.[added];
+      if (gone) {
+        entry.stash = { sha: gone.sha, message: gone.message, time: gone.time, index };
         changed = true;
-      } else if (added !== -1) {
-        entry.stash = { sha: now[added].sha, message: now[added].message, time: now[added].time, index: added, added: true };
+      } else if (made) {
+        entry.stash = { sha: made.sha, message: made.message, time: made.time, index: added, added: true };
         changed = true;
       }
     }
@@ -787,7 +861,7 @@ class Journal {
     const archived = await this.archive(this.undo);
     if (!this.persist()) return;
     this.removePages(dropped.pages);
-    if (dropped.length || archived || folded) await this.prunePins().catch((err) => console.warn('prune failed', err.message));
+    if (dropped.length || archived || folded) await this.prunePins().catch((err: Error) => console.warn('prune failed', err.message));
   }
 
   // A conflicted rebase (or cherry-pick/revert) is recorded as the step that
@@ -796,11 +870,12 @@ class Journal {
   // last would leave HEAD detached mid-sequence with the sequence state gone, so
   // fold them into one entry: undo goes back to before the start, redo to the end.
   // Returns the folded entry and how many hot entries it replaces, or null.
-  foldSequence(entry) {
+  foldSequence(entry: JournalEntry): { entry: JournalEntry; count: number } | null {
     const hot = this.undo.hot;
     if (hot.at(-1)?.after.headOid !== entry.before.headOid) return null; // something moved HEAD outside Since
     for (let i = hot.length - 1; i >= 0; i--) {
       const e = hot[i];
+      if (!e) return null;
       if (e.worktree || e.cleanup || e.submodules || e.autostash || e.freed || e.moved || e.remote) return null;
       if (e.before.head && !e.after.head) {
         if (e.work || e.stash) return null;
@@ -816,13 +891,13 @@ class Journal {
   // `stash`: stash what blocks the step first (see stashThenStep). `force`: take the step even
   // though branches or HEAD moved since (see adoptMoved).
   // `discard`: the same, but the changes leave the stash list; the opposite step brings them back.
-  step(dir, { stash = false, force = false, skip = false, discard = false } = {}) {
+  step(dir: Dir, { stash = false, force = false, skip = false, discard = false }: { stash?: boolean; force?: boolean; skip?: boolean; discard?: boolean } = {}): Promise<string | null> {
     return this.lock(() => (skip ? this.skipStep(dir) : stash || discard ? this.stashThenStep(dir, { force }, discard) : this.stepNow(dir, { force })));
   }
 
   // "Skip this step": the step can't be taken (its stash is gone), so drop it from the stack
   // without touching the repository. Returns its label.
-  async skipStep(dir) {
+  async skipStep(dir: Dir): Promise<string | null> {
     const from = dir === 'undo' ? this.undo : this.redo;
     const entry = from.top;
     if (!entry) return null;
@@ -838,13 +913,13 @@ class Journal {
   // popped right away.
   // "Discard and undo" (AK-583): the stash is dropped from the list but kept on the entry
   // (`discarded`, pinned), and re-applied when the opposite step is taken.
-  async stashThenStep(dir, opts, discard = false) {
+  async stashThenStep(dir: Dir, opts: { force?: boolean }, discard = false): Promise<string | null> {
     const cwd = this.root;
     const entry = (dir === 'undo' ? this.undo : this.redo).top;
     if (!entry) return null;
     const cur = dir === 'undo' ? 'after' : 'before';
     const message = `Set aside to ${dir} “${entry.label}”`;
-    const made = []; // [submodule path or null, sha]
+    const made: [string | null, string][] = []; // [submodule path or null, sha]
     if (entry.submodules) {
       for (const c of entry.submodules) {
         const sha = c[cur] && !(dir === 'redo' && c.stash) ? await git.stashSubmodule(cwd, c.path, message) : null;
@@ -854,7 +929,7 @@ class Journal {
       const snap = entry.work?.[cur];
       const paths = snap ? git.workChanges(snap, await git.snapshotWork(cwd, snap.files.map((f) => f.path), { write: false, indexOnly: !!snap.indexOnly })) : [];
       const prev = await stashTop(cwd);
-      await git.stashPush(cwd, { message, untracked: true, paths: paths.length ? paths : undefined });
+      await git.stashPush(cwd, { message, untracked: true, ...(paths.length ? { paths } : {}) });
       const sha = await stashTop(cwd);
       if (sha && sha !== prev) made.push([null, sha]);
     }
@@ -875,19 +950,19 @@ class Journal {
     }
   }
 
-  async stepNow(dir, { force = false } = {}) {
+  async stepNow(dir: Dir, { force = false }: { force?: boolean } = {}): Promise<string | null> {
     const from = dir === 'undo' ? this.undo : this.redo;
     const to = dir === 'undo' ? this.redo : this.undo;
     const entry = from.top;
     if (!entry) return null;
-    let note = null, adopted = null;
+    let note: string | null = null, adopted: { side: 'before' | 'after'; state: RefState } | null = null;
     try {
       if (force) adopted = await this.adoptMoved(entry, dir);
       if (entry.moved) await this.restoreMoved(entry, dir);
       else if (entry.freed) await this.restoreFreed(entry, dir);
       else if (entry.worktree) await this.restoreWorktree(entry, dir);
       else if (entry.cleanup) note = await this.restoreCleanup(entry, dir);
-      else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`, { code: err.code }); });
+      else if (entry.submodules) await git.restoreSubmodules(this.root, entry.submodules, dir).catch((err: GitError) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`, { code: err.code }); });
       else if (entry.autostash || ['switchDelete', 'switchMerge', 'switchRewrite'].includes(entry.method)) await this.restoreAutostash(entry, dir);
       else if (entry.remote) await this.restoreRemote(entry, dir);
       else if (entry.work || entry.stash) await this.restoreWork(entry, dir);
@@ -896,7 +971,8 @@ class Journal {
       if (adopted) entry[adopted.side] = adopted.state; // refused anyway: the entry stays as it was
       // Uncommitted changes in the way (git's own codes are exit numbers): the renderer offers
       // "Stash and undo" (step with `stash`).
-      if (typeof err.code !== 'string' && !entry.worktree && !entry.cleanup && DIRTY.test(`${err.stderr || ''}\n${err.message}`)) err.code = 'dirty';
+      const e = err as GitError;
+      if (typeof e.code !== 'string' && !entry.worktree && !entry.cleanup && DIRTY.test(`${e.stderr || ''}\n${e.message}`)) e.code = 'dirty';
       throw err;
     }
     // Changes discarded to take this step the other way come back with it.
@@ -911,15 +987,15 @@ class Journal {
     const archived = await this.archive(to);
     if (this.persist()) {
       this.removePages(loaded);
-      if (archived) await this.prunePins().catch((err) => console.warn('prune failed', err.message));
+      if (archived) await this.prunePins().catch((err: Error) => console.warn('prune failed', err.message));
     }
     return note ? `${entry.label} (${note})` : entry.label;
   }
 
   // A plain ref step (checkout, branch, commit, merge, rewrite…). Branches and HEAD must still be
   // where the step left them, so commits made outside Since since are never reset away.
-  async restoreRefs(entry, dir) {
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+  async restoreRefs(entry: JournalEntry, dir: Dir): Promise<void> {
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const expected = dir === 'undo' ? entry.after : entry.before, now = await git.captureRefState(this.root);
     if (!same(now, expected)) throw movedError(fail, expected, now);
     await git.restoreRefState(this.root, dir === 'undo' ? entry.before : entry.after, { soft: entry.method === 'createCommit' });
@@ -928,7 +1004,7 @@ class Journal {
   // "Undo anyway": branches or HEAD moved since the step. Take where they are now as the step's
   // other side, so the step restores its snapshot and the opposite step brings today's refs back.
   // Only for steps that refuse over moved refs. Returns what it replaced, or null.
-  async adoptMoved(entry, dir) {
+  async adoptMoved(entry: JournalEntry, dir: Dir): Promise<{ side: 'before' | 'after'; state: RefState } | null> {
     if (entry.cleanup || entry.remote || entry.submodules) return null;
     const plain = !entry.freed && !entry.worktree && !entry.work && !entry.stash && !entry.autostash;
     if (!plain && !entry.autostash && entry.method !== 'switchDelete' && same(entry.before, entry.after)) return null;
@@ -944,16 +1020,18 @@ class Journal {
 
   // Undo or redo an entry with a work snapshot or a dropped stash. The current
   // state must still match the entry's other side, so nothing newer is overwritten.
-  async restoreWork(entry, dir) {
+  async restoreWork(entry: JournalEntry, dir: Dir): Promise<void> {
     const cwd = this.root;
-    const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const [cur, next] = dir === 'undo' ? ['after', 'before'] as const : ['before', 'after'] as const;
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const movesRefs = !same(entry.before, entry.after);
-    const now = movesRefs && await git.captureRefState(cwd);
-    if (movesRefs && !same(now, entry[cur])) throw movedError(fail, entry[cur], now);
+    const now = movesRefs ? await git.captureRefState(cwd) : null;
+    if (now && !same(now, entry[cur])) throw movedError(fail, entry[cur], now);
     if (entry.work) {
-      const paths = entry.work[next].files.map((f) => f.path);
-      const indexOnly = !!entry.work[next].indexOnly;
+      const target = entry.work[next];
+      if (!target) throw fail('its snapshot is missing.');
+      const paths = target.files.map((f) => f.path);
+      const indexOnly = !!target.indexOnly;
       if (!entry.work[cur]) {
         // The snapshot after the operation failed; take it now so redo still works.
         entry.work[cur] = await git.snapshotWork(cwd, paths, { indexOnly });
@@ -965,12 +1043,14 @@ class Journal {
       }
     }
     // A dropped stash comes back on undo; an added one goes away on undo.
-    const removing = entry.stash && (dir === 'undo') === !!entry.stash.added;
-    if (removing && !(await git.getStashes(cwd)).some((x) => x.sha === entry.stash.sha)) throw Object.assign(fail(`the stash “${entry.stash.message}” no longer exists.`), {
-      code: 'stash-gone', step: { label: entry.label, time: entry.time, stash: { message: entry.stash.message, time: entry.stash.time ? entry.stash.time * 1000 : null } },
+    const st = entry.stash;
+    const removing = !!st && (dir === 'undo') === !!st.added;
+    if (st && removing && !(await git.getStashes(cwd)).some((x) => x.sha === st.sha)) throw Object.assign(fail(`the stash “${st.message}” no longer exists.`), {
+      code: 'stash-gone', step: { label: entry.label, time: entry.time, stash: { message: st.message, time: st.time ? st.time * 1000 : null } },
     });
     if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: true });
-    if (entry.work) await git.restoreWork(cwd, entry.work[next]);
+    const snapshot = entry.work?.[next];
+    if (snapshot) await git.restoreWork(cwd, snapshot);
     if (entry.stash) {
       if (removing) await git.dropStashCommit(cwd, entry.stash.sha);
       else await git.restoreStash(cwd, entry.stash);
@@ -979,9 +1059,9 @@ class Journal {
 
   // Undo or redo a stash-and-switch (autostash) or a switch-and-delete, with or without a
   // stash. Branches and HEAD must still be where the step left them.
-  async restoreAutostash(entry, dir) {
+  async restoreAutostash(entry: JournalEntry, dir: Dir): Promise<void> {
     const cwd = this.root;
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const expected = dir === 'undo' ? entry.after : entry.before, now = await git.captureRefState(cwd);
     if (!same(now, expected)) throw movedError(fail, expected, now);
     const a = entry.autostash;
@@ -1006,9 +1086,10 @@ class Journal {
 
   // Undo or redo a checkout that freed its branch from another worktree (freeCheckout). That
   // worktree must still be detached (undo) or back on the branch (redo).
-  async restoreFreed(entry, dir) {
+  async restoreFreed(entry: JournalEntry, dir: Dir): Promise<void> {
+    if (!entry.freed) return;
     const cwd = this.root;
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     if (!same(await git.captureRefState(cwd), dir === 'undo' ? entry.after : entry.before)) throw fail('branches or HEAD have moved since.');
     const { path: wtPath, branch } = entry.freed;
     const env = { GIT_OPTIONAL_LOCKS: '1' };
@@ -1024,13 +1105,14 @@ class Journal {
         await git.restoreRefState(cwd, entry.after);
       }
     } catch (err) {
-      throw fail(err.message);
+      throw fail((err as Error).message);
     }
   }
 
   // Undo or redo a remote change. Redoing a remove saves the remote's refs again, so pin those.
-  async restoreRemote(entry, dir) {
-    await git.revertRemote(this.root, entry.remote, dir).catch((err) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
+  async restoreRemote(entry: JournalEntry, dir: Dir): Promise<void> {
+    if (!entry.remote) return;
+    await git.revertRemote(this.root, entry.remote, dir).catch((err: Error) => { throw new git.GitError(`Can't ${dir} “${entry.label}”: ${err.message}`); });
     if (entry.remote.op === 'remove' && dir === 'redo') {
       await this.pin(entry.id, pins(entry));
       delete entry.pin;
@@ -1041,14 +1123,15 @@ class Journal {
   // clean and unlocked (git.removeWorktree checks); a branch created with it is
   // deleted only if nothing has moved since. A lane step can also have moved the
   // branch checked out here (its base), so the working copy follows HEAD.
-  async restoreWorktree(entry, dir) {
+  async restoreWorktree(entry: JournalEntry, dir: Dir): Promise<void> {
     const cwd = this.root;
-    const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const [cur, next] = dir === 'undo' ? ['after', 'before'] as const : ['before', 'after'] as const;
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const movesRefs = !same(entry.before, entry.after);
-    const now = movesRefs && await git.captureRefState(cwd);
-    if (movesRefs && !same(now, entry[cur])) throw movedError(fail, entry[cur], now);
+    const now = movesRefs ? await git.captureRefState(cwd) : null;
+    if (now && !same(now, entry[cur])) throw movedError(fail, entry[cur], now);
     const wt = entry.worktree;
+    if (!wt) return;
     const adding = (wt.op === 'add') === (dir === 'redo');
     try {
       if (adding) {
@@ -1070,12 +1153,12 @@ class Journal {
         if (movesRefs) await git.restoreRefState(cwd, entry[next], { refsOnly: !laneOps.has(entry.method) });
       }
     } catch (err) {
-      throw fail(err.message);
+      throw fail((err as Error).message);
     }
   }
 
   // A worktree removed again on redo has a new stash commit (or none, if it had no changes left).
-  async resave(entry, w, saved) {
+  async resave(entry: JournalEntry, w: { saved?: SavedWorktree }, saved: SavedWorktree | undefined): Promise<void> {
     if (saved) w.saved = saved;
     else delete w.saved;
     await this.pin(entry.id, pins(entry));
@@ -1088,21 +1171,22 @@ class Journal {
   // were already missing (pruned) aren't re-added; a dirty one comes back with its changes, from
   // the stash taken when it was removed. Redo removes them again (stashing those changes again).
   // Returns a note about worktrees that couldn't be re-added, or null.
-  async restoreCleanup(entry, dir) {
+  async restoreCleanup(entry: JournalEntry, dir: Dir): Promise<string | null> {
     const cwd = this.root;
-    const [cur, next] = dir === 'undo' ? ['after', 'before'] : ['before', 'after'];
-    const fail = (why) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
+    const [cur, next] = dir === 'undo' ? ['after', 'before'] as const : ['before', 'after'] as const;
+    const fail = (why: string) => new git.GitError(`Can't ${dir} “${entry.label}”: ${why}`);
     const names = [...new Set([...Object.keys(entry.before.refs), ...Object.keys(entry.after.refs)])].filter((n) => entry.before.refs[n] !== entry.after.refs[n]);
     const now = await git.captureRefState(cwd);
     const moved = names.filter((n) => now.refs[n] !== entry[cur].refs[n]);
     if (moved.length) throw fail(`${listPaths(moved.map(shortRef))} changed since.`);
-    const refs = { ...now.refs };
+    const refs: Record<string, string> = { ...now.refs };
     for (const n of names) {
-      if (entry[next].refs[n]) refs[n] = entry[next].refs[n];
+      const tip = entry[next].refs[n];
+      if (tip) refs[n] = tip;
       else delete refs[n];
     }
     const target = { ...now, refs };
-    const worktrees = entry.cleanup.filter((w) => !w.pruned);
+    const worktrees = (entry.cleanup ?? []).filter((w) => !w.pruned);
     if (dir === 'redo') {
       const list = await git.getWorktrees(cwd);
       const back = worktrees.filter((w) => list.some((x) => !x.missing && git.samePath(x.path, w.path)));
@@ -1117,12 +1201,12 @@ class Journal {
         }
         await git.restoreRefState(cwd, target, { refsOnly: true });
       } catch (err) {
-        throw fail(err.message);
+        throw fail((err as Error).message);
       }
       return null;
     }
-    await git.restoreRefState(cwd, target, { refsOnly: true }).catch((err) => { throw fail(err.message); });
-    const skipped = [];
+    await git.restoreRefState(cwd, target, { refsOnly: true }).catch((err) => { throw fail((err as Error).message); });
+    const skipped: string[] = [];
     for (const w of worktrees) {
       try { await git.restoreWorktree(cwd, w); } catch { skipped.push(path.basename(w.path)); }
     }
@@ -1130,7 +1214,7 @@ class Journal {
   }
 
   // What "Restore before" an entry would change right now, without changing anything.
-  async previewRestore(id) {
+  async previewRestore(id: number): Promise<RestorePreview> {
     const entry = this.find(id);
     if (!entry) throw new git.GitError('Snapshot not found');
     const current = await git.captureRefState(this.root);
@@ -1138,7 +1222,7 @@ class Journal {
   }
 
   // Move refs back to the state before an entry (the Snapshots view's "Restore before").
-  restore(id) {
+  restore(id: number): Promise<void> {
     return this.lock(async () => {
       const entry = this.find(id);
       if (!entry) throw new git.GitError('Snapshot not found');
@@ -1147,4 +1231,3 @@ class Journal {
   }
 }
 
-module.exports = { Journal, workOps, worktreeOps, laneOps, remoteOps, PAGE, refChanges };

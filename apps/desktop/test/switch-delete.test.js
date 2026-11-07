@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
-const { Journal } = require('../src/main/journal');
+const { Journal } = require('../src/main/journal.ts');
 const { checkGit } = require('../src/main/ipc.ts');
 
 async function repo() {

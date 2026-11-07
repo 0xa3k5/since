@@ -12,7 +12,7 @@ test('every git method the main process serves has a schema, and nothing else do
   const main = require('./main-source').mainSource();
   const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
-  const { workOps, worktreeOps, laneOps, remoteOps } = require('../src/main/journal');
+  const { workOps, worktreeOps, laneOps, remoteOps } = require('../src/main/journal.ts');
   const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...Object.keys(remoteOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'submoduleWork', 'autostashCheckout', 'switchDelete', 'switchMerge', 'switchRewrite', 'freeCheckout', 'moveCheckout', 'stashAnd', 'abortAnd', 'restoreResolved', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });

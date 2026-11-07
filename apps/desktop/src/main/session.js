@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const git = require('./git/index.ts');
-const { Journal } = require('./journal');
+const { Journal } = require('./journal.ts');
 const { LogStreams } = require('./log-streams.ts');
 
 const sessions = new Map(); // webContents.id -> RepoSession

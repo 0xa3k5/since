@@ -4,7 +4,7 @@
 
 const { test, expect } = require('./fixtures');
 const git = require('../src/main/git/index.ts');
-const { Journal } = require('../src/main/journal');
+const { Journal } = require('../src/main/journal.ts');
 
 const STEPS = 251; // odd, so scratch ends away from where the oldest step started
 

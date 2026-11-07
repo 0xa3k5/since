@@ -222,3 +222,10 @@ export interface ChangeSize {
   assets: number; generated: number;
 }
 export interface ChangeFacts { base: string; head: string; mergeBase: string; size: ChangeSize; facts: ChangeFact[] }
+
+/** What restoring a ref state would change: where HEAD points, then each branch and tag. */
+export interface RefChange { ref: string; kind: 'head' | 'move' | 'create' | 'delete'; from: string | null; to: string | null }
+/** An undo or redo step as the history list shows it. */
+export interface JournalItem { id: number; label: string; time: number; movesRefs: boolean }
+export interface JournalList { undo: JournalItem[]; redo: JournalItem[]; undoCount: number; redoCount: number }
+export interface RestorePreview { label: string; changes: RefChange[]; movesHead: boolean }
