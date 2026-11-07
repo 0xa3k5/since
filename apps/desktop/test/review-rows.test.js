@@ -2,7 +2,7 @@
 // Review stages (renderer/review-rows.js reviewRows) and the PR fields they read (github.normalizePr).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
 const load = () => import('../src/renderer/review/review-rows.js');
 const NOW = Date.parse('2026-10-15T12:00:00Z');

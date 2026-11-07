@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
 const remote = (name, url) => ({ name, url, web: require('../src/main/git/index.ts').remoteWebUrl(url) });
 const ORIGIN = remote('origin', 'git@github.com:acme/app.git');

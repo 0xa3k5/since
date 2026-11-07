@@ -3,7 +3,7 @@
 // failing checks, never a block. Plus the merge gate it reads (github.mergeGate).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
 const load = () => import('../src/renderer/lanes/check-confirm.js');
 const VIEW = (o = {}) => JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'UNSTABLE', reviewDecision: '', headRefName: 'b', headRefOid: 'a'.repeat(40), ...o });

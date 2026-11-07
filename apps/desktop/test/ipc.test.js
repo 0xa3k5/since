@@ -276,7 +276,7 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
   // AK-446: a missing remote is still refused, not defaulted.
   for (const v of [undefined, null, '']) rejects(() => check.knownRemote(remotes, v), /remote: (expected a string|empty)/);
   rejects(() => check.knownRemote([], 'origin'), /not a remote/);
-  const method = check.oneOf(...require('../src/main/github').MERGE_METHODS);
+  const method = check.oneOf(...require('../src/main/github.ts').MERGE_METHODS);
   for (const m of ['squash', 'merge', 'rebase']) assert.strictEqual(method(m, 'merge method'), m);
   for (const m of ['--admin', 'squash --admin', '', undefined]) rejects(() => method(m, 'merge method'));
   rejects(() => check.bool('true', 'delete branch'));

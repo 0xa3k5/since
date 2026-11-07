@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 const store = require('../src/main/stores/catchup-store.ts');
 
 const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `since-catchup-${p}-`)));

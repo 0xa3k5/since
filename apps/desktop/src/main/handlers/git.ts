@@ -5,7 +5,7 @@ import { workOps, worktreeOps, laneOps, remoteOps } from '../journal.ts';
 import * as check from '../ipc.ts';
 import * as channels from '../../shared/channels.ts';
 import { menuChanged } from '../app-events.ts';
-import * as github from '../github.js';
+import * as github from '../github.ts';
 import * as changeFacts from '../change-facts.ts';
 import { windowFor, sessions, session } from '../session.ts';
 import { handle, serializeError } from './handle.ts';

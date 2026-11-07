@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
 const load = () => import('../src/renderer/lanes/send-back.js');
 const pr = (o = {}) => ({ number: 12, title: 'Add changelog', branch: 'feat/log', base: 'main', checks: 'success', failing: [], mergeable: true, ...o });
