@@ -1,31 +1,34 @@
-'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const { run, SEP, GitError, W_ENV, tooOld } = require('./run');
-const { workingDiff, buildPartialPatch, applyPatch } = require('./status');
-const { pinObjects } = require('./undo');
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { run, SEP, GitError, W_ENV, tooOld } from './run.ts';
+import { workingDiff, buildPartialPatch, applyPatch } from './status.ts';
+import { pinObjects } from './undo.ts';
+import type { DiffTarget } from './status.ts';
+import type { Stash } from '../../shared/git-types.ts';
+
+export interface StashPushOptions { message?: string | null; untracked?: boolean; staged?: boolean; paths?: readonly string[] }
 
 // Stashes
 
-async function getStashes(cwd) {
+export async function getStashes(cwd: string): Promise<Stash[]> {
   const out = await run(cwd, ['stash', 'list', '--format=%gd%x00%H%x00%at%x00%gs'], { allowCodes: [0, 1, 128] });
   return out.split('\n').filter(Boolean).map((l) => {
-    const [ref, sha, time, msg] = l.split(SEP);
-    return { ref, sha, time: +time, message: msg };
+    const [ref = '', sha = '', time, msg = ''] = l.split(SEP);
+    return { ref, sha, time: Number(time), message: msg };
   });
 }
 
 // Stash list edits used to undo and redo a dropped stash.
 
-async function dropStashCommit(cwd, sha) {
+export async function dropStashCommit(cwd: string, sha: string): Promise<void> {
   const i = (await getStashes(cwd)).findIndex((x) => x.sha === sha);
   if (i === -1) throw new GitError('That stash no longer exists.');
   await run(cwd, ['stash', 'drop', '-q', `stash@{${i}}`], { env: W_ENV });
 }
 
 // Put a dropped stash back at its old position, with its old message.
-async function restoreStash(cwd, { sha, message, index }) {
+export async function restoreStash(cwd: string, { sha, message, index }: { sha: string; message: string; index: number }): Promise<void> {
   const list = await getStashes(cwd);
   if (list.some((x) => x.sha === sha)) return;
   const above = list.slice(0, index);
@@ -38,12 +41,12 @@ async function restoreStash(cwd, { sha, message, index }) {
 }
 
 // Stash some or all uncommitted changes: `paths` limits it to those files, `staged` to the index.
-async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
+export async function stashPush(cwd: string, { message, untracked, staged, paths }: StashPushOptions = {}): Promise<void> {
   if (staged && untracked) throw new GitError('Staged-only stashes can’t include untracked files.');
   const args = ['stash', 'push', ...(staged ? ['--staged'] : []), ...(untracked ? ['-u'] : []), ...(message ? ['-m', message] : [])];
   // A path whose deletion is staged (the old side of a rename) isn't a pathspec git stash accepts.
   // Stash the rest (the stash's index already records the deletion), then put the old path back.
-  let gone = [];
+  let gone: string[] = [];
   if (paths?.length && !staged) {
     const known = new Set((await run(cwd, ['ls-files', '-z', '--', ...paths])).split('\0').filter(Boolean));
     gone = paths.filter((p) => !known.has(p) && !fs.existsSync(path.join(cwd, p)));
@@ -56,14 +59,15 @@ async function stashPush(cwd, { message, untracked, staged, paths } = {}) {
     if (gone.length) await run(cwd, ['checkout', 'HEAD', '--', ...gone]);
   } catch (e) {
     // `stash push --staged` arrived in Git 2.35; older git rejects the option with a usage dump.
-    if (staged && /unknown option|usage: git stash/i.test(`${e.stderr || ''}\n${e.message}`)) throw tooOld('stashStaged');
+    const err = e as GitError;
+    if (staged && /unknown option|usage: git stash/i.test(`${err.stderr || ''}\n${err.message}`)) throw tooOld('stashStaged');
     throw e;
   }
 }
 
 // Stash only the selected unstaged lines of one file, then take them out of the working tree.
 // The stash is HEAD plus those lines, so the file may not have staged changes of its own.
-async function stashLines(cwd, file, selected, message) {
+export async function stashLines(cwd: string, file: DiffTarget, selected: readonly string[], message?: string | null): Promise<void> {
   const d = await workingDiff(cwd, file, { staged: false });
   const patch = d && buildPartialPatch(d, selected, 'stage');
   if (!patch) throw new GitError('Select changed lines to stash.');
@@ -88,10 +92,9 @@ async function stashLines(cwd, file, selected, message) {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
-  await applyPatch(cwd, buildPartialPatch(d, selected, 'reverse'), { reverse: true });
+  await applyPatch(cwd, buildPartialPatch(d, selected, 'reverse') ?? '', { reverse: true });
 }
 
-const stashApply = (cwd, ref, pop) => run(cwd, ['stash', pop ? 'pop' : 'apply', '--index', ref], { env: W_ENV });
-const stashDrop = (cwd, ref) => run(cwd, ['stash', 'drop', ref], { env: W_ENV });
+export const stashApply = (cwd: string, ref: string, pop?: boolean): Promise<string> => run(cwd, ['stash', pop ? 'pop' : 'apply', '--index', ref], { env: W_ENV });
+export const stashDrop = (cwd: string, ref: string): Promise<string> => run(cwd, ['stash', 'drop', ref], { env: W_ENV });
 
-module.exports = { stashPush, getStashes, stashApply, dropStashCommit, restoreStash, stashLines, stashDrop };

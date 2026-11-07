@@ -1,7 +1,15 @@
-'use strict';
-const { gitMeets } = require('../../renderer/lib/git-version.js');
-const { run, mapLimit, onGitPathChange } = require('./run');
-const { canForecast } = require('./support');
+import { gitMeets } from '../../renderer/lib/git-version.js';
+import { run, mapLimit, onGitPathChange } from './run.ts';
+import { canForecast } from './support.ts';
+import type { ConflictForecast, ConflictHunk, ConflictReview, ForecastPair, LaneWho, MergeSim } from '../../shared/git-types.ts';
+
+/** What the forecast reads of a lane (git.lanes). */
+export interface ForecastLane {
+  name: string; branch: string | null; head: string | null; ahead: number | null; behind: number | null;
+  isBase?: boolean; merged?: unknown; done?: unknown; noWork?: boolean;
+  worktree?: { path: string; prunable?: boolean } | null;
+  activity?: number | null;
+}
 
 // Conflict forecast: which lanes would conflict, and on which files, before anyone merges. One
 // `git merge-tree --write-tree` per pair (each active lane against base, then pairs of active
@@ -13,26 +21,28 @@ const FORECAST_STALE = 14 * 24 * 3600e3;
 // At most this many lane-vs-lane merges per forecast (10 active lanes = 45 pairs).
 const FORECAST_PAIRS = 45;
 const FORECAST_CACHE = 2000;
-const forecastCache = new Map(); // "tipA tipB" (sorted) -> conflicting files
+export const forecastCache = new Map<string, string[]>(); // "tipA tipB" (sorted) -> conflicting files
 
 // Files `git merge-tree` reports as conflicted when merging a and b, [] when it merges clean.
-async function mergeConflicts(cwd, a, b) {
+export async function mergeConflicts(cwd: string, a: string, b: string): Promise<string[]> {
   const key = a < b ? `${a} ${b}` : `${b} ${a}`;
-  if (forecastCache.has(key)) return forecastCache.get(key);
+  const hit = forecastCache.get(key);
+  if (hit) return hit;
   // Exit 1 = conflicts. Unrelated histories and other refusals mean no forecast: [], not cached.
-  let out;
+  let out: string;
   try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', a, b], { allowCodes: [0, 1] }); } catch { return []; }
   const files = [...new Set(out.split('\0').slice(1).filter(Boolean))].sort();
-  if (forecastCache.size >= FORECAST_CACHE) forecastCache.delete(forecastCache.keys().next().value);
+  const oldest = forecastCache.keys().next();
+  if (forecastCache.size >= FORECAST_CACHE && !oldest.done) forecastCache.delete(oldest.value);
   forecastCache.set(key, files);
   return files;
 }
 
 // Lanes worth forecasting: real commits ahead of base, not merged or shipped, not the base, worktree not
 // missing, and touched within FORECAST_STALE. Newest first, so the pair cap keeps live work.
-function forecastLanes(lanes, now = Date.now()) {
+export function forecastLanes<L extends ForecastLane>(lanes: readonly L[], now = Date.now()): L[] {
   return lanes
-    .filter((l) => l.head && l.ahead > 0 && !l.isBase && !l.merged && !l.done && !l.noWork && !l.worktree?.prunable && l.activity && now - l.activity < FORECAST_STALE)
+    .filter((l) => l.head && (l.ahead ?? 0) > 0 && !l.isBase && !l.merged && !l.done && !l.noWork && !l.worktree?.prunable && l.activity && now - l.activity < FORECAST_STALE)
     .sort((x, y) => (y.activity || 0) - (x.activity || 0));
 }
 
@@ -40,27 +50,29 @@ function forecastLanes(lanes, now = Date.now()) {
 // it between merges; whatever is running finishes, the rest never starts. Returns
 // { supported, pairs: [{ a, b, files }] } with only conflicting pairs; `b` is null for the base.
 // Lanes come back as { name, branch, worktree: { path } | null }, enough for the renderer's laneKey.
-async function forecastConflicts(cwd, lanes, { baseSha, signal, now = Date.now(), maxPairs = FORECAST_PAIRS } = {}) {
+export async function forecastConflicts(cwd: string, lanes: readonly ForecastLane[], { baseSha, signal, now = Date.now(), maxPairs = FORECAST_PAIRS }: { baseSha?: string | null; signal?: AbortSignal; now?: number; maxPairs?: number } = {}): Promise<ConflictForecast> {
   if (!(await canForecast(cwd))) return { supported: false, pairs: [] };
   const live = forecastLanes(lanes, now);
-  const jobs = [];
-  if (baseSha) for (const l of live) if (l.behind > 0) jobs.push([l, null]);
+  const jobs: [ForecastLane, ForecastLane | null][] = [];
+  if (baseSha) for (const l of live) if ((l.behind ?? 0) > 0) jobs.push([l, null]);
   let left = maxPairs;
-  for (let i = 0; i < live.length && left > 0; i++) {
-    for (let j = i + 1; j < live.length && left > 0; j++) {
-      if (live[i].head === live[j].head) continue;
-      jobs.push([live[i], live[j]]);
+  for (const [i, a] of live.entries()) {
+    if (left <= 0) break;
+    for (const b of live.slice(i + 1)) {
+      if (left <= 0) break;
+      if (a.head === b.head) continue;
+      jobs.push([a, b]);
       left--;
     }
   }
-  const who = (l) => ({ name: l.name, branch: l.branch, worktree: l.worktree ? { path: l.worktree.path } : null });
-  const res = await mapLimit(jobs, 4, async ([a, b]) => {
+  const who = (l: ForecastLane): LaneWho => ({ name: l.name, branch: l.branch, worktree: l.worktree ? { path: l.worktree.path } : null });
+  const res = await mapLimit(jobs, 4, async ([a, b]): Promise<ForecastPair | null> => {
     if (signal?.aborted) return null;
-    const files = await mergeConflicts(cwd, a.head, b ? b.head : baseSha);
+    const files = await mergeConflicts(cwd, a.head ?? '', (b ? b.head : baseSha) ?? '');
     return files.length ? { a: who(a), b: b ? who(b) : null, files } : null;
   });
   if (signal?.aborted) throw Object.assign(new Error('Forecast cancelled'), { name: 'AbortError' });
-  return { supported: true, pairs: res.filter(Boolean) };
+  return { supported: true, pairs: res.filter((p) => p !== null) };
 }
 
 // Merge plan (renderer/merge-plan.js): squash-merging `head` onto `tip`, simulated. merge-tree
@@ -72,10 +84,10 @@ const SIM_ENV = {
   GIT_AUTHOR_NAME: 'Since', GIT_AUTHOR_EMAIL: 'merge-plan@since.invalid', GIT_AUTHOR_DATE: '1700000000 +0000',
   GIT_COMMITTER_NAME: 'Since', GIT_COMMITTER_EMAIL: 'merge-plan@since.invalid', GIT_COMMITTER_DATE: '1700000000 +0000',
 };
-async function simulateSquash(cwd, tip, head) {
-  let out;
+export async function simulateSquash(cwd: string, tip: string, head: string): Promise<MergeSim> {
+  let out: string;
   try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', tip, head], { allowCodes: [0, 1] }); } catch { return { files: [], commit: null }; }
-  const [tree, ...rest] = out.split('\0');
+  const [tree = '', ...rest] = out.split('\0');
   const files = [...new Set(rest.filter(Boolean))].sort();
   if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { files, commit: null };
   const commit = (await run(cwd, ['commit-tree', tree, '-p', tip, '-m', 'Since merge plan'], { env: SIM_ENV })).trim();
@@ -88,22 +100,22 @@ async function simulateSquash(cwd, tip, head) {
 // simulates the PR as one squash) and a commit-tree on top of the last. Merge commits are skipped,
 // like `git rebase`. Objects only, same fixed identity as simulateSquash. → { files, commit }.
 const REPLAY_MAX = 250;
-let replayOk = null;
+let replayOk: Promise<boolean> | null = null;
 onGitPathChange(() => { replayOk = null; });
-async function canReplay(cwd) {
+async function canReplay(cwd: string): Promise<boolean> {
   replayOk ||= run(cwd, ['version']).then((v) => gitMeets(v, '2.40'), () => false);
   return replayOk;
 }
-async function simulateRebase(cwd, tip, head) {
+export async function simulateRebase(cwd: string, tip: string, head: string): Promise<MergeSim> {
   if (!(await canReplay(cwd))) return simulateSquash(cwd, tip, head);
-  let list;
+  let list: string[];
   try { list = (await run(cwd, ['rev-list', '--reverse', '--no-merges', `--max-count=${REPLAY_MAX + 1}`, head, '--not', tip, '--'])).split('\n').filter(Boolean); } catch { return { files: [], commit: null }; }
   if (list.length > REPLAY_MAX) return simulateSquash(cwd, tip, head);
   let cur = tip;
   for (const c of list) {
-    let out;
+    let out: string;
     try { out = await run(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', `--merge-base=${c}^`, cur, c], { allowCodes: [0, 1] }); } catch { return { files: [], commit: null }; }
-    const [tree, ...rest] = out.split('\0');
+    const [tree = '', ...rest] = out.split('\0');
     const files = [...new Set(rest.filter(Boolean))].sort();
     if (files.length || !/^[0-9a-f]{40,64}$/.test(tree)) return { files, commit: null };
     cur = (await run(cwd, ['commit-tree', tree, '-p', cur, '-m', 'Since merge plan'], { env: SIM_ENV })).trim();
@@ -120,19 +132,21 @@ async function simulateRebase(cwd, tip, head) {
 const CONFLICT_CONTEXT = 3;
 const CONFLICT_FILES = 100;
 const CONFLICT_BYTES = 2 * 1024 * 1024;
-async function mergeConflictHunks(cwd, base, head) {
+export async function mergeConflictHunks(cwd: string, base: string, head: string): Promise<ConflictReview> {
   if (!(await canForecast(cwd))) return { supported: false, files: [] };
-  let out;
+  let out: string;
   try {
     out = await run(cwd, ['-c', 'merge.conflictStyle=merge', 'merge-tree', '--write-tree', '--no-messages', '-z', base, head], { allowCodes: [0, 1] });
   } catch { return { supported: true, files: [] }; }
-  const [tree, ...rest] = out.split('\0');
-  const stages = new Map(); // path -> Set of stages (1 ancestor, 2 base, 3 head)
+  const [tree = '', ...rest] = out.split('\0');
+  const stages = new Map<string, Set<number>>(); // path -> Set of stages (1 ancestor, 2 base, 3 head)
   for (const entry of rest) {
     const m = /^\d+ [0-9a-f]+ (\d)\t(.+)$/s.exec(entry);
     if (!m) continue;
-    if (!stages.has(m[2])) stages.set(m[2], new Set());
-    stages.get(m[2]).add(Number(m[1]));
+    const p = m[2] ?? '';
+    let set = stages.get(p);
+    if (!set) stages.set(p, set = new Set());
+    set.add(Number(m[1]));
   }
   const paths = [...stages.keys()].sort().slice(0, CONFLICT_FILES);
   const files = await mapLimit(paths, 4, async (path) => {
@@ -142,22 +156,22 @@ async function mergeConflictHunks(cwd, base, head) {
       const size = Number((await run(cwd, ['cat-file', '-s', `${tree}:${path}`])).trim());
       if (size <= CONFLICT_BYTES) text = await run(cwd, ['cat-file', 'blob', `${tree}:${path}`]);
     } catch { /* not in the merged tree: deleted on a side */ }
-    return { path, hunks: conflictHunks(text), inBase: s.has(2), inHead: s.has(3) };
+    return { path, hunks: conflictHunks(text), inBase: !!s?.has(2), inHead: !!s?.has(3) };
   });
   return { supported: true, files };
 }
 
 // Conflict hunks in a file with merge markers (// ||||||| ancestor section is skipped). `line` is the 1-based line of <<<<<<< in the merged file.
-function conflictHunks(text) {
+export function conflictHunks(text: string): ConflictHunk[] {
   if (!text || text.includes('\0')) return [];
   const lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
-  const hunks = [];
-  let cur = null;
-  let side = null;
+  const hunks: ConflictHunk[] = [];
+  let cur: ConflictHunk | null = null;
+  let side: 'base' | 'head' | null = null;
   let last = 0; // first line after the previous hunk, so context never repeats one
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
+    const l = lines[i] ?? '';
     if (!cur && l.startsWith('<<<<<<<')) {
       cur = { line: i + 1, before: lines.slice(Math.max(last, i - CONFLICT_CONTEXT), i), base: [], head: [], after: [] };
       side = 'base';
@@ -166,7 +180,7 @@ function conflictHunks(text) {
     else if (cur && l.startsWith('>>>>>>>')) {
       last = i + 1;
       let j = last;
-      while (j < lines.length && j < last + CONFLICT_CONTEXT && !lines[j].startsWith('<<<<<<<')) j++;
+      while (j < lines.length && j < last + CONFLICT_CONTEXT && !(lines[j] ?? '').startsWith('<<<<<<<')) j++;
       cur.after = lines.slice(last, j);
       last = j; // the next hunk's context starts after this one's (AK-308)
       hunks.push(cur);
@@ -176,4 +190,3 @@ function conflictHunks(text) {
   return hunks;
 }
 
-module.exports = { mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, forecastLanes, forecastConflicts, forecastCache };

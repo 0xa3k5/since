@@ -1,6 +1,6 @@
 'use strict';
 // IPC for opt-in AI commit messages (ai.js).
-const git = require('../git');
+const git = require('../git/index.ts');
 const check = require('../ipc');
 const ai = require('../ai');
 const { readSettings, writeSettings } = require('../settings');

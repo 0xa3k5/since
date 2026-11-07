@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 const github = require('../src/main/github');
 
 const load = () => import('../src/renderer/lanes/merge-plan.js');

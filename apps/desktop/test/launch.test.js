@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 const recent = require('../src/main/stores/recent-store');
 const { readState, saveState, fitState } = require('../src/main/stores/window-state');
 

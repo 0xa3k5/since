@@ -1,7 +1,7 @@
 'use strict';
 // The `git` IPC channel: every git call from the renderer, with the undo journal around ref changes.
 const path = require('node:path');
-const git = require('../git');
+const git = require('../git/index.ts');
 const { workOps, worktreeOps, laneOps, remoteOps } = require('../journal');
 const check = require('../ipc');
 const channels = require('../../shared/channels.ts');

@@ -87,14 +87,14 @@ test('every module the main process requires is packaged', () => {
     if (seen.has(file) || file.startsWith('bench/') || file.endsWith('.json')) return;
     seen.add(file);
     const src = fs.readFileSync(path.join(root, file), 'utf8');
-    for (const [, rel] of src.matchAll(/require\('(\.\.?\/[^']+)'\)/g)) visit(resolve(file, rel));
+    for (const [, rel] of src.matchAll(/(?:require\(|\bfrom |^import )'(\.\.?\/[^']+)'/gm)) visit(resolve(file, rel));
   };
   visit('src/main/main.js');
   visit('src/preload/preload.ts');
   // What runs is the build of src/ in out/ (scripts/build.js), with .ts files built to .js.
   const built = (file) => file.replace(/^src\//, 'out/').replace(/\.ts$/, '.js');
   const packaged = (file) => config.files.some((f) => f === built(file) || (f.endsWith('/**') && built(file).startsWith(f.slice(0, -2))));
-  assert.ok(seen.has('src/main/ipc.js') && seen.has('src/main/updater.js') && seen.has('src/shared/channels.ts'));
+  assert.ok(seen.has('src/main/ipc.js') && seen.has('src/main/updater.js') && seen.has('src/shared/channels.ts') && seen.has('src/main/git/run.ts'));
   assert.equal(require('../package.json').main, 'out/main/main.js');
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
 });
@@ -103,7 +103,7 @@ test('the main process opens no connections of its own, apart from updates', () 
   // git and gh make their own requests; Since only spawns them. Only updater.js may request
   // anything, and it's listed in docs/security.md.
   const files = ['src/main', 'src/preload', 'src/shared'].flatMap((d) => fs.readdirSync(path.join(root, d), { recursive: true }).filter((f) => /\.(js|ts)$/.test(f)).map((f) => path.join(d, f)));
-  assert.ok(files.includes('src/main/updater.js') && files.includes('src/main/git/run.js'));
+  assert.ok(files.includes('src/main/updater.js') && files.includes('src/main/git/run.ts'));
   const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
   for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);
   for (const file of [...files.filter((f) => f.startsWith('src/main/git/')), ...['ai.js', 'github.js', 'ipc.js', 'journal.js'].map((f) => `src/main/${f}`)]) {

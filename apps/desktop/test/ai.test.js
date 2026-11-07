@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const ai = require('../src/main/ai');
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'since-ai-test-'));
 

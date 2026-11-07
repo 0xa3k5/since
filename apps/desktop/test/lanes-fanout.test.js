@@ -11,7 +11,7 @@ const cp = require('node:child_process');
 const calls = [];
 const realExecFile = cp.execFile;
 cp.execFile = function (file, args, ...rest) { calls.push(args); return realExecFile.call(this, file, args, ...rest); };
-const git = require('../src/main/git'); // after the patch: git.js keeps its own reference to execFile
+const git = require('../src/main/git/index.ts'); // after the patch: git.js keeps its own reference to execFile
 
 let clock = 1700000000;
 const g = (dir, args) => git.run(dir, args, { env: { GIT_COMMITTER_DATE: `${clock} +0000`, GIT_AUTHOR_DATE: `${clock} +0000` } });

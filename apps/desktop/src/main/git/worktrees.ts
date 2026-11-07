@@ -1,25 +1,30 @@
-'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const { run, GitError, W_ENV, chunk, SEP } = require('./run');
-const { getOperationState } = require('./status');
-const { getRemotes } = require('./remotes');
-const { stashPush, getStashes, stashApply, dropStashCommit } = require('./stash');
-const { dirtyPaths } = require('./undo');
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { run, GitError, W_ENV, chunk, SEP } from './run.ts';
+import { getOperationState } from './status.ts';
+import { getRemotes } from './remotes.ts';
+import { stashPush, getStashes, stashApply, dropStashCommit } from './stash.ts';
+import { dirtyPaths } from './undo.ts';
+import type { CleanupFailure, CleanupRemoved, CleanupResult, OperationKind, SavedWorktree, Worktree } from '../../shared/git-types.ts';
+
+/** A removed worktree, with the stash or saved changes undo puts back. */
+export type RemovedWorktree = Worktree & { stash?: string; saved?: SavedWorktree };
+/** One Clean up item: a worktree to remove and/or a branch to delete (kept if it moved from `head`). */
+export interface CleanupItem { branch?: string | null; head?: string | null; worktree?: string | null; force?: boolean; stash?: boolean; abort?: boolean }
 
 // Worktrees. Each one is a plain record, so later features (per-agent lanes)
 // can hang more fields off it without changing the callers.
 
-const realpath = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-const samePath = (a, b) => realpath(a) === realpath(b);
+export const realpath = (p: string): string => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+export const samePath = (a: string, b: string): boolean => realpath(a) === realpath(b);
 const NULL_OID = /^0+$/;
 
-async function getWorktrees(cwd) {
+export async function getWorktrees(cwd: string): Promise<Worktree[]> {
   const out = await run(cwd, ['worktree', 'list', '--porcelain', '-z']);
   const here = realpath(cwd);
-  const list = [];
-  let cur = null;
+  const list: Worktree[] = [];
+  let cur: Worktree | null = null;
   for (const field of out.split('\0')) {
     if (!field) { cur = null; continue; }
     const sp = field.indexOf(' ');
@@ -39,20 +44,20 @@ async function getWorktrees(cwd) {
   return list.filter((w) => !w.bare);
 }
 
-async function findWorktree(cwd, dir) {
+export async function findWorktree(cwd: string, dir: string): Promise<Worktree> {
   const wt = (await getWorktrees(cwd)).find((w) => samePath(w.path, dir));
   if (!wt) throw new GitError('That worktree no longer exists.');
   return wt;
 }
 
 // Number of changed, untracked or conflicted paths in a worktree.
-async function worktreeChanges(dir) {
+export async function worktreeChanges(dir: string): Promise<number> {
   return new Set(await dirtyPaths(dir)).size;
 }
 
 // Where a new worktree goes when the user gives no location: next to the main
 // worktree, named "<repo>-<branch>", with a number added if that is taken.
-function defaultWorktreePath(mainPath, label) {
+function defaultWorktreePath(mainPath: string, label: string): string {
   const slug = label.replace(/[^\w.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'worktree';
   const base = path.join(path.dirname(mainPath), `${path.basename(mainPath)}-${slug}`);
   let dir = base;
@@ -60,7 +65,7 @@ function defaultWorktreePath(mainPath, label) {
   return dir;
 }
 
-function resolveWorktreePath(mainPath, dir) {
+function resolveWorktreePath(mainPath: string, dir: string): string {
   if (dir.startsWith('~/') || dir === '~') dir = path.join(os.homedir(), dir.slice(1));
   return path.resolve(path.dirname(mainPath), dir);
 }
@@ -68,10 +73,10 @@ function resolveWorktreePath(mainPath, dir) {
 // Add a worktree. `branch`: an existing local branch is checked out, a new name
 // is created at `base`; no branch gives a detached HEAD at `base`. Returns the path.
 // `force` moves an existing `branch` to `base` (`-B`), so the move and the new worktree are one step.
-async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
-  const main = (await getWorktrees(cwd)).find((w) => w.main);
+export async function addWorktree(cwd: string, { dir, branch, base, force = false }: { dir?: string | null; branch?: string | null; base?: string | null; force?: boolean } = {}): Promise<string> {
+  const mainPath = (await getWorktrees(cwd)).find((w) => w.main)?.path ?? cwd;
   const at = base || 'HEAD';
-  dir = dir ? resolveWorktreePath(main.path, dir) : defaultWorktreePath(main.path, branch || (await run(cwd, ['rev-parse', '--short', at])).trim());
+  dir = dir ? resolveWorktreePath(mainPath, dir) : defaultWorktreePath(mainPath, branch || (await run(cwd, ['rev-parse', '--short', at])).trim());
   if (fs.existsSync(dir) && (!fs.statSync(dir).isDirectory() || fs.readdirSync(dir).length)) throw new GitError(`${dir} already exists and is not an empty folder.`);
   const local = branch && (await run(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`], { allowCodes: [0, 1] })).trim();
   const args = ['worktree', 'add', '-q'];
@@ -90,7 +95,7 @@ async function addWorktree(cwd, { dir, branch, base, force = false } = {}) {
 // `abort` first aborts a stopped rebase, merge, cherry-pick or revert there (not undoable).
 // `changes` (cleanup redo only, not over IPC): 'stash' or 'discard' its changes via saveWorktree,
 // returned as `saved`.
-async function removeWorktree(cwd, dir, { stash = false, abort = false, changes } = {}) {
+export async function removeWorktree(cwd: string, dir: string, { stash = false, abort = false, changes }: { stash?: boolean; abort?: boolean; changes?: 'stash' | 'discard' } = {}): Promise<RemovedWorktree> {
   let wt = await findWorktree(cwd, dir);
   if (wt.main) throw new GitError('The main worktree can’t be removed.');
   if (wt.current) throw new GitError('This window is showing that worktree. Switch to another one first.');
@@ -101,7 +106,7 @@ async function removeWorktree(cwd, dir, { stash = false, abort = false, changes 
     // An aborted rebase puts its branch back: undo re-adds the worktree on that, not the detached HEAD.
     if (op) wt = await findWorktree(cwd, dir);
   }
-  let sha = null, saved = null;
+  let sha: string | null = null, saved: SavedWorktree | null = null;
   if (stash && await worktreeChanges(wt.path)) sha = await stashWorktree(wt.path, `Since: ${wt.name} before removing it`);
   else if (changes) saved = await saveWorktree(wt, changes === 'stash');
   try {
@@ -116,7 +121,7 @@ async function removeWorktree(cwd, dir, { stash = false, abort = false, changes 
 }
 
 // Stash everything in worktree `dir` (untracked files too); returns the new stash's SHA.
-async function stashWorktree(dir, message) {
+async function stashWorktree(dir: string, message: string): Promise<string> {
   const top = () => run(dir, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
   const prev = await top();
   await stashPush(dir, { message, untracked: true });
@@ -126,7 +131,7 @@ async function stashWorktree(dir, message) {
 }
 
 // Apply and drop the stash with this SHA in worktree `dir`.
-async function popStash(dir, sha) {
+export async function popStash(dir: string, sha: string): Promise<void> {
   const i = (await getStashes(dir)).findIndex((x) => x.sha === sha);
   if (i === -1) throw new GitError('Its stash was applied or dropped since.');
   await stashApply(dir, `stash@{${i}}`, true);
@@ -135,7 +140,7 @@ async function popStash(dir, sha) {
 // Cleanup (cleanupLanes): stash every uncommitted change in a worktree, untracked files too.
 // `keep` leaves the stash in the list; otherwise it is dropped and only the returned commit
 // ({ sha, message, kept }) has it. Null when there was nothing to stash.
-async function saveWorktree(wt, keep) {
+async function saveWorktree(wt: Worktree, keep: boolean): Promise<SavedWorktree | null> {
   const top = () => run(wt.path, ['rev-parse', '-q', '--verify', 'refs/stash'], { allowCodes: [0, 1] }).then((o) => o.trim());
   const message = `Worktree ${wt.name} before it was removed`;
   const prev = await top();
@@ -147,23 +152,23 @@ async function saveWorktree(wt, keep) {
 }
 
 // Put a saveWorktree commit back into the worktree at `dir`; a kept stash leaves the list.
-async function unstashWorktree(dir, saved) {
+async function unstashWorktree(dir: string, saved: SavedWorktree): Promise<void> {
   await run(dir, ['stash', 'apply', '-q', '--index', saved.sha], { env: W_ENV });
   if (saved.kept) await dropStashCommit(dir, saved.sha).catch(() => {});
 }
 
 // Put a removed worktree back at the same path, on the same branch or commit, with the changes
 // `saved` stashed when it was removed.
-async function restoreWorktree(cwd, { path: dir, branch, head, saved }) {
+export async function restoreWorktree(cwd: string, { path: dir, branch, head, saved }: { path: string; branch?: string | null; head?: string | null; saved?: SavedWorktree | null }): Promise<void> {
   if (fs.existsSync(dir) && (!fs.statSync(dir).isDirectory() || fs.readdirSync(dir).length)) throw new GitError(`${dir} is in the way.`);
   if (saved?.kept && !(await getStashes(cwd)).some((x) => x.sha === saved.sha)) throw new GitError(`the stash of ${path.basename(dir)}’s changes was applied or dropped since.`);
-  await run(cwd, ['worktree', 'add', '-q', ...(branch ? [dir, branch] : ['--detach', dir, head])], { env: W_ENV });
+  await run(cwd, ['worktree', 'add', '-q', ...(branch ? [dir, branch] : ['--detach', dir, head ?? ''])], { env: W_ENV });
   if (saved) await unstashWorktree(dir, saved);
 }
 
-const lockWorktree = async (cwd, dir, reason) => run(cwd, ['worktree', 'lock', ...(reason ? ['--reason', reason] : []), (await findWorktree(cwd, dir)).path], { env: W_ENV });
-const unlockWorktree = async (cwd, dir) => run(cwd, ['worktree', 'unlock', (await findWorktree(cwd, dir)).path], { env: W_ENV });
-const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
+export const lockWorktree = async (cwd: string, dir: string, reason?: string | null): Promise<string> => run(cwd, ['worktree', 'lock', ...(reason ? ['--reason', reason] : []), (await findWorktree(cwd, dir)).path], { env: W_ENV });
+export const unlockWorktree = async (cwd: string, dir: string): Promise<string> => run(cwd, ['worktree', 'unlock', (await findWorktree(cwd, dir)).path], { env: W_ENV });
+export const pruneWorktrees = (cwd: string): Promise<string> => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 
 // Lanes → Clean up: remove worktrees and delete branches in bulk. Each item is
 // { branch, head, worktree, force }: `head` is the branch tip the user saw (a branch that has
@@ -174,13 +179,13 @@ const pruneWorktrees = (cwd) => run(cwd, ['worktree', 'prune'], { env: W_ENV });
 // each, or a single `worktree prune` when every missing folder is selected. Branches then go in
 // one `git branch -D` per 200. Never throws part-way: returns { removed, deleted, failed } so the
 // journal can record exactly what happened. `onProgress({ done, total })` after each step.
-async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
+export async function cleanupLanes(cwd: string, items: readonly CleanupItem[], { onProgress = () => {} }: { onProgress?: (p: { done: number; total: number }) => void } = {}): Promise<CleanupResult> {
   const worktrees = await getWorktrees(cwd);
-  const removed = [];
-  const failed = [];
-  const keep = new Set(); // branches whose worktree is still there
+  const removed: CleanupRemoved[] = [];
+  const failed: CleanupFailure[] = [];
+  const keep = new Set<string>(); // branches whose worktree is still there
   const wtItems = items.filter((i) => i.worktree);
-  const found = wtItems.map((i) => ({ item: i, wt: worktrees.find((w) => samePath(w.path, i.worktree)) }));
+  const found = wtItems.map((i) => ({ item: i, wt: worktrees.find((w) => samePath(w.path, i.worktree ?? '')) }));
   const branches = items.filter((i) => i.branch);
   const batches = chunk(branches, 200);
   const total = wtItems.length + batches.length;
@@ -217,31 +222,33 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
       const saved = lost ? await saveWorktree(wt, !!(item.stash || item.abort)) : null;
       await run(cwd, ['worktree', 'remove', ...(lost || wt.missing ? ['--force'] : []), wt.path], { env: W_ENV });
       removed.push({ path: wt.path, branch: wt.branch, head: wt.head, pruned: wt.missing, lost, ...(saved ? { saved } : {}) });
-    } catch (err) {
-      failed.push({ name: wt?.name || path.basename(item.worktree), message: err.message, ...(err.op ? { op: err.op, worktree: wt.path } : {}) });
+    } catch (e) {
+      const err = e as GitError & { op?: string };
+      failed.push({ name: wt?.name || path.basename(item.worktree ?? ''), message: err.message, ...(err.op ? { op: err.op, worktree: wt?.path ?? '' } : {}) });
       if (item.branch) keep.add(item.branch);
     } finally {
       tick();
     }
   }
 
-  const deleted = [];
+  const deleted: string[] = [];
   if (branches.length) {
-    const tips = new Map((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads'])).split('\n').filter(Boolean).map((l) => l.split(SEP)));
+    const tips = new Map((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads'])).split('\n').filter(Boolean).map((l): [string, string] => { const [b = '', o = ''] = l.split(SEP); return [b, o]; }));
     for (const batch of batches) {
-      const go = [];
+      const go: string[] = [];
       for (const i of batch) {
-        if (keep.has(i.branch)) continue;
-        if (!tips.has(i.branch)) failed.push({ name: i.branch, message: 'That branch no longer exists.' });
-        else if (i.head && tips.get(i.branch) !== i.head) failed.push({ name: i.branch, message: 'It has new commits since. Kept.' });
-        else go.push(i.branch);
+        const b = i.branch ?? '';
+        if (keep.has(b)) continue;
+        if (!tips.has(b)) failed.push({ name: b, message: 'That branch no longer exists.' });
+        else if (i.head && tips.get(b) !== i.head) failed.push({ name: b, message: 'It has new commits since. Kept.' });
+        else go.push(b);
       }
-      let error = null;
-      if (go.length) await run(cwd, ['branch', '-D', '--', ...go], { env: W_ENV }).catch((err) => { error = err; });
-      const left = error ? new Set((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)', ...go.map((b) => `refs/heads/${b}`)])).split('\n').filter(Boolean)) : new Set();
+      let error: GitError | null = null;
+      try { if (go.length) await run(cwd, ['branch', '-D', '--', ...go], { env: W_ENV }); } catch (err) { error = err as GitError; }
+      const left = error ? new Set((await run(cwd, ['for-each-ref', '--format=%(refname:lstrip=2)', ...go.map((b) => `refs/heads/${b}`)])).split('\n').filter(Boolean)) : new Set<string>();
       for (const b of go) {
         if (!left.has(b)) deleted.push(b);
-        else failed.push({ name: b, message: (error.stderr || error.message).split('\n').find((l) => l.includes(`'${b}'`))?.replace(/^error: /, '') || error.message });
+        else failed.push({ name: b, message: (error?.stderr || error?.message || '').split('\n').find((l) => l.includes(`'${b}'`))?.replace(/^error: /, '') || (error?.message ?? '') });
       }
       tick();
     }
@@ -254,20 +261,20 @@ async function cleanupLanes(cwd, items, { onProgress = () => {} } = {}) {
 // Never deletes a remote's default branch (its `<remote>/HEAD`) or a branch a local branch still
 // tracks: run it after the local branches are gone. Duplicates are dropped.
 // Not undoable. Returns { deleted, failed }.
-async function deleteRemoteBranches(cwd, shorts) {
+export async function deleteRemoteBranches(cwd: string, shorts: Iterable<string>): Promise<{ deleted: string[]; failed: CleanupFailure[] }> {
   const remotes = (await getRemotes(cwd)).map((r) => r.name).sort((a, b) => b.length - a.length);
   const tracked = new Set((await run(cwd, ['for-each-ref', '--format=%(upstream:short)', 'refs/heads'])).split('\n').filter(Boolean));
-  const heads = new Map();
-  const defaultOf = async (remote) => {
+  const heads = new Map<string, Set<string>>();
+  const defaultOf = async (remote: string): Promise<Set<string>> => {
     // Without a known `<remote>/HEAD`, main and master both count as the default.
     if (!heads.has(remote)) {
       const head = (await run(cwd, ['symbolic-ref', '--short', '-q', `refs/remotes/${remote}/HEAD`]).catch(() => '')).trim();
       heads.set(remote, new Set(head ? [head, `${remote}/HEAD`] : [`${remote}/main`, `${remote}/master`, `${remote}/HEAD`]));
     }
-    return heads.get(remote);
+    return heads.get(remote) ?? new Set<string>();
   };
-  const byRemote = new Map();
-  const failed = [];
+  const byRemote = new Map<string, string[]>();
+  const failed: CleanupFailure[] = [];
   for (const s of new Set(shorts)) {
     const remote = remotes.find((r) => s.startsWith(`${r}/`) && s.length > r.length + 1);
     if (!remote) { failed.push({ name: s, message: 'No such remote.' }); continue; }
@@ -275,7 +282,7 @@ async function deleteRemoteBranches(cwd, shorts) {
     if (tracked.has(s)) { failed.push({ name: s, message: 'A local branch still tracks it.' }); continue; }
     byRemote.set(remote, [...(byRemote.get(remote) || []), s.slice(remote.length + 1)]);
   }
-  const deleted = [];
+  const deleted: string[] = [];
   for (const [remote, names] of byRemote) {
     try {
       await run(cwd, ['push', remote, '--delete', '--', ...names]);
@@ -283,7 +290,7 @@ async function deleteRemoteBranches(cwd, shorts) {
     } catch (err) {
       // A partial push still deleted some: whatever is no longer listed as a remote-tracking ref is gone.
       const left = new Set((await run(cwd, ['for-each-ref', '--format=%(refname:short)', `refs/remotes/${remote}`]).catch(() => '')).split('\n'));
-      for (const n of names) (left.has(`${remote}/${n}`) ? failed.push({ name: `${remote}/${n}`, message: err.message }) : deleted.push(`${remote}/${n}`));
+      for (const n of names) (left.has(`${remote}/${n}`) ? failed.push({ name: `${remote}/${n}`, message: (err as Error).message }) : deleted.push(`${remote}/${n}`));
     }
   }
   return { deleted, failed };
@@ -293,7 +300,7 @@ async function deleteRemoteBranches(cwd, shorts) {
 // `abort`: then it is aborted here, or `ignoreOp`: a later removal aborts it), clean (unless
 // `dirty` is allowed). A refusal over an operation has code 'op-in-progress' and `op` set; a
 // dirty one has code 'dirty-worktree' and `changes` set.
-async function checkRemovable(wt, { dirty = false, abort = false, ignoreOp = false } = {}) {
+export async function checkRemovable(wt: Worktree, { dirty = false, abort = false, ignoreOp = false }: { dirty?: boolean; abort?: boolean; ignoreOp?: boolean } = {}): Promise<void> {
   if (wt.locked) throw new GitError(`“${wt.name}” is locked${wt.lockReason ? ` (${wt.lockReason})` : ''}. Unlock it first.`);
   if (wt.missing) throw new GitError(`“${wt.name}” no longer exists on disk. Use Prune Missing Worktrees instead.`);
   const op = await worktreeOp(wt.path);
@@ -304,10 +311,9 @@ async function checkRemovable(wt, { dirty = false, abort = false, ignoreOp = fal
 }
 
 // The rebase, merge, cherry-pick or revert stopped in the worktree at `dir`, or null.
-async function worktreeOp(dir) {
+export async function worktreeOp(dir: string): Promise<OperationKind | null> {
   return getOperationState((await run(dir, ['rev-parse', '--absolute-git-dir'])).trim());
 }
 
-const opInProgress = (message, op) => Object.assign(new GitError(message), { code: 'op-in-progress', op });
+export const opInProgress = (message: string, op: string): GitError & { op: string } => Object.assign(new GitError(message), { code: 'op-in-progress', op });
 
-module.exports = { samePath, realpath, getWorktrees, checkRemovable, worktreeChanges, worktreeOp, opInProgress, removeWorktree, findWorktree, addWorktree, restoreWorktree, popStash, lockWorktree, unlockWorktree, pruneWorktrees, cleanupLanes, deleteRemoteBranches };

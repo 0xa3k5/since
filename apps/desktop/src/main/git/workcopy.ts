@@ -1,39 +1,40 @@
-'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const { run, W_ENV, GitError } = require('./run');
-const { workingDiff, buildPartialPatch, applyPatch, getOperationState } = require('./status');
+import fs from 'node:fs';
+import path from 'node:path';
+import { run, W_ENV, GitError } from './run.ts';
+import { workingDiff, buildPartialPatch, applyPatch, getOperationState } from './status.ts';
+import type { DiffTarget } from './status.ts';
+import type { ConflictFile, SavedResolved } from '../../shared/git-types.ts';
 
 // Destructive working-copy operations. Run them through the journal
 // (journal.js), which snapshots what they destroy.
 
-async function discardFiles(cwd, files) {
+export async function discardFiles(cwd: string, files: readonly { path: string; status: string }[]): Promise<void> {
   const tracked = files.filter((f) => f.status !== '?').map((f) => f.path);
   const untracked = files.filter((f) => f.status === '?').map((f) => f.path);
   if (tracked.length) await run(cwd, ['checkout', '--', ...tracked], { env: W_ENV });
   if (untracked.length) await run(cwd, ['clean', '-f', '-q', '--', ...untracked], { env: W_ENV });
 }
 
-async function discardLines(cwd, file, selected) {
+export async function discardLines(cwd: string, file: DiffTarget, selected: Iterable<string>): Promise<void> {
   const d = await workingDiff(cwd, file, { staged: false });
   const p = d && buildPartialPatch(d, selected, 'reverse');
   if (p) await applyPatch(cwd, p, { reverse: true });
 }
 
-const resetHard = (cwd, sha) => run(cwd, ['reset', '--hard', sha || 'HEAD'], { env: W_ENV });
+export const resetHard = (cwd: string, sha?: string | null): Promise<string> => run(cwd, ['reset', '--hard', sha || 'HEAD'], { env: W_ENV });
 
 // Index stages of one conflicted path: { 1: base oid, 2: ours oid, 3: theirs oid }, absent sides missing.
-async function conflictStages(cwd, p) {
-  const stages = {};
+async function conflictStages(cwd: string, p: string): Promise<Record<string, string>> {
+  const stages: Record<string, string> = {};
   for (const rec of (await run(cwd, ['ls-files', '-u', '-z', '--', p])).split('\0')) {
     const m = /^\d+ ([0-9a-f]+) ([123])\t/.exec(rec);
-    if (m) stages[m[2]] = m[1];
+    if (m) stages[m[2] ?? ''] = m[1] ?? '';
   }
   return stages;
 }
 
 // A side that deleted the file has no stage; choosing it removes the file.
-async function chooseSide(cwd, p, side) {
+export async function chooseSide(cwd: string, p: string, side: 'ours' | 'theirs'): Promise<void> {
   const stages = await conflictStages(cwd, p);
   if (!Object.keys(stages).length) throw new GitError(`${p} has no conflict to resolve.`);
   if (!stages[side === 'ours' ? 2 : 3]) {
@@ -48,7 +49,7 @@ async function chooseSide(cwd, p, side) {
 // file, so every operation that leaves them (merge, rebase, cherry-pick, revert, stash
 // apply) works the same. Binary, missing, very large or non-UTF-8 files can only take a whole side.
 const CONFLICT_TEXT_MAX = 2 * 1024 * 1024;
-async function getConflict(cwd, p) {
+export async function getConflict(cwd: string, p: string): Promise<ConflictFile> {
   const stages = await conflictStages(cwd, p);
   const sides = { base: !!stages[1], ours: !!stages[2], theirs: !!stages[3] };
   const st = await fs.promises.lstat(path.join(cwd, p)).catch(() => null);
@@ -63,7 +64,7 @@ async function getConflict(cwd, p) {
 }
 
 // Writes the edited result and stages it, which marks the path resolved.
-async function resolveConflict(cwd, p, content) {
+export async function resolveConflict(cwd: string, p: string, content: string): Promise<void> {
   const st = await fs.promises.lstat(path.join(cwd, p)).catch(() => null);
   if (st && !st.isFile()) throw new GitError(`${p} is not a regular file. Pick a whole side instead.`);
   if (!Object.keys(await conflictStages(cwd, p)).length) throw new GitError(`${p} has no conflict to resolve.`);
@@ -76,18 +77,18 @@ async function resolveConflict(cwd, p, content) {
 // Listed conflicts resolved to HEAD's version only: { sha: null, paths: [], unchanged: n }.
 // Saved as a stash-shaped commit (parents HEAD and an index commit, both with those files over
 // HEAD) so it can be applied with `git stash apply <sha>` later. Returns { sha, paths } or null.
-async function saveResolved(cwd, gitDir) {
+export async function saveResolved(cwd: string, gitDir: string): Promise<SavedResolved | null> {
   const head = (await run(cwd, ['rev-parse', '-q', '--verify', 'HEAD^{commit}'], { allowCodes: [0, 1] })).trim();
   if (!head) return null;
-  const z = (out) => out.split('\0').filter(Boolean);
+  const z = (out: string) => out.split('\0').filter(Boolean);
   const unmerged = new Set(z(await run(cwd, ['ls-files', '-u', '-z'], { env: W_ENV })).map((r) => r.slice(r.indexOf('\t') + 1)));
   let paths = z(await run(cwd, ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'], { env: W_ENV })).filter((p) => !unmerged.has(p));
   let msg = '';
   try { msg = fs.readFileSync(path.join(gitDir, 'MERGE_MSG'), 'utf8'); } catch {}
   const at = msg.split('\n').findIndex((l) => /^\S\s*Conflicts:\s*$/.test(l));
-  const listed = new Set();
+  const listed = new Set<string>();
   if (at !== -1) {
-    for (const l of msg.split('\n').slice(at + 1)) { const m = /^\S\t(.+)$/.exec(l); if (!m) break; listed.add(m[1]); }
+    for (const l of msg.split('\n').slice(at + 1)) { const m = /^\S\t(.+)$/.exec(l); if (!m) break; listed.add(m[1] ?? ''); }
     paths = paths.filter((p) => listed.has(p));
   }
   if (!paths.length) {
@@ -95,7 +96,7 @@ async function saveResolved(cwd, gitDir) {
     const unchanged = [...listed].filter((p) => !unmerged.has(p)).length;
     return unchanged ? { sha: null, paths: [], unchanged } : null;
   }
-  const staged = new Map();
+  const staged = new Map<string, string>();
   for (const rec of z(await run(cwd, ['ls-files', '-s', '-z', '--', ...paths], { env: W_ENV }))) {
     const tab = rec.indexOf('\t');
     const [mode, oid] = rec.slice(0, tab).split(' ');
@@ -119,7 +120,7 @@ async function saveResolved(cwd, gitDir) {
 // Put saved resolved files back (saveResolved's commit). With an operation stopped here again on
 // those same files, write them and stage them (that resolves their conflicts); otherwise apply
 // them to the work tree as a stash (by SHA).
-async function restoreResolved(cwd, gitDir, sha) {
+export async function restoreResolved(cwd: string, gitDir: string, sha: string): Promise<string | undefined> {
   const paths = await resolvedPaths(cwd, sha);
   const unmerged = new Set((await run(cwd, ['ls-files', '-u', '-z'], { env: W_ENV })).split('\0').filter(Boolean).map((r) => r.slice(r.indexOf('\t') + 1)));
   const again = (await getOperationState(gitDir)) && paths.every((p) => unmerged.has(p));
@@ -131,11 +132,10 @@ async function restoreResolved(cwd, gitDir, sha) {
 }
 
 // The files saveResolved kept in `sha` (it must look like one: two parents with the same tree).
-async function resolvedPaths(cwd, sha) {
+export async function resolvedPaths(cwd: string, sha: string): Promise<string[]> {
   const [tree, ...parents] = (await run(cwd, ['show', '-s', '--format=%T %P', sha])).trim().split(' ');
   const indexTree = parents.length === 2 && (await run(cwd, ['rev-parse', `${parents[1]}^{tree}`])).trim();
   if (indexTree !== tree) throw new GitError('Those saved files are not available.');
-  return (await run(cwd, ['diff', '--name-only', '--no-renames', '-z', parents[0], sha], { env: W_ENV })).split('\0').filter(Boolean);
+  return (await run(cwd, ['diff', '--name-only', '--no-renames', '-z', parents[0] ?? '', sha], { env: W_ENV })).split('\0').filter(Boolean);
 }
 
-module.exports = { saveResolved, restoreResolved, resolvedPaths, discardFiles, discardLines, resetHard, chooseSide, getConflict, resolveConflict };

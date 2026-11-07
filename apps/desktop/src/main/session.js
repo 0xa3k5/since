@@ -2,7 +2,7 @@
 // Per-window repository sessions, and the per-window state other modules hand each other.
 const fs = require('node:fs');
 const path = require('node:path');
-const git = require('./git');
+const git = require('./git/index.ts');
 const { Journal } = require('./journal');
 const { LogStreams } = require('./log-streams');
 

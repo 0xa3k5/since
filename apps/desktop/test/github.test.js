@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const github = require('../src/main/github');
 
-const remote = (name, url) => ({ name, url, web: require('../src/main/git').remoteWebUrl(url) });
+const remote = (name, url) => ({ name, url, web: require('../src/main/git/index.ts').remoteWebUrl(url) });
 const ORIGIN = remote('origin', 'git@github.com:acme/app.git');
 
 // A folder with a fake `gh` so findBinary finds it; the exec stub records calls instead of running it.

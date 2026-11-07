@@ -3,7 +3,7 @@
 const { dialog } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const git = require('../git');
+const git = require('../git/index.ts');
 const updater = require('../updater');
 const check = require('../ipc');
 const { menuChanged } = require('../app-events');

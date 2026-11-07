@@ -16,7 +16,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const git = require('./git');
+const git = require('./git/index.ts');
 
 const PAGE = 100; // entries per archived page; up to 2 × PAGE stay in memory per stack
 let nextId = Date.now();

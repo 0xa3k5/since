@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 
 let clock = 1700000000;
 const g = (dir, args, opts = {}) => git.run(dir, args, { ...opts, env: { GIT_COMMITTER_DATE: `${clock} +0000`, GIT_AUTHOR_DATE: `${clock} +0000`, ...opts.env } });

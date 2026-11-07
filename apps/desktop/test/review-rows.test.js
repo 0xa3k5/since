@@ -564,7 +564,7 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
 });
 
 test('git.js and Catch up read agents from the same list (AK-393)', async () => {
-  const git = require('../src/main/git');
+  const git = require('../src/main/git/index.ts');
   const { AGENT_HINTS } = await import('../src/renderer/lib/agents.js');
   const { messageAgent } = await load();
   assert.equal(git.AGENT_HINTS, AGENT_HINTS);

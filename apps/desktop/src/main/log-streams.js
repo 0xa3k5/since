@@ -2,7 +2,7 @@
 // The log streams a repo session has open, pulled by the renderer chunk by chunk
 // (see renderer/log.js and streamLog in git.js).
 
-const git = require('./git');
+const git = require('./git/index.ts');
 
 // A read of a stream that is gone (closed, evicted, or its session disposed or replaced) returns
 // CLOSED, never null: null means "end of log", and a history cut short must never be mistaken for

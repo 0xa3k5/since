@@ -1,18 +1,22 @@
-'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const { run, GitError, EMPTY_TREE, SEP } = require('./run');
-const { getStatus, buildPartialPatch } = require('./status');
-const { readCommitDiffs } = require('./log');
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { run, GitError, EMPTY_TREE, SEP } from './run.ts';
+import { getStatus, buildPartialPatch } from './status.ts';
+import { readCommitDiffs } from './log.ts';
+import type { FileDiff, RewriteOp } from '../../shared/git-types.ts';
+
+/** A reword's message; a split's selection (each path: 'all' or "hunk:line" keys) and two messages. */
+export interface RewriteExtra { message?: string; files?: Record<string, 'all' | readonly string[]>; messages?: readonly (string | null | undefined)[] }
 
 // Cherry-pick one commit. One whose changes are already here stops git half-way; leave nothing
 // in progress and say so ('empty-pick'). `keepEmpty` commits it anyway.
-async function cherryPick(cwd, sha, keepEmpty) {
+export async function cherryPick(cwd: string, sha: string, keepEmpty?: boolean): Promise<string> {
   if (keepEmpty) return run(cwd, ['cherry-pick', '--allow-empty', '--keep-redundant-commits', sha]);
   try {
     return await run(cwd, ['cherry-pick', sha]);
-  } catch (err) {
+  } catch (e) {
+    const err = e as GitError;
     if (!/is now empty|nothing to commit/.test(`${err.stderr || ''}\n${err.message}`) || (await getStatus(cwd)).conflicts?.length) throw err;
     await run(cwd, ['cherry-pick', '--abort']).catch(() => {});
     throw new GitError('Its changes are already on this branch.', { code: 'empty-pick' });
@@ -24,7 +28,7 @@ async function cherryPick(cwd, sha, keepEmpty) {
 
 // Check that `sha` can be rewritten by `op` on `tip` (HEAD, or the branch about to be checked
 // out), and find where the rebase starts (`base`, null for the root) and the commits it replays.
-async function rewriteRange(cwd, op, sha, tip = 'HEAD') {
+export async function rewriteRange(cwd: string, op: RewriteOp, sha: string, tip = 'HEAD'): Promise<{ parents: string[]; base: string | null; list: string[] }> {
   const onBranch = await run(cwd, ['merge-base', '--is-ancestor', sha, tip]).then(() => true, () => false);
   if (!onBranch) throw new GitError(tip === 'HEAD' ? 'This commit is not on the current branch.' : `This commit is not on ${tip}.`);
   const parents = (await run(cwd, ['rev-list', '--parents', '-n', '1', sha])).trim().split(' ').slice(1);
@@ -35,7 +39,7 @@ async function rewriteRange(cwd, op, sha, tip = 'HEAD') {
   if (needsGrandparent && parents.length === 0) throw new GitError('The root commit has no parent to combine with.');
   let base = parents[0] || null;
   if (needsGrandparent) {
-    const gp = (await run(cwd, ['rev-list', '--parents', '-n', '1', parents[0]])).trim().split(' ').slice(1);
+    const gp = (await run(cwd, ['rev-list', '--parents', '-n', '1', parents[0] ?? ''])).trim().split(' ').slice(1);
     if (gp.length > 1) throw new GitError('The parent is a merge commit; cannot rewrite across it.');
     base = gp[0] || null;
   }
@@ -47,19 +51,19 @@ async function rewriteRange(cwd, op, sha, tip = 'HEAD') {
 }
 
 // Whether `sha` is on HEAD, and the local branches that contain it (to switch to and rewrite it there).
-async function commitBranches(cwd, sha) {
+export async function commitBranches(cwd: string, sha: string): Promise<{ onHead: boolean; branches: string[] }> {
   const onHead = await run(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']).then(() => true, () => false);
   const out = await run(cwd, ['branch', '--format=%(refname:short)', '--contains', sha]).catch(() => '');
   return { onHead, branches: out.split('\n').map((b) => b.trim()).filter(Boolean) };
 }
 
-async function rewrite(cwd, op, sha, extra = {}) {
+export async function rewrite(cwd: string, op: RewriteOp, sha: string, extra: RewriteExtra = {}): Promise<void> {
   // A merge commit at HEAD can't be replayed by a rebase: reword it in place.
   if (op === 'reword' && (await run(cwd, ['rev-parse', 'HEAD'])).trim() === sha
     && (await run(cwd, ['rev-list', '--parents', '-n', '1', sha])).trim().split(' ').length > 2) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-'));
     try {
-      fs.writeFileSync(path.join(tmp, 'msg'), extra.message);
+      fs.writeFileSync(path.join(tmp, 'msg'), extra.message ?? '');
       await run(cwd, ['commit', '--amend', '--only', '--allow-empty', '--no-verify', '-q', '-F', path.join(tmp, 'msg')], { env: { GIT_OPTIONAL_LOCKS: '1' } });
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
@@ -70,22 +74,21 @@ async function rewrite(cwd, op, sha, extra = {}) {
   // A split builds its two commits up front; the rebase picks them in place of the original.
   const halves = op === 'split' ? await splitCommits(cwd, sha, parents[0] || null, extra) : null;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-'));
-  const todo = [];
-  for (let i = 0; i < list.length; i++) {
-    const c = list[i];
+  const todo: string[] = [];
+  for (const c of list) {
     if (c === sha) {
       if (op === 'drop') todo.push(`drop ${c}`);
-      else if (op === 'split') todo.push(`pick ${halves[0]}`, `pick ${halves[1]}`);
+      else if (op === 'split' && halves) todo.push(`pick ${halves[0]}`, `pick ${halves[1]}`);
       else if (op === 'reword') {
         const f = path.join(tmp, 'msg');
-        fs.writeFileSync(f, extra.message);
+        fs.writeFileSync(f, extra.message ?? '');
         todo.push(`pick ${c}`, `exec git commit --amend --allow-empty --no-verify -q -F ${JSON.stringify(f)}`);
       } else if (op === 'squash') todo.push(`squash ${c}`);
       else if (op === 'fixup') todo.push(`fixup ${c}`);
       else if (op === 'swapParent') {
         // previous todo line is the parent; swap the two
         const prev = todo.pop();
-        todo.push(`pick ${c}`, prev);
+        todo.push(`pick ${c}`, prev ?? '');
       } else todo.push(`pick ${c}`);
     } else todo.push(`pick ${c}`);
   }
@@ -103,7 +106,7 @@ async function rewrite(cwd, op, sha, extra = {}) {
     });
   } catch (e) {
     // A rebase stopped by a signing failure has nothing for the user to resolve; put the branch back.
-    if (e.message.startsWith("Couldn't sign")) await run(cwd, ['rebase', '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } }).catch(() => {});
+    if ((e as Error).message.startsWith("Couldn't sign")) await run(cwd, ['rebase', '--abort'], { env: { GIT_OPTIONAL_LOCKS: '1' } }).catch(() => {});
     throw e;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -115,7 +118,7 @@ async function rewrite(cwd, op, sha, extra = {}) {
 // entry; the selection becomes the first commit, the rest the second. Both keep
 // the original author and date. Returns [first, second]; the second has the
 // original tree, so the commits on top replay without conflicts.
-async function splitCommits(cwd, sha, parent, { files = {}, messages = [] }) {
+async function splitCommits(cwd: string, sha: string, parent: string | null, { files = {}, messages = [] }: RewriteExtra): Promise<[string, string]> {
   const msgs = messages.map((m) => String(m || '').trim());
   if (msgs.length !== 2 || !msgs[0] || !msgs[1]) throw new GitError('Both commits need a message.');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'since-split-'));
@@ -127,12 +130,12 @@ async function splitCommits(cwd, sha, parent, { files = {}, messages = [] }) {
 }
 
 // The first commit's tree is built in a private index, so the working tree and real index are untouched.
-async function buildSplit(cwd, sha, parent, files, msgs, env) {
+async function buildSplit(cwd: string, sha: string, parent: string | null, files: Record<string, 'all' | readonly string[]>, msgs: string[], env: NodeJS.ProcessEnv): Promise<[string, string]> {
   const diffs = new Map((await readCommitDiffs(cwd, sha)).map(([, r]) => [r.path, r]));
   await run(cwd, ['read-tree', ...(parent ? [parent] : ['--empty'])], { env });
   // Removals go first, so a file replaced by a folder of the same name (or the
   // reverse) can take its place when both changes are selected.
-  const removals = [], edits = [];
+  const removals: string[] = [], edits: (() => Promise<unknown>)[] = [];
   for (const [p, sel] of Object.entries(files)) {
     const d = diffs.get(p);
     if (!d) throw new GitError(`${p} is not changed in this commit.`);
@@ -144,7 +147,7 @@ async function buildSplit(cwd, sha, parent, files, msgs, env) {
     // take its entry from the commit, or remove it if the commit deletes it. Only a
     // file or submodule at exactly this path counts: if a folder replaced the file,
     // ls-tree lists that folder, and the file is gone.
-    const entry = (await run(cwd, ['ls-tree', '-z', sha, '--', p])).split('\0')[0];
+    const entry = (await run(cwd, ['ls-tree', '-z', sha, '--', p])).split('\0')[0] ?? '';
     const tab = entry.indexOf('\t');
     const [mode, type, oid] = entry.slice(0, tab).split(' ');
     if (entry && entry.slice(tab + 1) === p && (type === 'blob' || type === 'commit')) {
@@ -154,34 +157,33 @@ async function buildSplit(cwd, sha, parent, files, msgs, env) {
   if (removals.length) await run(cwd, ['update-index', '--force-remove', '-z', '--stdin'], { input: removals.join('\0') + '\0', env });
   for (const edit of edits) {
     try { await edit(); } catch (e) {
-      throw /file\/directory conflict|already exists|cannot add to the index|does not exist in index/i.test(e.message)
+      throw /file\/directory conflict|already exists|cannot add to the index|does not exist in index/i.test((e as Error).message)
         ? new GitError('A file and a folder with the same name changed in this commit. Select both changes for the first commit, or neither.')
         : e;
     }
   }
   const tree = (await run(cwd, ['write-tree'], { env })).trim();
-  const treeOf = async (rev) => (rev ? (await run(cwd, ['rev-parse', `${rev}^{tree}`])).trim() : EMPTY_TREE);
+  const treeOf = async (rev: string | null) => (rev ? (await run(cwd, ['rev-parse', `${rev}^{tree}`])).trim() : EMPTY_TREE);
   if (tree === await treeOf(parent)) throw new GitError('Select at least one change for the first commit.');
   if (tree === await treeOf(sha)) throw new GitError('Leave at least one change for the second commit.');
 
   const [name, email, date] = (await run(cwd, ['show', '-s', '--date=raw', '--format=%an%x00%ae%x00%ad', sha])).split(SEP);
-  const author = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date.trim() };
+  const author = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: (date ?? '').trim() };
   // commit-tree only signs when asked, unlike commit and rebase.
   const sign = (await run(cwd, ['config', '--bool', 'commit.gpgsign'], { allowCodes: [0, 1] })).trim() === 'true';
-  const make = async (t, p, msg) => (await run(cwd, ['commit-tree', ...(sign ? ['-S'] : []), t, ...(p ? ['-p', p] : []), '-F', '-'], { input: msg + '\n', env: author })).trim();
-  const first = await make(tree, parent, msgs[0]);
-  return [first, await make(await treeOf(sha), first, msgs[1])];
+  const make = async (t: string, p: string | null, msg: string) => (await run(cwd, ['commit-tree', ...(sign ? ['-S'] : []), t, ...(p ? ['-p', p] : []), '-F', '-'], { input: msg + '\n', env: author })).trim();
+  const first = await make(tree, parent, msgs[0] ?? '');
+  return [first, await make(await treeOf(sha), first, msgs[1] ?? '')];
 }
 
 // Apply the selected lines of a raw (latin1) file diff to the private index, as bytes.
-async function applyPartial(cwd, d, keys, env) {
+async function applyPartial(cwd: string, d: FileDiff, keys: string[], env: NodeJS.ProcessEnv): Promise<void> {
   // Removing some lines of a deleted file keeps the file in the first commit.
   const minus = d.header.find((l) => l.startsWith('--- '));
-  const fd = d.newPath !== '/dev/null' ? d : {
-    ...d, header: d.header.filter((l) => !l.startsWith('deleted file')).map((l) => (l === '+++ /dev/null' ? '+++ ' + minus.slice(4).replace(/^("?)a\//, '$1b/') : l)),
+  const fd: FileDiff = d.newPath !== '/dev/null' ? d : {
+    ...d, header: d.header.filter((l) => !l.startsWith('deleted file')).map((l) => (l === '+++ /dev/null' ? '+++ ' + (minus ?? '').slice(4).replace(/^("?)a\//, '$1b/') : l)),
   };
   const patch = buildPartialPatch(fd, keys, 'stage');
   if (patch) await run(cwd, ['apply', '--cached', '--recount', '--whitespace=nowarn', '-'], { input: Buffer.from(patch, 'latin1'), env });
 }
 
-module.exports = { cherryPick, rewriteRange, rewrite, commitBranches };

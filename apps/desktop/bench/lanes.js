@@ -13,7 +13,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 
 const arg = (name, def) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : def; };
 const BRANCHES = Number(arg('branches', 200));

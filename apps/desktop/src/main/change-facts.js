@@ -29,7 +29,7 @@
 //   keeps all of them quiet while a file that's fixed in half of its recent commits still shows.
 //   Test files are left out: fixes add regression tests, which says nothing about the test.
 
-const git = require('./git');
+const git = require('./git/index.ts');
 
 const FRAGILE_SHARE = 0.5;
 const FRAGILE_MIN_COMMITS = 6;

@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const github = require('../src/main/github');
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 
 const load = () => import('../src/renderer/prs/pr-review.js');
 const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
