@@ -17,7 +17,8 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
   - `src/shared/channels.js`: IPC channel names shared by main and preload
   - `src/renderer/`: buildless UI. `app.js` wires the areas together, one folder per area
     (`graph/`, `commit/`, `history/`, `lanes/`, `review/`, `prs/`, `branches/`, `catchup/`,
-    `palette/` with `keymap.js`, `shell/`, `settings/`, `welcome/`) and `lib/` (DOM toolkit, helpers)
+    `palette/` with `keymap.js`, `shell/`, `settings/`, `welcome/`) and `lib/` (DOM toolkit, helpers).
+    Imports only point down; a lower module calls a higher one through `lib/upcalls.js`
   - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
 - `apps/web`: the website (Astro).
 - `packages/tokens`: design tokens (`tokens.json` → `tokens.css`), the source of truth for colours.

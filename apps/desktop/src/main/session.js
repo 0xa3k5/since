@@ -107,6 +107,6 @@ const notRepoDirs = new Map();
 // Hand a step to the window showing another worktree of this repository (AK-581), opening one if
 // none does: remove a worktree from there, or merge and tidy into the base checked out there. The
 // window takes it (app:take-handoff) when the command arrives, or once a new window has opened.
-const handoffs = new Map();
+const handoffs = new Map(); // webContents.id -> handoff
 
 module.exports = { windowFor, sessions, session, currentRepoGen, RepoSession, notifyWindows, notRepoDirs, handoffs };

@@ -82,7 +82,7 @@ test('closing a repository cancels the Review, Branches and Catch up loads still
   // git runs alongside gh (AK-639); a cancelled load answers null before either result is used.
   assert.match(handler('app:lanes-list'), /\]\);\n\s+if \(signal\.aborted\) return null;\n\s+const rest = /);
   // The renderer stops Review and Catch up before it closes the repository.
-  const app = read('src/renderer/app.js');
+  const app = require('./app-source').appSource();
   const close = app.slice(app.indexOf('async function closeRepo'), app.indexOf("await api.app('close-repo')"));
   assert.match(close, /lanesPage\?\.destroy\(\)/);
   assert.match(close, /catchupPage\?\.destroy\(\)/);

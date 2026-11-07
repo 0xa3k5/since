@@ -25,7 +25,7 @@ A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 - `src/main/main.js`: the entry; `windows.js`, `menu.js`, `lockdown.js`, `session.js` (FSEvents watcher for live refresh, unlimited undo/redo journal in `.git/since-history.json`) and `handlers/` (IPC by area) hold the rest.
 - `src/main/ipc.js`: argument checks for every IPC call. The renderer is sandboxed, has no network access and only reaches git through these checks; see [docs/security.md](../../docs/security.md).
 - `src/preload/preload.js`: the sandboxed bridge; `src/shared/channels.js`: the IPC channel names both sides use.
-- `src/renderer/`: buildless ES modules, one folder per area. Canvas commit graph + virtualized list. The log streams in from git
+- `src/renderer/`: buildless ES modules, one folder per area, wired together by `app.js`. Imports only point down; a lower module calls a higher one through `lib/upcalls.js`. Canvas commit graph + virtualized list. The log streams in from git
   (topology first, subjects and authors behind it) and the graph is laid out incrementally, so there is no
   commit cap: the 1.5M-commit Linux kernel opens in well under a second. See [docs/performance.md](../../docs/performance.md).
 

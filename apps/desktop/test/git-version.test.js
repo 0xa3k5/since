@@ -98,7 +98,7 @@ test('merge here decision: old git → version toast with the git in use; new gi
 
 test('merge here checks the git version before handing off, offers the gate with carry-on, and every window hears a new git', () => {
   const fsm = require('node:fs'), pth = require('node:path');
-  const app = fsm.readFileSync(pth.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const app = require('./app-source').appSource();
   const fn = app.slice(app.indexOf('async function mergeLane('), app.indexOf('async function mergeLane(') + 6000);
   assert.ok(fn.indexOf("kind === 'git-version'") < fn.indexOf("kind: 'mergeLane'"), 'version first');
   assert.match(fn, /updateGit\('mergeHere', \(\) => mergeLane\(/);

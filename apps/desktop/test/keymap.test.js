@@ -89,7 +89,7 @@ test('no inline key checks remain outside text inputs', () => {
   const inline = SOURCES.flatMap((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n')
     .map((l, i) => [`${f}:${i + 1}`, l]).filter(([, l]) => /\be\.(key|code) ===/.test(l)));
   assert.deepEqual(inline.map(([at]) => at.split(':')[0]).sort(), [
-    'src/renderer/app.js', 'src/renderer/app.js', 'src/renderer/app.js', 'src/renderer/palette/shortcuts-view.js', 'src/renderer/palette/shortcuts-view.js', 'src/renderer/welcome/tour-view.js',
+    'src/renderer/palette/shortcuts-view.js', 'src/renderer/palette/shortcuts-view.js', 'src/renderer/shell/navigation.js', 'src/renderer/shell/navigation.js', 'src/renderer/shell/navigation.js', 'src/renderer/welcome/tour-view.js',
   ], inline.map(([at, l]) => `${at} ${l.trim()}`).join('\n'));
 });
 
