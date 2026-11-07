@@ -12,14 +12,14 @@ require('./handlers/git');
 require('./handlers/app.ts');
 require('./handlers/ai.ts');
 require('./handlers/prs');
-require('./windows');
-require('./menu');
+require('./windows.ts');
+require('./menu.ts');
 require('./lockdown.ts');
 const { isMac, readSettings, THEMES } = require('./settings.ts');
-const { openFolder, broadcast, setWindowFocus, createWindow, openLastWindow, hosts } = require('./windows');
+const { openFolder, broadcast, setWindowFocus, createWindow, openLastWindow, hosts } = require('./windows.ts');
 const { useGit } = require('./handlers/app.ts');
 const { media } = require('./handlers/prs');
-const { buildMenu } = require('./menu');
+const { buildMenu } = require('./menu.ts');
 const { lockDownSession } = require('./lockdown.ts');
 
 app.on('open-file', (ev, p) => {

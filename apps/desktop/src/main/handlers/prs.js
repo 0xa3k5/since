@@ -17,7 +17,7 @@ const sendBack = require('../../renderer/lanes/send-back.js');
 const { readSettings, writeSettings, addRecent, removeRecent, isMac } = require('../settings.ts');
 const { sessions, session, currentRepoGen, windowFor, RepoSession, notifyWindows, notRepoDirs, handoffs } = require('../session.ts');
 const { handle, okCall, serializeError } = require('./handle.ts');
-const { tabOf, windowOf, createWindow, hasClosedTabs, closeTab, reopenClosed } = require('../windows');
+const { tabOf, windowOf, createWindow, hasClosedTabs, closeTab, reopenClosed } = require('../windows.ts');
 const { r, plainMutations } = require('./git');
 const { aiSettings } = require('./ai.ts');
 

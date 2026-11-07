@@ -7,7 +7,7 @@ const { GIT, APP_PREFIX, PUSH } = require('../src/shared/channels.ts');
 
 const src = path.join(__dirname, '..', 'src');
 const read = (f) => fs.readFileSync(path.join(src, f), 'utf8');
-const mainFiles = fs.readdirSync(path.join(src, 'main'), { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => `main/${f}`);
+const mainFiles = fs.readdirSync(path.join(src, 'main'), { recursive: true }).filter((f) => /\.(js|ts)$/.test(f)).map((f) => `main/${f}`);
 
 test('the preload lets through exactly the shared push channels', () => {
   const preload = read('preload/preload.ts');

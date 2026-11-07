@@ -7,7 +7,8 @@ import path from 'node:path';
 const SHOWN = { width: 120, height: 40 };
 
 export interface Bounds { x?: number; y?: number; width: number; height: number }
-export interface WindowState { bounds?: Bounds; maximized?: boolean }
+/** The window closed last: its bounds, and the repositories its tabs showed (`repo` from before tabs). */
+export interface WindowState { bounds?: Bounds; maximized?: boolean; tabs?: string[]; active?: string | null; repo?: string | null }
 /** A display's work area. */
 export interface Area { x: number; y: number; width: number; height: number }
 

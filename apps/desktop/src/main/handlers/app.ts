@@ -10,7 +10,7 @@ import { menuChanged } from '../app-events.ts';
 import { readRecent, removeRecent, currentTheme, writeSettings, THEMES } from '../settings.ts';
 import { sessions } from '../session.ts';
 import { handle, okCall } from './handle.ts';
-import { windowOf, broadcast, setTheme, cycleTheme } from '../windows.js';
+import { windowOf, broadcast, setTheme, cycleTheme } from '../windows.ts';
 import type { GitInfo } from '../../shared/git-types.ts';
 import type { UpdateState } from '../../shared/ipc-contract.ts';
 
@@ -33,7 +33,9 @@ export function useGit(p: unknown): void {
 }
 handle('app:git-info', okCall(() => git.gitInfo()));
 handle('app:git-choose', okCall(async (e) => {
-  const res = await dialog.showOpenDialog(windowOf(e), { properties: ['openFile', 'treatPackageAsDirectory'], defaultPath: '/opt/homebrew/bin', message: 'Choose a git program' });
+  const opts: Electron.OpenDialogOptions = { properties: ['openFile', 'treatPackageAsDirectory'], defaultPath: '/opt/homebrew/bin', message: 'Choose a git program' };
+  const win = windowOf(e);
+  const res = await (win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts));
   if (res.canceled || !res.filePaths[0]) return null;
   chosenGit = await git.gitInfo(res.filePaths[0]);
   return chosenGit;

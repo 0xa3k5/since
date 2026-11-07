@@ -11,6 +11,8 @@ import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
 import type { GitInfo } from './git-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
+/** A window's tab as its tab strip shows it. */
+export interface TabInfo { id: number; title: string; active: boolean }
 export type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'available' | 'ready' | 'error' | 'disabled';
 /** Where updating stands; `current` is the running version, `auto` whether daily checks are on. */
 export interface UpdateState { status: UpdateStatus; version?: string | undefined; error?: string | undefined; manual?: boolean | undefined; current?: string | undefined; auto?: boolean }
@@ -30,7 +32,7 @@ export interface IpcError {
 export type IpcResult<T> = { ok: T; error?: undefined } | { ok?: undefined; error: IpcError };
 
 /** The arguments each push channel's listeners receive. */
-export interface PushArgs {
+export interface PushArgs extends Record<PushChannel, unknown[]> {
   'repo:changed': [changed: { refs: boolean; workdir: boolean }];
   command: [command: string, ...args: unknown[]];
   'clone:progress': [line: string];
@@ -38,7 +40,7 @@ export interface PushArgs {
   update: [state: UpdateState & { page: string | null }];
   keymap: [overrides: unknown];
   'cleanup:progress': [progress: { done: number; total: number }];
-  tabs: [tabs: unknown[], hasClosedTabs: boolean];
+  tabs: [tabs: TabInfo[], hasClosedTabs: boolean];
   git: [info: GitInfo | null];
 }
 

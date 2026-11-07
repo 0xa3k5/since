@@ -8,7 +8,7 @@ import type { Handoff } from './ipc.ts';
 import type { RepoInfo } from '../shared/git-types.ts';
 
 /** What a session needs of its window's tab: whether it is gone, and a way to push to it. */
-export interface SessionWindow { isDestroyed(): boolean; webContents: { send(channel: string, ...args: unknown[]): void } }
+export interface SessionWindow { isDestroyed(): boolean; focus(): void; webContents: { send(channel: string, ...args: unknown[]): void } }
 
 export const sessions = new Map<number, RepoSession>(); // webContents.id -> RepoSession
 // Bumped on every repository change any window sees (watcher events, our own git commands): a lanes
