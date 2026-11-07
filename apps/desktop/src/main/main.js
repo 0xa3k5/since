@@ -3,24 +3,24 @@
 const { app, nativeTheme, nativeImage, session: electronSession } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const updater = require('./updater');
+const updater = require('./updater.ts');
 const pkg = require('../../package.json');
 const prMedia = require('./pr-media.ts');
 const keymap = require('../renderer/palette/keymap.js');
-require('./user-data');
+require('./user-data.ts');
 require('./handlers/git');
-require('./handlers/app');
-require('./handlers/ai');
+require('./handlers/app.ts');
+require('./handlers/ai.ts');
 require('./handlers/prs');
 require('./windows');
 require('./menu');
-require('./lockdown');
-const { isMac, readSettings, THEMES } = require('./settings');
+require('./lockdown.ts');
+const { isMac, readSettings, THEMES } = require('./settings.ts');
 const { openFolder, broadcast, setWindowFocus, createWindow, openLastWindow, hosts } = require('./windows');
-const { useGit } = require('./handlers/app');
+const { useGit } = require('./handlers/app.ts');
 const { media } = require('./handlers/prs');
 const { buildMenu } = require('./menu');
-const { lockDownSession } = require('./lockdown');
+const { lockDownSession } = require('./lockdown.ts');
 
 app.on('open-file', (ev, p) => {
   ev.preventDefault();

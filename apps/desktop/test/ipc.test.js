@@ -182,7 +182,7 @@ test('worktree folders: shape in the schema, membership against git worktree lis
 test('sessions reach no network, except the updater session to its feed host over https', () => {
   for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'since-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
   for (const url of ['https://github.com/x', 'http://example.com/', 'wss://example.com/', 'not a url']) assert.ok(!check.requestAllowed(url), url);
-  const updater = require('../src/main/updater');
+  const updater = require('../src/main/updater.ts');
   const feed = updater.feedUrl('https://github.com/0xa3k5/since/releases/latest/download', 'arm64');
   const allow = updater.feedOrigins(feed);
   assert.deepStrictEqual(allow, ['https://github.com', 'https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com']);

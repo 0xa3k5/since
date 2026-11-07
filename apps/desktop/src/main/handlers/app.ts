@@ -1,16 +1,18 @@
-'use strict';
 // Window and app level IPC: recent repositories, theme, which git to use, updates.
-const { dialog } = require('electron');
-const fs = require('node:fs');
-const path = require('node:path');
-const git = require('../git/index.ts');
-const updater = require('../updater');
-const check = require('../ipc.ts');
-const { menuChanged } = require('../app-events.ts');
-const { readRecent, removeRecent, currentTheme, writeSettings, THEMES } = require('../settings');
-const { sessions } = require('../session.ts');
-const { handle, okCall } = require('./handle');
-const { windowOf, broadcast, setTheme, cycleTheme } = require('../windows');
+import electron from 'electron';
+const { dialog } = electron;
+import fs from 'node:fs';
+import path from 'node:path';
+import * as git from '../git/index.ts';
+import * as updater from '../updater.ts';
+import * as check from '../ipc.ts';
+import { menuChanged } from '../app-events.ts';
+import { readRecent, removeRecent, currentTheme, writeSettings, THEMES } from '../settings.ts';
+import { sessions } from '../session.ts';
+import { handle, okCall } from './handle.ts';
+import { windowOf, broadcast, setTheme, cycleTheme } from '../windows.js';
+import type { GitInfo } from '../../shared/git-types.ts';
+import type { UpdateState } from '../../shared/ipc-contract.ts';
 
 // ---------------------------------------------------------------------------
 // Window / app level IPC
@@ -25,9 +27,9 @@ handle('app:theme', () => currentTheme());
 
 // The git in use, and Use another git… (AK-586): pick a git program, which must run and say its
 // version, and keep using it in every window. The path comes from the open dialog, not the renderer.
-function useGit(p) {
+export function useGit(p: unknown): void {
   const ok = typeof p === 'string' && path.isAbsolute(p) && (() => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } })();
-  git.setGitPath(ok ? p : null);
+  git.setGitPath(ok ? (p as string) : null); // `ok` checked it is an absolute path string
 }
 handle('app:git-info', okCall(() => git.gitInfo()));
 handle('app:git-choose', okCall(async (e) => {
@@ -38,11 +40,11 @@ handle('app:git-choose', okCall(async (e) => {
 }));
 // Keep using the git just chosen (once the renderer has checked its version), or go back to the
 // system git ('system').
-let chosenGit = null;
+let chosenGit: GitInfo | null = null;
 handle('app:git-use', okCall(async (_e, which) => {
-  check.oneOf('chosen', 'system')(which, 'git');
-  if (which === 'chosen' && !chosenGit) throw new Error('No git chosen.');
-  const p = which === 'chosen' ? chosenGit.path : null;
+  const use = check.oneOf('chosen', 'system')(which, 'git');
+  if (use === 'chosen' && !chosenGit) throw new Error('No git chosen.');
+  const p = use === 'chosen' ? chosenGit?.path ?? null : null;
   git.setGitPath(p);
   writeSettings({ gitPath: p });
   chosenGit = null;
@@ -58,9 +60,8 @@ handle('app:install-update', () => updater.install());
 handle('app:set-auto-update', (_e, on) => setAutoUpdate(check.bool(on, 'auto-update')));
 
 // "Automatically check for updates" (on unless turned off). Manual checks always work.
-function setAutoUpdate(on) {
+export function setAutoUpdate(on: boolean): UpdateState {
   writeSettings({ autoUpdate: Boolean(on) });
   return updater.refresh();
 }
 
-module.exports = { setAutoUpdate, useGit };

@@ -14,12 +14,12 @@ const github = require('../github');
 const prMedia = require('../pr-media.ts');
 const mergePlan = require('../../renderer/lanes/merge-plan.js');
 const sendBack = require('../../renderer/lanes/send-back.js');
-const { readSettings, writeSettings, addRecent, removeRecent, isMac } = require('../settings');
+const { readSettings, writeSettings, addRecent, removeRecent, isMac } = require('../settings.ts');
 const { sessions, session, currentRepoGen, windowFor, RepoSession, notifyWindows, notRepoDirs, handoffs } = require('../session.ts');
-const { handle, okCall, serializeError } = require('./handle');
+const { handle, okCall, serializeError } = require('./handle.ts');
 const { tabOf, windowOf, createWindow, hasClosedTabs, closeTab, reopenClosed } = require('../windows');
 const { r, plainMutations } = require('./git');
-const { aiSettings } = require('./ai');
+const { aiSettings } = require('./ai.ts');
 
 // ---------------------------------------------------------------------------
 // Pull request status through the user's GitHub CLI (github.js). One user-wide flag, plus a

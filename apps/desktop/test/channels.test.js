@@ -54,7 +54,7 @@ test('every app call and git call in the renderer is in the contract', () => {
 });
 
 test('handle() refuses a channel that is not in the contract', () => {
-  const source = read('main/handlers/handle.js');
-  assert.match(source, /APP_CHANNELS\.includes\(channel\.slice\(APP_PREFIX\.length\)\)/);
+  const source = read('main/handlers/handle.ts');
+  assert.match(source, /APP_CHANNELS as readonly string\[\]\)\.includes\(channel\.slice\(APP_PREFIX\.length\)\)/);
   assert.match(source, /if \(!known\) throw/);
 });

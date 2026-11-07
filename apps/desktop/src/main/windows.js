@@ -10,7 +10,7 @@ const { menuChanged } = require('./app-events.ts');
 const recentStore = require('./stores/recent-store.ts');
 const windowState = require('./stores/window-state.ts');
 const keymap = require('../renderer/palette/keymap.js');
-const { THEMES, currentTheme, writeSettings, windowColors, isMac, windowStateFile, recentFile } = require('./settings');
+const { THEMES, currentTheme, writeSettings, windowColors, isMac, windowStateFile, recentFile } = require('./settings.ts');
 const { sessions, notifyWindows, handoffs, notRepoDirs, windowFor } = require('./session.ts');
 
 const bench = process.env.SINCE_BENCH ? require('../../bench/harness')(app) : null;

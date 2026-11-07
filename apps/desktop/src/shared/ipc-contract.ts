@@ -8,6 +8,12 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
+import type { GitInfo } from './git-types.ts';
+
+export type Theme = 'system' | 'light' | 'dark';
+export type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'available' | 'ready' | 'error' | 'disabled';
+/** Where updating stands; `current` is the running version, `auto` whether daily checks are on. */
+export interface UpdateState { status: UpdateStatus; version?: string | undefined; error?: string | undefined; manual?: boolean | undefined; current?: string | undefined; auto?: boolean }
 
 /** A failure carried across IPC as data instead of a thrown error (serializeError in src/main/handlers/handle.js). */
 export interface IpcError {
@@ -28,12 +34,12 @@ export interface PushArgs {
   'repo:changed': [changed: { refs: boolean; workdir: boolean }];
   command: [command: string, ...args: unknown[]];
   'clone:progress': [line: string];
-  theme: [mode: string, opts: { announce: boolean }];
-  update: [state: unknown];
+  theme: [mode: Theme, opts: { announce: boolean }];
+  update: [state: UpdateState & { page: string | null }];
   keymap: [overrides: unknown];
   'cleanup:progress': [progress: { done: number; total: number }];
   tabs: [tabs: unknown[], hasClosedTabs: boolean];
-  git: [info: unknown];
+  git: [info: GitInfo | null];
 }
 
 /** `window.since`, as src/preload/preload.ts exposes it. */

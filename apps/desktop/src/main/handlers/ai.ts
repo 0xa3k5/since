@@ -1,30 +1,29 @@
-'use strict';
 // IPC for opt-in AI commit messages (ai.js).
-const git = require('../git/index.ts');
-const check = require('../ipc.ts');
-const ai = require('../ai.ts');
-const { readSettings, writeSettings } = require('../settings');
-const { session } = require('../session.ts');
-const { handle, okCall } = require('./handle');
+import * as git from '../git/index.ts';
+import * as check from '../ipc.ts';
+import * as ai from '../ai.ts';
+import { readSettings, writeSettings } from '../settings.ts';
+import { session } from '../session.ts';
+import { handle, okCall } from './handle.ts';
 
 // ---------------------------------------------------------------------------
 // Opt-in AI commit messages (ai.js). The prompt is always built here from the staged diff, never
 // taken from the renderer, and nothing is sent to a provider the user hasn't agreed to.
 
-const aiSettings = () => ai.normalize(readSettings().ai);
+export const aiSettings = (): ai.AiSettings => ai.normalize(readSettings().ai);
 const aiState = () => {
   const a = aiSettings();
-  return { ...a, consented: a.consent.includes(a.provider), providers: ai.PROVIDER_IDS.map((id) => ({ id, label: ai.PROVIDERS[id].label, defaultModel: ai.PROVIDERS[id].defaultModel || null })) };
+  return { ...a, consented: (a.consent as string[]).includes(a.provider), providers: ai.PROVIDER_IDS.map((id) => { const p = ai.PROVIDERS[id]; return { id, label: p.label, defaultModel: ('defaultModel' in p && p.defaultModel) || null }; }) };
 };
-async function aiPrompt(e) {
+async function aiPrompt(e: { sender: { id: number } }): Promise<string> {
   const root = session(e).repo.root;
   const branch = (await git.run(root, ['branch', '--show-current']).catch(() => '')).trim();
   return ai.stagedChanges(git.run, root, branch);
 }
 handle('app:ai-settings', () => aiState());
 handle('app:ai-configure', (_e, provider, model) => {
-  check.oneOf('off', ...ai.PROVIDER_IDS)(provider, 'AI provider');
-  writeSettings({ ai: { ...aiSettings(), provider, model: check.str(model ?? '', 'model', { max: 200, empty: true }).trim() } });
+  const chosen = check.oneOf('off', ...ai.PROVIDER_IDS)(provider, 'AI provider');
+  writeSettings({ ai: { ...aiSettings(), provider: chosen, model: check.str(model ?? '', 'model', { max: 200, empty: true }).trim() } });
   return aiState();
 });
 handle('app:ai-preview', okCall(async (e) => {
@@ -47,4 +46,3 @@ handle('app:ai-generate', okCall(async (e, consent, hash) => {
   return ai.generate(a, prompt);
 }));
 
-module.exports = { aiSettings };

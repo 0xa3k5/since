@@ -2,15 +2,15 @@
 // The application menu and the keymap it shows. Rebuilt when another module calls menuChanged().
 const { app, BaseWindow, dialog, Menu } = require('electron');
 const fs = require('node:fs');
-const updater = require('./updater');
+const updater = require('./updater.ts');
 const check = require('./ipc.ts');
 const { onMenuChange, menuChanged } = require('./app-events.ts');
 const keymap = require('../renderer/palette/keymap.js');
-const { isMac, writeSettings, readRecent, THEMES, THEME_LABELS, currentTheme } = require('./settings');
+const { isMac, writeSettings, readRecent, THEMES, THEME_LABELS, currentTheme } = require('./settings.ts');
 const { sessions } = require('./session.ts');
-const { handle } = require('./handlers/handle');
+const { handle } = require('./handlers/handle.ts');
 const { broadcast, windowOf, activeTab, focusedHost, newTab, createWindow, hasClosedTabs, reopenClosed, closeTab, setTheme, cycleTheme, TAB_KEYS } = require('./windows');
-const { setAutoUpdate } = require('./handlers/app');
+const { setAutoUpdate } = require('./handlers/app.ts');
 
 const acc = (id) => keymap.accelerator(id, isMac);
 
