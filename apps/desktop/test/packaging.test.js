@@ -89,7 +89,7 @@ test('every module the main process requires is packaged', () => {
     const src = fs.readFileSync(path.join(root, file), 'utf8');
     for (const [, rel] of src.matchAll(/(?:require\(|\bfrom |^import )'(\.\.?\/[^']+)'/gm)) visit(resolve(file, rel));
   };
-  visit('src/main/main.js');
+  visit('src/main/main.ts');
   visit('src/preload/preload.ts');
   // What runs is the build of src/ in out/ (scripts/build.js), with .ts files built to .js.
   const built = (file) => file.replace(/^src\//, 'out/').replace(/\.ts$/, '.js');

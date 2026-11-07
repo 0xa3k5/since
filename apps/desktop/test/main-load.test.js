@@ -29,7 +29,7 @@ test('main.js loads without errors', () => {
   const fake = new Proxy({}, { get: (_t, k) => (k === 'ipcMain' ? ipcMain : electron[k]) });
   useElectron(fake);
   try {
-    require('../src/main/main.js');
+    require('../src/main/main.ts');
   } finally {
     useElectron({});
   }

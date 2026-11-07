@@ -1,26 +1,27 @@
-'use strict';
 // The main process entry: loads every module (IPC handlers, windows, menu, lock-down) and opens the first window when the app is ready.
-const { app, nativeTheme, nativeImage, session: electronSession } = require('electron');
-const fs = require('node:fs');
-const path = require('node:path');
-const updater = require('./updater.ts');
-const pkg = require('../../package.json');
-const prMedia = require('./pr-media.ts');
-const keymap = require('../renderer/palette/keymap.js');
-require('./user-data.ts');
-require('./handlers/git.ts');
-require('./handlers/app.ts');
-require('./handlers/ai.ts');
-require('./handlers/prs');
-require('./windows.ts');
-require('./menu.ts');
-require('./lockdown.ts');
-const { isMac, readSettings, THEMES } = require('./settings.ts');
-const { openFolder, broadcast, setWindowFocus, createWindow, openLastWindow, hosts } = require('./windows.ts');
-const { useGit } = require('./handlers/app.ts');
-const { media } = require('./handlers/prs');
-const { buildMenu } = require('./menu.ts');
-const { lockDownSession } = require('./lockdown.ts');
+import electron from 'electron';
+const { app, nativeTheme, nativeImage, session: electronSession } = electron;
+import fs from 'node:fs';
+import path from 'node:path';
+import * as updater from './updater.ts';
+import pkg from '../../package.json' with { type: 'json' };
+import * as prMedia from './pr-media.ts';
+import * as keymap from '../renderer/palette/keymap.js';
+import './user-data.ts';
+import './handlers/git.ts';
+import './handlers/app.ts';
+import './handlers/ai.ts';
+import './handlers/prs.js';
+import './windows.ts';
+import './menu.ts';
+import './lockdown.ts';
+import { isMac, readSettings, THEMES } from './settings.ts';
+import { openFolder, broadcast, setWindowFocus, createWindow, openLastWindow, hosts } from './windows.ts';
+import { useGit } from './handlers/app.ts';
+import { media } from './handlers/prs.js';
+import { buildMenu } from './menu.ts';
+import { lockDownSession } from './lockdown.ts';
+import type { Theme } from '../shared/ipc-contract.ts';
 
 app.on('open-file', (ev, p) => {
   ev.preventDefault();
@@ -35,14 +36,14 @@ app.whenReady().then(() => {
   });
   // Packaged builds carry build/icon.icns; `pnpm start` would show Electron's icon in the Dock.
   if (!app.isPackaged && isMac) {
-    const dockIcon = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'build', 'icon.icns'));
+    const dockIcon = nativeImage.createFromPath(path.join(import.meta.dirname, '..', '..', 'build', 'icon.icns'));
     if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
   }
   lockDownSession(electronSession.defaultSession);
   electronSession.defaultSession.protocol.handle(prMedia.SCHEME, (req) => media.video(req));
   useGit(readSettings().gitPath);
   const saved = readSettings().theme;
-  nativeTheme.themeSource = THEMES.includes(saved) ? saved : 'system';
+  nativeTheme.themeSource = (THEMES as readonly unknown[]).includes(saved) ? saved as Theme : 'system';
   keymap.setOverrides(readSettings().keymap);
   updater.init({
     auto: () => readSettings().autoUpdate !== false,
