@@ -4,7 +4,7 @@ const git = require('../git/index.ts');
 const check = require('../ipc.ts');
 const ai = require('../ai.ts');
 const { readSettings, writeSettings } = require('../settings');
-const { session } = require('../session');
+const { session } = require('../session.ts');
 const { handle, okCall } = require('./handle');
 
 // ---------------------------------------------------------------------------

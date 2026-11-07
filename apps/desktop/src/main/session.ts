@@ -1,42 +1,58 @@
-'use strict';
 // Per-window repository sessions, and the per-window state other modules hand each other.
-const fs = require('node:fs');
-const path = require('node:path');
-const git = require('./git/index.ts');
-const { Journal } = require('./journal.ts');
-const { LogStreams } = require('./log-streams.ts');
+import fs from 'node:fs';
+import path from 'node:path';
+import * as git from './git/index.ts';
+import { Journal } from './journal.ts';
+import { LogStreams } from './log-streams.ts';
+import type { Handoff } from './ipc.ts';
+import type { RepoInfo } from '../shared/git-types.ts';
 
-const sessions = new Map(); // webContents.id -> RepoSession
+/** What a session needs of its window's tab: whether it is gone, and a way to push to it. */
+export interface SessionWindow { isDestroyed(): boolean; webContents: { send(channel: string, ...args: unknown[]): void } }
+
+export const sessions = new Map<number, RepoSession>(); // webContents.id -> RepoSession
 // Bumped on every repository change any window sees (watcher events, our own git commands): a lanes
 // run started before it is never shared with a later caller (git.sharedLanes).
 let repoGen = 0;
-const currentRepoGen = () => repoGen;
+export const currentRepoGen = (): number => repoGen;
 
 // ---------------------------------------------------------------------------
 // Per-window repository session: watcher + undo/redo history
 
-class RepoSession {
-  constructor(win, repo) {
+export class RepoSession {
+  win: SessionWindow;
+  repo: RepoInfo;
+  journal: Journal;
+  watchers: fs.FSWatcher[];
+  pending: { refs: boolean; workdir: boolean };
+  timer: NodeJS.Timeout | undefined;
+  busy: number;
+  graphChecked: boolean;
+  closed: AbortController;
+  logs: LogStreams;
+  /** The conflict forecast running for this window, aborted when another starts or the repository closes. */
+  forecast?: AbortController | null;
+  constructor(win: SessionWindow, repo: RepoInfo) {
     this.win = win;
     this.repo = repo;
     this.journal = new Journal(repo);
     this.journal.prune();
     this.watchers = [];
     this.pending = { refs: false, workdir: false };
-    this.timer = null;
+    this.timer = undefined;
     this.busy = 0;
     this.graphChecked = false;
     // Aborted when the repository closes: the loads still running stop their gh calls and return null.
     this.closed = new AbortController();
-    this.logs = new LogStreams(repo.root, { onEnd: (l) => { if (!l.fast && !l.opts.preview && !this.graphChecked) this.writeCommitGraph(); } });
+    this.logs = new LogStreams(repo.root, { onEnd: (l) => { if (!l.fast && !l.opts?.preview && !this.graphChecked) void this.writeCommitGraph(); } });
     this.watch();
   }
 
-  watch() {
+  watch(): void {
     // A linked worktree's refs live in the shared commonDir, outside its own gitDir.
     const { root, gitDir, commonDir = gitDir } = this.repo;
-    const inside = (abs, dir) => abs === dir || abs.startsWith(dir + path.sep);
-    const onEvent = (base) => (_type, file) => {
+    const inside = (abs: string, dir: string) => abs === dir || abs.startsWith(dir + path.sep);
+    const onEvent = (base: string) => (_type: fs.WatchEventType, file: string | null) => {
       if (!file) { this.pending.refs = this.pending.workdir = true; return this.schedule(); }
       const abs = path.join(base, file.toString());
       if (inside(abs, gitDir) || inside(abs, commonDir)) {
@@ -52,15 +68,15 @@ class RepoSession {
       }
       this.schedule();
     };
-    const add = (dir) => {
-      try { this.watchers.push(fs.watch(dir, { recursive: true }, onEvent(dir))); } catch (e) { console.warn('watch failed', dir, e.message); }
+    const add = (dir: string) => {
+      try { this.watchers.push(fs.watch(dir, { recursive: true }, onEvent(dir))); } catch (e) { console.warn('watch failed', dir, (e as Error).message); }
     };
     add(root);
     if (!inside(commonDir, root)) add(commonDir);
     if (!inside(gitDir, root) && !inside(gitDir, commonDir)) add(gitDir);
   }
 
-  schedule() {
+  schedule(): void {
     repoGen++;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -73,12 +89,12 @@ class RepoSession {
 
   // Once per session, after a full log without git's commit-graph cache, write it in the
   // background so the next load streams immediately.
-  async writeCommitGraph() {
+  async writeCommitGraph(): Promise<void> {
     this.graphChecked = true;
-    try { if (!(await git.hasCommitGraph(this.repo.root))) await git.writeCommitGraph(this.repo.root); } catch (e) { console.warn('commit-graph write failed', e.message); }
+    try { if (!(await git.hasCommitGraph(this.repo.root))) await git.writeCommitGraph(this.repo.root); } catch (e) { console.warn('commit-graph write failed', (e as Error).message); }
   }
 
-  dispose() {
+  dispose(): void {
     this.closed.abort();
     this.forecast?.abort();
     this.logs.dispose();
@@ -89,12 +105,12 @@ class RepoSession {
 }
 
 // The tab showing a repository root, if any.
-const windowFor = (root) => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
+export const windowFor = (root: string): SessionWindow | undefined => [...sessions.values()].find((x) => !x.win.isDestroyed() && git.samePath(x.repo.root, root))?.win;
 // Which worktrees are open in another window changes when a window opens, closes or switches
 // worktree: every window refreshes, not only the one whose refs moved.
-const notifyWindows = () => { for (const [, x] of sessions) if (!x.win.isDestroyed()) { x.pending.refs = true; x.schedule(); } };
+export const notifyWindows = (): void => { for (const [, x] of sessions) if (!x.win.isDestroyed()) { x.pending.refs = true; x.schedule(); } };
 
-function session(e) {
+export function session(e: { sender: { id: number } }): RepoSession {
   const s = sessions.get(e.sender.id);
   if (!s) throw new Error('No repository open in this window');
   return s;
@@ -102,11 +118,10 @@ function session(e) {
 
 // The last folder each window was asked to open that isn't a repository: the only folder
 // app:init-here will run `git init` in.
-const notRepoDirs = new Map();
+export const notRepoDirs = new Map<number, string>();
 
 // Hand a step to the window showing another worktree of this repository (AK-581), opening one if
 // none does: remove a worktree from there, or merge and tidy into the base checked out there. The
 // window takes it (app:take-handoff) when the command arrives, or once a new window has opened.
-const handoffs = new Map(); // webContents.id -> handoff
+export const handoffs = new Map<number, Handoff>(); // webContents.id -> handoff
 
-module.exports = { windowFor, sessions, session, currentRepoGen, RepoSession, notifyWindows, notRepoDirs, handoffs };

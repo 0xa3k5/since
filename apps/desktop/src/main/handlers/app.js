@@ -8,7 +8,7 @@ const updater = require('../updater');
 const check = require('../ipc.ts');
 const { menuChanged } = require('../app-events.ts');
 const { readRecent, removeRecent, currentTheme, writeSettings, THEMES } = require('../settings');
-const { sessions } = require('../session');
+const { sessions } = require('../session.ts');
 const { handle, okCall } = require('./handle');
 const { windowOf, broadcast, setTheme, cycleTheme } = require('../windows');
 
