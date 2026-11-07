@@ -20,7 +20,7 @@ smoke screenshots (saved under `test-results/`). CI runs the suite on macOS and 
 A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 
 ## Architecture
-- `src/main/git.js`: dependency-free git CLI layer (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
+- `src/main/git/`: dependency-free git CLI layer, one module per area (`run.js` spawns git, `index.js` exports every call) (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
 - `src/main/updater.js`: update checks and install (see Updates).
 - `src/main/main.js`: windows, menu, IPC, FSEvents watcher (live refresh), unlimited undo/redo journal (`.git/since-history.json`).
 - `src/main/ipc.js`: argument checks for every IPC call. The renderer is sandboxed, has no network access and only reaches git through these checks; see [docs/security.md](../../docs/security.md).

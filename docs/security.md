@@ -50,13 +50,13 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
 
 ### How this was checked
 
-- **Code.** The main process (`main.js`, `git.js`, `journal.js`, `ipc.js`) requires none of
+- **Code.** The main process (`main.js`, `git/`, `journal.js`, `ipc.js`) requires none of
   Node's `http`, `https`, `net`, `tls`, `dns` or `dgram` modules, and uses neither Electron's
   `net`, `autoUpdater` nor `crashReporter`. The app has no runtime npm dependencies
   (`test/packaging.test.js` enforces this). The only git subcommands that use the network
   (`clone`, `fetch`, `pull`, `push`) are started from the user actions listed above.
   `test/packaging.test.js` checks that no packaged main-process file requires a Node network
-  module or Electron's `net`, and that `git.js`, `ai.js` and `github.js` never call `fetch`;
+  module or Electron's `net`, and that `git/`, `ai.js` and `github.js` never call `fetch`;
   the only request the app makes itself is the update check (`updater.js`).
 - **GitHub CLI calls.** `github.js` spawns `gh` the same way `ai.js` spawns AI CLIs: the binary
   is resolved on the extended `PATH`, runs in an empty temp folder with prompts off, has a
