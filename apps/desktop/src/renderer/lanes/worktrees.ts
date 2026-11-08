@@ -192,7 +192,7 @@ function worktreesView() {
 // Lanes overview (lanes-view.js): local git data, plus PRs while pull requests are on here.
 function openLanes() {
   lanesPage?.destroy();
-  setLanesPage(lanesView({
+  const page = lanesView({
     repo: state.repo?.root ?? null,
     onCounts: (c) => setReviewCount(c.needs),
     git,
@@ -229,15 +229,16 @@ function openLanes() {
     setPaneWidth: (width) => savePref('reviewPane', { width }),
     // Moving to another row is a step for ⌘[ / ⌘] once the pane shows it.
     onSettle: (from) => { if (lanesOpen() && !navigating && !navDepth && nav.record({ ...place(), lanes: from, key: placeKey(from) }, placeKey())) renderTopbar(); },
-  }));
+  });
+  setLanesPage(page);
   setLanesPlace(null);
-  return lanesPage;
+  return page;
 }
 
 // Catch up (catchup-view.js): what landed on the base since your checkpoint, read in its own
 // reader (AK-372). Git alone until Reload.
 function openCatchup() {
-  setCatchupPage(catchupView({
+  const page = catchupView({
     repo: state.repo?.root ?? null,
     paneHandle: (box) => paneHandle('catchup', box),
     git,
@@ -249,8 +250,9 @@ function openCatchup() {
     counts: () => reviewCounts({ repo: state.repo?.root ?? '', load: lanesList, prsOn: () => Boolean(state.prs?.active) }),
     onReview: () => setView('lanes'),
     onCount: setCatchupCount,
-  }));
-  return catchupPage;
+  });
+  setCatchupPage(page);
+  return page;
 }
 // The sidebar badge on Catch up: what landed since the checkpoint (git alone); none once caught up.
 function setCatchupCount(n: number) { if (n === catchupCount) return; assignCatchupCount(n); renderNavCounts(); }
@@ -267,7 +269,7 @@ function countCatchup() {
 // branch preview beside the list. Local data; pull requests from Review's last load.
 let branchesTab: string | null = null; // the tab the next Branches page opens on (null: the last one)
 function openBranches() {
-  setBranchesPage(branchesView({
+  const page = branchesView({
     repo: state.repo?.root ?? null,
     git,
     load: lanesList,
@@ -297,10 +299,11 @@ function openBranches() {
       onDone: refreshAll,
       onUndo: undo,
     },
-  }));
+  });
+  setBranchesPage(page);
   branchesTab = null;
   cleanupOnly = null;
-  return branchesPage;
+  return page;
 }
 // Branches on a tab (⌘K, the keys that used to open Everything else in Review).
 function showBranches(tab: string | null = null) {
@@ -892,5 +895,6 @@ Object.assign(up, { countFinished, countCatchup, REF_LISTS, refListKey, switchWo
 Object.defineProperties(up, {
   refListShown: { get: () => refListShown, set: (value: string) => { refListShown = value; }, enumerable: true },
 });
+declare module '../lib/upcalls.ts' { interface Upcalls { countFinished: typeof countFinished; countCatchup: typeof countCatchup; REF_LISTS: typeof REF_LISTS; refListKey: typeof refListKey; switchWorktree: typeof switchWorktree; worktreeMenu: typeof worktreeMenu; branchSwitcher: typeof branchSwitcher; worktreeSwitcher: typeof worktreeSwitcher; closeReview: typeof closeReview; mergeLane: typeof mergeLane; prDeskAction: typeof prDeskAction; worktreesView: typeof worktreesView; refListView: typeof refListView; openLanes: typeof openLanes; openCatchup: typeof openCatchup; openBranches: typeof openBranches; addWorktree: typeof addWorktree; countReview: typeof countReview; setCatchupCount: typeof setCatchupCount; mergePrCmd: typeof mergePrCmd; closePrCmd: typeof closePrCmd; rebaseLane: typeof rebaseLane; openSubmodule: typeof openSubmodule; updateSubmodules: typeof updateSubmodules; takeHandoff: typeof takeHandoff; refListShown: typeof refListShown } }
 
 export { pickPrReview, prDeskAction, mergePrCmd, closePrCmd, openReview, branchSwitcher, addWorktree, worktreeSwitcher, pruneWorktrees, removeWorktree, switchWorktree, openWorktreeWindow, toggleLock, updateSubmodules, openSubmodule, mergeLane, rebaseLane, laneAction, deleteLane, startCleanup, makeChainStack, paneAction, openLane, showBranches, takeHandoff };

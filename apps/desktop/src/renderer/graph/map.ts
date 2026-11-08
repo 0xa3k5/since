@@ -76,7 +76,7 @@ function createMapView(container: HTMLElement): MapView {
         if (e.button !== 0) return;
         const hit = dbl.rowDown(e, c);
         if (results) { clearSearch(); select(c.sha, 'center'); } else select(c.sha);
-        if (hit) up.checkoutSelected(hit, [e.clientX, e.clientY]);
+        if (hit) up.checkoutSelected(hit as LogCommit, [e.clientX, e.clientY]);
       },
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); up.commitMenu(e.clientX, e.clientY, c); },
     },
@@ -210,8 +210,8 @@ function createMapView(container: HTMLElement): MapView {
     const id = keymap.match('map', e);
     switch (id) {
       case 'commit.checkoutBranch': if (!isEditable(e.target as Element | null)) { e.preventDefault(); if (c) up.checkoutSelected(c); } break;
-      case 'map.copySha': if (!window.getSelection()?.toString()) { e.preventDefault(); up.copy(state.selected, 'Copied SHA'); } break;
-      case 'map.copyLink': e.preventDefault(); up.copyCommitLink(state.selected); break;
+      case 'map.copySha': if (sel && !window.getSelection()?.toString()) { e.preventDefault(); up.copy(sel, 'Copied SHA'); } break;
+      case 'map.copyLink': e.preventDefault(); if (sel) up.copyCommitLink(sel); break;
       case 'map.next': move(1); break;
       case 'map.prev': move(-1); break;
       case 'map.pageDown': move(Math.floor(scroller.clientHeight / ROW_H)); break;
@@ -333,5 +333,6 @@ function fileRow(f: RowFile, onclick: (e: MouseEvent) => unknown, extra?: Child)
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { loadCommit, selectCommit, fileRow });
+declare module '../lib/upcalls.ts' { interface Upcalls { loadCommit: typeof loadCommit; selectCommit: typeof selectCommit; fileRow: typeof fileRow } }
 
 export { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView, loadCommit, fileRow, commitCache };

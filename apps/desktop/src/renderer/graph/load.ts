@@ -340,11 +340,12 @@ function refPill(r: PillRef) {
     wt && r.kind === 'branch' ? icon('worktree', 12) : null,
     synced && state.show.remotes ? icon('cloud', 12) : null,
     r.kind === 'branch' && (r.ahead || r.behind) ? h('span.track', null, r.ahead ? `↑${r.ahead}` : '', r.behind ? `↓${r.behind}` : '') : null,
-    up.prBadge(up.prFor(r)),
+    up.prBadge(r.kind === 'head' || r.kind === 'worktree' ? null : up.prFor(r)),
   );
 }
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { refreshAll, refreshStatus });
+declare module '../lib/upcalls.ts' { interface Upcalls { refreshAll: typeof refreshAll; refreshStatus: typeof refreshStatus } }
 
 export { refreshAux, refreshHistory, worktreeOf, wantDetails, refPill, refreshAll, refreshStatus, cancelHistory, setHistory };

@@ -76,5 +76,6 @@ async function push(force?: unknown) { return act('Push', 'push', [{ force: forc
 // Lower modules call these through `up` (lib/upcalls.ts).
 declare module '../lib/upcalls.ts' { interface Upcalls { push: typeof push } }
 Object.assign(up, { push });
+declare module '../lib/upcalls.ts' { interface Upcalls { push: typeof push } }
 
 export { editRemoteUrl, remoteMenu, addRemote, fetchAll, pull, push, remotesSwitcher, remoteItems };

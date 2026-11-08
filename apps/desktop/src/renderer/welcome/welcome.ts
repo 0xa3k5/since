@@ -25,7 +25,7 @@ async function setupFeature(id: string, on: boolean) {
   // The other setup switches are the map's View options.
   const key = id as keyof Show;
   if (state.show[key] === on) return;
-  if (state.repo) return up.toggleShow(id);
+  if (state.repo) return up.toggleShow(key);
   state.show[key] = on;
   savePref('show', state.show);
   if (id === 'swatches') setSwatches(on);

@@ -10,7 +10,7 @@ import { refreshHistory } from '../graph/load.ts';
 
 // History & recovery: Snapshots (the undo timeline) and the reflog on one page, a tab each (AK-463).
 function historyTabs(on: string) {
-  const tab = (id: string, label: string) => h('button.review-tab', { role: 'tab', onclick: () => on !== id && up.setView(id), title: tip(label, `view.${id}`), 'aria-selected': String(on === id) }, label);
+  const tab = (id: 'snapshots' | 'reflog', label: string) => h('button.review-tab', { role: 'tab', onclick: () => on !== id && up.setView(id), title: tip(label, `view.${id}`), 'aria-selected': String(on === id) }, label);
   return h('div.history-tabs', { role: 'tablist', 'aria-label': 'History & recovery' }, tab('snapshots', 'Snapshots'), tab('reflog', 'Reflog'));
 }
 function snapshotsView() {

@@ -465,7 +465,7 @@ async function rebasePr(pr: PullRequest, branch: string | null) {
   const onto = state.refs.some((r) => r.kind === 'remote' && r.short === `${remote}/${pr.base}`) ? `${remote}/${pr.base}` : pr.base;
   if (branch) {
     const wt = state.worktrees.find((w) => w.branch === branch);
-    return up.rebaseLane({ branch, worktree: wt ? { path: wt.path, current: wt.current } : null }, onto);
+    return up.rebaseLane({ name: branch, branch, worktree: wt ? { path: wt.path, short: wt.name, main: wt.main, current: wt.current, locked: wt.locked, prunable: wt.missing } : null }, onto);
   }
   const out = (await checkoutPr(pr)) as { branch?: string; worktree?: unknown } | null | undefined; // a toast when it failed
   if (out?.branch && !out.worktree) return act(`Rebase ${out.branch} onto ${onto}`, 'rebaseOnto', [onto], { busy: 'Rebasing…' });
@@ -642,5 +642,6 @@ Object.assign(up, { indexPrs, prBadge, prFor, refreshPrs, prefetchOnOpen, setupP
 Object.defineProperties(up, {
   prLoggedOut: { get: () => prLoggedOut, set: (value: boolean) => { prLoggedOut = value; }, enumerable: true },
 });
+declare module '../lib/upcalls.ts' { interface Upcalls { indexPrs: typeof indexPrs; prBadge: typeof prBadge; prFor: typeof prFor; refreshPrs: typeof refreshPrs; prefetchOnOpen: typeof prefetchOnOpen; setupPrs: typeof setupPrs; turnOffPrs: typeof turnOffPrs; prLoggedOut: typeof prLoggedOut } }
 
 export { prViewer, prFor, createPr, checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, approvePr, requestChangesPr, mergePr, closePr, openPrOnGitHub, updatePrBranch, REMOTE_NOTE, prCall, OWN_PR, refreshPrs, fixMergeGate, prCheckLines, checkFailEl, prList, pickPrBranch, pickPr, approveTargetWhy, togglePrs, hidePrs, pickPrRemote, submoduleSwitcher, turnOffPrs, setPrRemote, prStage, loadPrs, prefetchOnOpen, setPrStage };

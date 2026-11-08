@@ -343,5 +343,6 @@ async function openHosting() {
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { repoMenu, openPalette });
+declare module '../lib/upcalls.ts' { interface Upcalls { repoMenu: typeof repoMenu; openPalette: typeof openPalette } }
 
 export { openPalette, resetHard, openHosting, repoSwitcher };

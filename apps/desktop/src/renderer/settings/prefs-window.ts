@@ -267,5 +267,6 @@ Object.assign(up, { openRepo, renderWelcome });
 Object.defineProperties(up, {
   prefs: { get: () => prefs, set: (value: PrefsWindow | null) => { prefs = value; }, enumerable: true },
 });
+declare module '../lib/upcalls.ts' { interface Upcalls { openRepo: typeof openRepo; renderWelcome: typeof renderWelcome; prefs: typeof prefs } }
 
 export { renderWelcome, openPrefs, openRepo, cloneRepo, closeRepo, initRepo, prefs };

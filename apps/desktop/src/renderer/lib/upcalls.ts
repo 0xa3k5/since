@@ -4,9 +4,7 @@
 // which run after every module has loaded.
 // A module that registers upcalls declares their types next to its Object.assign:
 //   declare module '../lib/upcalls.ts' { interface Upcalls { renderView: typeof renderView } }
-export interface Upcalls {
-  // any: the modules still in JavaScript register untyped upcalls. This goes once the renderer is all TypeScript.
-  [name: string]: any;
-}
+// Empty here: each registering module adds its own members (see above).
+export interface Upcalls {}
 // Empty until the higher modules load; every upcall is registered before any function reads it.
 export const up = {} as Upcalls;

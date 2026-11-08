@@ -177,8 +177,8 @@ function withProfile<P extends { name: string; email: string }>(p: P) {
 }
 
 // View Author on GitHub (⌘K, the context menu): the selected commit's author.
-function openAuthor(c: { email: string; author?: string }) {
-  const p = authorProfile(c.email, originRemote()?.web);
+function openAuthor(c: { email?: string | null; author?: string | null }) {
+  const p = authorProfile(c.email ?? '', originRemote()?.web);
   if (p) api.app('external', p.url);
   else toast(`No GitHub profile found for ${c.author}`, { kind: 'error' });
 }
@@ -275,7 +275,7 @@ function renderSidebar() {
   sidebarEl.replaceChildren(
     h('div.sb-top', null,
       h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
-      h('button.repo-switch', { 'aria-haspopup': 'menu', onclick: (e) => up.repoMenu(e.currentTarget) },
+      h('button.repo-switch', { 'aria-haspopup': 'menu', onclick: (e) => up.repoMenu(e.currentTarget as Element) },
         h('span.repo-icon', null, (state.repo?.name ?? '').slice(0, 1).toUpperCase()),
         h('span.repo-name', null, state.repo?.name),
         icon('chevronDown', 12)),
@@ -678,5 +678,6 @@ Object.defineProperties(up, {
   startView: { get: () => startView, set: (value: View) => { startView = value; }, enumerable: true },
   sbHideTimer: { get: () => sbHideTimer, set: (value: number) => { sbHideTimer = value; }, enumerable: true },
 });
+declare module '../lib/upcalls.ts' { interface Upcalls { renderSidebar: typeof renderSidebar; renderTopbar: typeof renderTopbar; renderBanner: typeof renderBanner; renderView: typeof renderView; renderNavCounts: typeof renderNavCounts; refreshRemotes: typeof refreshRemotes; originRemote: typeof originRemote; withProfile: typeof withProfile; copyCommitLink: typeof copyCommitLink; toggleDetail: typeof toggleDetail; jumpTo: typeof jumpTo; go: typeof go; lanesOpen: typeof lanesOpen; lfsBadge: typeof lfsBadge; openAuthor: typeof openAuthor; showView: typeof showView; toggleShow: typeof toggleShow; paneHandle: typeof paneHandle; CV_DRAG_TYPE: typeof CV_DRAG_TYPE; setView: typeof setView; openSidebarAt: typeof openSidebarAt; setSidebar: typeof setSidebar; resetPanes: typeof resetPanes; setSections: typeof setSections; place: typeof place; nav: typeof nav; placeKey: typeof placeKey; renderShell: typeof renderShell; lanesPlace: typeof lanesPlace; conflictEd: typeof conflictEd; navigating: typeof navigating; startView: typeof startView; sbHideTimer: typeof sbHideTimer } }
 
 export { sbNarrow, applySidebar, setSbNarrow, jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView, VIEWS, setSections, goBack, goForward, openLfs, conflictEd, originRemote, openOrigin, toggleShow, detailToggleLabel, toggleDetail, resetPanes, sbState, toggleSidebar, openAuthor, copyCommitLink, sbHideTimer, setSidebar, isMenuKey, renderSidebar, startView, renderShell, setStartView };

@@ -26,7 +26,7 @@ function closeQuickNow() {
   const back = state.quick?.back;
   if (back && 'path' in back) return openFileHistory(back.path);
   state.quick = null;
-  if (back && 'review' in back) { state.review = back.review; up.lanesPlace = back.lanes; up.renderTopbar(); up.renderView(); return; }
+  if (back && 'review' in back) { state.review = back.review; up.lanesPlace = back.lanes as typeof up.lanesPlace; up.renderTopbar(); up.renderView(); return; }
   up.renderTopbar();
   up.renderView();
   if (sha) up.selectCommit(sha, 'center');
@@ -96,5 +96,6 @@ function quickView({ sha, path }: { sha: string; path?: string | null }) {
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { openQuick });
+declare module '../lib/upcalls.ts' { interface Upcalls { openQuick: typeof openQuick } }
 
 export { quickView, openQuick, closeQuick };

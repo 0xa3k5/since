@@ -23,6 +23,8 @@ import type { Ref, Worktree } from '../../shared/git-types.ts';
 type MapCommit = GuardCommit & { email?: string | null };
 type RewriteOp = 'reword' | 'squash' | 'fixup' | 'swapParent' | 'split' | 'drop';
 type WorktreeEntry = Worktree & { elsewhere?: boolean };
+/** The worktree holding a branch, as much of it as the checkout sheet reads. */
+type HeldWorktree = Pick<WorktreeEntry, 'name' | 'path' | 'missing' | 'elsewhere'>;
 /** What to stash before a switch. */
 interface StashSpec { message: string; untracked: boolean }
 /** A menu item in a group; `inline` is its label when it stands alone (menuGroup). */
@@ -202,7 +204,7 @@ async function checkout(branch: string): Promise<unknown> {
 // `branch` is checked out in worktree `wt`: offer to free it there (HEAD detached) and check it
 // out here, bringing its uncommitted changes along, or to open that worktree. Resolves to
 // { id: 'free' }, { id: 'move', stash } (this window's changes to stash first, or null) or null.
-async function inUseSheet(branch: string, wt: WorktreeEntry): Promise<{ id: 'free' } | { id: 'move'; stash: StashSpec | null } | null> {
+async function inUseSheet(branch: string, wt: HeldWorktree): Promise<{ id: 'free' } | { id: 'move'; stash: StashSpec | null } | null> {
   const hold = wt.missing ? { blocker: 'Its folder no longer exists.' } : await git('worktreeHold', wt.path).catch((e: Error) => ({ blocker: e.message }));
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   const mine = switchChanges();
@@ -228,7 +230,7 @@ async function inUseSheet(branch: string, wt: WorktreeEntry): Promise<{ id: 'fre
 
 // Check out `branch` from clean worktree `wt`, leaving it detached (one undo step). Changes here in
 // the way are stashed first, as a plain checkout does.
-async function freeCheckout(label: string, branch: string, wt: WorktreeEntry) {
+async function freeCheckout(label: string, branch: string, wt: HeldWorktree) {
   try {
     await git('freeCheckout', branch, wt.path, { __label: label });
   } catch (e) {
@@ -250,7 +252,7 @@ async function freeCheckout(label: string, branch: string, wt: WorktreeEntry) {
 
 // Check out `branch` from worktree `wt` and bring its changes here (one undo step). A conflict
 // while bringing them stops there, with the changes still in their stash.
-async function moveCheckout(label: string, branch: string, wt: WorktreeEntry, stash: StashSpec | null) {
+async function moveCheckout(label: string, branch: string, wt: HeldWorktree, stash: StashSpec | null) {
   try {
     const res = await git('moveCheckout', branch, wt.path, ...(stash ? [stash] : []), { __label: label });
     if (res?.conflicts) toast(`Switched to ${branch}. The changes from “${wt.name}” conflict here.`, { kind: 'error', detail: 'Their stash is kept.', action: { label: 'Undo', run: undo } });
@@ -480,5 +482,6 @@ async function diffWithHead(c: { sha: string }) {
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { showStashAction, checkoutSelected, commitMenu, copy, commitShortcut, checkoutCommit, createBranch, switchRewrite, inUseSheet, switchAndDelete, deleteBranch });
+declare module '../lib/upcalls.ts' { interface Upcalls { showStashAction: typeof showStashAction; checkoutSelected: typeof checkoutSelected; commitMenu: typeof commitMenu; copy: typeof copy; commitShortcut: typeof commitShortcut; checkoutCommit: typeof checkoutCommit; createBranch: typeof createBranch; switchRewrite: typeof switchRewrite; inUseSheet: typeof inUseSheet; switchAndDelete: typeof switchAndDelete; deleteBranch: typeof deleteBranch } }
 
 export { copy, checkout, refMenu, changesText, canSwitchFrom, switchTarget, switchChanges, switchAndDelete, showStashAction, createBranch, pendingAutostash, applyAutostash, checkoutSelected, guarded, branchHere };

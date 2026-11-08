@@ -283,8 +283,9 @@ function createCommitView(container: HTMLElement): CommitView {
     if (token !== diffToken) return;
     if (!info) { up.conflictEd = null; diffPane.replaceChildren(); return; }
     // A status refresh with the file unchanged keeps the editor (and its scroll) as it is.
-    const cur = up.conflictEd?.info;
-    if (cur && cur.path === info.path && cur.kind === info.kind && cur.text === info.text && diffPane.contains(up.conflictEd.el)) return;
+    const ed = up.conflictEd;
+    const cur = ed?.info;
+    if (ed && cur && cur.path === info.path && cur.kind === info.kind && cur.text === info.text && diffPane.contains(ed.el)) return;
     up.conflictEd = conflictEditor(info, {
       mod: MOD,
       badge: h('span', null, statusBadge(file.status), file.lfs ? up.lfsBadge() : null),

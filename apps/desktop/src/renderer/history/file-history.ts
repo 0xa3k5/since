@@ -94,5 +94,6 @@ function setGPending(value: string | null) { return (gPending = value); }
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { openConflicts, openMergetool });
+declare module '../lib/upcalls.ts' { interface Upcalls { openConflicts: typeof openConflicts; openMergetool: typeof openMergetool } }
 
 export { showCommit, closeFileHistory, withHistoryMenu, openFileHistory, openMergetool, fileHistoryTarget, openConflicts, gPending, setGPending };

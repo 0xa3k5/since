@@ -157,8 +157,9 @@ async function offerFix(label: string, method: GitMethod, args: readonly unknown
   }
   if (err.code === 'empty-pick' && method === 'cherryPick' && !args[1]) {
     // Nothing to do is the obvious outcome (AK-598): say so, offer the rare alternative.
-    const c = await up.loadCommit(args[0]).catch(() => null);
-    toast(`Already on ${branch || 'this branch'}`, { detail: `${String(args[0]).slice(0, 7)}${c?.subject ? ` ${c.subject}` : ''}. Nothing to cherry-pick.`, actions: [{ label: 'Commit anyway', run: () => act(label, method, [args[0], true], opts) }] });
+    const c = await up.loadCommit(String(args[0])).catch(() => null);
+    const subject = c?.message.split('\n')[0];
+    toast(`Already on ${branch || 'this branch'}`, { detail: `${String(args[0]).slice(0, 7)}${subject ? ` ${subject}` : ''}. Nothing to cherry-pick.`, actions: [{ label: 'Commit anyway', run: () => act(label, method, [args[0], true], opts) }] });
     return false;
   }
 }
