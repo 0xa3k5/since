@@ -6,7 +6,7 @@ import { GIT_NEEDS } from '../lib/git-version.ts';
 import { updateBranchBlock } from '../prs/pr-review.ts';
 import { draftSwitch } from '../prs/prs.ts';
 import { navPos, authorsStack } from '../review/reader.js';
-import { factsFor, peekFacts, peekEvidence } from '../review/evidence-store.js';
+import { factsFor, peekFacts, peekEvidence } from '../review/evidence-store.ts';
 
 
 // Review, the home view: one row per piece of work (per pull request while PRs are on), one list at

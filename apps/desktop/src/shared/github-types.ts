@@ -42,5 +42,16 @@ export interface PrList {
   at?: number;
 }
 
+/** A check on a PR's head (github.ts checkList): its result, and how long it ran in seconds. */
+export interface EvidenceCheck { name: string; result: string; duration?: number; url?: string }
+/** A PR's evidence for its reader (app:pr-evidence, github.ts buildEvidence); only the fields the TypeScript renderer reads. */
+export interface PrEvidence {
+  head: string | null;
+  checks?: EvidenceCheck[];
+  /** The head has CI set up and no checks ran on it. */
+  ciMissing?: boolean;
+  reviews?: { login: string; state: string }[];
+}
+
 /** Who is looking (github.ts viewerFacts): their login and whether they can write. */
 export interface Viewer { login?: string; write?: boolean }

@@ -20,7 +20,7 @@ import { pageOf } from '../shell/sidebar.ts';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';
 import { AUTOSTASH_DEFAULT, stashMessage } from '../commit/autostash.ts';
 import { mergeHereBlock } from '../lib/git-version.ts';
-import { needsCheckConfirm } from './check-confirm.js';
+import { needsCheckConfirm } from './check-confirm.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, sentence, tip, isEditable, tildify, keyText, api, loadPref, savePref, MOD, parentDir } from '../lib/app-helpers.ts';
 import { lanesPage, setLanesPage, catchupPage, setCatchupPage, catchupCount, assignCatchupCount, countRun, setCountRun, branchesPage, setBranchesPage, finishedCount, assignFinishedCount, finishedRun, setFinishedRun, reviewCount, assignReviewCount, reviewRun, setReviewRun } from '../shell/shell.ts';

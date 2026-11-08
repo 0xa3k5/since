@@ -8,7 +8,8 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BranchReview, Divergence, FileDiff, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, BranchReview, ChangeFacts, Divergence, FileDiff, GitInfo, Stash } from './git-types.ts';
+import type { PrEvidence } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
 /** A window's tab as its tab strip shows it. */
@@ -50,6 +51,7 @@ export interface GitResults {
   /** The diff between two commits, one entry per file. */
   compare: FileDiff[];
   branchReview: BranchReview;
+  changeFacts: ChangeFacts;
   /** The label of the step undone or redone; null when there was none. */
   undo: string | null;
   redo: string | null;
@@ -85,6 +87,7 @@ export interface AppResults {
   /** The PR's head, fetched into FETCH_HEAD, and the base to diff against. */
   'pr-review-head': IpcResult<{ sha: string; base: string | null }>;
   'pr-stack-install': IpcResult<unknown>;
+  'pr-evidence': IpcResult<PrEvidence | null>;
   /** `failed`: the PR GitHub refused and why; then nothing was linked. */
   'pr-stack-link': IpcResult<{ failed?: { number: number; reason: string } | null }>;
 }
