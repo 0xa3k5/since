@@ -58,6 +58,14 @@ export interface GitResults {
 }
 export type GitResult<M extends GitMethod> = M extends keyof GitResults ? GitResults[M] : unknown;
 
+/** The AI commit-message settings as app:ai-settings sends them (handlers/ai.ts aiState). */
+export interface AiState {
+  provider: string; model: string; consent: string[];
+  /** The user has seen what goes to this provider. */
+  consented: boolean;
+  providers: { id: string; label: string; defaultModel?: string }[];
+}
+
 /** What each app channel resolves to, for the channels the TypeScript renderer reads so far. The rest resolve to unknown. */
 export interface AppResults {
   'git-info': IpcResult<GitInfo | null>;
@@ -65,6 +73,12 @@ export interface AppResults {
   'git-choose': IpcResult<GitInfo | null>;
   'git-use': IpcResult<GitInfo>;
   'set-auto-update': UpdateState;
+  'ai-settings': AiState;
+  'ai-configure': AiState;
+  /** The exact text that will be sent, and its hash for the consent check. */
+  'ai-preview': IpcResult<AiState & { prompt: string; hash: string }>;
+  /** The commit message. */
+  'ai-generate': IpcResult<string>;
 }
 export type AppResult<C extends AppChannel> = C extends keyof AppResults ? AppResults[C] : unknown;
 

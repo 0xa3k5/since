@@ -19,10 +19,10 @@ import { canReopenTab, tabList, TAB_KEYS, update, installUpdate, checkUpdates, t
 import { chooseGit, useGit, act, gitWhy, undoTitle, undo, redoTitle, redo, git } from '../lib/bridge.ts';
 import { openIdentity } from '../commit/identity-check.js';
 import { stashSave, applyStash } from '../commit/stashes.js';
-import { writeMessageWithAi, aiOn, setupAi } from '../commit/ai-message.js';
+import { writeMessageWithAi, aiOn, setupAi } from '../commit/ai-message.ts';
 import { snapshotEntries, restoreSnapshot } from '../history/snapshots.js';
 import { openDifftool } from '../commit/external-tools.js';
-import { fetchAll, pull, push, remotesSwitcher, addRemote, remoteItems } from '../branches/remote-ops.js';
+import { fetchAll, pull, push, remotesSwitcher, addRemote, remoteItems } from '../branches/remote-ops.ts';
 import { exportShortcuts, importShortcuts, resetShortcuts, openShortcuts, openSetup } from '../welcome/welcome.js';
 import { openSplit } from '../commit/split.js';
 import { openFileHistory, fileHistoryTarget, openConflicts, openMergetool } from '../history/file-history.js';

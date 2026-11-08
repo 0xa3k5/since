@@ -26,7 +26,7 @@ import { state, sentence, tip, isEditable, tildify, keyText, api, loadPref, save
 import { lanesPage, setLanesPage, catchupPage, setCatchupPage, catchupCount, assignCatchupCount, countRun, setCountRun, branchesPage, setBranchesPage, finishedCount, assignFinishedCount, finishedRun, setFinishedRun, reviewCount, assignReviewCount, reviewRun, setReviewRun } from '../shell/shell.ts';
 import { git, updateGit, gitWhy, undo, coalesce, abortAnd, act } from '../lib/bridge.ts';
 import { refreshAll, refreshHistory, worktreeOf } from '../graph/load.js';
-import { editRemoteUrl, remoteMenu, addRemote, fetchAll } from '../branches/remote-ops.js';
+import { editRemoteUrl, remoteMenu, addRemote, fetchAll } from '../branches/remote-ops.ts';
 import { showCommit } from '../history/file-history.js';
 import { checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, approvePr, requestChangesPr, mergePr, closePr, openPrOnGitHub, updatePrBranch, REMOTE_NOTE, prCall, OWN_PR, refreshPrs, fixMergeGate, prCheckLines, checkFailEl } from '../prs/prs-page.js';
 import { commitSide } from '../graph/map.js';

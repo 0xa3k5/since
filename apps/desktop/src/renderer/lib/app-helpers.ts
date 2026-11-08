@@ -7,7 +7,7 @@ import type {
   ConfigEntry, FileDiff, GitInfo, Head, LfsInfo, OperationInfo, OperationKind, ReflogEntry, Ref, RepoInfo,
   Remote, Stash, Submodule, WorkStatus, Worktree, JournalList,
 } from '../../shared/git-types.ts';
-import type { Theme } from '../../shared/ipc-contract.ts';
+import type { AiState, Theme } from '../../shared/ipc-contract.ts';
 
 // Small helpers the views share: labels, paths, links and tooltips.
 
@@ -73,7 +73,7 @@ export interface AppState {
   prs: Later;
   review?: Later;
   fileHistory?: Later;
-  ai?: Later;
+  ai?: AiState | null;
   gitInfo?: GitInfo | null;
 }
 

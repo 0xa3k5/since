@@ -12,7 +12,7 @@ import { up } from '../lib/upcalls.ts';
 import { state, api, prop, tildify, parentDir, MOD, keyText } from '../lib/app-helpers.ts';
 import { lanesPage, catchupPage, mapView, reviewPage } from '../shell/shell.ts';
 import { undo, act } from '../lib/bridge.ts';
-import { addRemote, fetchAll } from '../branches/remote-ops.js';
+import { addRemote, fetchAll } from '../branches/remote-ops.ts';
 import { openQuick } from '../graph/quick-view.js';
 
 // Pull requests (read-only), through the user’s GitHub CLI. One user-wide switch (plus a per-repo hide);

@@ -9,7 +9,7 @@ import { git, act, quiet, gitTooOld, gitWhy } from '../lib/bridge.ts';
 import { refreshStatus } from '../graph/load.js';
 import { identityOk } from './identity-check.js';
 import { stashSave } from './stashes.js';
-import { aiOn, writeMessageWithAi } from './ai-message.js';
+import { aiOn, writeMessageWithAi } from './ai-message.ts';
 import { openDifftool } from './external-tools.js';
 import { openMergetool, openFileHistory } from '../history/file-history.js';
 import { loadCommit, fileRow } from '../graph/map.js';

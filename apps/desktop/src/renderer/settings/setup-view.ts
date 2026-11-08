@@ -1,6 +1,17 @@
 import { h, icon, kbd } from '../lib/ui.ts';
 import { SETUP_AI, SETUP_FEATURES, SETUP_PRS, setupSummary } from './setup.ts';
 import * as keymap from '../palette/keymap.ts';
+import type { SetupValues } from './setup.ts';
+
+/** PRs need GitHub CLI first when `setup` is set: the row shows Set up… instead of a switch. */
+export interface SetupPr { on?: boolean; setup?: boolean }
+export interface SetupViewOptions {
+  mod: string; values: SetupValues; theme: string; themes: { id: string; label: string; icon: string }[];
+  ai?: string; pr?: SetupPr; done?: string;
+  onToggle(id: string, on: boolean): void; onTheme(id: string): void; onDone(): void;
+  onAi?: () => Promise<string | null | undefined>;
+  onPr?: (on: boolean) => Promise<(SetupPr & { on: boolean }) | null | undefined>;
+}
 
 // The "choose your defaults" step (data in setup.js). Switches apply at once, so what you see is
 // what you get; Continue (⌘↵) only marks the step done. Returns { el, refresh }.
@@ -8,26 +19,26 @@ import * as keymap from '../palette/keymap.ts';
 // `ai` is the current provider's label (or 'Off'); `onAi` opens the picker and resolves to the new label.
 // `pr` is { setup } when pull requests need GitHub CLI first: the row shows Set up… instead of a switch.
 // `onPr` turns them on or off (or runs the set-up dialogs) and resolves to the new { on, setup }.
-export function setupView({ mod, values, theme, themes, ai = 'Off', pr = {}, onToggle, onTheme, onAi, onPr, onDone, done = 'Continue' }) {
-  let v = { ...values }, t = theme, a = ai, p = pr;
+export function setupView({ mod, values, theme, themes, ai = 'Off', pr = {}, onToggle, onTheme, onAi, onPr, onDone, done = 'Continue' }: SetupViewOptions): { el: HTMLElement; refresh(values: SetupValues, theme: string, ai?: string, pr?: SetupPr): void } {
+  let v: Record<string, boolean> = { ...values }, t = theme, a = ai, p = pr;
   const SET_UP = `${SETUP_PRS.label}: Set up`;
   const list = h('div.setup-list');
   const summary = h('span.setup-summary', { role: 'status', 'aria-live': 'polite' });
 
-  const sw = (on, label, onclick) => h('button.switch' + (on ? '.on' : ''), { type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': label, onclick }, h('span.switch-knob'));
+  const sw = (on: boolean, label: string, onclick: () => void) => h('button.switch' + (on ? '.on' : ''), { type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': label, onclick }, h('span.switch-knob'));
 
   function render() {
     list.replaceChildren(
       ...SETUP_FEATURES.map((f) => h('div.setup-row', null,
         icon(f.icon, 14),
         h('div.setup-text', null, h('div.setup-label', null, f.label), h('div.setup-detail', null, f.detail)),
-        sw(v[f.id], f.label, () => { v = { ...v, [f.id]: !v[f.id] }; onToggle(f.id, v[f.id]); render(); refocus(f.label); }))),
+        sw(!!v[f.id], f.label, () => { v = { ...v, [f.id]: !v[f.id] }; onToggle(f.id, !!v[f.id]); render(); refocus(f.label); }))),
       h('div.setup-row', null,
         icon(SETUP_PRS.icon, 14),
         h('div.setup-text', null, h('div.setup-label', null, SETUP_PRS.label), h('div.setup-detail', null, SETUP_PRS.detail)),
         p.setup
           ? h('button.btn.subtle.small.setup-pick', { type: 'button', 'aria-label': SET_UP, onclick: () => pick() }, 'Set up…')
-          : sw(v.prs, SETUP_PRS.label, () => pick())),
+          : sw(!!v.prs, SETUP_PRS.label, () => pick())),
       h('div.setup-row', null,
         icon(SETUP_AI.icon, 14),
         h('div.setup-text', null, h('div.setup-label', null, SETUP_AI.label), h('div.setup-detail', null, SETUP_AI.detail)),
@@ -52,7 +63,7 @@ export function setupView({ mod, values, theme, themes, ai = 'Off', pr = {}, onT
     refocus(p.setup ? SET_UP : SETUP_PRS.label);
   }
   // Re-rendering replaces the buttons; keep focus on the one that was pressed.
-  const refocus = (label) => (list.querySelector(`[aria-label="${CSS.escape(label)}"]`) || [...list.querySelectorAll('.setup-seg button')].find((b) => b.title === label))?.focus();
+  const refocus = (label: string) => (list.querySelector<HTMLElement>(`[aria-label="${CSS.escape(label)}"]`) || [...list.querySelectorAll<HTMLElement>('.setup-seg button')].find((b) => b.title === label))?.focus();
 
   const el = h('section.tour.setup', { 'aria-labelledby': 'setup-title' },
     h('div.tour-eyebrow', null, 'Welcome to Since'),
@@ -66,8 +77,8 @@ export function setupView({ mod, values, theme, themes, ai = 'Off', pr = {}, onT
   });
   render();
   // Refreshing must not drop focus from the control the user is on.
-  const refresh = (values, theme, ai = a, pr = p) => {
-    const f = list.contains(document.activeElement) ? document.activeElement : null;
+  const refresh = (values: SetupValues, theme: string, ai = a, pr = p) => {
+    const f = list.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
     const label = f?.getAttribute('aria-label');
     const key = f && (label === SET_UP || label === SETUP_PRS.label ? (pr.setup ? SET_UP : SETUP_PRS.label) : f.matches('.setup-pick') ? `${SETUP_AI.label}: ${ai}` : label || f.title);
     v = { ...values }; t = theme; a = ai; p = pr; render();
