@@ -1,33 +1,47 @@
-import { h, icon } from '../lib/ui.ts';
+import { h, icon, type Child } from '../lib/ui.ts';
 import { statusBadge, fileName, fileRef, codeSpan } from './diff.ts';
 import {
   changedFiles, commitSummary, summaryText, stagedText, tickStages, hunkState, linesStage, folded, wholeFileText,
   stepCursor, lineRange, BIG_FILE_LINES,
+  type ChangedFile,
 } from './unified.ts';
+import type { git as gitCall } from '../lib/bridge.ts';
+import type { CombinedDiff, CombinedLine, WorkStatus } from '../../shared/git-types.ts';
+
+export interface UnifiedContext {
+  git: typeof gitCall;
+  /** Stages (`on`) or unstages a file, its hunks ('<hunk>:*') or lines ('<hunk>:<line>'), as one undo step. */
+  stage(file: ChangedFile, sel: 'all' | string[], on: boolean, label: string): unknown;
+  discard(file: ChangedFile): unknown;
+  openFile(path: string): unknown;
+  onSummary(text: string): void;
+  lfsBadge(): Child;
+}
+export interface UnifiedChanges { index: HTMLElement; page: HTMLElement; load(status: Partial<WorkStatus> | null | undefined): Promise<void>; key(id: string): boolean }
 
 // The unified changes view: every changed file on one scrolling page, with a tick box per file, hunk and line.
 // Ticking stages or unstages through the journal (one undo step per tick). The Commit view keeps its composer and
 // calls `key` with its own key ids (cv.next, cv.stage, …), so no new shortcuts.
 //
 // ctx: { git(method, ...args), stage(file, sel, on, label), discard(file), openFile(path), onSummary(text), lfsBadge }
-export function unifiedChanges(ctx) {
+export function unifiedChanges(ctx: UnifiedContext): UnifiedChanges {
   const index = h('div.ucv-index');
   const page = h('div.diff-scroll.ucv-page');
-  let files = [];
-  const diffs = new Map(); // path → combinedDiff result
-  const userFold = new Map(); // path → true / false once the user folds or unfolds it
-  const loaded = new Map(); // path → hunk numbers loaded in a big file
+  let files: ChangedFile[] = [];
+  const diffs = new Map<string, CombinedDiff>(); // path → combinedDiff result
+  const userFold = new Map<string, boolean>(); // path → true / false once the user folds or unfolds it
+  const loaded = new Map<string, Set<number>>(); // path → hunk numbers loaded in a big file
   let foldStaged = localStorage.getItem('pref:foldStaged') === '1';
-  let cursor = null; // row key, see rowKey
-  let sel = { path: null, keys: new Set(), anchor: null };
+  let cursor: string | null = null; // row key, see rowKey
+  let sel: { path: string | null; keys: Set<string>; anchor: string | null } = { path: null, keys: new Set(), anchor: null };
   let token = 0;
 
-  const rowKey = (kind, path, k = '') => `${kind}\x1f${path}\x1f${k}`;
-  const parseKey = (key) => { const [kind, path, k] = key.split('\x1f'); return { kind, path, k }; };
-  const nameOf = (p) => fileName(p)[0];
-  const fileOf = (path) => files.find((f) => f.path === path);
+  const rowKey = (kind: string, path: string, k: string | number = '') => `${kind}\x1f${path}\x1f${k}`;
+  const parseKey = (key: string) => { const [kind = '', path = '', k = ''] = key.split('\x1f'); return { kind, path, k }; };
+  const nameOf = (p: string) => fileName(p)[0];
+  const fileOf = (path: string | null) => files.find((f) => f.path === path);
 
-  async function load(status) {
+  async function load(status: Partial<WorkStatus> | null | undefined) {
     const t = ++token;
     const next = changedFiles(status);
     const got = await Promise.all(next.map((f) => {
@@ -37,15 +51,15 @@ export function unifiedChanges(ctx) {
     if (t !== token) return;
     files = next;
     diffs.clear();
-    next.forEach((f, i) => { if (got[i]) diffs.set(f.path, got[i]); });
+    next.forEach((f, i) => { const g = got[i]; if (g) diffs.set(f.path, g); });
     for (const p of [...userFold.keys()]) if (!diffs.has(p)) { userFold.delete(p); loaded.delete(p); }
     if (sel.path && !diffs.has(sel.path)) sel = { path: null, keys: new Set(), anchor: null };
     render();
   }
 
-  const isFolded = (path) => folded(diffs.get(path), { user: userFold.get(path), foldStaged });
+  const isFolded = (path: string) => { const d = diffs.get(path); return d ? folded(d, { user: userFold.get(path), foldStaged }) : false; };
 
-  function tick(state, label, onclick, { focusable = true } = {}) {
+  function tick(state: string, label: string, onclick: () => void, { focusable = true } = {}) {
     return h('button.ucv-tick.' + state, {
       role: 'checkbox', 'aria-checked': state === 'all' ? 'true' : state === 'partial' ? 'mixed' : 'false',
       'aria-label': label, title: label, tabIndex: focusable ? 0 : -1,
@@ -55,27 +69,31 @@ export function unifiedChanges(ctx) {
   }
 
   // --- staging
-  const toggleFile = (f) => {
+  const toggleFile = (f: ChangedFile) => {
     const d = diffs.get(f.path);
+    if (!d) return;
     const on = tickStages(d.state);
     ctx.stage(f, 'all', on, `${on ? 'Stage' : 'Unstage'} ${nameOf(f.path)}`);
   };
-  const toggleHunk = (f, hi) => {
-    const on = tickStages(hunkState(diffs.get(f.path).hunks[hi]));
+  const toggleHunk = (f: ChangedFile, hi: number) => {
+    const hunk = diffs.get(f.path)?.hunks[hi];
+    if (!hunk) return;
+    const on = tickStages(hunkState(hunk));
     ctx.stage(f, [`${hi}:*`], on, `${on ? 'Stage' : 'Unstage'} hunk in ${nameOf(f.path)}`);
   };
-  const lineOf = (d, key) => { const [hi, li] = key.split(':'); return d.hunks[+hi]?.lines?.[+li]; };
-  function toggleLines(f, keys) {
+  const lineOf = (d: CombinedDiff, key: string) => { const [hi = '', li = ''] = key.split(':'); return d.hunks[+hi]?.lines?.[+li]; };
+  function toggleLines(f: ChangedFile, keys: string[]) {
     const d = diffs.get(f.path);
-    const lines = keys.map((k) => lineOf(d, k)).filter(Boolean);
+    if (!d) return;
+    const lines = keys.map((k) => lineOf(d, k)).filter((l): l is CombinedLine => !!l);
     if (!lines.length) return;
     const on = linesStage(lines);
     const n = lines.length;
     sel = { path: null, keys: new Set(), anchor: null };
     ctx.stage(f, keys, on, `${on ? 'Stage' : 'Unstage'} ${n} line${n > 1 ? 's' : ''} in ${nameOf(f.path)}`);
   }
-  const fold = (path, v) => { userFold.set(path, v); render(); };
-  async function loadHunk(f, hi) {
+  const fold = (path: string, v: boolean) => { userFold.set(path, v); render(); };
+  async function loadHunk(f: ChangedFile, hi: number) {
     const set = loaded.get(f.path) || new Set();
     set.add(hi);
     loaded.set(f.path, set);
@@ -84,7 +102,7 @@ export function unifiedChanges(ctx) {
   }
 
   // --- rendering
-  function indexRow(f) {
+  function indexRow(f: ChangedFile) {
     const d = diffs.get(f.path);
     const [name, dir] = fileName(f.path);
     return h('div.file-row.ucv-index-row', { 'data-path': f.path, title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path, onclick: () => reveal(f.path) },
@@ -97,7 +115,7 @@ export function unifiedChanges(ctx) {
     );
   }
 
-  function lineRow(f, d, hi, li, l) {
+  function lineRow(f: ChangedFile, d: CombinedDiff, hi: number, li: number, l: CombinedLine) {
     const changed = l.t !== ' ';
     const key = `${hi}:${li}`;
     const cls = (l.t === '+' ? '.add' : l.t === '-' ? '.del' : '') + (changed && l.staged ? '.staged' : '') + (l.edited ? '.edited' : '');
@@ -122,7 +140,7 @@ export function unifiedChanges(ctx) {
     return row;
   }
 
-  function fileSection(f) {
+  function fileSection(f: ChangedFile) {
     const d = diffs.get(f.path);
     const name = nameOf(f.path);
     if (!d) return h('section.ucv-file', null, h('div.ucv-file-head', null, statusBadge(f.status), h('span.mono', null, f.path), h('span.muted', null, 'Couldn’t read this file')));
@@ -139,7 +157,7 @@ export function unifiedChanges(ctx) {
       d.conflict ? null : h('button.btn.ghost.tiny', { onclick: () => toggleFile(f) }, d.state === 'all' ? 'Unstage file' : 'Stage file'),
       h('button.icon-btn.tiny', { title: 'Open file', onclick: () => ctx.openFile(f.path) }, icon('external', 13)),
     );
-    head.addEventListener('mousedown', (e) => { if (e.target === head || e.target.classList.contains('ucv-path')) setCursor(rowKey('f', f.path)); });
+    head.addEventListener('mousedown', (e) => { if (e.target === head || (e.target as Element).classList.contains('ucv-path')) setCursor(rowKey('f', f.path)); });
     const sec = h('section.ucv-file' + (d.state === 'all' ? '.all' : ''), { 'data-path': f.path }, head);
     if (isFold) return sec;
     const why = wholeFileText(d);
@@ -156,7 +174,7 @@ export function unifiedChanges(ctx) {
           h('button.btn.ghost.tiny', { onclick: () => toggleHunk(f, hi) }, st === 'all' ? 'Unstage hunk' : 'Stage hunk'),
         ),
       );
-      hh.addEventListener('mousedown', (e) => { if (!e.target.closest('button')) setCursor(rowKey('h', f.path, hi)); });
+      hh.addEventListener('mousedown', (e) => { if (!(e.target as Element).closest('button')) setCursor(rowKey('h', f.path, hi)); });
       body.append(hh);
       if (!hk.lines) {
         body.append(h('button.diff-more', { onclick: () => loadHunk(f, hi) }, `Show ${hk.total} changed line${hk.total === 1 ? '' : 's'}`));
@@ -189,52 +207,52 @@ export function unifiedChanges(ctx) {
     page.scrollTop = top;
     if (!cursor || !page.querySelector(`[data-cur="${CSS.escape(cursor)}"]`)) {
       const p = cursor && parseKey(cursor).path;
-      cursor = p && diffs.has(p) ? rowKey('f', p) : rowKey('f', files[0].path);
+      cursor = p && diffs.has(p) ? rowKey('f', p) : rowKey('f', files[0]!.path);
     }
     markCursor(false);
   }
 
   // --- cursor and selection
-  const rows = () => [...page.querySelectorAll('[data-cur]')];
+  const rows = () => [...page.querySelectorAll<HTMLElement>('[data-cur]')];
   function markCursor(scroll = true) {
-    let cur = null;
+    let cur: HTMLElement | null = null;
     for (const r of rows()) { const on = r.dataset.cur === cursor; r.classList.toggle('ucv-cur', on); if (on) cur = r; }
     const p = cursor && parseKey(cursor).path;
-    index.querySelectorAll('.ucv-index-row').forEach((r) => r.classList.toggle('active', r.dataset.path === p));
+    index.querySelectorAll<HTMLElement>('.ucv-index-row').forEach((r) => r.classList.toggle('active', r.dataset.path === p));
     if (scroll) cur?.scrollIntoView({ block: 'nearest' });
   }
-  function setCursor(key, scroll = true) { cursor = key; markCursor(scroll); }
+  function setCursor(key: string, scroll = true) { cursor = key; markCursor(scroll); }
   function paintSel() {
-    page.querySelectorAll('.ucv-line.pick').forEach((r) => {
-      const { path, k } = parseKey(r.dataset.cur);
+    page.querySelectorAll<HTMLElement>('.ucv-line.pick').forEach((r) => {
+      const { path, k } = parseKey(r.dataset.cur ?? '');
       r.classList.toggle('sel', path === sel.path && sel.keys.has(k));
     });
   }
   // Line keys of one file in page order (only lines that are loaded and have a box).
-  const lineOrder = (path) => rows().map((r) => parseKey(r.dataset.cur)).filter((x) => x.kind === 'l' && x.path === path).map((x) => x.k);
-  function clickLine(path, key, extend) {
+  const lineOrder = (path: string) => rows().map((r) => parseKey(r.dataset.cur ?? '')).filter((x) => x.kind === 'l' && x.path === path).map((x) => x.k);
+  function clickLine(path: string, key: string, extend: boolean) {
     if (extend && sel.path === path && sel.anchor) sel.keys = new Set(lineRange(lineOrder(path), sel.anchor, key));
     else sel = { path, keys: new Set([key]), anchor: key };
     setCursor(rowKey('l', path, key), false);
     paintSel();
   }
-  function reveal(path) {
-    if (isFolded(path) && !(diffs.get(path)?.total > BIG_FILE_LINES)) userFold.set(path, false);
+  function reveal(path: string) {
+    if (isFolded(path) && !((diffs.get(path)?.total ?? 0) > BIG_FILE_LINES)) userFold.set(path, false);
     setCursor(rowKey('f', path), false);
     render();
     page.querySelector(`[data-cur="${CSS.escape(rowKey('f', path))}"]`)?.closest('.ucv-file')?.scrollIntoView({ block: 'start' });
   }
 
   // Keys from the Commit view's keymap; returns true when handled.
-  function key(id) {
-    const step = { 'cv.next': 1, 'cv.prev': -1, 'cv.extendNext': 1, 'cv.extendPrev': -1 }[id];
+  function key(id: string): boolean {
+    const step = ({ 'cv.next': 1, 'cv.prev': -1, 'cv.extendNext': 1, 'cv.extendPrev': -1 } as Record<string, number>)[id];
     if (step) {
-      const next = stepCursor(rows().map((r) => r.dataset.cur), cursor, step);
+      const next = stepCursor(rows().map((r) => r.dataset.cur ?? ''), cursor, step);
       if (!next) return true;
-      const cur = cursor && parseKey(cursor), n = parseKey(next);
+      const cur = cursor ? parseKey(cursor) : null, n = parseKey(next);
       if ((id === 'cv.extendNext' || id === 'cv.extendPrev') && n.kind === 'l' && cur?.kind === 'l' && cur.path === n.path) {
         if (sel.path !== n.path || !sel.anchor) sel = { path: n.path, keys: new Set([cur.k]), anchor: cur.k };
-        sel.keys = new Set(lineRange(lineOrder(n.path), sel.anchor, n.k));
+        sel.keys = new Set(lineRange(lineOrder(n.path), sel.anchor ?? n.k, n.k));
         paintSel();
       } else if (id === 'cv.next' || id === 'cv.prev') {
         if (sel.keys.size) { sel = { path: null, keys: new Set(), anchor: null }; paintSel(); }
@@ -248,19 +266,20 @@ export function unifiedChanges(ctx) {
       paintSel();
       return true;
     }
-    const c = cursor && parseKey(cursor);
-    const f = c && fileOf(c.path);
-    if (!f) return false;
+    const c = cursor ? parseKey(cursor) : null;
+    const f = c ? fileOf(c.path) : null;
+    if (!c || !f) return false;
     if (id === 'cv.selectAll') {
       const all = lineOrder(f.path);
       if (!all.length) return false;
-      sel = { path: f.path, keys: new Set(all), anchor: all[0] };
+      sel = { path: f.path, keys: new Set(all), anchor: all[0] ?? null };
       paintSel();
       return true;
     }
     if (id === 'cv.stage') {
       const d = diffs.get(f.path);
-      if (sel.keys.size && sel.path) { toggleLines(fileOf(sel.path), [...sel.keys]); return true; }
+      const selFile = sel.keys.size && sel.path ? fileOf(sel.path) : null;
+      if (selFile) { toggleLines(selFile, [...sel.keys]); return true; }
       if (d?.conflict) return true;
       if (c.kind === 'f') toggleFile(f);
       else if (c.kind === 'h') toggleHunk(f, +c.k);

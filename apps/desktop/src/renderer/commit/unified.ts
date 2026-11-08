@@ -59,7 +59,7 @@ export const tickStages = (state: string): boolean => state !== 'all';
 export const hunkState = (hunk: DiffCounts): 'none' | 'all' | 'partial' => (!hunk.total || !hunk.staged ? 'none' : hunk.staged === hunk.total ? 'all' : 'partial');
 
 // Lines picked together go in when any of them is out, and come out only when all are in.
-export const linesStage = (lines: readonly { staged: boolean }[]): boolean => lines.some((l) => !l.staged);
+export const linesStage = (lines: readonly { staged?: boolean }[]): boolean => lines.some((l) => !l.staged);
 
 // Whether a file starts folded: the user's choice when they made one, else big files, else (with "Fold staged
 // files" on) files whose every line is staged.
