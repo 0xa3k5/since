@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/settings/prefs.js');
+const load = () => import('../src/renderer/settings/prefs.ts');
 const THEMES = [{ id: 'system', label: 'System' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 const base = { autoUpdate: undefined, autostash: { ask: true, untracked: false }, theme: 'dark', themes: THEMES, show: { tags: true, remotes: false }, sidebarExpanded: true };
 

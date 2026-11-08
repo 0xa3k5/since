@@ -1,5 +1,5 @@
 import { h, icon, kbd, loading, toast, dialog, confirm, contextMenu, timeAgo } from '../lib/ui.ts';
-import { renderDiff } from './diff.js';
+import { renderDiff } from './diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, keyText, isEditable, MOD, baseName } from '../lib/app-helpers.ts';

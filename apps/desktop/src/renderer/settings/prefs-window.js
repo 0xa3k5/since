@@ -1,13 +1,13 @@
 import { h, icon, brandMark, kbd, toast, dialog, prompt, palette, timeAgo } from '../lib/ui.ts';
 import { createHistory } from '../graph/log.ts';
-import { setSwatches } from '../commit/diff.js';
+import { setSwatches } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { stageMemory } from '../review/review-rows.js';
 import { orderedSections, moveSection, showSection } from '../shell/sidebar.ts';
 import { tourView } from '../welcome/tour-view.js';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';
 import { prefsWindow } from './prefs-view.js';
-import { prefRows, prRemoteChoice } from './prefs.js';
+import { prefRows, prRemoteChoice } from './prefs.ts';
 import { SETUP_PREF, needsSetup } from './setup.ts';
 import { up } from '../lib/upcalls.ts';
 import { loadPref, state, api, savePref, tildePath, MOD } from '../lib/app-helpers.ts';

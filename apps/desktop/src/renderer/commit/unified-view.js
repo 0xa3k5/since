@@ -1,5 +1,5 @@
 import { h, icon } from '../lib/ui.ts';
-import { statusBadge, fileName, fileRef, codeSpan } from './diff.js';
+import { statusBadge, fileName, fileRef, codeSpan } from './diff.ts';
 import {
   changedFiles, commitSummary, summaryText, stagedText, tickStages, hunkState, linesStage, folded, wholeFileText,
   stepCursor, lineRange, BIG_FILE_LINES,

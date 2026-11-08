@@ -1,4 +1,5 @@
-import { h, icon } from '../lib/ui.ts';
+import { h, icon, type Child } from '../lib/ui.ts';
+import type { FileDiff, Hunk } from '../../shared/git-types.ts';
 import { findColors } from '../lib/colors.ts';
 import { submoduleChange, describeSubmoduleChange } from '../lib/submodule.ts';
 
@@ -7,20 +8,20 @@ const LIMIT = 4000;
 // While drag-selecting lines, a pointer within EDGE px of the scroll pane's top or bottom scrolls it, faster
 // the closer it gets (or the further past the edge): pixels to scroll this frame, negative is up.
 const EDGE = 32;
-export function edgeScroll(y, top, bottom) {
+export function edgeScroll(y: number, top: number, bottom: number): number {
   const d = y < top + EDGE ? y - (top + EDGE) : y > bottom - EDGE ? y - (bottom - EDGE) : 0;
   return Math.max(-EDGE, Math.min(EDGE, Math.round(d / 2)));
 }
 
 // Colour swatches before CSS colour codes (View → Show Colour Swatches in Diffs).
 let swatches = true;
-export function setSwatches(on) { swatches = on; }
+export function setSwatches(on: boolean): void { swatches = on; }
 
 // Code text with a swatch before each colour code. Swatches have no text, so copy/paste is unchanged.
-export function codeSpan(s) {
+export function codeSpan(s: string): HTMLElement {
   const found = swatches ? findColors(s) : [];
   if (!found.length) return h('span.code', null, s || '\u200b');
-  const parts = [];
+  const parts: Child[] = [];
   let at = 0;
   for (const c of found) {
     if (c.start > at) parts.push(s.slice(at, c.start));
@@ -34,7 +35,11 @@ export function codeSpan(s) {
 // Render a parsed file diff. When `selectable`, clicking +/- lines toggles them
 // in `selection` (keys "hunk:line"), shift-click selects a range, and
 // click-and-drag selects (or, starting on a selected line, deselects) every line passed over.
-export function renderDiff(diff, { selectable = false, selection = new Set(), onSelect, hunkActions, full = false, onShowAll } = {}) {
+export interface RenderDiffOptions {
+  selectable?: boolean; selection?: Set<string>; onSelect?: ((selection: Set<string>) => void) | null;
+  hunkActions?: ((hi: number, hunk: Hunk) => Child) | null; full?: boolean; onShowAll?: (() => void) | null;
+}
+export function renderDiff(diff: FileDiff | null | undefined, { selectable = false, selection = new Set<string>(), onSelect, hunkActions, full = false, onShowAll }: RenderDiffOptions = {}): HTMLElement {
   const root = h('div.diff');
   if (!diff) return h('div.diff-empty', null, 'No changes');
   if (diff.binary) return h('div.diff-empty', null, icon('file'), 'Binary file');
@@ -44,21 +49,22 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
     const meta = diff.header.filter((l) => /^(old|new) mode|^rename|^similarity|^new file|^deleted file/.test(l));
     return h('div.diff-empty', null, meta.length ? meta.join(' · ') : 'Empty file');
   }
-  let anchor = null;
-  let drag = null; // { from, to, add, before }: an in-progress click-and-drag over lines
+  let anchor: string | null = null;
+  // An in-progress click-and-drag over lines.
+  let drag: { from: string; to: string; add: boolean; before: Set<string> } | null = null;
   let count = 0;
-  const changeKeys = [];
+  const changeKeys: string[] = [];
   diff.hunks.forEach((hunk, hi) => hunk.lines.forEach((l, li) => { if (l.t !== ' ') changeKeys.push(`${hi}:${li}`); }));
-  const setRange = (from, to, add) => {
+  const setRange = (from: string, to: string, add: boolean) => {
     const a = changeKeys.indexOf(from), b = changeKeys.indexOf(to);
     const [x, y] = a < b ? [a, b] : [b, a];
-    for (let i = x; i <= y; i++) add ? selection.add(changeKeys[i]) : selection.delete(changeKeys[i]);
+    for (let i = x; i <= y; i++) add ? selection.add(changeKeys[i]!) : selection.delete(changeKeys[i]!);
   };
-  const paint = () => root.querySelectorAll('.dl.pick').forEach((el) => el.classList.toggle('sel', selection.has(el.dataset.key)));
+  const paint = () => root.querySelectorAll<HTMLElement>('.dl.pick').forEach((el) => el.classList.toggle('sel', selection.has(el.dataset.key ?? '')));
   let pointerY = 0, frame = 0;
   const scrollTick = () => {
     frame = 0;
-    const pane = drag && root.closest('.diff-scroll');
+    const pane = drag ? root.closest('.diff-scroll') : null;
     if (!pane) return;
     const r = pane.getBoundingClientRect();
     const dy = edgeScroll(pointerY, r.top, r.bottom);
@@ -66,7 +72,7 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
     pane.scrollTop += dy; // the row now under the pointer gets mouseenter and extends the drag
     frame = requestAnimationFrame(scrollTick);
   };
-  const dragMove = (e) => { pointerY = e.clientY; if (!frame) frame = requestAnimationFrame(scrollTick); };
+  const dragMove = (e: MouseEvent) => { pointerY = e.clientY; if (!frame) frame = requestAnimationFrame(scrollTick); };
   const endDrag = () => {
     drag = null;
     cancelAnimationFrame(frame); frame = 0;
@@ -74,7 +80,7 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
   };
 
   for (let hi = 0; hi < diff.hunks.length; hi++) {
-    const hunk = diff.hunks[hi];
+    const hunk = diff.hunks[hi]!;
     const head = h('div.hunk-head', null,
       h('span.hunk-range', null, `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`),
       h('span.hunk-ctx', null, hunk.context),
@@ -87,7 +93,7 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
         root.append(body, h('button.diff-more', { onclick: onShowAll }, `Diff truncated — show all ${changeKeys.length} changes`));
         return root;
       }
-      const l = hunk.lines[li];
+      const l = hunk.lines[li]!;
       const key = `${hi}:${li}`;
       const cls = l.t === '+' ? '.add' : l.t === '-' ? '.del' : '';
       const sel = selectable && l.t !== ' ' && selection.has(key);
@@ -136,30 +142,31 @@ export function renderDiff(diff, { selectable = false, selection = new Set(), on
   return root;
 }
 
-export function hunkKeys(hunk, hi) {
-  const out = [];
+export function hunkKeys(hunk: Hunk, hi: number): string[] {
+  const out: string[] = [];
   hunk.lines.forEach((l, li) => { if (l.t !== ' ') out.push(`${hi}:${li}`); });
   return out;
 }
 
-function statusLabel(s) {
-  return { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', T: 'Type changed', U: 'Conflict', '?': 'Untracked' }[s] || s;
+function statusLabel(s: string): string {
+  return ({ M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', T: 'Type changed', U: 'Conflict', '?': 'Untracked' } as Record<string, string>)[s] || s;
 }
 
-export function statusBadge(s) {
-  const map = { M: 'mod', A: 'add', '?': 'add', D: 'del', R: 'ren', C: 'ren', T: 'mod', U: 'con' };
+export function statusBadge(s: string): HTMLElement {
+  const map: Record<string, string> = { M: 'mod', A: 'add', '?': 'add', D: 'del', R: 'ren', C: 'ren', T: 'mod', U: 'con' };
   return h('span.fstatus.' + (map[s] || 'mod'), { title: statusLabel(s) }, s === '?' ? 'U' : s === 'U' ? '!' : s);
 }
 
-export function fileName(p) {
+export function fileName(p: string): [name: string, folder: string] {
   const i = p.lastIndexOf('/');
   return i === -1 ? [p, ''] : [p.slice(i + 1), p.slice(0, i)];
 }
 
 // The fields of a file entry that file IPC calls accept (ipc.js fileEntry). Commit files also
 // carry numstat counts (add/del/binary), which the strict validator rejects.
-export function fileRef(f) {
-  const r = { path: f.path };
-  for (const k of ['oldPath', 'status', 'xy']) if (f[k] != null) r[k] = f[k];
+export interface FileRef { path: string; oldPath?: string; status?: string; xy?: string }
+export function fileRef(f: { path: string; oldPath?: string | null; status?: string | null; xy?: string | null }): FileRef {
+  const r: FileRef = { path: f.path };
+  for (const k of ['oldPath', 'status', 'xy'] as const) { const v = f[k]; if (v != null) r[k] = v; }
   return r;
 }

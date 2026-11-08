@@ -73,7 +73,7 @@ test('cursor steps clamp, and line ranges include both ends in page order', asyn
 });
 
 test('Preferences → Git has the one-list switch, off by default', async () => {
-  const { prefRows } = await import('../src/renderer/settings/prefs.js');
+  const { prefRows } = await import('../src/renderer/settings/prefs.ts');
   const row = (show) => prefRows({ show, themes: [] }).find((r) => r.id === 'unified');
   assert.equal(row({}).section, 'git');
   assert.equal(row({}).value, false);

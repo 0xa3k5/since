@@ -1,5 +1,5 @@
 import { h, toast, confirm } from '../lib/ui.ts';
-import { setSwatches } from '../commit/diff.js';
+import { setSwatches } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { setupView } from '../settings/setup-view.js';
 import { shortcutsWindow } from '../palette/shortcuts-view.js';

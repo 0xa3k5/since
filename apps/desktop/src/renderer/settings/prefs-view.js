@@ -1,6 +1,6 @@
 import { h, icon, contextMenu } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
-import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.js';
+import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.ts';
 
 // The Preferences window (⌘,, Since → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,
 // the sidebar jumps to a section. Type to search; ↑↓ move, ↵ toggles a switch or runs a button, ← → change a

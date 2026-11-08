@@ -1,5 +1,5 @@
 import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.ts';
-import { renderDiff, statusBadge, fileRef } from '../commit/diff.js';
+import { renderDiff, statusBadge, fileRef } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';

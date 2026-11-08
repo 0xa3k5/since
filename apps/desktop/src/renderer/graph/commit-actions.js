@@ -1,5 +1,5 @@
 import { h, icon, kbd, toast, dialog, confirm, prompt, contextMenu, closeMenu, resolveSheet, ref } from '../lib/ui.ts';
-import { renderDiff } from '../commit/diff.js';
+import { renderDiff } from '../commit/diff.ts';
 import { checkoutPlan, inUsePlan } from './checkout-plan.ts';
 import * as keymap from '../palette/keymap.ts';
 import { authorProfile } from '../lib/profile.ts';

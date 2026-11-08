@@ -11,6 +11,34 @@
 //   config   one git config entry of the open repository; value is { key, value, scope }
 // A row with `move: true` can also be moved up or down (act value 'up' / 'down'): the sidebar's sections.
 
+import type { AutostashPref } from '../commit/autostash.ts';
+import type { Show } from '../lib/app-helpers.ts';
+import type { ConfigEntry } from '../../shared/git-types.ts';
+
+export interface PrefOption { id: string; label: string; icon?: string }
+interface RowBase {
+  section: string; id: string; label: string; detail?: string | null; keywords?: string; repo?: boolean;
+  icon?: string; move?: boolean; fixed?: boolean; first?: boolean; last?: boolean;
+}
+export type PrefRow = RowBase & (
+  | { kind: 'switch'; value: boolean }
+  | { kind: 'choice'; value: string; options: PrefOption[] }
+  | { kind: 'action' | 'info'; value: string }
+  | { kind: 'config'; value: ConfigEntry }
+);
+/** The PR settings in the snapshot: on, hidden here, the remote in use and the ones to choose from. */
+export interface PrsPrefs {
+  enabled?: boolean; hidden?: boolean; remote?: { name: string; owner: string; repo: string } | null;
+  choices?: { name: string }[]; chosen?: string | null; gh?: string;
+}
+/** The saved choices the window shows (see prefRows). */
+export interface PrefsSnapshot {
+  autoUpdate?: boolean; autostash?: Partial<AutostashPref>; ai?: string | null; theme?: string; themes?: PrefOption[];
+  show?: Partial<Show>; sidebarExpanded?: boolean;
+  sections?: { id: string; label: string; icon?: string; hidden?: boolean; group?: string; fixed?: boolean }[];
+  prs?: PrsPrefs | null; repo?: unknown; config?: ConfigEntry[]; remotes?: { name: string; label: string }[];
+}
+
 export const PREF_SECTIONS = [
   { id: 'general', label: 'General', icon: 'config' },
   { id: 'git', label: 'Git', icon: 'branch' },
@@ -25,10 +53,10 @@ export const PREF_SECTIONS = [
 //   { autoUpdate, autostash: { ask, untracked }, ai, theme, themes, show: { tags, remotes, swatches,
 //     agentLanes, unified }, sidebarExpanded, sections: [{ id, label, icon, hidden }] (refs-tree order), prs: { enabled, hidden, remote, choices, chosen, gh } | null, repo, config: [{ key, value, scope }],
 //   remotes: [{ name, url, label }] }
-export function prefRows(s) {
+export function prefRows(s: PrefsSnapshot): PrefRow[] {
   const show = s.show || {};
   const prs = s.prs || null;
-  const rows = [
+  const rows: PrefRow[] = [
     { section: 'general', id: 'autoUpdate', kind: 'switch', value: s.autoUpdate !== false, label: 'Check for updates automatically', detail: 'At launch and once a day. Updates install when you restart.', keywords: 'update upgrade version' },
     { section: 'general', id: 'checkUpdates', kind: 'action', value: 'Check now', label: 'Check for updates', keywords: 'update upgrade version' },
     { section: 'general', id: 'setup', kind: 'action', value: 'Open…', label: 'Choose your defaults', detail: 'The first-launch checklist of what Since turns on.', keywords: 'setup welcome first run' },
@@ -46,16 +74,16 @@ export function prefRows(s) {
     { section: 'appearance', id: 'agentLanes', kind: 'switch', value: show.agentLanes !== false, label: 'Mark branches that look agent-made', detail: 'A badge in Review, from branch names and commit trailers.', keywords: 'agent ai badge' },
 
     { section: 'sidebar', id: 'sidebarExpanded', kind: 'switch', value: s.sidebarExpanded !== false, label: 'Expanded sidebar', detail: 'Off: a narrow rail of icons.', keywords: 'collapse rail minimize' },
-    ...(s.sections || []).map((p, i, all) => ({
+    ...(s.sections || []).map((p, i, all): PrefRow => ({
       section: 'sidebar', id: `section:${p.id}`, kind: 'switch', move: true, value: !p.hidden, label: p.label, icon: p.icon, fixed: Boolean(p.fixed),
-      first: i === 0 || all[i - 1].group !== p.group, last: i === all.length - 1 || all[i + 1].group !== p.group,
-      detail: i === 0 ? 'Pages, top to bottom. ⌥↑ ⌥↓ move the selected one; in the sidebar, long-press and drag.' : p.group !== all[i - 1].group ? 'Lists below the divider.' : null,
+      first: i === 0 || all[i - 1]?.group !== p.group, last: i === all.length - 1 || all[i + 1]?.group !== p.group,
+      detail: i === 0 ? 'Pages, top to bottom. ⌥↑ ⌥↓ move the selected one; in the sidebar, long-press and drag.' : p.group !== all[i - 1]?.group ? 'Lists below the divider.' : null,
       keywords: 'sidebar section show hide order reorder move refs tree',
     })),
     { section: 'sidebar', id: 'resetPanes', kind: 'action', value: 'Reset', label: 'Pane sizes', detail: 'Restore the default widths of the sidebar and file lists.', keywords: 'resize width drag default' },
 
     { section: 'prs', id: 'prsOn', kind: 'switch', value: Boolean(prs?.enabled), label: 'Pull requests from GitHub', detail: prs?.gh === 'missing' ? 'Needs GitHub CLI (gh). Turning this on walks you through it.' : 'Uses your GitHub CLI login. Applies to every repository.', keywords: 'pr github gh enable' },
-    ...(s.repo && prs?.enabled && prs.remote ? [{ section: 'prs', id: 'prsHidden', kind: 'switch', value: Boolean(prs.hidden), label: 'Hide pull requests in this repository', keywords: 'pr github gh hide show' }] : []),
+    ...(s.repo && prs?.enabled && prs.remote ? [{ section: 'prs', id: 'prsHidden', kind: 'switch' as const, value: Boolean(prs.hidden), label: 'Hide pull requests in this repository', keywords: 'pr github gh hide show' }] : []),
     ...(s.repo ? [prRemoteRow(prs)] : []),
 
     { section: 'keyboard', id: 'shortcuts', kind: 'action', value: 'Customise…', label: 'Keyboard shortcuts', detail: 'Search every shortcut and change any of them.', keywords: 'keys keymap bindings hotkeys' },
@@ -74,31 +102,31 @@ export function prefRows(s) {
 
 // A `preferences` menu command while Preferences is open: ⌘, (no section) closes it,
 // a sectioned one (View → Repository Settings…) jumps to that section.
-export const openPrefsCommand = (section) => (section ? 'show' : 'close');
+export const openPrefsCommand = (section?: string | null): 'show' | 'close' => (section ? 'show' : 'close');
 
 // Which remote this repository's PR features use (AK-461). With two or more GitHub remotes it's a choice:
 // Automatic (origin when it's on GitHub, else the first GitHub remote) or one of them by name. Remote option ids are
 // prefixed so a remote literally named `auto` can't collide with Automatic (AK-484).
 export const PR_REMOTE_AUTO = 'auto';
-const prRemoteId = (name) => `remote:${name}`;
+const prRemoteId = (name: string): string => `remote:${name}`;
 // The remote name an option id stands for, or null for Automatic.
-export const prRemoteChoice = (id) => (id?.startsWith('remote:') ? id.slice(7) : null);
-function prRemoteRow(prs) {
+export const prRemoteChoice = (id: string | null | undefined): string | null => (id?.startsWith('remote:') ? id.slice(7) : null);
+function prRemoteRow(prs: PrsPrefs | null): PrefRow {
   const base = { section: 'prs', id: 'prRemote', label: 'Remote for pull requests', keywords: 'pr github remote origin fork upstream push' };
   const choices = prs?.choices || [];
   if (choices.length < 2) return { ...base, kind: 'info', value: prs?.remote ? `${prs.remote.name} (${prs.remote.owner}/${prs.remote.repo})` : 'No GitHub remote', detail: 'origin when it is on GitHub, else the first GitHub remote.' };
   return {
-    ...base, kind: 'choice', value: prs.chosen ? prRemoteId(prs.chosen) : PR_REMOTE_AUTO,
+    ...base, kind: 'choice', value: prs?.chosen ? prRemoteId(prs.chosen) : PR_REMOTE_AUTO,
     options: [{ id: PR_REMOTE_AUTO, label: 'Automatic' }, ...choices.map((c) => ({ id: prRemoteId(c.name), label: c.name }))],
-    detail: `Lists, reviews and new pull requests use ${prs.remote.owner}/${prs.remote.repo}. New branches push there too.`,
+    detail: `Lists, reviews and new pull requests use ${prs?.remote?.owner}/${prs?.remote?.repo}. New branches push there too.`,
   };
 }
 
 // Rows grouped by section, in section order, keeping only rows that match every word of `query` (label, detail,
 // keywords, section name or the shown value). Sections with no match are left out.
-export function prefSections(rows, query = '') {
+export function prefSections(rows: readonly PrefRow[], query = ''): (typeof PREF_SECTIONS[number] & { rows: PrefRow[] })[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const text = (r, sec) => [r.label, r.detail, r.keywords, sec.label, typeof r.value === 'string' ? r.value : r.value?.value].filter(Boolean).join(' ').toLowerCase();
+  const text = (r: PrefRow, sec: { label: string }) => [r.label, r.detail, r.keywords, sec.label, typeof r.value === 'string' ? r.value : r.kind === 'config' ? r.value.value : undefined].filter(Boolean).join(' ').toLowerCase();
   return PREF_SECTIONS.map((sec) => ({
     ...sec,
     rows: rows.filter((r) => r.section === sec.id && words.every((w) => text(r, sec).includes(w))),
@@ -106,7 +134,7 @@ export function prefSections(rows, query = '') {
 }
 
 // The option after (dir 1) or before (dir -1) the current one, wrapping.
-export function nextChoice(row, dir) {
+export function nextChoice(row: { options: readonly PrefOption[]; value: string }, dir: number): string | undefined {
   const ids = row.options.map((o) => o.id);
   const i = ids.indexOf(row.value);
   return ids[(i + dir + ids.length) % ids.length];

@@ -1,5 +1,5 @@
 import { h, $, icon, toast, dialog, contextMenu } from '../lib/ui.ts';
-import { setSwatches } from '../commit/diff.js';
+import { setSwatches } from '../commit/diff.ts';
 import { opSentence } from '../commit/resolve-text.ts';
 import * as keymap from '../palette/keymap.ts';
 import { fileHistoryView } from '../history/file-history-view.js';

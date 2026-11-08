@@ -1,9 +1,9 @@
 import { $, toast } from './lib/ui.ts';
-import { setSwatches } from './commit/diff.js';
+import { setSwatches } from './commit/diff.ts';
 import * as keymap from './palette/keymap.ts';
 import { sidebarMode, isNarrow } from './shell/sidebar.ts';
 import { loadSizes } from './shell/pane-size.ts';
-import { openPrefsCommand } from './settings/prefs.js';
+import { openPrefsCommand } from './settings/prefs.ts';
 import { state, loadPref, api, isEditable, isMac } from './lib/app-helpers.ts';
 import { sidebarEl, mapView } from './shell/shell.ts';
 import { themeLabel } from './shell/theme.ts';

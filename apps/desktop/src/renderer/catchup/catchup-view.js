@@ -1,5 +1,5 @@
 import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, loading } from '../lib/ui.ts';
-import { renderDiff } from '../commit/diff.js';
+import { renderDiff } from '../commit/diff.ts';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.js';
 import { sharedLoad, loadGuard } from '../lanes/lanes.js';
 import * as keymap from '../palette/keymap.ts';

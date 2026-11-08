@@ -1,5 +1,5 @@
 import { h, icon, kbd, toast, loading } from '../lib/ui.ts';
-import { renderDiff, statusBadge, fileName, fileRef } from '../commit/diff.js';
+import { renderDiff, statusBadge, fileName, fileRef } from '../commit/diff.ts';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.ts';
 import * as keymap from '../palette/keymap.ts';
 import { prStatusLine, draftSwitch } from '../prs/prs.ts';
