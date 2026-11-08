@@ -170,7 +170,7 @@ test('send back #N waits for the lanes, and for the PR inbox with PRs on (AK-289
 });
 
 test('Catch up recounts Review lines from local lanes once the commits move (AK-366)', async () => {
-  const { reviewCounts, forgetCounts } = await import('../src/renderer/lanes/lanes-view.js');
+  const { reviewCounts, forgetCounts } = await import('../src/renderer/lanes/lanes-view.ts');
   let calls = 0;
   const load = async () => { calls++; return { lanes: [lane('main', { isBase: true, activity: NOW })] }; };
   forgetCounts('/r');

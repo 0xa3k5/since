@@ -3,7 +3,7 @@ import { methodFix, mergeViaNote } from '../prs/gh-gates.ts';
 import { removalPlan } from './worktree-removal.ts';
 import { opSentence } from '../commit/resolve-text.ts';
 import * as keymap from '../palette/keymap.ts';
-import { lanesView, reviewCounts, cachedPrs } from './lanes-view.js';
+import { lanesView, reviewCounts, cachedPrs } from './lanes-view.ts';
 import { branchesView } from '../branches/branches-view.ts';
 import { isFinished } from '../branches/branches.ts';
 import { catchupView } from '../catchup/catchup-view.ts';

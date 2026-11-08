@@ -1,6 +1,6 @@
 import { h, $, icon, toast } from '../lib/ui.ts';
 import { parseLog, createHistory, createMerge } from './log.ts';
-import { forgetCounts } from '../lanes/lanes-view.js';
+import { forgetCounts } from '../lanes/lanes-view.ts';
 import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';
 import { mapView, lanesPage, branchesPage, catchupPage, reviewPage, commitView } from '../shell/shell.ts';

@@ -1,7 +1,7 @@
 import { h, icon, toast, ago, dialog, confirm, contextMenu, palette, resolveSheet } from '../lib/ui.ts';
 import { mergeGateFix, ghErrorFix } from './gh-gates.ts';
 import * as keymap from '../palette/keymap.ts';
-import { prefetchReview } from '../lanes/lanes-view.js';
+import { prefetchReview } from '../lanes/lanes-view.ts';
 import { stageMemory, STAGES } from '../review/review-rows.ts';
 import { prefetchCatchup } from '../catchup/catchup-view.ts';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';
