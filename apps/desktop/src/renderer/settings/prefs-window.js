@@ -8,7 +8,7 @@ import { tourView } from '../welcome/tour-view.js';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';
 import { prefsWindow } from './prefs-view.js';
 import { prefRows, prRemoteChoice } from './prefs.js';
-import { SETUP_PREF, needsSetup } from './setup.js';
+import { SETUP_PREF, needsSetup } from './setup.ts';
 import { up } from '../lib/upcalls.ts';
 import { loadPref, state, api, savePref, tildePath, MOD } from '../lib/app-helpers.ts';
 import { root, finishedCount, reviewCount, mapView, assignFinishedCount, assignReviewCount, catchupPage, lanesPage, branchesPage, reviewPage, sidebarEl, topbarEl, bannerEl, contentEl, setCatchupPage, setLanesPage, setBranchesPage, setReviewPage, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, setMapView } from '../shell/shell.ts';

@@ -17,7 +17,7 @@ import { refreshAux, refreshHistory, worktreeOf } from '../graph/load.js';
 import { stashSave, stashesView } from '../commit/stashes.js';
 import { snapshotsView } from '../history/snapshots.js';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll, pull, push } from '../branches/remote-ops.js';
-import { reflogView } from '../history/reflog.js';
+import { reflogView } from '../history/reflog.ts';
 import { splitView } from '../commit/split.js';
 import { showCommit, closeFileHistory } from '../history/file-history.js';
 import { quickView, openQuick } from '../graph/quick-view.js';

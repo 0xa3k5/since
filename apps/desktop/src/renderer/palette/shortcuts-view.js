@@ -1,6 +1,6 @@
 import { h, icon, kbd } from '../lib/ui.ts';
 import * as keymap from './keymap.ts';
-import { shortcutSections } from './shortcuts.js';
+import { shortcutSections } from './shortcuts.ts';
 
 // The Keyboard Shortcuts window (⌘/, Help → Keyboard Shortcuts, ⌘K). Lists every keymap command once, the
 // active view's section first. Type to search by action or key; ↑↓ move, ⌘F returns to the search, Esc clears

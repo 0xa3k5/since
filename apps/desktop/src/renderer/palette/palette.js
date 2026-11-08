@@ -1,6 +1,6 @@
 import { toast, confirm, contextMenu, palette, closePalette, timeAgo } from '../lib/ui.ts';
 import * as keymap from './keymap.ts';
-import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.js';
+import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.ts';
 import { CONFLICT_KEYS } from '../commit/conflict-view.js';
 import { BRANCH_TABS } from '../branches/branches.js';
 import { laneTitle, canRemove, checkoutHereMode } from '../lanes/lanes.js';

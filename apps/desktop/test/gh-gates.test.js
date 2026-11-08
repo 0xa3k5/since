@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const github = require('../src/main/github.ts');
 
-const load = () => import('../src/renderer/prs/gh-gates.js');
+const load = () => import('../src/renderer/prs/gh-gates.ts');
 const info = (o) => ({ state: 'open', ...o, gate: github.mergeGate({ state: 'open', ...o }) });
 
 test('mergeGateFix: a draft is marked ready, then merged', async () => {

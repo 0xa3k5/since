@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 
-const load = () => import('../src/renderer/commit/identity.js');
+const load = () => import('../src/renderer/commit/identity.ts');
 const used = (email, count, name = 'Me') => ({ email, name, count });
 
 test('history: warns only for an email that never committed in this clone', async () => {

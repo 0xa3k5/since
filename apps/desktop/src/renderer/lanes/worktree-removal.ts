@@ -11,12 +11,18 @@
 //   { kind: 'switch', dir, then }             this window shows it: switch to the main worktree, then `then`
 //   { kind: 'handoff', dir, then }            this window shows it and the main worktree is open in another
 //                                             window: that window runs `then` and closes this one
-export function removalPlan(w, { main = null, facts = {}, draft = false } = {}) {
+/** A worktree as the worktrees read gives it; `elsewhere`/`current`: another window or this one shows it. */
+export interface RemovableWorktree { name: string; path: string; missing?: boolean; main?: boolean; locked?: boolean; elsewhere?: boolean; current?: boolean }
+export interface RemoveStep { kind: 'remove'; close: boolean | undefined; stash: boolean; abort: boolean }
+export type MoveStep = { kind: 'switch' | 'handoff'; dir: string; then: RemoveStep };
+export type RemovalPlan = { kind: 'prune' } | { kind: 'blocked'; why: string } | RemoveStep | MoveStep | { kind: 'ask'; why: string; then: RemoveStep | MoveStep };
+export interface RemovalOptions { main?: RemovableWorktree | null; facts?: { changes?: number | null; op?: string | null }; draft?: boolean }
+export function removalPlan(w: RemovableWorktree, { main = null, facts = {}, draft = false }: RemovalOptions = {}): RemovalPlan {
   if (w.missing) return { kind: 'prune' };
   if (w.main) return { kind: 'blocked', why: 'The main worktree can’t be removed' };
   if (w.locked) return { kind: 'blocked', why: `“${w.name}” is locked` };
-  const remove = { kind: 'remove', close: !!(w.elsewhere || w.current), stash: !!facts.changes, abort: !!facts.op };
-  let plan = remove;
+  const remove: RemoveStep = { kind: 'remove', close: !!(w.elsewhere || w.current), stash: !!facts.changes, abort: !!facts.op };
+  let plan: RemoveStep | MoveStep = remove;
   if (w.current) {
     if (!main || main.missing) return { kind: 'blocked', why: 'The main worktree is missing' };
     plan = { kind: main.elsewhere ? 'handoff' : 'switch', dir: main.path, then: { ...remove, close: main.elsewhere } };

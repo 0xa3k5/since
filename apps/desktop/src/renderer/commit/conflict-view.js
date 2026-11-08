@@ -1,5 +1,5 @@
 import { h, icon, confirm } from '../lib/ui.ts';
-import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers, keepLineEndings } from './conflict.js';
+import { parseConflicts, sideChoice, blockResult, composeResult, hasMarkers, keepLineEndings } from './conflict.ts';
 import * as keymap from '../palette/keymap.ts';
 
 const CONTEXT = 3; // unchanged lines shown around each conflict

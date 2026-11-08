@@ -1,5 +1,5 @@
 import { h, icon, kbd } from '../lib/ui.ts';
-import { SETUP_AI, SETUP_FEATURES, SETUP_PRS, setupSummary } from './setup.js';
+import { SETUP_AI, SETUP_FEATURES, SETUP_PRS, setupSummary } from './setup.ts';
 import * as keymap from '../palette/keymap.ts';
 
 // The "choose your defaults" step (data in setup.js). Switches apply at once, so what you see is

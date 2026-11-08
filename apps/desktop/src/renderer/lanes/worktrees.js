@@ -1,6 +1,6 @@
 import { h, icon, kbd, toast, dialog, confirm, contextMenu, menuAnchor, palette, timeAgo, resolveSheet } from '../lib/ui.ts';
-import { methodFix, mergeViaNote } from '../prs/gh-gates.js';
-import { removalPlan } from './worktree-removal.js';
+import { methodFix, mergeViaNote } from '../prs/gh-gates.ts';
+import { removalPlan } from './worktree-removal.ts';
 import { opSentence } from '../commit/resolve-text.ts';
 import * as keymap from '../palette/keymap.ts';
 import { lanesView, reviewCounts, cachedPrs } from './lanes-view.js';

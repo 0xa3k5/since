@@ -239,7 +239,9 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   assert.ok(labels.includes('Review'));
   for (const l of labels) assert.doesNotMatch(l, /\blanes?\b/i, l);
   // String literals in the view, its keymap context and the menu: no "Lanes" (the brand "Since" is fine).
-  const visible = (file) => (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
+  // A file moved to TypeScript keeps its .js name here until the whole renderer has (SNC-696).
+  const read = (file) => { const p = path.join(__dirname, '..', file); return fs.readFileSync(fs.existsSync(p) ? p : p.replace(/\.js$/, '.ts'), 'utf8'); };
+  const visible = (file) => (read(file).match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
     .filter((s) => !/^['`][\w.:/-]*['`]$/.test(s)); // ids, keys, class names
   for (const file of ['src/renderer/lanes/lanes-view.js', 'src/renderer/review/review-rows.js']) {
     for (const s of visible(file)) assert.doesNotMatch(s.replace(/Since/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
@@ -247,7 +249,7 @@ test('rename: the view is "Review" and its user-visible strings never say "Lanes
   assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/palette/keymap.ts'), 'utf8'), /lanes: 'Review',/);
   assert.match(require('./main-source').mainSource(), /item\('Review', acc\('view\.lanes'\)/);
   assert.doesNotMatch(require('./main-source').mainSource(), /Pull Request Inbox/);
-  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/shell/sidebar.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
+  assert.match(read('src/renderer/shell/sidebar.js'), /\{ id: 'lanes', label: 'Review'/);
 });
 
 // Split view (AK-272): what an action does to the row, and where the selection goes next.

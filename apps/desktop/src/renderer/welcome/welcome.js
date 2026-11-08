@@ -3,7 +3,7 @@ import { setSwatches } from '../commit/diff.js';
 import * as keymap from '../palette/keymap.ts';
 import { setupView } from '../settings/setup-view.js';
 import { shortcutsWindow } from '../palette/shortcuts-view.js';
-import { SETUP_PREF, setupValues } from '../settings/setup.js';
+import { SETUP_PREF, setupValues } from '../settings/setup.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, api, savePref, MOD } from '../lib/app-helpers.ts';
 import { THEMES, setTheme } from '../shell/theme.ts';

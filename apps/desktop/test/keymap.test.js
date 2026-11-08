@@ -88,7 +88,8 @@ test('no inline key checks remain outside text inputs', () => {
   // shortcut recorder's fixed Esc (cancel) and ⌫ (remove), which must work whatever the keymap says.
   const inline = SOURCES.flatMap((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n')
     .map((l, i) => [`${f}:${i + 1}`, l]).filter(([, l]) => /\be\.(key|code) ===/.test(l)));
-  assert.deepEqual(inline.map(([at]) => at.split(':')[0]).sort(), [
+  // Named as .js while the renderer moves to TypeScript (SNC-696).
+  assert.deepEqual(inline.map(([at]) => at.split(':')[0].replace(/\.ts$/, '.js')).sort(), [
     'src/renderer/palette/shortcuts-view.js', 'src/renderer/palette/shortcuts-view.js', 'src/renderer/shell/navigation.js', 'src/renderer/shell/navigation.js', 'src/renderer/shell/navigation.js', 'src/renderer/welcome/tour-view.js',
   ], inline.map(([at, l]) => `${at} ${l.trim()}`).join('\n'));
 });

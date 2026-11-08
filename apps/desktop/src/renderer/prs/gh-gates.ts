@@ -4,7 +4,11 @@
 
 // A merge refused by GitHub's hard gate → { reason, actions } for a resolve sheet, or null when
 // there's nothing to fix from here (a closed PR, say). `local`: the PR's branch is a local branch.
-export function mergeGateFix(info, { local = false } = {}) {
+/** A fix offered in a resolve sheet: the reason, and the actions that fix it and carry on. */
+export interface SheetFix { reason: string; actions: { id: string; label: string }[] }
+/** What mergeGateFix reads from github.mergeInfo. */
+export interface GateInfo { gate?: { hard?: unknown } | null; state?: string | null; draft?: boolean; conflicts?: boolean }
+export function mergeGateFix(info: GateInfo | null | undefined, { local = false }: { local?: boolean } = {}): SheetFix | null {
   if (!info?.gate?.hard || (info.state && info.state !== 'open')) return null;
   if (info.draft) return { reason: 'It’s a draft.', actions: [{ id: 'ready', label: 'Mark ready and merge' }] };
   if (info.conflicts) {
@@ -16,24 +20,24 @@ export function mergeGateFix(info, { local = false } = {}) {
   return null;
 }
 
-const METHOD_NAMES = { squash: 'squash merging', merge: 'merge commits', rebase: 'rebase merging' };
-const METHOD_ACTIONS = { squash: 'Squash and merge', merge: 'Merge with a merge commit', rebase: 'Rebase and merge' };
+const METHOD_NAMES: Record<string, string> = { squash: 'squash merging', merge: 'merge commits', rebase: 'rebase merging' };
+const METHOD_ACTIONS: Record<string, string> = { squash: 'Squash and merge', merge: 'Merge with a merge commit', rebase: 'Rebase and merge' };
 
 // The method asked for is off in the repo's settings → say which ones are on and offer them.
 // null when `wanted` is allowed.
-export function methodFix(methods, wanted) {
+export function methodFix(methods: readonly string[] | null | undefined, wanted: string): SheetFix | null {
   if (!methods?.length || methods.includes(wanted)) return null;
   const on = methods.map((m) => METHOD_NAMES[m]);
-  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  const cap = (s: string) => (s[0] ?? '').toUpperCase() + s.slice(1);
   return {
-    reason: `${cap(METHOD_NAMES[wanted])} is off in this repo’s settings; ${on.join(' and ')} ${on.length === 1 ? 'is' : 'are'} on.`,
-    actions: methods.map((m) => ({ id: m, label: METHOD_ACTIONS[m] })),
+    reason: `${cap(METHOD_NAMES[wanted] ?? wanted)} is off in this repo’s settings; ${on.join(' and ')} ${on.length === 1 ? 'is' : 'are'} on.`,
+    actions: methods.map((m) => ({ id: m, label: METHOD_ACTIONS[m] ?? m })),
   };
 }
 
 // A gh error with a fix one click away → { id, label } for the error toast's action, or null.
 // gh-auth: logged out of this host; gh-no-remote: no GitHub remote; gh-no-stack: no gh-stack.
-export function ghErrorFix(err) {
+export function ghErrorFix(err: { code?: unknown } | null | undefined): { id: string; label: string } | null {
   if (err?.code === 'gh-auth') return { id: 'login', label: 'Open Terminal' };
   if (err?.code === 'gh-no-remote' || err?.code === 'no-remote') return { id: 'addRemote', label: 'Add remote…' };
   if (err?.code === 'gh-no-stack') return { id: 'installStack', label: 'Install' };
@@ -41,6 +45,6 @@ export function ghErrorFix(err) {
 }
 
 // Merge and tidy on a branch with an open PR: the line under the "Merge" select for each choice.
-export function mergeViaNote(via, number) {
+export function mergeViaNote(via: string, number: number): { text: string; warn?: boolean } {
   return via === 'github' ? { text: 'Can’t be undone on GitHub.', warn: true } : { text: `#${number} stays open on GitHub.` };
 }

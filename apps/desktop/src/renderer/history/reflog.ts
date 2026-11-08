@@ -6,7 +6,7 @@ import { historyTabs } from './snapshots.js';
 
 // Reflog
 
-function reflogView() {
+function reflogView(): HTMLElement {
   const el = h('div.page.flush.history-page');
   el.append(h('div.page-head', null, h('div', null, h('h1', null, 'History & recovery'), historyTabs('reflog'))));
   const rows = h('div.table');
