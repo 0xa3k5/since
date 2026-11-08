@@ -2,7 +2,7 @@ import { h, toast, confirm } from '../lib/ui.ts';
 import { setSwatches } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { setupView } from '../settings/setup-view.ts';
-import { shortcutsWindow } from '../palette/shortcuts-view.js';
+import { shortcutsWindow } from '../palette/shortcuts-view.ts';
 import { SETUP_PREF, setupValues } from '../settings/setup.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, api, savePref, MOD } from '../lib/app-helpers.ts';

@@ -1,6 +1,18 @@
 import { h, icon, kbd } from '../lib/ui.ts';
 import * as keymap from './keymap.ts';
 import { shortcutSections } from './shortcuts.ts';
+import type { AppChannel } from '../../shared/channels.ts';
+
+type KeyRow = HTMLElement & { keyIds: string };
+/** A refusal, or keys another command uses (Replace or Cancel). */
+type Note = { id: string; text: string } | { id: string; index: number; binding: string; clash: string[] };
+export interface ShortcutsWindowOptions {
+  first?: string | null;
+  /** Saves the overrides and resolves to what was saved. */
+  save(overrides: keymap.Overrides): Promise<unknown>;
+  actions?: { importShortcuts?(): void; exportShortcuts?(): void; resetShortcuts?(): void };
+  onClose?: () => void;
+}
 
 // The Keyboard Shortcuts window (⌘/, Help → Keyboard Shortcuts, ⌘K). Lists every keymap command once, the
 // active view's section first. Type to search by action or key; ↑↓ move, ⌘F returns to the search, Esc clears
@@ -13,8 +25,8 @@ import { shortcutSections } from './shortcuts.ts';
 
 const CHORD_WAIT = 800;
 
-export function shortcutsWindow({ first, save, actions = {}, onClose }) {
-  const prev = document.activeElement;
+export function shortcutsWindow({ first, save, actions = {}, onClose }: ShortcutsWindowOptions): { close(): void; find(): void; refresh(): void } {
+  const prev = document.activeElement as HTMLElement | null;
   const input = h('input.palette-input.shortcuts-search', {
     placeholder: 'Search by action or key…', spellcheck: false, autocomplete: 'off', 'aria-label': 'Search shortcuts', 'aria-controls': 'shortcuts-list',
   });
@@ -25,14 +37,14 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
     h('button.btn.ghost.small', { onclick: () => actions.exportShortcuts?.() }, 'Export…'),
     h('button.btn.ghost.small', { onclick: () => actions.resetShortcuts?.() }, 'Reset All'));
   const box = h('div.palette.shortcuts', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'shortcuts-title' },
-    h('div.shortcuts-title', null, h('h2', { id: 'shortcuts-title' }, 'Keyboard Shortcuts'), kbd(...keymap.keys('help.shortcuts'))),
+    h('div.shortcuts-title', null, h('h2', { id: 'shortcuts-title' }, 'Keyboard Shortcuts'), kbd(...(keymap.keys('help.shortcuts') ?? []))),
     h('div.palette-head', null, icon('search'), input),
     list, foot);
-  const overlay = h('div.overlay.shortcuts-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
-  let rows = [], idx = -1;
-  let editing = null; // the ids of the row being edited, joined
-  let rec = null; // { id, index, steps, timer } while recording
-  let note = null; // { id, text } or { id, index, binding, clash } for a conflict
+  const overlay: HTMLElement = h('div.overlay.shortcuts-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
+  let rows: KeyRow[] = [], idx = -1;
+  let editing: string | null = null; // the ids of the row being edited, joined
+  let rec: { id: string; index: number; steps: string[]; timer: ReturnType<typeof setTimeout> | undefined } | null = null; // while recording
+  let note: Note | null = null;
 
   function render() {
     const custom = new Set(keymap.COMMANDS.map((c) => c.id).filter(keymap.isCustom));
@@ -42,14 +54,14 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
       h('h3.palette-group', null, s.title, si === 0 && s.id === first && !input.value.trim() ? h('span.shortcuts-here', null, 'This view') : null),
       s.rows.map((r) => {
         const key = r.ids.join(' ');
-        const el = h('div.shortcuts-row' + (editing === key ? '.editing' : ''), {
+        const el: KeyRow = h('div.shortcuts-row' + (editing === key ? '.editing' : ''), {
           role: 'listitem', 'data-ids': key,
           onmousemove: () => { idx = rows.indexOf(el); mark(false); }, // hover only highlights; scrolling follows ↑↓
           onclick: () => toggleEdit(key),
         },
         h('span.palette-label', null, r.label),
         r.custom ? h('span.shortcuts-custom', { title: 'You changed this shortcut' }, 'Custom') : null,
-        h('span.shortcuts-keys', null, r.keys.flatMap((caps, i) => [i ? h('span.shortcuts-or', null, 'or') : null, kbd(...caps)])));
+        h('span.shortcuts-keys', null, r.keys.flatMap((caps, i) => [i ? h('span.shortcuts-or', null, 'or') : null, kbd(...caps)]))) as KeyRow;
         el.keyIds = key;
         rows.push(el);
         return editing === key ? [el, editor(r.ids)] : el;
@@ -58,50 +70,52 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
     idx = Math.min(idx, rows.length - 1);
     mark(false);
     // A redraw replaces the focused button; keep keys inside the window (the recorder listens on it).
-    if (rec) list.querySelector('.shortcuts-binding.recording')?.focus();
+    if (rec) list.querySelector<HTMLElement>('.shortcuts-binding.recording')?.focus();
     else if (!box.contains(document.activeElement)) input.focus({ preventScroll: true });
   }
 
   // The edit panel under a row: one line per command (two for a ↓ ↑ pair).
-  function editor(ids) {
+  function editor(ids: string[]) {
     return h('div.shortcuts-edit', { onclick: (e) => e.stopPropagation() }, ids.map((id) => {
       const cmd = keymap.command(id);
       const list = keymap.bindings(id);
-      const recording = rec?.id === id;
-      const slot = (b, i) => (recording && rec.index === i
-        ? h('button.shortcuts-binding.recording', { 'aria-label': 'Recording' }, rec.steps.length ? kbd(...keymap.caps(rec.steps.join(' '))) : 'Press new keys…')
-        : h('button.shortcuts-binding', { title: 'Change', onclick: () => record(id, i) }, kbd(...keymap.caps(b))));
+      const recording = rec?.id === id ? rec : null;
+      const slot = (b: string | null, i: number) => (recording && recording.index === i
+        ? h('button.shortcuts-binding.recording', { 'aria-label': 'Recording' }, recording.steps.length ? kbd(...keymap.caps(recording.steps.join(' '))) : 'Press new keys…')
+        : h('button.shortcuts-binding', { title: 'Change', onclick: () => record(id, i) }, kbd(...keymap.caps(b ?? ''))));
       return h('div.shortcuts-edit-line', { 'data-id': id },
-        ids.length > 1 ? h('span.shortcuts-edit-label', null, cmd.label) : null,
-        cmd.reserved
+        ids.length > 1 ? h('span.shortcuts-edit-label', null, cmd?.label) : null,
+        cmd?.reserved
           ? h('span.shortcuts-note', null, 'macOS and the app menu own this shortcut, so it can’t be changed.')
           : [list.map(slot),
-            recording && rec.index === list.length ? slot(null, list.length) : h('button.btn.ghost.small', { title: 'Add a shortcut', onclick: () => record(id, list.length) }, icon('plus', 12), 'Add'),
+            recording && recording.index === list.length ? slot(null, list.length) : h('button.btn.ghost.small', { title: 'Add a shortcut', onclick: () => record(id, list.length) }, icon('plus', 12), 'Add'),
             keymap.isCustom(id) ? h('button.btn.ghost.small', { onclick: () => apply(id, [...keymap.defaults(id)]) }, 'Reset') : null],
         note?.id === id ? noteEl() : null);
     }));
   }
 
   function noteEl() {
-    if (!note.clash) return h('div.shortcuts-note.error', { role: 'alert' }, note.text);
-    const names = note.clash.map((x) => `“${keymap.command(x).label}”`).join(' and ');
+    const n = note;
+    if (!n) return null;
+    if (!('clash' in n)) return h('div.shortcuts-note.error', { role: 'alert' }, n.text);
+    const names = n.clash.map((x) => `“${keymap.command(x)?.label}”`).join(' and ');
     return h('div.shortcuts-note', { role: 'alert' },
-      h('span', null, kbd(...keymap.caps(note.binding)), ` is used by ${names}.`),
+      h('span', null, kbd(...keymap.caps(n.binding)), ` is used by ${names}.`),
       h('button.btn.primary.small', { onclick: () => replace() }, 'Replace'),
       h('button.btn.ghost.small', { onclick: () => { note = null; render(); } }, 'Cancel'));
   }
 
-  function toggleEdit(key) {
+  function toggleEdit(key: string) {
     stopRecording();
     note = null;
     editing = editing === key ? null : key;
     render();
   }
 
-  function record(id, index) {
+  function record(id: string, index: number) {
     stopRecording();
     note = null;
-    rec = { id, index, steps: [], timer: null };
+    rec = { id, index, steps: [], timer: undefined };
     api('keymap-recording', true);
     render();
   }
@@ -112,28 +126,31 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
     api('keymap-recording', false);
   }
 
-  function onRecordKey(e) {
+  function onRecordKey(e: KeyboardEvent) {
     e.preventDefault(); e.stopImmediatePropagation();
-    const { id, index } = rec;
+    const r = rec;
+    if (!r) return;
+    const { id, index } = r;
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
     if (plain && e.key === 'Escape') { stopRecording(); return render(); }
-    if (plain && e.key === 'Backspace' && !rec.steps.length) {
+    if (plain && e.key === 'Backspace' && !r.steps.length) {
       stopRecording();
       const list = keymap.bindings(id).filter((_, i) => i !== index);
       return apply(id, list);
     }
     const step = keymap.fromEvent(e);
     if (!step) return;
-    rec.steps.push(step);
-    clearTimeout(rec.timer);
-    if (rec.steps.length === 1 && id.startsWith('view.') && /^[a-z0-9]$/.test(step)) {
-      rec.timer = setTimeout(() => finish(), CHORD_WAIT);
+    r.steps.push(step);
+    clearTimeout(r.timer);
+    if (r.steps.length === 1 && id.startsWith('view.') && /^[a-z0-9]$/.test(step)) {
+      r.timer = setTimeout(() => finish(), CHORD_WAIT);
       return render();
     }
     finish();
   }
 
   function finish() {
+    if (!rec) return;
     const { id, index, steps } = rec;
     stopRecording();
     const binding = steps.join(' ');
@@ -144,7 +161,7 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
     apply(id, put(id, index, binding));
   }
 
-  const put = (id, index, binding) => {
+  const put = (id: string, index: number, binding: string) => {
     const list = [...keymap.bindings(id)];
     list[index] = binding;
     return list;
@@ -152,22 +169,24 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
 
   // Replace: take the keys from every command that has them, then give them to this one.
   function replace() {
-    const { id, index, binding, clash } = note;
+    const n = note;
+    if (!n || !('clash' in n)) return;
+    const { id, index, binding, clash } = n;
     let o = keymap.getOverrides();
     for (const x of clash) o = keymap.withBinding(o, x, keymap.bindings(x).filter((b) => !keymap.collides(b, binding)));
     apply(id, put(id, index, binding), o);
   }
 
-  async function apply(id, list, base = keymap.getOverrides()) {
+  async function apply(id: string, list: string[], base = keymap.getOverrides()) {
     note = null;
     try { keymap.setOverrides(await save(keymap.withBinding(base, id, list))); }
-    catch (e) { note = { id, text: `Couldn’t save the shortcut: ${e.message}` }; }
+    catch (e) { note = { id, text: `Couldn’t save the shortcut: ${(e as Error).message}` }; }
     render();
   }
 
   function mark(scroll = true) {
     rows.forEach((el, i) => el.classList.toggle('active', i === idx));
-    if (idx >= 0 && scroll) rows[idx].scrollIntoView({ block: 'nearest' });
+    if (idx >= 0 && scroll) rows[idx]?.scrollIntoView({ block: 'nearest' });
     else if (idx < 0) list.scrollTop = 0;
   }
   function find() { stopRecording(); input.focus(); input.select(); }
@@ -187,7 +206,7 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
     if (id === 'shortcuts.next') { e.preventDefault(); idx = Math.min(idx + 1, rows.length - 1); mark(); }
     else if (id === 'shortcuts.prev') { e.preventDefault(); idx = Math.max(idx - 1, -1); mark(); }
     else if (id === 'shortcuts.find') { e.preventDefault(); find(); }
-    else if (id === 'shortcuts.edit' && idx >= 0 && document.activeElement === input) { e.preventDefault(); toggleEdit(rows[idx].keyIds); }
+    else if (id === 'shortcuts.edit' && idx >= 0 && document.activeElement === input) { e.preventDefault(); toggleEdit(rows[idx]!.keyIds); }
     else if (id === 'shortcuts.close') {
       e.preventDefault(); e.stopPropagation();
       if (note || editing) { note = null; editing = null; render(); find(); }
@@ -202,4 +221,4 @@ export function shortcutsWindow({ first, save, actions = {}, onClose }) {
   return { close, find, refresh: render };
 }
 
-const api = (channel, ...args) => window.since.app(channel, ...args).catch(() => {});
+const api = (channel: AppChannel, ...args: unknown[]) => window.since.app(channel, ...args).catch(() => {});
