@@ -26,6 +26,8 @@ import { openRepo, initRepo, cloneRepo, openPrefs, prefs } from './settings/pref
 import { sbNarrow, applySidebar, setSbNarrow, setView, goBack, goForward, toggleSidebar, toggleShow, openOrigin, openLfs, sbState, sbHideTimer, setSidebar, isMenuKey, resetPanes, toggleDetail, renderSidebar, renderTopbar, renderView, startView, renderShell, setStartView } from './shell/navigation.ts';
 import { addWorktree, branchSwitcher, worktreeSwitcher, updateSubmodules, openReview, mergePrCmd, closePrCmd, takeHandoff, startCleanup } from './lanes/worktrees.ts';
 import { openPalette, resetHard, openHosting, repoSwitcher } from './palette/palette.ts';
+import type { Show, View } from './lib/app-helpers.ts';
+import type { Theme } from '../shared/ipc-contract.ts';
 
 // The renderer entry: global events, the tab strip and boot. Each area lives in its own folder;
 // this file wires them together.
@@ -55,19 +57,19 @@ api.on('repo:changed', ({ refs, workdir }) => {
 });
 
 const commands = {
-  open: (dir) => openRepo(dir),
+  open: (dir?: string) => openRepo(dir),
   init: initRepo,
   clone: cloneRepo,
   undo: () => { if (isEditable(document.activeElement)) document.execCommand('undo'); else if (state.repo) undo(); else tour?.undo(); },
   redo: () => { if (isEditable(document.activeElement)) document.execCommand('redo'); else if (state.repo) redo(); else tour?.redo(); },
   search: () => { if (!state.repo) return; if (state.view !== 'map' || state.quick || state.split || state.fileHistory) setView('map'); setTimeout(() => $('#map-search')?.focus()); },
   palette: openPalette,
-  view: (v) => (v === 'config' ? openPrefs('repository') : setView(v)),
-  preferences: (section) => openPrefs(section),
+  view: (v: View | 'config') => (v === 'config' ? openPrefs('repository') : setView(v)),
+  preferences: (section?: string) => openPrefs(section),
   back: goBack,
   forward: goForward,
   sidebar: toggleSidebar,
-  toggle: (k) => state.repo && toggleShow(k),
+  toggle: (k: keyof Show) => state.repo && toggleShow(k),
   fetch: () => state.repo && fetchAll(),
   pull: () => state.repo && pull(),
   push: () => state.repo && push(false),
@@ -112,10 +114,12 @@ api.on('command', (cmd, ...args) => {
   if (shortcuts && cmd === 'shortcuts') return shortcuts.close();
   if (shortcuts && cmd === 'search') return shortcuts.find();
   // With Preferences open, ⌘, closes it, Repository Settings… jumps to Repository and ⌘F goes to its search.
-  if (prefs && cmd === 'preferences') return openPrefsCommand(args[0]) === 'show' ? prefs.show(args[0]) : prefs.close();
+  const section = args[0] as string | undefined;
+  if (prefs && cmd === 'preferences') return openPrefsCommand(section) === 'show' ? prefs.show(section ?? '') : prefs.close();
   if (prefs && cmd === 'search') return prefs.find();
   if (document.querySelector('.overlay') && !['undo', 'redo', 'handoff'].includes(cmd)) return;
-  commands[cmd]?.(...args);
+  // The main process sends each command its own arguments.
+  (commands as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[cmd]?.(...args);
 });
 
 // Mouse buttons 4 and 5 go back and forward, as in a browser.
@@ -129,9 +133,9 @@ window.addEventListener('keydown', (e) => {
   if (id === 'global.close' && sidebarMode(sbState()) === 'overlay') {
     e.preventDefault();
     clearTimeout(sbHideTimer);
-    const inside = sidebarEl.contains(document.activeElement);
+    const inside = Boolean(sidebarEl?.contains(document.activeElement));
     setSidebar({ ...state.sidebar, pinned: false, hover: false });
-    if (inside) sidebarEl.querySelector('.sb-toggle')?.focus();
+    if (inside) sidebarEl?.querySelector<HTMLElement>('.sb-toggle')?.focus();
     return;
   }
   // Switch Repository… when the user gives it keys (also a File menu item, which handles it on macOS)
@@ -139,7 +143,7 @@ window.addEventListener('keydown', (e) => {
   // ⌘S toggles the sidebar from the View menu; any other keys the user adds have no menu accelerator, so handle them here
   if (keymap.match('menu', e) === 'view.sidebar' && !isMenuKey('view.sidebar', e)) { e.preventDefault(); toggleSidebar(); return; }
   // Choose defaults, when the user gives it keys. Plain ⌘, stays the menu's Settings… (Config)
-  if (id === 'global.setup' && !isEditable(e.target)) { e.preventDefault(); openSetup(); return; }
+  if (id === 'global.setup' && !isEditable(e.target as Element | null)) { e.preventDefault(); openSetup(); return; }
   if (id === 'global.close' && state.quick) { e.preventDefault(); closeQuick(); }
   if (id === 'global.close' && state.split && !isEditable(document.activeElement)) { e.preventDefault(); closeSplit(); }
   // "G then X" navigation: the view chords in the keymap ("g r" → view.reflog)
@@ -147,14 +151,14 @@ window.addEventListener('keydown', (e) => {
     if (gPending) {
       const v = keymap.match('menu', e, gPending)?.replace('view.', '');
       setGPending(null);
-      if (v) { e.preventDefault(); setView(v); return; }
+      if (v) { e.preventDefault(); setView(v as View); return; }
     } else if (state.view !== 'commit' && (setGPending(keymap.chordStart('menu', e)))) { setTimeout(() => { setGPending(null); }, 800); return; }
     if (id === 'global.search') { e.preventDefault(); commands.search(); }
     // Not while File History, Quick View or Split covers the Snapshots view: their keys would reach the hidden list.
     if (state.view === 'snapshots' && !state.fileHistory && !state.quick && !state.split && !e.altKey && !e.shiftKey && snapshotKey(e)) { e.preventDefault(); return; }
   }
   if (state.repo && id === 'global.branch') { e.preventDefault(); branchHere(); return; }
-  if (state.repo && id === 'global.cleanup' && !isEditable(e.target)) { e.preventDefault(); startCleanup(); return; }
+  if (state.repo && id === 'global.cleanup' && !isEditable(e.target as Element | null)) { e.preventDefault(); startCleanup(); return; }
   if (state.repo && id === 'global.resetPanes') { e.preventDefault(); resetPanes(); return; }
   if (state.repo && id === 'global.prs') { e.preventDefault(); togglePrs(); return; }
   if (state.repo && id === 'global.prRemote') { e.preventDefault(); pickPrRemote(); return; }
@@ -185,11 +189,12 @@ api.on('tabs', showTabs);
 // Boot
 (async () => {
   document.documentElement.classList.toggle('mac', isMac);
-  state.theme = await api.app('theme');
+  // The contract leaves these boot answers untyped; the modules that show them own their types.
+  state.theme = (await api.app('theme')) as Theme;
   keymap.setOverrides(await api.app('keymap'));
   api.app('ai-settings').then((a) => { state.ai = a; showAiButton(); });
-  showUpdate(await api.app('update-state'));
-  showTabs(...(await api.app('tabs')));
+  showUpdate((await api.app('update-state')) as Parameters<typeof showUpdate>[0]);
+  showTabs(...((await api.app('tabs')) as Parameters<typeof showTabs>));
   const params = new URLSearchParams(location.search);
   if (params.get('view') === 'map') setStartView('map');
   const dir = params.get('repo');
