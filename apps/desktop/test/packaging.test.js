@@ -27,7 +27,7 @@ test('packaging config points at files that exist', () => {
 });
 
 test('packaged files are only what the app loads at runtime', () => {
-  assert.deepStrictEqual(config.files, ['src/**', 'package.json']);
+  assert.deepStrictEqual(config.files, ['out/**', 'package.json']);
   const pkg = require('../package.json');
   assert.deepStrictEqual(Object.keys(pkg.dependencies || {}), [], 'the app has no runtime dependencies');
 });
@@ -81,7 +81,7 @@ test('every module the main process requires is packaged', () => {
   const resolve = (from, rel) => {
     const p = path.join(path.dirname(from), rel);
     if (fs.existsSync(path.join(root, p)) && fs.statSync(path.join(root, p)).isDirectory()) return path.join(p, 'index.js');
-    return p.endsWith('.js') || p.endsWith('.json') ? p : `${p}.js`;
+    return /\.(js|ts|json)$/.test(p) ? p : `${p}.js`;
   };
   const visit = (file) => {
     if (seen.has(file) || file.startsWith('bench/') || file.endsWith('.json')) return;
@@ -90,16 +90,19 @@ test('every module the main process requires is packaged', () => {
     for (const [, rel] of src.matchAll(/require\('(\.\.?\/[^']+)'\)/g)) visit(resolve(file, rel));
   };
   visit('src/main/main.js');
-  visit('src/preload/preload.js');
-  const packaged = (file) => config.files.some((f) => f === file || (f.endsWith('/**') && file.startsWith(f.slice(0, -2))));
-  assert.ok(seen.has('src/main/ipc.js') && seen.has('src/main/updater.js'));
+  visit('src/preload/preload.ts');
+  // What runs is the build of src/ in out/ (scripts/build.js), with .ts files built to .js.
+  const built = (file) => file.replace(/^src\//, 'out/').replace(/\.ts$/, '.js');
+  const packaged = (file) => config.files.some((f) => f === built(file) || (f.endsWith('/**') && built(file).startsWith(f.slice(0, -2))));
+  assert.ok(seen.has('src/main/ipc.js') && seen.has('src/main/updater.js') && seen.has('src/shared/channels.ts'));
+  assert.equal(require('../package.json').main, 'out/main/main.js');
   for (const file of seen) assert.ok(packaged(file), `${file} is required at runtime but not packaged`);
 });
 
 test('the main process opens no connections of its own, apart from updates', () => {
   // git and gh make their own requests; Since only spawns them. Only updater.js may request
   // anything, and it's listed in docs/security.md.
-  const files = ['src/main', 'src/preload', 'src/shared'].flatMap((d) => fs.readdirSync(path.join(root, d), { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)));
+  const files = ['src/main', 'src/preload', 'src/shared'].flatMap((d) => fs.readdirSync(path.join(root, d), { recursive: true }).filter((f) => /\.(js|ts)$/.test(f)).map((f) => path.join(d, f)));
   assert.ok(files.includes('src/main/updater.js') && files.includes('src/main/git/run.js'));
   const banned = /require\(['"](node:)?(http|https|http2|net|tls|dns|dgram)['"]\)|\bnet\b[^;]*require\(['"]electron['"]\)/;
   for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), banned, file);

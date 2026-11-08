@@ -48,7 +48,7 @@ module.exports = {
   productName: 'Since',
   copyright: 'Copyright (C) 2026 0xa3k5 and Since contributors',
   directories: { output: 'dist', buildResources: 'build' },
-  files: ['src/**', 'package.json'],
+  files: ['out/**', 'package.json'],
   // The version, when overridden, names the artifacts and is what the updater compares against the feed.
   extraMetadata: VERSION ? { version: VERSION } : {},
   asar: true,

@@ -1,5 +1,5 @@
 'use strict';
-// Every shipped script must parse. The renderer is buildless and no unit test imports app.js,
+// Every shipped .js script must parse (tsc checks the .ts ones). No unit test imports app.js,
 // so a syntax error there (a bad merge, say) passed `pnpm test` and opened a blank window (AK-250).
 const test = require('node:test');
 const assert = require('node:assert/strict');

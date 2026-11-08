@@ -1,0 +1,24 @@
+{
+  // Type-checks the main process, the preload script and the shared code (Node and Electron APIs).
+  // The renderer has its own config (tsconfig.renderer.json) with the DOM instead of Node.
+  // Nothing is emitted here: scripts/build.js transpiles each file with esbuild.
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": ["esnext"],
+    "types": ["node"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/main", "src/preload", "src/shared"]
+}

@@ -3,6 +3,7 @@
 const { ipcMain } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { GIT, APP_PREFIX, APP_CHANNELS } = require('../../shared/channels.ts');
 
 // Every IPC channel goes through here: calls are only accepted from our own renderer page,
 // loaded from the app bundle into a window's main frame. Arguments are checked by ipc.js.
@@ -17,6 +18,9 @@ function trustedSender(e) {
   } catch { return false; }
 }
 function handle(channel, fn) {
+  // Only channels in the IPC contract get a handler, so the renderer's types match what's registered.
+  const known = channel === GIT || (channel.startsWith(APP_PREFIX) && APP_CHANNELS.includes(channel.slice(APP_PREFIX.length)));
+  if (!known) throw new Error(`IPC channel "${channel}" is not in src/shared/channels.ts`);
   ipcMain.handle(channel, (e, ...args) => {
     if (!trustedSender(e)) throw new Error(`Blocked IPC "${channel}" from ${e.senderFrame?.url || 'unknown frame'}`);
     return fn(e, ...args);

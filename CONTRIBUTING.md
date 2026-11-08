@@ -13,7 +13,8 @@ are blocked, and `package-lock.json` must never be committed.
     pnpm desktop [-- path/to/repo]
     pnpm test
 
-The renderer is buildless: plain JavaScript, no frameworks and no bundler. See
+The app is TypeScript (and plain JavaScript still moving over), transpiled file by file into
+`apps/desktop/out/`: no frameworks and no bundler. `pnpm desktop` builds before it starts. See
 [apps/desktop/README.md](apps/desktop/README.md) for the architecture and
 [CLAUDE.md](CLAUDE.md) for the project rules in short form.
 
