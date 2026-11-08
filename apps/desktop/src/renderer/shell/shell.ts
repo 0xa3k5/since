@@ -1,12 +1,21 @@
 import { $ } from '../lib/ui.ts';
+// Types only, so no module above the shell loads from here.
+import type { lanesView } from '../lanes/lanes-view.ts';
+import type { catchupView } from '../catchup/catchup-view.ts';
+import type { BranchesView } from '../branches/branches-view.ts';
+import type { ReviewView } from '../review/review-view.ts';
+import type { createMapView } from '../graph/map.js';
+import type { createCommitView } from '../commit/commit-view.js';
 
 // Shell: the window's views and layout elements, set at boot and read by every area.
 
-/** A view or page whose module is still JavaScript. It gets its real type when that module moves (SNC-696). */
-type Later = unknown;
+type MapView = ReturnType<typeof createMapView>;
+type CommitView = ReturnType<typeof createCommitView>;
+type LanesPage = ReturnType<typeof lanesView>;
+type CatchupPage = ReturnType<typeof catchupView>;
 const root = $('#app');
 let sidebarEl: HTMLElement | undefined, topbarEl: HTMLElement | undefined, bannerEl: HTMLElement | undefined, contentEl: HTMLElement | undefined;
-let mapView: Later = null, commitView: Later = null, lanesPage: Later = null, reviewPage: Later = null, catchupPage: Later = null, branchesPage: Later = null;
+let mapView: MapView | null = null, commitView: CommitView | null = null, lanesPage: LanesPage | null = null, reviewPage: ReviewView | null = null, catchupPage: CatchupPage | null = null, branchesPage: BranchesView | null = null;
 let finishedCount = 0, finishedRun: Promise<unknown> | null = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let reviewCount = 0, reviewRun: Promise<unknown> | null = null; // Review's sidebar badge: the page's Needs you count, stuck plus ready (countReview)
 let catchupCount = 0, countRun: Promise<unknown> | null = null; // Catch up's sidebar badge (setCatchupCount)
@@ -18,14 +27,14 @@ function setSidebarEl(value: HTMLElement) { return (sidebarEl = value); }
 function setTopbarEl(value: HTMLElement) { return (topbarEl = value); }
 function setBannerEl(value: HTMLElement) { return (bannerEl = value); }
 function setContentEl(value: HTMLElement) { return (contentEl = value); }
-function setMapView(value: Later) { return (mapView = value); }
-function setCommitView(value: Later) { return (commitView = value); }
-function setCatchupPage(value: Later) { return (catchupPage = value); }
-function setBranchesPage(value: Later) { return (branchesPage = value); }
-function setReviewPage(value: Later) { return (reviewPage = value); }
+function setMapView(value: MapView | null) { return (mapView = value); }
+function setCommitView(value: CommitView | null) { return (commitView = value); }
+function setCatchupPage(value: CatchupPage | null) { return (catchupPage = value); }
+function setBranchesPage(value: BranchesView | null) { return (branchesPage = value); }
+function setReviewPage(value: ReviewView | null) { return (reviewPage = value); }
 function setStashFocus(value: string | null) { return (stashFocus = value); }
 function setStashShown(value: string | null) { return (stashShown = value); }
-function setLanesPage(value: Later) { return (lanesPage = value); }
+function setLanesPage(value: LanesPage | null) { return (lanesPage = value); }
 function assignCatchupCount(value: number) { return (catchupCount = value); }
 function setCountRun(value: Promise<unknown> | null) { return (countRun = value); }
 function assignFinishedCount(value: number) { return (finishedCount = value); }

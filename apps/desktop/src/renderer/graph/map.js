@@ -8,7 +8,7 @@ import { up } from '../lib/upcalls.ts';
 import { state, ROW_H, isEditable, prop, personLink } from '../lib/app-helpers.ts';
 import { mapView, sidebarEl, lanesPage } from '../shell/shell.ts';
 import { git } from '../lib/bridge.ts';
-import { wantDetails, refPill } from './load.js';
+import { wantDetails, refPill } from './load.ts';
 import { withHistoryMenu } from '../history/file-history.ts';
 import { openQuick } from './quick-view.ts';
 

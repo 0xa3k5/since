@@ -4,7 +4,7 @@ import { up } from '../lib/upcalls.ts';
 import { tip, state, MOD } from '../lib/app-helpers.ts';
 import { undo, redo, git, act } from '../lib/bridge.ts';
 import type { JournalItem, RefChange } from '../../shared/git-types.ts';
-import { refreshHistory } from '../graph/load.js';
+import { refreshHistory } from '../graph/load.ts';
 
 // Snapshots (undo history)
 

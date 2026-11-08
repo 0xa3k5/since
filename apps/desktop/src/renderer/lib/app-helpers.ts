@@ -25,6 +25,8 @@ type Later = unknown;
 export type QuickBack = { path: string } | { review: ReviewTarget | null; lanes: unknown };
 /** The commit viewer: the commit and the file it opened on; `file` and `parent` once it has read the commit. */
 export interface QuickState { sha: string; path?: string | null; back?: QuickBack | null; file?: CommitFile | null; parent?: string | null }
+/** A label on a commit row: a ref, HEAD when it's detached, or another worktree's detached HEAD. */
+export type PillRef = Ref | { kind: 'head'; short: string } | { kind: 'worktree'; short: string; worktree: Worktree };
 /** File history & blame: the file it shows. */
 export interface FileHistoryState { path: string }
 export type View =
@@ -62,7 +64,7 @@ export interface AppState {
   logKey: string;
   graph: History['graph'] | null;
   index: Map<string, number>;
-  byRef: Map<string, Ref[]>;
+  byRef: Map<string, PillRef[]>;
   selected: string | null;
   detail: boolean;
   quick: QuickState | null;

@@ -4,7 +4,7 @@ import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';
 import { commitView } from '../shell/shell.ts';
 import { git } from '../lib/bridge.ts';
-import { refreshStatus } from '../graph/load.js';
+import { refreshStatus } from '../graph/load.ts';
 
 // File history & blame
 
@@ -65,8 +65,7 @@ function openConflicts() {
   if (!files.length) return toast('No conflicted files');
   const path = state.cv.list === 'conflicts' && files.some((f) => f.path === state.cv.path) ? state.cv.path : files[0]!.path;
   state.cv = { ...state.cv, list: 'conflicts', path, lines: new Set<string>(), full: false };
-  if (state.view === 'commit') (commitView as { refresh(): void } | null)?.refresh(); else // commitView gets its type with commit-view (SNC-696)
-   up.setView('commit');
+  if (state.view === 'commit') commitView?.refresh(); else up.setView('commit');
 }
 
 // Waits for the tool to exit, then refreshes the conflict list.

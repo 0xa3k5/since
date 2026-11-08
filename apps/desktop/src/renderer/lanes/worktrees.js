@@ -25,7 +25,7 @@ import { up } from '../lib/upcalls.ts';
 import { state, sentence, tip, isEditable, tildify, keyText, api, loadPref, savePref, MOD, parentDir } from '../lib/app-helpers.ts';
 import { lanesPage, setLanesPage, catchupPage, setCatchupPage, catchupCount, assignCatchupCount, countRun, setCountRun, branchesPage, setBranchesPage, finishedCount, assignFinishedCount, finishedRun, setFinishedRun, reviewCount, assignReviewCount, reviewRun, setReviewRun } from '../shell/shell.ts';
 import { git, updateGit, gitWhy, undo, coalesce, abortAnd, act } from '../lib/bridge.ts';
-import { refreshAll, refreshHistory, worktreeOf } from '../graph/load.js';
+import { refreshAll, refreshHistory, worktreeOf } from '../graph/load.ts';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll } from '../branches/remote-ops.ts';
 import { showCommit } from '../history/file-history.ts';
 import { checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, approvePr, requestChangesPr, mergePr, closePr, openPrOnGitHub, updatePrBranch, REMOTE_NOTE, prCall, OWN_PR, refreshPrs, fixMergeGate, prCheckLines, checkFailEl } from '../prs/prs-page.js';

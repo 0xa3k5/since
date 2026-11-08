@@ -9,7 +9,7 @@ import { up } from '../lib/upcalls.ts';
 import { state, MOD, api, loadPref, savePref } from '../lib/app-helpers.ts';
 import { stashFocus, setStashFocus, contentEl } from '../shell/shell.ts';
 import { act, resolveOp, git, undo } from '../lib/bridge.ts';
-import { worktreeOf, refreshAll } from './load.js';
+import { worktreeOf, refreshAll } from './load.ts';
 import { openSplit } from '../commit/split.ts';
 import { openQuick } from './quick-view.ts';
 import { prFor, createPr } from '../prs/prs-page.js';

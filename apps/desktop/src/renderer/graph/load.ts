@@ -5,6 +5,12 @@ import { up } from '../lib/upcalls.ts';
 import { state } from '../lib/app-helpers.ts';
 import { mapView, lanesPage, branchesPage, catchupPage, reviewPage, commitView } from '../shell/shell.ts';
 import { coalesce, git } from '../lib/bridge.ts';
+import type { History } from './log.ts';
+import type { PillRef } from '../lib/app-helpers.ts';
+import type { Head, LfsInfo, Ref, RepoInfo, Worktree } from '../../shared/git-types.ts';
+
+/** The newest commits, read before the ordered log; `repo` and `opts` say what it was read for. */
+type Preview = History & { repo?: RepoInfo | null; opts?: string };
 
 // Data loading
 
@@ -51,7 +57,7 @@ const refreshHistory = coalesce(async () => {
   if (up.REF_LISTS[state.view] && !state.review && !state.quick && !state.split && !state.fileHistory && up.refListKey(state.view) !== up.refListShown) up.renderView();
 });
 
-function tipsKey(refs, head, worktrees = []) {
+function tipsKey(refs: readonly Ref[], head: Head, worktrees: readonly Worktree[] = []) {
   const kinds = new Set(['branch', ...(state.show.tags ? ['tag'] : []), ...(state.show.remotes ? ['remote'] : [])]);
   const detached = worktrees.filter((w) => !w.current && w.detached && w.head).map((w) => w.head);
   return [state.show.tags, state.show.remotes, head.oid, ...[...refs.filter((r) => kinds.has(r.kind)).map((r) => r.target), ...detached].sort()].join(' ');
@@ -75,16 +81,17 @@ function fixSelection() {
 //    kept as is, and only missing details are fetched.
 const PREVIEW = 1000;
 let loadSeq = 0;
-let previewAhead = null;
+let previewAhead: Promise<Preview | null> | null = null;
 
 const logOpts = () => ({ remotes: state.show.remotes, tags: state.show.tags });
+type LogOpts = ReturnType<typeof logOpts>;
 
 // The newest commits in plain date order, with details: shown before the ordered log arrives.
-async function readPreview(opts) {
-  const preview = createHistory();
+async function readPreview(opts: LogOpts): Promise<Preview | null> {
+  const preview: Preview = createHistory();
   preview.repo = state.repo;
   const { id } = await git('logOpen', { ...opts, kind: 'full', preview: true, limit: PREVIEW });
-  for (let text; (text = await git('logRead', id)) !== null;) {
+  for (let text: string | null | false; (text = await git('logRead', id)) !== null;) {
     if (text === false) return null; // closed: another repository was opened
     preview.add(parseLog(text, 'full'));
   }
@@ -92,7 +99,7 @@ async function readPreview(opts) {
   return preview;
 }
 
-function setHistory(hist) {
+function setHistory(hist: History) {
   state.hist = hist;
   state.commits = hist.commits;
   state.index = hist.index;
@@ -100,11 +107,11 @@ function setHistory(hist) {
   markLoading();
 }
 
-function markLoading(details) {
+function markLoading(details?: string) {
   const ds = document.documentElement.dataset;
   ds.history = state.hist.complete ? 'ready' : 'loading';
   if (details) ds.details = details;
-  ds.commits = state.commits.length;
+  ds.commits = String(state.commits.length);
   const note = $('#history-note');
   if (note) note.textContent = state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`;
 }
@@ -113,7 +120,7 @@ function markLoading(details) {
 // load starts. Resolves true if the stream was read to the end. Main answers false for a stream
 // it has closed (the repository was replaced or closed): that is not the end of the log, so the
 // history is left incomplete and reloads on the next refresh.
-async function readLog(opts, seq, fn) {
+async function readLog(opts: LogOpts & { kind: string }, seq: number, fn: (text: string) => void) {
   const { id } = await git('logOpen', opts);
   let done = false;
   try {
@@ -138,16 +145,16 @@ function loadHistory() {
   const opts = logOpts();
   const fresh = !state.hist.complete;
   const head = state.head.oid;
-  let shown;
-  const firstScreen = new Promise((r) => { shown = r; });
+  let shown: (value: void) => void = () => {};
+  const firstScreen = new Promise<void>((r) => { shown = r; });
   let live = false; // is the history being built already on screen?
-  let target = null;
+  let target: History | null = null;
 
   const grew = () => {
     markLoading();
     if (state.view === 'map') mapView?.grow();
   };
-  const show = (hist) => {
+  const show = (hist: History) => {
     live = hist === target;
     setHistory(hist);
     fixSelection();
@@ -169,22 +176,23 @@ function loadHistory() {
       if (preview.length < PREVIEW) preview.complete = true; // that was all of it, though maybe unordered
       show(preview);
       // The ordered history, with the preview's details carried over.
-      target = createHistory(head);
-      for (const c of preview.commits) target.seed(c);
+      const t = createHistory(head);
+      target = t;
+      for (const c of preview.commits) t.seed(c);
       // Rows without details stay placeholders until fetched on demand, so a failure here only
       // leaves the loading marker up; it must not surface as an unhandled rejection.
       const details = readLog({ ...opts, kind: 'details' }, seq, (text) => {
-        if (target.fill(text) && live) mapView?.refreshPending();
+        if (t.fill(text) && live) mapView?.refreshPending();
       }).catch(() => false);
       markLoading('loading');
       const ok = await readLog({ ...opts, kind: 'topo' }, seq, (text) => {
-        target.add(parseLog(text, 'topo'));
+        t.add(parseLog(text, 'topo'));
         if (live) grew();
-        else if (target.length >= needed()) show(target);
+        else if (t.length >= needed()) show(t);
       });
       if (!ok || seq !== loadSeq) return;
-      target.complete = true;
-      show(target);
+      t.complete = true;
+      show(t);
       if (await details && seq === loadSeq) markLoading('ready');
       return;
     }
@@ -208,7 +216,7 @@ function loadHistory() {
     for (;;) {
       const missing = hist.missingDetails(from, 2000);
       if (!missing.length || seq !== loadSeq) break;
-      from = hist.index.get(missing[missing.length - 1]) + 1;
+      from = hist.index.get(missing[missing.length - 1]!)! + 1; // missingDetails lists indexed commits
       if (hist.fill(await git('logDetails', missing))) mapView?.refreshPending();
     }
     if (seq === loadSeq) markLoading('ready');
@@ -218,9 +226,9 @@ function loadHistory() {
 }
 
 // Details for rows on screen that the streams have not reached yet (e.g. after jumping to the end).
-const wanted = new Set();
+const wanted = new Set<string>();
 let wantTimer = 0;
-function wantDetails(sha) {
+function wantDetails(sha: string) {
   if (wanted.has(sha)) return;
   wanted.add(sha);
   if (!wantTimer) wantTimer = setTimeout(fetchWanted, 40);
@@ -286,7 +294,7 @@ async function refreshLfs() {
   const root = state.repo?.root;
   const lfs = await git('lfs').catch(() => null);
   if (!state.repo || state.repo.root !== root) return;
-  const warn = (l) => !!(l?.used && !l.installed);
+  const warn = (l: LfsInfo | null) => !!(l?.used && !l.installed);
   const changed = warn(lfs) !== warn(state.lfs);
   state.lfs = lfs;
   if (changed) up.renderBanner();
@@ -297,8 +305,8 @@ async function refreshAll() {
 }
 
 function indexRefs() {
-  const by = new Map();
-  const push = (sha, r) => { if (!by.has(sha)) by.set(sha, []); by.get(sha).push(r); };
+  const by = new Map<string, PillRef[]>();
+  const push = (sha: string, r: PillRef) => { let list = by.get(sha); if (!list) { list = []; by.set(sha, list); } list.push(r); };
   const local = new Map(state.refs.filter((r) => r.kind === 'branch').map((r) => [r.short, r]));
   for (const r of state.refs) {
     if (r.kind === 'remote') {
@@ -316,15 +324,15 @@ function indexRefs() {
   state.byRef = by;
   up.indexPrs();
 }
-const rank = (r) => (r.kind === 'head' ? 0 : r.kind === 'branch' ? (r.short === state.head.branch ? 0 : 1) : r.kind === 'worktree' ? 1 : r.kind === 'remote' ? 2 : 3);
+const rank = (r: PillRef) => (r.kind === 'head' ? 0 : r.kind === 'branch' ? (r.short === state.head.branch ? 0 : 1) : r.kind === 'worktree' ? 1 : r.kind === 'remote' ? 2 : 3);
 
 // The other worktree that has `branch` checked out, if any.
-const worktreeOf = (branch) => state.worktrees.find((w) => !w.current && w.branch === branch);
+const worktreeOf = (branch: string | null) => state.worktrees.find((w) => !w.current && w.branch === branch);
 
-function refPill(r) {
+function refPill(r: PillRef) {
   const isHead = r.kind === 'branch' && r.short === state.head.branch;
   const synced = r.kind === 'branch' && r.upstream && state.refs.some((x) => x.kind === 'remote' && x.short === r.upstream && x.target === r.target);
-  const wt = r.kind === 'branch' && !isHead ? worktreeOf(r.short) : r.worktree;
+  const wt = r.kind === 'branch' && !isHead ? worktreeOf(r.short) : r.kind === 'worktree' ? r.worktree : undefined;
   const title = r.kind === 'worktree' ? `Worktree ${r.short} (detached HEAD)` : r.kind === 'branch' && r.upstream ? `${r.short} → ${r.upstream}` : r.short;
   return h('span.pill.' + r.kind + (isHead ? '.head' : '') + (wt ? '.in-worktree' : ''), { title: wt && r.kind === 'branch' ? `${title} · checked out in worktree ${wt.name}` : title },
     icon(r.kind === 'tag' ? 'tag' : r.kind === 'remote' ? 'cloud' : r.kind === 'head' ? 'checkout' : r.kind === 'worktree' ? 'worktree' : 'branch', 12),

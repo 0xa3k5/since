@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Identity, RestorePreview, Stash } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RestorePreview, Stash, Submodule, WorkStatus, Worktree } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -60,6 +60,22 @@ export interface GitResults {
   /** What would conflict merging the second commit into the first (git merge-tree, read-only). */
   mergeConflicts: ConflictReview;
   fileHistory: FileHistoryPage;
+  refs: Refs;
+  opInfo: OperationInfo | null;
+  status: WorkStatus;
+  /** The undo and redo lists, newest last, up to the limit asked for. */
+  history: JournalList;
+  /** `elsewhere`: open in another Since window. */
+  worktrees: (Worktree & { elsewhere: boolean })[];
+  submodules: Submodule[];
+  reflog: ReflogEntry[];
+  config: ConfigEntry[];
+  lfs: LfsInfo;
+  /** A log stream: open it, read chunks until null (the end) or false (closed: another repository opened). */
+  logOpen: { id: number; fast: boolean };
+  logRead: string | null | false;
+  /** The subject and author lines of these commits, in the log's text format. */
+  logDetails: string;
   /** One commit's header and message. */
   commit: CommitDetails;
   /** The configured user, who made this clone's commits, and the remote URLs. */

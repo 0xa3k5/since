@@ -4,7 +4,7 @@ import { loadPref, state, savePref } from '../lib/app-helpers.ts';
 import { git } from '../lib/bridge.ts';
 import type { IdentityRule } from './identity.ts';
 import type { Identity } from '../../shared/git-types.ts';
-import { refreshAux } from '../graph/load.js';
+import { refreshAux } from '../graph/load.ts';
 
 // Commit identity: warn before committing as someone this repo doesn't usually commit as, or
 // as anyone but the email a user rule assigns to its remotes. Rules and per-repo dismissals are
