@@ -15,12 +15,47 @@
 //
 // AK-556: a stack row is tagged Chain or GitHub stack. In Pick, a chain that can be linked offers
 // Make it a GitHub stack (S on the row, stack-link-view.js); one that can't says why.
-import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from '../lib/ui.ts';
+import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet, type Child } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, cleanTitle } from './merge-plan.ts';
 import { buildPrompt } from './send-back.ts';
 import { openStackLink } from './stack-link-view.ts';
 import { stackTitle } from '../review/review-rows.ts';
+import type { Blocker, Key, PlanResult, Snap, StackInfo } from './merge-plan.ts';
+import type { AppChannel } from '../../shared/channels.ts';
+import type { IpcResult, SinceBridge } from '../../shared/ipc-contract.ts';
+
+/** An inbox PR as the sheet reads it. */
+type InboxPr = { number: number; title?: string; head?: string | null; branch?: string; url?: string | null };
+/** A stack in the plan: whether it merges as one, what holds it back, and how far it merges when it conflicts part way. */
+interface ViewStack extends StackInfo {
+  linear?: boolean; native?: boolean;
+  blocker?: { number: number; reason: string } | null;
+  partial?: { at: number; upTo?: number | null; files: string[] } | null;
+}
+/** app:merge-plan's result (handlers/prs.ts): the order and what's in the way, plus what the merges check against. */
+interface ViewPlan extends PlanResult {
+  baseSha: string | null; snapshots: Record<number, Snap>;
+  methods?: { allowed: readonly string[]; default: string | null; saved: string | null };
+  stacks?: ViewStack[]; skipped: { number: number; reason: string }[];
+  blockers?: Record<number, Blocker[]>; defaultBranch?: string | null;
+}
+interface MergeOut { stop?: string; commit?: string; cleaned?: { worktrees: number; branches: number; skipped: { name: string; message: string }[]; error?: string } }
+/** A PR or stack that can't merge yet, with the blockers that decide its group. */
+interface NeedEntry { key: Key; prs: number[]; blockers: Blocker[]; picked?: boolean; via?: number | null; hits?: number; why: string }
+type Group = { id: string; entries: NeedEntry[] };
+type Action = { id: string; label: string; run(): unknown; primary?: boolean };
+type Phase = 'planning' | 'planned' | 'merging' | 'stopped' | 'done' | 'failed';
+type Res<T> = IpcResult<T> | { ok?: undefined; error: { message: string; code?: string | number | null } };
+// The merge plan's channels aren't in the contract's AppResults: their shapes are the main process's (handlers/prs.ts).
+const ask = <T = unknown>(p: Promise<unknown>): Promise<Res<T>> => (p as Promise<IpcResult<T>>).catch((e: Error) => ({ error: { message: e.message } }));
+export interface MergePlanOptions {
+  ready: InboxPr[]; others?: InboxPr[]; held?: { number: number; why: string }[]; known?: InboxPr[];
+  base: string; remote: string; method?: string | null; anyway?: boolean;
+  targets?: { name: string; ready: number; open: number }[]; chosen?: boolean;
+  onTarget?: ((name: string, opts?: { save?: boolean }) => void) | null;
+  call: SinceBridge['app']; onSendBack?(n: number): void; onUndo?(): unknown; onDone?(): void;
+}
 
 // ready / others: inbox PRs ({ number, title, head }) in Review's order; known: every inbox PR
 // (titles and links for a stack's upper PRs); base: the base branch; remote: the PRs' remote name;
@@ -29,51 +64,52 @@ import { stackTitle } from '../review/review-rows.ts';
 // onSendBack(number) opens that PR's Send back sheet; onUndo() undoes the clean up; onDone()
 // refreshes Review once anything merged.
 let open = false;
-export function openMergePlan({ ready, others = [], held = [], known = [], base, remote, method: asked = null, anyway: startAnyway = true, targets = [], chosen = true, onTarget = null, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }) {
+export function openMergePlan({ ready, others = [], held = [], known = [], base, remote, method: asked = null, targets = [], chosen = true, onTarget = null, call, onSendBack = () => {}, onUndo = () => {}, onDone = () => {} }: MergePlanOptions): void {
   if (open) return;
   open = true;
   const prsBy = new Map([...known, ...ready, ...others].map((p) => [p.number, p]));
-  const titleOf = (n) => prsBy.get(n)?.title || '';
+  const titleOf = (n: number) => prsBy.get(n)?.title || '';
   const othersArg = others.filter((p) => p.head).map((p) => ({ number: p.number, head: p.head }));
-  let plan = null;
-  let phase = 'planning'; // planning | planned | merging | stopped | done | failed
+  let plan: ViewPlan | null = null;
+  let phase: Phase = 'planning';
   let stopReason = '';
   let merged = 0;
-  const status = new Map(); // unit key (PR number or stack id) → { text, kind }
+  const status = new Map<Key, { text: string; kind: string }>(); // unit key (PR number or stack id)
   let left = ready.map((p) => p.number);
   let method = asked || 'squash';
-  let methods = null; // { allowed, default, saved } from the first plan
-  const tried = new Set();
-  let picked = null; // unit keys ticked; null until the first plan: everything
-  const notReady = new Map(); // number → why GitHub won't merge it now
-  const stacks = new Map(); // id → { id, prs, linear, blocker, native }
-  const chains = new Map(); // id → { native, linkable, why } from app:pr-chains (AK-556)
+  let methods: ViewPlan['methods'] | null = null; // from the first plan
+  const tried = new Set<string>();
+  let picked: Set<Key> | null = null; // unit keys ticked; null until the first plan: everything
+  const notReady = new Map<number, string>(); // number → why GitHub won't merge it now
+  const stacks = new Map<string, ViewStack>();
+  const stackOf = (k: Key | null | undefined) => (typeof k === 'string' ? stacks.get(k) : undefined);
+  const chains = new Map<string, { id: string; native?: boolean; linkable?: boolean; why?: string | null }>(); // from app:pr-chains (AK-556)
   let extension = false; // GitHub CLI's stack extension is installed
-  const expanded = new Set();
-  let focusKey = null;
+  const expanded = new Set<Key>();
+  let focusKey: Key | null = null;
   let cleanup = false;
   // GitHub's own rules (AK): checks the base doesn't require hold nothing back. Merge lists them, with "Hold them back".
   let anyway = true; // Review passes anyway: false by default; GitHub's own rules win. ⌘K "merge anyway" is the same.
-  const blockersBy = new Map(); // number → the plan's blockers for it (AK-550)
-  let groups = []; // the last render's "Needs something first" groups
+  const blockersBy = new Map<number, Blocker[]>(); // number → the plan's blockers for it (AK-550)
+  let groups: Group[] = []; // the last render's "Needs something first" groups
   let fixing = false;
-  const cleaned = { worktrees: 0, branches: 0, steps: 0, skipped: [], errors: [], undone: false }; // steps: journal entries
+  const cleaned = { worktrees: 0, branches: 0, steps: 0, skipped: [] as { name: string; message: string }[], errors: [] as string[], undone: false }; // steps: journal entries
 
   // AK-549 v2: three steps. Pick what to merge (what's ready starts ticked), Fix what's in the way
   // (one card per ticked PR or stack that can't merge yet), Merge in order. The stepper is the only
   // way between steps; the footer's step button is secondary until the last step.
   let step = 1;
-  const wanted = new Set(); // PRs and stacks that can't merge yet, ticked in Pick: they get a card in Fix
+  const wanted = new Set<Key>(); // PRs and stacks that can't merge yet, ticked in Pick: they get a card in Fix
   const body = h('div.dialog-body.mergeplan');
   const stepper = h('nav.mergeplan-stepper', { 'aria-label': 'Merge plan steps' });
   const primary = h('button.btn.primary', { type: 'submit' });
-  const caret = h('button.btn.primary.mergeplan-caret', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Choose the merge method', 'data-tip': tipFor('Merge method', 'mergePlan.methods'), onclick: () => methodMenu() }, icon('chevronDown', 12));
+  const caret: HTMLButtonElement = h('button.btn.primary.mergeplan-caret', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Choose the merge method', 'data-tip': tipFor('Merge method', 'mergePlan.methods'), onclick: () => methodMenu() }, icon('chevronDown', 12));
   const split = h('span.mergeplan-split', null, primary, caret);
   const onward = h('button.btn', { type: 'button', onclick: () => goStep(step + 1) });
-  const cancel = h('button.btn.ghost', { type: 'button', onclick: () => close() }, 'Cancel', kbd(...keymap.keys('dialog.cancel')));
+  const cancel = h('button.btn.ghost', { type: 'button', onclick: () => close() }, 'Cancel', kbd(...(keymap.keys('dialog.cancel') ?? [])));
   // The branch it merges into (AK-541, option A): any landing branch with open PRs. Switching opens
   // the plan again for that branch; the choice is remembered per repo.
-  const targetBtn = h('button.mergeplan-target', { type: 'button', 'aria-haspopup': 'menu', 'data-tip': tipFor('Merge into', 'mergePlan.target'), onclick: () => targetMenu() }, base, targets.length > 1 ? icon('chevronDown', 12) : null);
+  const targetBtn: HTMLElement = h('button.mergeplan-target', { type: 'button', 'aria-haspopup': 'menu', 'data-tip': tipFor('Merge into', 'mergePlan.target'), onclick: () => targetMenu() }, base, targets.length > 1 ? icon('chevronDown', 12) : null);
   function targetMenu() {
     if (!onTarget || targets.length < 2 || phase === 'merging') return;
     const r = targetBtn.getBoundingClientRect();
@@ -89,59 +125,60 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     body,
     h('div.dialog-foot', null, cancel, h('span.spacer'), onward, split));
 
-  const prev = document.activeElement;
-  const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, form);
+  const prev = document.activeElement as HTMLElement | null;
+  const overlay: HTMLElement = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, form);
   overlay.addEventListener('keydown', onKey);
   document.body.append(overlay);
   requestAnimationFrame(() => overlay.classList.add('in'));
 
   // Units: a ready PR's number, or a stack's id. Stack PRs never plan on their own.
-  const memberOf = (n) => [...stacks.values()].find((st) => st.prs.includes(n));
-  const stackOk = (st) => st.linear && !st.blocker;
-  const fileNames = (fs = []) => (fs.length <= 3 ? fs.join(', ') : `${fs.slice(0, 3).join(', ')} and ${fs.length - 3} more`);
-  const partialText = (k) => {
-    const pt = stacks.get(k)?.partial;
-    if (!pt) return null;
-    const files = pt.files.map((f) => f.split('/').pop());
-    const prs = stacks.get(k).prs;
+  const memberOf = (n: number) => [...stacks.values()].find((st) => st.prs.includes(n));
+  const stackOk = (st: ViewStack) => Boolean(st.linear && !st.blocker);
+  const fileNames = (fs: readonly string[] = []) => (fs.length <= 3 ? fs.join(', ') : `${fs.slice(0, 3).join(', ')} and ${fs.length - 3} more`);
+  const partialText = (k: Key) => {
+    const st = stackOf(k);
+    const pt = st?.partial;
+    if (!st || !pt) return null;
+    const files = pt.files.map((f) => f.split('/').pop() ?? f);
+    const prs = st.prs;
     return pt.upTo ? `Merges ${rangeLabel(prs.slice(0, prs.indexOf(pt.upTo) + 1))}. #${pt.at} conflicts with ${base} in ${fileNames(files)}` : `#${pt.at} conflicts with ${base} in ${fileNames(files)}`;
   };
   const singles = () => left.filter((n) => !memberOf(n) && !notReady.has(n));
   const pickable = () => [...singles(), ...[...stacks.values()].filter(stackOk).map((st) => st.id)];
-  const isPicked = (k) => picked === null || picked.has(k);
+  const isPicked = (k: Key) => picked === null || picked.has(k);
   const running = () => phase === 'merging' || phase === 'done' || (phase === 'stopped' && merged > 0);
   const editable = () => phase === 'planned' || phase === 'planning' || phase === 'failed' || (phase === 'stopped' && !merged);
 
-  const label = (n, clean = false) => h('span.mergeplan-pr', null, h('b', null, `#${n}`), ` ${clean ? cleanTitle(titleOf(n)) : titleOf(n)}`);
-  const isNative = (st) => Boolean(st.native || chains.get(st.id)?.native);
-  const stackLabel = (st) => h('span.mergeplan-pr', null, h('span.mergeplan-kind' + (isNative(st) ? '.native' : ''), null, isNative(st) ? 'GitHub stack' : 'Chain'), ' ', h('b', null, stackLabelName(st)), ' ',
+  const label = (n: number, clean = false) => h('span.mergeplan-pr', null, h('b', null, `#${n}`), ` ${clean ? cleanTitle(titleOf(n)) : titleOf(n)}`);
+  const isNative = (st: ViewStack) => Boolean(st.native || chains.get(st.id)?.native);
+  const stackLabel = (st: ViewStack) => h('span.mergeplan-pr', null, h('span.mergeplan-kind' + (isNative(st) ? '.native' : ''), null, isNative(st) ? 'GitHub stack' : 'Chain'), ' ', h('b', null, stackLabelName(st)), ' ',
     h('span.mergeplan-tag', null, `${st.prs.length} PRs`), /^Stack #/.test(stackLabelName(st)) ? null : h('span.mergeplan-range', null, ` #${st.prs[0]} → #${st.prs[st.prs.length - 1]}`));
   // The stack's name, the same as Review's stack head (AK-611): the shared title, else "Stack #4 → #6".
-  function stackLabelName(st) { return stackTitle(st.prs.map((n) => ({ number: n, title: titleOf(n) }))); }
-  const sendBackLink = (n) => h('button.btn.ghost.small', { type: 'button', title: `Open #${n}’s fix prompt`, onclick: () => { close(); onSendBack(n); } }, 'Fix prompt');
-  const stText = (text, kind) => h('span.mergeplan-status' + (kind ? `.${kind}` : ''), null, kind === 'busy' ? icon('fetch', 11) : kind === 'ok' ? icon('check', 11) : null, text);
-  const own = (n) => ownBlockers(blockersBy.get(n) || []);
-  const prStatus = (n) => { const b = mainBlocker(own(n)); return b ? stText(blockerText(b, [...stacks.values()]).replace(/\.$/, ''), 'warn') : stText('', 'ok'); };
+  function stackLabelName(st: ViewStack) { return stackTitle(st.prs.map((n) => ({ number: n, title: titleOf(n) }))); }
+  const sendBackLink = (n: number) => h('button.btn.ghost.small', { type: 'button', title: `Open #${n}’s fix prompt`, onclick: () => { close(); onSendBack(n); } }, 'Fix prompt');
+  const stText = (text: string, kind?: string | null) => h('span.mergeplan-status' + (kind ? `.${kind}` : ''), null, kind === 'busy' ? icon('fetch', 11) : kind === 'ok' ? icon('check', 11) : null, text);
+  const own = (n: number) => ownBlockers(blockersBy.get(n) || []);
+  const prStatus = (n: number) => { const b = mainBlocker(own(n)); return b ? stText(blockerText(b, [...stacks.values()]).replace(/\.$/, ''), 'warn') : stText('', 'ok'); };
 
   // Every PR and stack in Review's order; a stack's PRs are one unit.
-  function allKeys() {
-    const out = [];
+  function allKeys(): Key[] {
+    const out: Key[] = [];
     for (const n of left) { const k = memberOf(n)?.id ?? n; if (!out.includes(k)) out.push(k); }
     return out;
   }
-  const isReady = (k) => pickable().includes(k);
-  const ticked = (k) => (isReady(k) ? isPicked(k) : wanted.has(k));
-  const prCount = (keys) => keys.reduce((s, k) => s + (stacks.get(k)?.prs.length || 1), 0);
+  const isReady = (k: Key) => pickable().includes(k);
+  const ticked = (k: Key) => (isReady(k) ? isPicked(k) : wanted.has(k));
+  const prCount = (keys: Key[]) => keys.reduce<number>((s, k) => s + (stackOf(k)?.prs.length || 1), 0);
 
   // One row: a tick box (never disabled: a PR that can't merge yet goes to Fix), its place in the
   // order (Merge only), a chevron for a stack, the PR or stack with why it waits below it, then its
   // status. Rows are one tab stop: ↑↓ move, Space ticks.
-  function unitRow({ key, n = null, box = true, status: st = null, extra = null, why = null, note = null }) {
-    const st0 = typeof key === 'string' ? stacks.get(key) : null;
+  function unitRow({ key, n = null, box = true, status: st = null, extra = null, why = null, note = null }: { key: Key; n?: number | null; box?: boolean; status?: Child; extra?: Child; why?: string | null; note?: string | null }): HTMLElement[] {
+    const st0 = stackOf(key);
     const on = ticked(key);
     const cb = box && editable() ? h('input', { type: 'checkbox', tabIndex: -1, checked: on, 'aria-hidden': 'true', onclick: (e) => { e.preventDefault(); toggle(key); } }) : null;
     const chev = st0 ? h('button.mergeplan-chev' + (expanded.has(key) ? '.open' : ''), { type: 'button', tabIndex: -1, 'aria-label': expanded.has(key) ? 'Hide the stack’s pull requests' : 'Show the stack’s pull requests', onclick: () => expand(key, !expanded.has(key)) }, icon('chevronDown', 12)) : null;
-    const main = h('span.mergeplan-main', null, st0 ? stackLabel(st0) : label(key), why ? h('span.mergeplan-why', null, why) : null, note ? h('span.mergeplan-why', null, note) : null);
+    const main = h('span.mergeplan-main', null, st0 ? stackLabel(st0) : label(key as number), why ? h('span.mergeplan-why', null, why) : null, note ? h('span.mergeplan-why', null, note) : null);
     const row = h('div.mergeplan-row.mergeplan-unit' + (why ? '.has-why' : '') + (box && !on ? '.off' : ''), {
       tabIndex: key === focusKey ? 0 : -1, 'data-key': String(key), role: 'option', 'aria-selected': String(on),
       'aria-expanded': st0 ? String(expanded.has(key)) : undefined, onfocus: () => { focusKey = key; },
@@ -152,19 +189,19 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
 
   // ── Needs something first (AK-549) ──
   // Entries: PRs and stacks that can't merge yet, with the blockers that decide their group.
-  function needEntries() {
-    const out = [];
+  function needEntries(): NeedEntry[] {
+    const out: NeedEntry[] = [];
     const sts = [...stacks.values()];
-    for (const b of plan.blocked) {
-      const blockers = [{ kind: 'conflicts-pr', required: true, with: b.with, files: b.files }];
-      out.push({ key: b.stack ?? b.number, prs: b.stack ? stacks.get(b.stack)?.prs || [] : [b.number], blockers, picked: true,
-        why: b.with != null ? `${blockerText(blockers[0], sts)}. Merge ${unitLabel(b.with, sts)} first, then rebase` : `Conflicts in ${blockers[0].files?.length ? blockers[0].files.slice(0, 2).join(', ') : 'some files'} once the PRs above merge` });
+    for (const b of plan?.blocked ?? []) {
+      const bl: Blocker = { kind: 'conflicts-pr', required: true, with: b.with, files: b.files };
+      out.push({ key: b.stack ?? b.number ?? 0, prs: b.stack ? stacks.get(b.stack)?.prs || [] : [b.number ?? 0], blockers: [bl], picked: true,
+        why: b.with != null ? `${blockerText(bl, sts)}. Merge ${unitLabel(b.with, sts)} first, then rebase` : `Conflicts in ${bl.files?.length ? bl.files.slice(0, 2).join(', ') : 'some files'} once the PRs above merge` });
     }
     for (const st of sts) {
       if (stackOk(st)) continue;
       const by = st.blocker ? own(st.blocker.number) : [];
-      const blockers = st.blocker ? (by.length ? by : [{ kind: 'other', required: true, detail: st.blocker.reason }]) : [{ kind: 'rebase', required: true, detail: 'It has merge commits. GitHub merges a stack only after it’s rebased' }];
-      const kind = mainBlocker(blockers).kind;
+      const blockers: Blocker[] = st.blocker ? (by.length ? by : [{ kind: 'other', required: true, detail: st.blocker.reason }]) : [{ kind: 'rebase', required: true, detail: 'It has merge commits. GitHub merges a stack only after it’s rebased' }];
+      const kind = mainBlocker(blockers)?.kind;
       const text = blockerText(mainBlocker(blockers), sts).replace(/\.$/, '');
       const hits = st.prs.filter((x) => own(x).some((b) => b.kind === kind)).length || 1;
       // The PR that blocks the stack, in place; when it's every PR in the stack, just say so.
@@ -174,24 +211,24 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     for (const n of left) {
       if (!notReady.has(n) || memberOf(n)) continue;
       const by = own(n);
-      const blockers = by.length ? by : [{ kind: 'other', required: true, detail: notReady.get(n) }];
+      const blockers: Blocker[] = by.length ? by : [{ kind: 'other', required: true, detail: notReady.get(n) }];
       out.push({ key: n, prs: [n], blockers, why: blockers.map((b) => blockerText(b, sts).replace(/\.$/, '')).join(' · ') });
     }
     return out;
   }
-  const prsWith = (es, test) => es.flatMap((e) => e.prs.filter((x) => own(x).some(test)));
+  const prsWith = (es: NeedEntry[], test: (b: Blocker) => boolean | undefined) => es.flatMap((e) => e.prs.filter((x) => own(x).some(test)));
   // Merge anyway takes a PR (or a whole stack) only when nothing GitHub requires is in the way.
-  const canAnyway = (e) => !e.picked && e.prs.every((x) => !own(x).length || anywayOnly(own(x))) && e.prs.some((x) => own(x).length);
-  const whoOf = (g) => {
+  const canAnyway = (e: NeedEntry) => !e.picked && e.prs.every((x) => !own(x).length || anywayOnly(own(x))) && e.prs.some((x) => own(x).length);
+  const whoOf = (g: Group) => {
     if (g.id === 'check-failed') return g.entries.every((e) => e.blockers.filter((b) => b.kind === 'check-failed').every((b) => !b.required)) ? 'Not required' : 'Needs a fix';
     if (g.id === 'check-running') return 'Waiting on CI';
     if (g.id === 'draft') return 'You';
     if (g.id === 'review') return prsWith(g.entries, (b) => b.kind === 'needs-review' && b.canApprove).length ? 'You' : 'Needs a reviewer';
     return 'Needs a fix';
   };
-  const TITLES = { 'check-failed': 'A check failed', 'check-running': 'Checks still running', conflicts: 'Conflicts', review: 'Needs a review', draft: 'Draft', behind: `Behind ${base}`, other: 'Can’t merge yet' };
-  const names = (list, max = 3) => (list.length <= max ? list.join(', ') : `${list.slice(0, max).join(', ')} and ${list.length - max} more`);
-  function explain(g) {
+  const TITLES: Record<string, string> = { 'check-failed': 'A check failed', 'check-running': 'Checks still running', conflicts: 'Conflicts', review: 'Needs a review', draft: 'Draft', behind: `Behind ${base}`, other: 'Can’t merge yet' };
+  const names = (list: string[], max = 3) => (list.length <= max ? list.join(', ') : `${list.slice(0, max).join(', ')} and ${list.length - max} more`);
+  function explain(g: Group) {
     const n = g.entries.length;
     if (g.id === 'check-failed' || g.id === 'check-running') {
       const checks = groupChecks(g.entries, g.id);
@@ -215,20 +252,22 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   }
 
   // A group's fixes, each with its sheet key: [{ id, label, run, primary }].
-  function actionsOf(g) {
+  function actionsOf(g: Group): Action[] {
     const es = g.entries;
-    const acts = [];
+    const acts: Action[] = [];
+    const first0 = es[0];
     if (g.id === 'check-failed') {
-      const failed = (x) => own(x).find((b) => b.kind === 'check-failed');
+      const failed = (x: number) => own(x).find((b) => b.kind === 'check-failed');
       const first = es.flatMap((e) => (e.via ? [e.via, ...e.prs] : e.prs)).find((x) => failed(x));
-      const url = first && (failed(first).checks.find((c) => c.url)?.url || (prsBy.get(first)?.url && `${prsBy.get(first).url}/checks`));
-      acts.push({ id: 'mergePlan.viewFailure', label: es.length === 1 && es[0].via && es[0].hits === 1 ? `View #${es[0].via}’s failure` : 'View failure', run: () => (url ? call('external', url) : toast('GitHub didn’t link the failure')) });
+      const prUrl = first ? prsBy.get(first)?.url : null;
+      const url = first && (failed(first)?.checks?.find((c) => c.url)?.url || (prUrl && `${prUrl}/checks`));
+      acts.push({ id: 'mergePlan.viewFailure', label: es.length === 1 && first0?.via && first0.hits === 1 ? `View #${first0.via}’s failure` : 'View failure', run: () => (url ? call('external', url) : toast('GitHub didn’t link the failure')) });
       const re = prsWith(es, (b) => b.kind === 'check-failed' && b.rerun);
       if (re.length) acts.push({ id: 'mergePlan.rerun', label: 'Re-run', run: () => rerun(re) });
     }
-    if ((g.id === 'check-failed' || g.id === 'check-running') && es.some(canAnyway)) acts.push({ id: 'mergePlan.anyway', label: 'Merge anyway', primary: !plan.order.length, run: () => { anyway = true; replan(); } });
+    if ((g.id === 'check-failed' || g.id === 'check-running') && es.some(canAnyway)) acts.push({ id: 'mergePlan.anyway', label: 'Merge anyway', primary: !plan?.order.length, run: () => { anyway = true; replan(); } });
     if (g.id === 'conflicts' || g.id === 'behind') {
-      const prs = es.filter((en) => typeof en.key === 'number').map((en) => en.key);
+      const prs = es.flatMap((en) => (typeof en.key === 'number' ? [en.key] : []));
       if (prs.length) acts.push({ id: 'mergePlan.copyPrompts', label: prs.length === 1 ? 'Copy fix prompt' : `Copy fix prompts for ${prs.length}`, primary: true, run: () => copyPrompts(prs, g.id) });
     }
     if (g.id === 'draft') {
@@ -244,47 +283,47 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
 
   // Fix: one card per ticked PR or stack that can't merge yet, each with its own fixes.
   const fixEntries = () => groups.flatMap((g) => g.entries.map((e) => ({ g, e }))).filter(({ e }) => e.picked || wanted.has(e.key));
-  const groupOf = (k) => groups.find((g) => g.entries.some((en) => en.key === k));
-  function card({ g, e }) {
-    const one = { id: g.id, entries: [e] };
+  const groupOf = (k: Key) => groups.find((g) => g.entries.some((en) => en.key === k));
+  function card({ g, e }: { g: Group; e: NeedEntry }) {
+    const one: Group = { id: g.id, entries: [e] };
     const who = whoOf(one);
     const busy = fixing || phase === 'planning';
-    const acts = actionsOf(one).map((a) => h('button.btn.small' + (a.primary ? '.primary' : '.ghost'), { type: 'button', disabled: busy, 'data-tip': tipFor(a.label, a.id), onclick: () => a.run() }, a.label, kbd(...keymap.keys(a.id))));
+    const acts = actionsOf(one).map((a) => h('button.btn.small' + (a.primary ? '.primary' : '.ghost'), { type: 'button', disabled: busy, 'data-tip': tipFor(a.label, a.id), onclick: () => a.run() }, a.label, kbd(...(keymap.keys(a.id) ?? []))));
     // Two picked PRs that change the same lines: only one merges now. Taking the other unticks this one's rival.
-    const rival = plan.blocked.find((b) => (b.stack ?? b.number) === e.key)?.with;
+    const rival = plan?.blocked.find((b) => (b.stack ?? b.number) === e.key)?.with;
     if (rival != null) acts.unshift(h('button.btn.small.primary', { type: 'button', disabled: busy, onclick: () => instead(e.key, rival) }, `Merge ${unitLabel(e.key, [...stacks.values()])} instead`));
     // GitHub's stack page has the Rebase stack button.
-    const url = e.blockers?.some((b) => b.kind === 'rebase') && prsBy.get(e.prs[0])?.url;
+    const url = e.blockers?.some((b) => b.kind === 'rebase') && prsBy.get(e.prs[0] ?? -1)?.url;
     if (url) acts.unshift(h('button.btn.small.primary', { type: 'button', disabled: busy, onclick: () => call('external', url) }, 'Rebase on GitHub'));
     acts.push(h('button.btn.small.ghost', { type: 'button', disabled: busy, onclick: () => leaveOut(e.key) }, 'Leave it out'));
     const more = ['conflicts', 'other'].includes(g.id) ? '' : explain(one);
     return h('div.mergeplan-card', { 'data-key': `card-${e.key}`, 'data-group': g.id },
-      ...unitRow({ key: e.key, box: false, status: stText(TITLES[g.id], 'warn') }),
+      ...unitRow({ key: e.key, box: false, status: stText(TITLES[g.id] ?? '', 'warn') }),
       h('div.mergeplan-fix', null,
         h('div.mergeplan-fix-t', null, h('span', null, e.why), h('span.mergeplan-who' + (who === 'You' ? '.you' : ''), null, who)),
         more ? h('small', null, more) : null,
         h('div.mergeplan-acts', null, ...acts)));
   }
-  function instead(key, rival) {
+  function instead(key: Key, rival: Key) {
     picked ??= new Set(pickable());
     picked.delete(rival);
     picked.add(key);
     toast(`Unticked ${unitLabel(rival, [...stacks.values()])}`);
     replan();
   }
-  async function leaveOut(key) {
-    await shrink(body.querySelector(`[data-key="card-${key}"]`));
+  async function leaveOut(key: Key) {
+    await shrink(body.querySelector<HTMLElement>(`[data-key="card-${key}"]`));
     if (isReady(key)) { picked ??= new Set(pickable()); picked.delete(key); return replan(); }
     wanted.delete(key);
     render();
   }
-  function pickAll(on) {
+  function pickAll(on: boolean) {
     picked = new Set(on ? pickable() : []);
     wanted.clear();
     if (on) for (const k of allKeys()) if (!isReady(k)) wanted.add(k);
     replan();
   }
-  function goStep(k) {
+  function goStep(k: number) {
     if (k < 1 || k > 3 || k === step || !editable()) return;
     const dir = k > step ? 1 : -1;
     step = k;
@@ -295,17 +334,17 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   // a card that's left out shrinks away, and changing step slides the body. Off with reduced motion.
   const EASE = 'cubic-bezier(.2,.7,.2,1)';
   const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function shrink(el) {
+  function shrink(el: HTMLElement | null): Promise<unknown> {
     if (!el || still()) return Promise.resolve();
     el.style.overflow = 'hidden';
     return el.animate([{ height: `${el.offsetHeight}px`, opacity: 1 }, { height: '0px', opacity: 0, marginTop: '0px', marginBottom: '0px', paddingTop: '0px', paddingBottom: '0px' }], { duration: 180, easing: EASE, fill: 'forwards' }).finished.catch(() => {});
   }
-  function place(rows, slide) {
-    const before = new Map([...body.querySelectorAll('[data-key]')].map((el) => [el.dataset.key, el.getBoundingClientRect().top]));
+  function place(rows: HTMLElement[], slide: number) {
+    const before = new Map([...body.querySelectorAll<HTMLElement>('[data-key]')].map((el) => [el.dataset.key, el.getBoundingClientRect().top]));
     body.replaceChildren(...rows);
     if (still()) return;
     if (slide) { body.animate([{ opacity: 0, transform: `translateX(${slide * 12}px)` }, { opacity: 1, transform: 'none' }], { duration: 180, easing: EASE }); return; }
-    for (const el of body.querySelectorAll('[data-key]')) {
+    for (const el of body.querySelectorAll<HTMLElement>('[data-key]')) {
       const was = before.get(el.dataset.key);
       if (was != null) {
         const dy = was - el.getBoundingClientRect().top;
@@ -317,12 +356,12 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   }
 
   // Fixes on GitHub, one PR at a time; the plan is worked out again afterwards.
-  async function fix(prs, channel, done) {
+  async function fix(prs: number[], channel: AppChannel, done: (k: number) => string) {
     if (fixing) return;
     fixing = true; render();
     let k = 0;
     for (const x of prs) {
-      const res = await call(channel, remote, x, {}).catch((e) => ({ error: { message: e.message } }));
+      const res = await ask(call(channel, remote, x, {}));
       if (res?.error) { toast(`Couldn’t do that on #${x}`, { kind: 'error', detail: res.error.message }); break; }
       k++;
     }
@@ -331,12 +370,12 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     if (k) toast(done(k), { kind: 'success' });
     replan();
   }
-  async function rerun(prs) {
+  async function rerun(prs: number[]) {
     if (fixing) return;
     fixing = true; render();
     let runs = 0;
     for (const x of prs) {
-      const res = await call('pr-rerun-failed', remote, x).catch((e) => ({ error: { message: e.message } }));
+      const res = await ask<{ runs?: unknown[] }>(call('pr-rerun-failed', remote, x));
       if (res?.error) { toast(`Couldn’t re-run #${x}’s checks`, { kind: 'error', detail: res.error.message }); break; }
       runs += res.ok?.runs?.length || 0;
     }
@@ -346,22 +385,22 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     else toast('Nothing to re-run', { detail: 'Only GitHub Actions runs can be re-run from here.' });
     render();
   }
-  async function copyPrompts(prs, id) {
+  async function copyPrompts(prs: number[], id: string) {
     const text = prs.map((x) => {
       const pr = { ...prsBy.get(x), number: x, title: titleOf(x), base, mergeable: false };
       if (id === 'behind') return `PR #${x} "${pr.title}" is behind ${base}, and ${base} requires branches to be up to date. Rebase ${pr.branch || 'it'} onto ${base}, run the tests, then push.`;
       const conflicts = own(x).filter((b) => b.kind === 'conflicts-base' || b.kind === 'conflicts-pr').map((b) => ({ with: b.kind === 'conflicts-pr' && b.with != null ? unitLabel(b.with, [...stacks.values()]) : base, base: b.kind === 'conflicts-base', files: b.files || [] }));
-      const blocked = plan.blocked.find((b) => b.number === x);
-      if (!conflicts.length && blocked) conflicts.push({ with: blocked.with != null ? unitLabel(blocked.with, [...stacks.values()]) : 'the PRs merged before it', files: blocked.files || [] });
+      const blocked = plan?.blocked.find((b) => b.number === x);
+      if (!conflicts.length && blocked) conflicts.push({ with: blocked.with != null ? unitLabel(blocked.with, [...stacks.values()]) : 'the PRs merged before it', base: false, files: blocked.files || [] });
       return buildPrompt({ pr, conflicts }, 'conflict', undefined, { base });
     }).join('\n\n---\n\n');
-    const res = await call('copy', text).catch((e) => ({ error: { message: e.message } }));
+    const res = await ask(call('copy', text));
     if (res?.error) return toast('Couldn’t copy', { kind: 'error', detail: res.error.message });
     toast(prs.length === 1 ? 'Copied the fix prompt' : `Copied ${prs.length} fix prompts`, { kind: 'success' });
   }
 
   const STEPS = ['Pick', 'Fix', 'Merge'];
-  function render({ slide = 0 } = {}) {
+  function render({ slide = 0 }: { slide?: number } = {}) {
     const order = plan?.order || [];
     const sts = [...stacks.values()];
     const nowN = order.reduce((k, st) => k + (st.prs?.length || 1), 0);
@@ -379,7 +418,7 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
         h('span.mergeplan-slabel', null, h('span.mergeplan-dot', null, done && !on ? icon('check', 10) : String(k)), name, count === '' ? null : h('span.mergeplan-scount', null, String(count))));
     }));
 
-    const rows = [];
+    const rows: HTMLElement[] = [];
     if (phase === 'failed') rows.push(h('div.review-reason.mergeplan-wrap', null, stopReason));
     if (!plan) {
       if (phase !== 'failed') rows.push(h('div.mergeplan-empty', null, 'Working out a safe order…'));
@@ -392,10 +431,10 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
       for (const k of keys) {
         const g = groupOf(k);
         const e = g?.entries.find((x) => x.key === k);
-        const st = stacks.get(k);
-        const c = st && !isNative(st) ? chains.get(k) : null;
+        const st = stackOf(k);
+        const c = st && !isNative(st) ? chains.get(st.id) : null;
         const link = c?.linkable && editable() ? h('button.btn.small.mergeplan-link', { type: 'button', tabIndex: -1, 'data-tip': tipFor('Make it a GitHub stack', 'mergePlan.stackLink'), onclick: () => stackLink(k) }, 'Make it a GitHub stack') : null;
-        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || partialText(k), note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id], 'warn') : (stacks.get(k)?.prs || [k]).some((x) => own(x).length) ? stText('Checks failed, not required', 'warn') : stText('Ready', 'ok') })));
+        rows.push(h('div.mergeplan-group', null, ...unitRow({ key: k, why: e?.why || partialText(k), note: c && !c.linkable ? c.why : null, extra: link, status: g ? stText(TITLES[g.id] ?? '', 'warn') : (stackOf(k)?.prs || [k as number]).some((x) => own(x).length) ? stText('Checks failed, not required', 'warn') : stText('Ready', 'ok') })));
       }
     } else if (step === 2) {
       if (!fixes.length) rows.push(h('div.mergeplan-empty', null, 'Nothing to fix.'));
@@ -403,7 +442,7 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     } else {
       if (!order.length && !running()) rows.push(h('div.mergeplan-empty', null, 'Nothing can merge yet.'));
       order.forEach((st, i) => {
-        const key = st.stack ?? st.number;
+        const key = st.stack ?? st.number ?? 0;
         const s = status.get(key);
         rows.push(h('div.mergeplan-group', null, ...unitRow({ key, n: i + 1, box: false, why: partialText(key), status: s ? stText(s.text, s.kind) : stText(statusText(st, sts), 'clean') })));
       });
@@ -416,18 +455,18 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
         if (held.length && order.length) {
           rows.push(h('div.mergeplan-sec', null, h('span.field-label', null, `Stays open · ${held.length}`)));
           for (const x of held) rows.push(h('div.mergeplan-row', null, h('span.mergeplan-main', null, label(x.number), h('span.mergeplan-why', null, x.why))));
-          rows.push(h('div.mergeplan-note', null, `#${held[0].number} moves onto ${base}.`));
+          rows.push(h('div.mergeplan-note', null, `#${held[0]!.number} moves onto ${base}.`));
         }
         if (plan.warnings.length) {
           rows.push(h('div.mergeplan-sec', null, h('span.field-label', null, `Will conflict afterwards · ${plan.warnings.length}`)));
           for (const w of plan.warnings) rows.push(h('div.mergeplan-row.warn', null, h('span.mergeplan-main', null, h('span.mergeplan-pr', null, h('b', null, `#${w.number}`), ` ${titleOf(w.number)}`), h('span.mergeplan-why', null, warningText(w))), sendBackLink(w.number)));
         }
         if (order.length) {
-          const box = h('input', { type: 'checkbox', checked: cleanup, onchange: () => { cleanup = box.checked; } });
+          const box: HTMLInputElement = h('input', { type: 'checkbox', checked: cleanup, onchange: () => { cleanup = box.checked; } });
           rows.push(h('label.mergeplan-opt', null, box, h('span', null, 'Clean up after merging', h('small', null, 'Remove each merged PR’s worktree and local branch. ⌘Z undoes it.'))));
           rows.push(h('div.pr-remote-note', null, `Merges happen on GitHub and can’t be undone. They run one at a time and stop if a PR, its checks or review, or ${base} changes on the way.`));
         }
-      } else rows.push(h('div.mergeplan-fine', null, `${METHOD_NAMES[method]}${cleanup ? ' · cleaning up after each merge' : ''}`));
+      } else rows.push(h('div.mergeplan-fine', null, `${METHOD_NAMES[method] ?? method}${cleanup ? ' · cleaning up after each merge' : ''}`));
       if (phase === 'stopped') rows.push(h('div.review-reason.mergeplan-wrap', null, `Stopped: ${stopReason}.`));
       if (cleaned.worktrees || cleaned.branches) {
         const parts = [cleaned.worktrees && plural(cleaned.worktrees, 'worktree'), cleaned.branches && plural(cleaned.branches, 'branch')].filter(Boolean).join(' and ');
@@ -449,7 +488,7 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     split.hidden = !last;
     const n = order.length;
     primary.replaceChildren(...(phase === 'stopped' ? [icon('fetch', 12), 'Re-plan'] : phase === 'merging' ? ['Merging…'] : phase === 'done' ? ['Done']
-      : phase === 'failed' ? [icon('fetch', 12), 'Plan again'] : [icon('merge', 12), mergeLabel(method, n)]), kbd(...keymap.keys('mergePlan.merge')));
+      : phase === 'failed' ? [icon('fetch', 12), 'Plan again'] : [icon('merge', 12), mergeLabel(method, n)]), kbd(...(keymap.keys('mergePlan.merge') ?? [])));
     primary.disabled = phase === 'planning' || phase === 'merging' || (phase === 'planned' && !n);
     caret.hidden = !editable() || phase === 'failed';
     caret.disabled = phase === 'planning' || !methods;
@@ -457,18 +496,18 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     cancel.hidden = phase === 'done';
   }
 
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('h') ? 'es' : 's'}`;
-  const rowEls = () => [...body.querySelectorAll('.mergeplan-unit')];
-  function focusRow(key) {
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : w.endsWith('h') ? 'es' : 's'}`;
+  const rowEls = () => [...body.querySelectorAll<HTMLElement>('.mergeplan-unit')];
+  function focusRow(key: Key | null) {
     const els = rowEls();
     const el = els.find((r) => r.dataset.key === String(key)) || els[0];
     if (!el) return primary.focus();
     els.forEach((r) => { r.tabIndex = r === el ? 0 : -1; });
     el.focus();
   }
-  const keyOfEl = (el) => (/^\d+$/.test(el.dataset.key) ? Number(el.dataset.key) : el.dataset.key);
+  const keyOfEl = (el: HTMLElement): Key => { const k = el.dataset.key ?? ''; return /^\d+$/.test(k) ? Number(k) : k; };
 
-  function toggle(key) {
+  function toggle(key: Key) {
     if (!editable() || phase === 'planning') return;
     focusKey = key;
     // Not ready yet: ticking it only gives it a card in Fix, so there's nothing to plan again.
@@ -479,9 +518,9 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     if (picked.has(key)) picked.delete(key); else picked.add(key);
     replan();
   }
-  async function expand(key, on) {
-    if (!stacks.has(key)) return;
-    if (!on) await shrink(body.querySelector(`[data-key="${key}-subs"]`));
+  async function expand(key: Key, on: boolean) {
+    if (!stackOf(key)) return;
+    if (!on) await shrink(body.querySelector<HTMLElement>(`[data-key="${key}-subs"]`));
     if (on) expanded.add(key); else expanded.delete(key);
     focusKey = key;
     render();
@@ -489,24 +528,25 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   }
 
   const FIXES = new Map([['mergePlan.anyway', 'merge anyway'], ['mergePlan.viewFailure', 'view'], ['mergePlan.rerun', 're-run'], ['mergePlan.approve', 'approve'], ['mergePlan.markReady', 'mark ready'], ['mergePlan.copyPrompts', 'copy a fix prompt for']]);
-  function onKey(e) {
+  function onKey(e: KeyboardEvent) {
     if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); return close(); }
     const id = keymap.match('mergePlan', e);
     if (!id) return;
-    const row = e.target.closest?.('.mergeplan-unit');
+    const t = e.target as HTMLElement;
+    const row = t.closest?.<HTMLElement>('.mergeplan-unit');
     if (id === 'mergePlan.methods') { e.preventDefault(); return methodMenu(); }
-    if (id === 'mergePlan.target') { if (e.target.tagName === 'INPUT') return; e.preventDefault(); return targetMenu(); }
+    if (id === 'mergePlan.target') { if (t.tagName === 'INPUT') return; e.preventDefault(); return targetMenu(); }
     if (FIXES.has(id)) {
-      if (e.target.tagName === 'INPUT') return;
+      if (t.tagName === 'INPUT') return;
       e.preventDefault();
       // The focused row's group first, then the first group that offers the fix.
-      const at = e.target.closest?.('.mergeplan-card')?.dataset.group;
+      const at = t.closest?.<HTMLElement>('.mergeplan-card')?.dataset.group;
       const g = [...groups.filter((x) => x.id === at), ...groups].find((x) => actionsOf(x).some((a) => a.id === id));
       const act = g && actionsOf(g).find((a) => a.id === id);
       if (!act || fixing || phase === 'planning' || !editable()) return toast(`Nothing to ${FIXES.get(id)} here`);
       return act.run();
     }
-    if (id === 'mergePlan.merge') { if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return; e.preventDefault(); return next(); }
+    if (id === 'mergePlan.merge') { if (t.tagName === 'BUTTON' || t.tagName === 'INPUT') return; e.preventDefault(); return next(); }
     if (!row) return;
     const key = keyOfEl(row);
     e.preventDefault();
@@ -517,24 +557,25 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     else if (id === 'mergePlan.next' || id === 'mergePlan.prev') {
       const els = rowEls();
       const i = els.indexOf(row) + (id === 'mergePlan.next' ? 1 : -1);
-      if (els[i]) focusRow(keyOfEl(els[i]));
+      const to = els[i];
+      if (to) focusRow(keyOfEl(to));
     }
   }
 
   // Chains vs GitHub stacks (AK-555/556): asked once the plan has stacks, and again after a link.
   async function loadChains() {
-    const res = await call('pr-chains', remote, base).catch(() => null);
+    const res = await ask<{ extension: boolean; chains: { id: string; native?: boolean; linkable?: boolean; why?: string | null }[] }>(call('pr-chains', remote, base));
     if (!open || !res?.ok) return;
     extension = res.ok.extension;
     chains.clear();
     for (const c of res.ok.chains) chains.set(c.id, c);
     render();
   }
-  function stackLink(key) {
-    const st = stacks.get(key);
+  function stackLink(key: Key) {
+    const st = stackOf(key);
     if (!st) return toast('Not a chain', { detail: 'Focus a chain of pull requests first.' });
     if (isNative(st)) return toast('Already a GitHub stack');
-    const c = chains.get(key);
+    const c = chains.get(st.id);
     if (!c) return toast('Still checking the chain', { detail: 'Try again in a moment.' });
     if (!c.linkable) return toast('Can’t make it a GitHub stack', { detail: c.why || undefined });
     if (!editable()) return;
@@ -545,16 +586,16 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   function methodMenu() {
     if (!editable() || !methods || phase === 'planning') return;
     const r = caret.getBoundingClientRect();
-    const blurb = { squash: `One commit per PR on ${base}`, merge: 'Keeps every commit, adds a merge commit per PR', rebase: `Puts each PR’s commits on ${base}, no merge commit` };
+    const blurb: Record<string, string> = { squash: `One commit per PR on ${base}`, merge: 'Keeps every commit, adds a merge commit per PR', rebase: `Puts each PR’s commits on ${base}, no merge commit` };
     contextMenu(r.right - 280, r.top - 4, METHODS.map((m) => {
-      const off = !methods.allowed.includes(m);
+      const off = !methods?.allowed.includes(m);
       return { label: [h('span.mergeplan-mname', null, METHOD_NAMES[m]), h('small', null, off ? 'Off in this repo’s settings' : blurb[m])], icon: m === method ? 'check' : null, disabled: off, run: () => pick(m) };
-    }), { focus: METHODS.filter((m) => methods.allowed.includes(m)).indexOf(method) });
+    }), { focus: METHODS.filter((m) => methods?.allowed.includes(m)).indexOf(method) });
     // Open upwards, above the split button, like a pop-up button's menu.
-    const menu = document.querySelector('body > .menu:last-of-type');
+    const menu = document.querySelector<HTMLElement>('body > .menu:last-of-type');
     if (menu) menu.style.top = `${Math.max(8, r.top - menu.offsetHeight - 6)}px`;
   }
-  function pick(m) {
+  function pick(m: string) {
     call('merge-method-save', m).catch(() => {});
     if (m === method) return;
     method = m;
@@ -569,7 +610,7 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
     // A stack that's held back is always planned again, so a fix (Merge anyway, a rebase) shows up.
     const anyStack = !stacks.size || [...stacks.values()].some((st) => !stackOk(st) || isPicked(st.id));
     const nums = left.filter((n) => (memberOf(n) ? anyStack : isPicked(n) || notReady.has(n)));
-    const res = await call('merge-plan', remote, base, nums, othersArg, { method, stacks: anyStack, anyway }).catch((e) => ({ error: { message: e.message } }));
+    const res = await ask<ViewPlan>(call('merge-plan', remote, base, nums, othersArg, { method, stacks: anyStack, anyway }));
     if (!open) return;
     if (res?.error) {
       // Before the first plan the repo's methods aren't known: a method it turns off is tried once.
@@ -579,17 +620,19 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
       return render();
     }
     const first = !methods;
-    plan = res.ok;
-    methods = plan.methods || { allowed: METHODS, default: null, saved: null };
+    const got: ViewPlan = res.ok;
+    plan = got;
+    methods = got.methods || { allowed: METHODS, default: null, saved: null };
     // The plan's stacks replace the last ones: a stale "#222 holds up the stack" never lingers.
-    if (plan.stacks) { stacks.clear(); for (const st of plan.stacks) stacks.set(st.id, st); }
+    if (got.stacks) { stacks.clear(); for (const st of got.stacks) stacks.set(st.id, st); }
     if (first && stacks.size) loadChains();
     // A PR that wasn't ready and is now joins the picks; the rest stay out.
-    for (const n of nums) if (notReady.has(n) && !plan.skipped.some((sk) => sk.number === n)) { notReady.delete(n); picked?.add(n); }
-    for (const sk of plan.skipped) notReady.set(sk.number, sk.reason);
-    for (const n of nums) blockersBy.set(n, plan.blockers?.[n] || []);
+    for (const n of nums) if (notReady.has(n) && !got.skipped.some((sk) => sk.number === n)) { notReady.delete(n); picked?.add(n); }
+    for (const sk of got.skipped) notReady.set(sk.number, sk.reason);
+    for (const n of nums) blockersBy.set(n, got.blockers?.[n] || []);
     // First time in this repo: start on its default branch when that has open PRs.
-    if (first && !chosen && onTarget && plan.defaultBranch && plan.defaultBranch !== base && targets.some((t) => t.name === plan.defaultBranch)) { close(); return onTarget(plan.defaultBranch, { save: false }); }
+    const def = got.defaultBranch;
+    if (first && !chosen && onTarget && def && def !== base && targets.some((t) => t.name === def)) { close(); return onTarget(def, { save: false }); }
     if (first) {
       const want = asked && methods.allowed.includes(asked) ? asked : startMethod({ saved: methods.saved, allowed: methods.allowed, fallback: methods.default });
       if (asked && want === asked) call('merge-method-save', asked).catch(() => {});
@@ -601,24 +644,26 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   }
 
   async function mergeAll() {
+    const p = plan;
+    if (!p) return;
     phase = 'merging';
-    let baseSha = plan.baseSha;
-    for (const step of plan.order) {
-      const key = step.stack ?? step.number;
-      const prs = step.prs || [step.number];
-      const n = prs[prs.length - 1];
+    let baseSha: string | null | undefined = p.baseSha;
+    for (const step of p.order) {
+      const key = step.stack ?? step.number ?? 0;
+      const prs = step.prs || [step.number ?? 0];
+      const n = prs[prs.length - 1]!;
       status.set(key, { text: prs.length > 1 ? 'Merging the stack…' : 'Merging…', kind: 'busy' });
       render();
-      const arg = step.stack
-        ? { baseSha, method, cleanup, stack: prs.map((x) => ({ number: x, snap: plan.snapshots[x] })) }
-        : { baseSha, method, cleanup, snap: plan.snapshots[n] };
-      const merge = () => call('merge-plan-merge', remote, base, n, arg).catch((e) => ({ error: { message: e.message } }));
-      let res = baseSha ? await merge() : { ok: { stop: `couldn’t confirm where ${base} is after the last merge` } };
+      const arg: Record<string, unknown> = step.stack
+        ? { baseSha, method, cleanup, stack: prs.map((x) => ({ number: x, snap: p.snapshots[x] })) }
+        : { baseSha, method, cleanup, snap: p.snapshots[n] };
+      const merge = (): Promise<Res<MergeOut>> => ask<MergeOut>(call('merge-plan-merge', remote, base, n, arg));
+      let res: Res<MergeOut> = baseSha ? await merge() : { ok: { stop: `couldn’t confirm where ${base} is after the last merge` } };
       // No gh-stack extension (AK-588): install it, then merge the same stack.
       if (res?.error?.code === 'gh-no-stack' && (await installStack())) res = await merge();
       if (res?.error || res.ok.stop) {
         status.set(key, { text: res.error ? 'Not merged' : 'Not merged: stopped', kind: 'warn' });
-        stopReason = res.error ? `${prs.length > 1 ? `The stack ${rangeLabel(prs)}` : `#${n}`} failed: ${res.error.message}` : res.ok.stop;
+        stopReason = res.error ? `${prs.length > 1 ? `The stack ${rangeLabel(prs)}` : `#${n}`} failed: ${res.error.message}` : res.ok.stop ?? '';
         phase = 'stopped';
         break;
       }
@@ -643,7 +688,7 @@ export function openMergePlan({ ready, others = [], held = [], known = [], base,
   async function installStack() {
     const v = await resolveSheet({ title: 'Merge the stack', reason: 'GitHub CLI’s stack extension isn’t installed.', actions: [{ id: 'install', label: 'Install and merge' }] });
     if (!v) return false;
-    const res = await call('pr-stack-install', remote).catch((e) => ({ error: { message: e.message } }));
+    const res = await ask(call('pr-stack-install', remote));
     if (res?.error) { toast('Couldn’t install gh-stack', { kind: 'error', detail: res.error.message }); return false; }
     extension = true;
     return true;

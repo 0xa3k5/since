@@ -570,7 +570,7 @@ function placeSheet(el: HTMLElement, anchor: HTMLElement): void {
 // --- Context menu ---------------------------------------------------------------
 /** A context-menu row. `lead` replaces the icon; `why` is a greyed item's reason; `submenu` opens beside it. */
 export interface MenuItem {
-  label: string; run?: (() => unknown) | null; icon?: string | null; lead?: Node | null; kbd?: string | readonly string[] | null;
+  label: Child; run?: (() => unknown) | null; icon?: string | null; lead?: Node | null; kbd?: string | readonly string[] | null;
   disabled?: boolean; danger?: boolean; gated?: boolean; why?: string | null; submenu?: readonly MenuEntry[] | null;
 }
 /** A menu entry: an item, a section heading, or '-' for a separator. Null and false are skipped. */

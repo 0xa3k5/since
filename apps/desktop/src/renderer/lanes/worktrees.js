@@ -12,7 +12,7 @@ import { STALE_DAYS, cleanupItem } from '../branches/cleanup.ts';
 import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.ts';
 import { reviewPane } from '../review/review-pane.js';
 import { openSendBack } from './send-back-view.ts';
-import { openMergePlan } from './merge-plan-view.js';
+import { openMergePlan } from './merge-plan-view.ts';
 import { openStackLink } from './stack-link-view.ts';
 import { loadPrReview, leavesPage } from '../prs/pr-review.ts';
 import { storeKey, readTicks, progress as reviewProgress } from '../review/review.ts';
