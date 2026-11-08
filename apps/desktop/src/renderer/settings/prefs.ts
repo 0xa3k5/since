@@ -14,6 +14,7 @@
 import type { AutostashPref } from '../commit/autostash.ts';
 import type { Show } from '../lib/app-helpers.ts';
 import type { ConfigEntry } from '../../shared/git-types.ts';
+import type { PrSettings } from '../../shared/github-types.ts';
 
 export interface PrefOption { id: string; label: string; icon?: string }
 interface RowBase {
@@ -27,10 +28,8 @@ export type PrefRow = RowBase & (
   | { kind: 'config'; value: ConfigEntry }
 );
 /** The PR settings in the snapshot: on, hidden here, the remote in use and the ones to choose from. */
-export interface PrsPrefs {
-  enabled?: boolean; hidden?: boolean; remote?: { name: string; owner: string; repo: string } | null;
-  choices?: { name: string }[]; chosen?: string | null; gh?: string;
-}
+/** app:pr-state's answer, as far as the rows read it. */
+type PrsPrefs = Partial<PrSettings>;
 /** The saved choices the window shows (see prefRows). */
 export interface PrefsSnapshot {
   autoUpdate?: boolean; autostash?: Partial<AutostashPref>; ai?: string | null; theme?: string; themes?: PrefOption[];
