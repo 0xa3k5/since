@@ -29,8 +29,8 @@ The app is TypeScript (and plain JavaScript still moving over), transpiled file 
 ## Rules for changes
 
 - Everything that changes a local repo (refs, work tree, stashes, config) is undoable through
-  `apps/desktop/src/main/journal.js`.
-- Every IPC argument is validated in `apps/desktop/src/main/ipc.js`. The renderer stays sandboxed with no
+  `apps/desktop/src/main/journal.ts`.
+- Every IPC argument is validated in `apps/desktop/src/main/ipc.ts`. The renderer stays sandboxed with no
   network access.
 - No new network calls beyond those listed in [docs/security.md](docs/security.md). No telemetry,
   no accounts.
