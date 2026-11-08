@@ -17,7 +17,7 @@ import { stashShown, commitView, lanesPage, branchesPage, catchupPage } from '..
 import { THEMES, setTheme, cycleTheme, THEME_KBD } from '../shell/theme.ts';
 import { canReopenTab, tabList, TAB_KEYS, update, installUpdate, checkUpdates, toggleAutoUpdate } from '../shell/updates.ts';
 import { chooseGit, useGit, act, gitWhy, undoTitle, undo, redoTitle, redo, git } from '../lib/bridge.ts';
-import { openIdentity } from '../commit/identity-check.js';
+import { openIdentity } from '../commit/identity-check.ts';
 import { stashSave, applyStash } from '../commit/stashes.ts';
 import { writeMessageWithAi, aiOn, setupAi } from '../commit/ai-message.ts';
 import { snapshotEntries, restoreSnapshot } from '../history/snapshots.ts';

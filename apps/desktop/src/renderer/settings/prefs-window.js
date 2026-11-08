@@ -16,7 +16,7 @@ import { THEMES, setTheme } from '../shell/theme.ts';
 import { update, setUpdate } from '../shell/updates.ts';
 import { git, act } from '../lib/bridge.ts';
 import { cancelHistory, setHistory, refreshAll } from '../graph/load.js';
-import { openIdentity } from '../commit/identity-check.js';
+import { openIdentity } from '../commit/identity-check.ts';
 import { setupAi } from '../commit/ai-message.ts';
 import { addRemote, remoteItems } from '../branches/remote-ops.ts';
 import { aiLabel, openSetup, openShortcuts, importShortcuts, exportShortcuts, resetShortcuts, tour, setupPanel, setTour } from '../welcome/welcome.ts';

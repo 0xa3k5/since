@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, RestorePreview, Stash } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Identity, RestorePreview, Stash } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -62,6 +62,8 @@ export interface GitResults {
   fileHistory: FileHistoryPage;
   /** One commit's header and message. */
   commit: CommitDetails;
+  /** The configured user, who made this clone's commits, and the remote URLs. */
+  identity: Identity;
   /** Every file git tracks at HEAD. */
   trackedFiles: string[];
   /** The conflicted files the mergetool left. */

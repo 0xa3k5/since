@@ -7,7 +7,7 @@ import { up } from '../lib/upcalls.ts';
 import { state, tip, api, baseName, MOD, isEditable } from '../lib/app-helpers.ts';
 import { git, act, quiet, gitTooOld, gitWhy } from '../lib/bridge.ts';
 import { refreshStatus } from '../graph/load.js';
-import { identityOk } from './identity-check.js';
+import { identityOk } from './identity-check.ts';
 import { stashSave } from './stashes.ts';
 import { aiOn, writeMessageWithAi } from './ai-message.ts';
 import { openDifftool } from './external-tools.ts';

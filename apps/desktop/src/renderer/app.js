@@ -10,7 +10,7 @@ import { themeLabel } from './shell/theme.ts';
 import { showUpdate, showTabs } from './shell/updates.ts';
 import { undo, redo, act } from './lib/bridge.ts';
 import { refreshHistory, refreshAux, refreshStatus } from './graph/load.js';
-import { openIdentity } from './commit/identity-check.js';
+import { openIdentity } from './commit/identity-check.ts';
 import { stashSave } from './commit/stashes.ts';
 import { writeMessageWithAi, setupAi, showAiButton } from './commit/ai-message.ts';
 import { snapshotKey } from './history/snapshots.ts';
