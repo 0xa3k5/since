@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RestorePreview, Stash, Submodule, WorkStatus, Worktree } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RepoInfo, RestorePreview, Stash, Submodule, WorkStatus, Worktree } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -19,6 +19,13 @@ export type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'available' | '
 export interface UpdateState { status: UpdateStatus; version?: string | undefined; error?: string | undefined; manual?: boolean | undefined; current?: string | undefined; auto?: boolean }
 
 /** A failure carried across IPC as data instead of a thrown error (serializeError in src/main/handlers/handle.js). */
+/** Opening a repository: the one now shown (`focused`: it was open in another tab or window, which came forward),
+ * a folder that isn't a repository with the ones inside it, or a failure. `ok: null`: cancelled. */
+export interface OpenResult {
+  ok?: RepoInfo | { focused: true } | null;
+  notRepo?: { dir: string; name: string; repos: FoundRepo[] };
+  error?: IpcError;
+}
 export interface IpcError {
   message: string;
   stderr: string | null;
@@ -126,6 +133,12 @@ export interface AppResults {
   'git-choose': IpcResult<GitInfo | null>;
   'git-use': IpcResult<GitInfo>;
   'set-auto-update': UpdateState;
+  open: OpenResult;
+  init: OpenResult;
+  'init-here': OpenResult;
+  clone: OpenResult;
+  /** Recently opened repositories, newest first; `opened` in ms. */
+  recent: { root: string; name: string; opened: number }[];
   'ai-settings': AiState;
   'ai-configure': AiState;
   /** The exact text that will be sent, and its hash for the consent check. */

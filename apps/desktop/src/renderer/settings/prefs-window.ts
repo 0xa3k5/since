@@ -23,11 +23,16 @@ import { aiLabel, openSetup, openShortcuts, importShortcuts, exportShortcuts, re
 import { setupPrs, turnOffPrs, setPrRemote, hidePrs, prStage, loadPrs, prefetchOnOpen, setPrStage } from '../prs/prs-page.js';
 import { commitCache, selectCommit } from '../graph/map.ts';
 import { copy } from '../graph/commit-actions.ts';
+import type { PrefsWindow } from './prefs-view.ts';
+import type { PrefRow } from './prefs.ts';
+import type { ConfigEntry, RepoInfo } from '../../shared/git-types.ts';
+import type { PrSettings } from '../../shared/github-types.ts';
+import type { OpenResult } from '../../shared/ipc-contract.ts';
 
 // Preferences window (⌘,; prefs.js / prefs-view.js). No new store: each row reads and writes the same saved
 // value as ⌘K and the menus (settings.json in the main process, or the renderer's prefs), and acts the same way.
 
-let prefs = null;
+let prefs: PrefsWindow | null = null;
 const prefState = () => ({
   autoUpdate: update.auto,
   autostash: loadPref('autostash', AUTOSTASH_DEFAULT),
@@ -42,7 +47,7 @@ const prefState = () => ({
   config: state.config,
   remotes: state.remotes,
 });
-let prefPrs = null;
+let prefPrs: PrSettings | null = null;
 async function loadPrefState() {
   const [ai, pr, config] = await Promise.all([
     api.app('ai-settings').catch(() => null),
@@ -53,7 +58,7 @@ async function loadPrefState() {
   prefPrs = pr;
   state.config = config;
 }
-async function openPrefs(section) {
+async function openPrefs(section?: string | null) {
   if (prefs) return prefs.show(section || 'general');
   if (document.querySelector('.overlay:not(.closing)')) return;
   await loadPrefState();
@@ -61,27 +66,29 @@ async function openPrefs(section) {
   prefs = prefsWindow({ section, rows: () => prefRows(prefState()), act: prefAct, onClose: () => { prefs = null; } });
 }
 // Rows that open their own window close Preferences first.
-const leavePrefs = (then) => { prefs?.close(); setTimeout(then, 120); };
-async function prefAct(row, value) {
+const leavePrefs = (then: () => unknown) => { prefs?.close(); setTimeout(then, 120); };
+async function prefAct(row: PrefRow, value?: unknown) {
   const id = row.id;
-  if (row.kind === 'config') return configAct(row.value, value);
-  if (id === 'autoUpdate') { const s = await api.app('set-auto-update', value); setUpdate({ ...update, auto: s.auto }); }
+  if (row.kind === 'config') return configAct(row.value, value as string | undefined);
+  // The row decides the value: a switch gives a boolean, a choice its string.
+  const on = value as boolean;
+  if (id === 'autoUpdate') { const s = await api.app('set-auto-update', on); setUpdate({ ...update, auto: s.auto }); }
   else if (id === 'checkUpdates') await api.app('check-updates');
   else if (id === 'setup') leavePrefs(openSetup);
   else if (id === 'autostashAsk' || id === 'autostashUntracked') {
     const a = loadPref('autostash', AUTOSTASH_DEFAULT);
-    savePref('autostash', id === 'autostashAsk' ? { ...a, ask: value } : { ...a, untracked: value });
+    savePref('autostash', id === 'autostashAsk' ? { ...a, ask: on } : { ...a, untracked: on });
   }
   else if (id === 'identity') leavePrefs(openIdentity);
   else if (id === 'ai') await setupAi();
-  else if (id === 'theme') { state.theme = value; await setTheme(value); }
-  else if (id in state.show) { if (state.show[id] !== value) { if (state.repo) up.toggleShow(id); else { state.show[id] = value; savePref('show', state.show); if (id === 'swatches') setSwatches(value); } } }
-  else if (id === 'sidebarExpanded') up.setSidebar({ ...state.sidebar, expanded: value });
+  else if (id === 'theme') { state.theme = value as typeof state.theme; await setTheme(state.theme); }
+  else if (id in state.show) { const k = id as keyof typeof state.show; if (state.show[k] !== value) { if (state.repo) up.toggleShow(k); else { state.show[k] = on; savePref('show', state.show); if (k === 'swatches') setSwatches(on); } } }
+  else if (id === 'sidebarExpanded') up.setSidebar({ ...state.sidebar, expanded: on });
   else if (id === 'resetPanes') up.resetPanes();
-  else if (id.startsWith('section:')) { const sec = id.slice(8); up.setSections(value === 'up' || value === 'down' ? moveSection(state.sections, sec, value === 'up' ? -1 : 1) : showSection(state.sections, sec, value)); }
-  else if (id === 'prsOn') { await (value ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
-  else if (id === 'prRemote') { await setPrRemote(prRemoteChoice(value)); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
-  else if (id === 'prsHidden') { await hidePrs(value); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id.startsWith('section:')) { const sec = id.slice(8); up.setSections(value === 'up' || value === 'down' ? moveSection(state.sections, sec, value === 'up' ? -1 : 1) : showSection(state.sections, sec, on)); }
+  else if (id === 'prsOn') { await (on ? setupPrs({ ask: false }) : turnOffPrs()); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prRemote') { await setPrRemote(prRemoteChoice(value as string)); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
+  else if (id === 'prsHidden') { await hidePrs(on); prefPrs = await api.app('pr-state').catch(() => prefPrs); }
   else if (id === 'shortcuts') leavePrefs(openShortcuts);
   else if (id === 'importShortcuts') await importShortcuts();
   else if (id === 'exportShortcuts') await exportShortcuts();
@@ -92,10 +99,10 @@ async function prefAct(row, value) {
 }
 // One git config entry of the open repository: edit (local only), copy or unset. Moved here from the old
 // Config view; act()'s refresh reloads the table while Preferences is open (refreshAux).
-async function configAct(c, how) {
-  if (how === 'copy') return copy(c.value, 'Copied');
+async function configAct(c: ConfigEntry | null, how?: string) {
+  if (how === 'copy') return c && copy(c.value, 'Copied');
   if (c && c.scope !== 'local') return toast(`${c.key} is set in your ${c.scope} git config`, { detail: 'Only this repository’s local values can be edited here.' });
-  if (how === 'unset') await act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false });
+  if (how === 'unset' && c) await act(`Unset ${c.key}`, 'unsetConfig', [c.key], { undoable: false });
   else {
     const v = await dialog({ title: c ? 'Edit option' : 'Add option', submit: 'Save', fields: [{ name: 'k', label: 'Key', value: c?.key || '', placeholder: 'user.name' }, { name: 'v', label: 'Value', value: c?.value || '' }] });
     if (!v || !v.k.trim()) return;
@@ -103,7 +110,7 @@ async function configAct(c, how) {
   }
 }
 
-async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = {}) {
+async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) }: { setup?: boolean } = {}) {
   const recent = await api.app('recent');
   let idx = 0;
   const list = h('div.recent-list');
@@ -114,8 +121,9 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
       h('span.when', null, timeAgo(r.opened / 1000)))) : [h('div.muted.center', null, 'No recent repositories')]));
   };
   renderList();
-  setTour(tourView({ mod: MOD }));
-  const learn = h('div.welcome-learn', null, setup ? setupPanel(() => { learn.replaceChildren(tour.el); tour.el.querySelector('[aria-selected="true"]')?.focus(); }) : tour.el);
+  const t = tourView({ mod: MOD });
+  setTour(t);
+  const learn = h('div.welcome-learn', null, setup ? setupPanel(() => { learn.replaceChildren(t.el); t.el.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(); }) : t.el);
   const el = h('div.welcome', { tabIndex: 0 },
     h('div.welcome-drag'),
     h('div.welcome-layout', null, h('div.welcome-main', null, h('div.welcome-card', null,
@@ -123,20 +131,21 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
       h('h1', null, 'Since'),
       h('p.muted', null, 'A fast, keyboard-first Git client.'),
       h('div.welcome-actions', null,
-        h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(...keymap.keys('file.open'))),
-        h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(...keymap.keys('file.clone'))),
-        h('button.btn.subtle', { onclick: initRepo }, icon('plus', 14), 'New', kbd(...keymap.keys('file.init'))),
+        h('button.btn.primary', { onclick: () => openRepo() }, icon('folder', 14), 'Open repository', kbd(...(keymap.keys('file.open') ?? []))),
+        h('button.btn.subtle', { onclick: cloneRepo }, icon('fetch', 14), 'Clone', kbd(...(keymap.keys('file.clone') ?? []))),
+        h('button.btn.subtle', { onclick: initRepo }, icon('plus', 14), 'New', kbd(...(keymap.keys('file.init') ?? []))),
       ),
       recent.length ? h('div.recent-head', null, 'Recent') : null,
       list,
     )), learn),
   );
   el.addEventListener('keydown', (e) => {
-    if (learn.contains(e.target)) return;
+    if (learn.contains(e.target as Node | null)) return;
     const id = keymap.match('recent', e);
     if (id === 'recent.next') { e.preventDefault(); idx = Math.min(recent.length - 1, idx + 1); renderList(); }
     if (id === 'recent.prev') { e.preventDefault(); idx = Math.max(0, idx - 1); renderList(); }
-    if (id === 'recent.open' && recent[idx]) openRepo(recent[idx].root);
+    const pick = recent[idx];
+    if (id === 'recent.open' && pick) openRepo(pick.root);
   });
   el.addEventListener('dragover', (e) => e.preventDefault());
   root.replaceChildren(el);
@@ -144,12 +153,12 @@ async function renderWelcome({ setup = needsSetup(loadPref(SETUP_PREF, {})) } = 
 }
 
 // Resolves true once a repository is showing (loaded here or focused in another window).
-async function bound(promise) {
+async function bound(promise: Promise<OpenResult>): Promise<boolean> {
   const r = await promise;
   if (r.notRepo) return offerNotRepo(r.notRepo);
   if (r.error) { toast('Could not open repository', { kind: 'error', detail: r.error.message }); return false; }
   if (!r.ok) return false;
-  if (!r.ok.focused) {
+  if (!('focused' in r.ok)) {
     await loadRepo(r.ok);
     up.takeHandoff();
   }
@@ -160,7 +169,7 @@ async function bound(promise) {
 // sheet (AK-598): in a window with nothing open the list is the window; with a repository open it
 // opens in the palette and the repository stays until you pick one. Creating a repository here
 // (irreversible) is never the default.
-async function offerNotRepo({ dir, name, repos }) {
+async function offerNotRepo({ dir, name, repos }: NonNullable<OpenResult['notRepo']>) {
   const init = () => bound(api.app('init-here', dir));
   if (state.repo) {
     palette(() => [
@@ -185,7 +194,7 @@ async function offerNotRepo({ dir, name, repos }) {
   );
   el.addEventListener('keydown', (e) => {
     const id = keymap.match('recent', e);
-    const at = rows.indexOf(document.activeElement);
+    const at = rows.indexOf(document.activeElement as HTMLButtonElement);
     if (id === 'recent.next' || id === 'recent.prev') { e.preventDefault(); rows[Math.max(0, Math.min(rows.length - 1, at + (id === 'recent.next' ? 1 : -1)))]?.focus(); }
     if (keymap.match('dialog', e) === 'dialog.cancel') renderWelcome();
   });
@@ -194,7 +203,7 @@ async function offerNotRepo({ dir, name, repos }) {
   return false;
 }
 
-async function loadRepo(repo) {
+async function loadRepo(repo: RepoInfo) {
   // Switching between worktrees of one repository keeps the current view.
   const sameRepo = state.repo && state.repo.commonDir === repo.commonDir;
   // Another worktree is a step Back can undo; another repository starts a fresh history.
@@ -227,7 +236,7 @@ async function loadRepo(repo) {
   if (state.view === 'map') mapView?.focus();
 }
 
-const openRepo = (dir) => bound(api.app('open', dir));
+const openRepo = (dir?: string) => bound(api.app('open', dir));
 const initRepo = () => bound(api.app('init'));
 async function cloneRepo() {
   const url = await prompt('Clone repository', { label: 'Repository URL', placeholder: 'https://github.com/owner/repo.git', submit: 'Choose location…' });
@@ -244,7 +253,7 @@ async function closeRepo() {
   clearTimeout(up.sbHideTimer); // the sidebar's hover-close poll would hit the removed sidebar
   // Review and Catch up stop their timers and focus reloads now; loads still running come back null.
   catchupPage?.destroy(); setCatchupPage(null);
-  lanesPage?.destroy(); setLanesPage(setBranchesPage(setReviewPage(null)));
+  lanesPage?.destroy(); setReviewPage(null); setBranchesPage(null); setLanesPage(null);
   await api.app('close-repo');
   state.repo = null;
   setSidebarEl(setTopbarEl(setBannerEl(setContentEl(null))));
@@ -256,7 +265,7 @@ async function closeRepo() {
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { openRepo, renderWelcome });
 Object.defineProperties(up, {
-  prefs: { get: () => prefs, set: (value) => { prefs = value; }, enumerable: true },
+  prefs: { get: () => prefs, set: (value: PrefsWindow | null) => { prefs = value; }, enumerable: true },
 });
 
 export { renderWelcome, openPrefs, openRepo, cloneRepo, closeRepo, initRepo, prefs };

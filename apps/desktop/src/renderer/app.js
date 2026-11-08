@@ -22,7 +22,7 @@ import { openMergetool, openConflicts, openFileHistory, gPending, setGPending } 
 import { closeQuick } from './graph/quick-view.ts';
 import { submoduleSwitcher, prList, refreshPrs, createPr, pickPr, approvePr, requestChangesPr, togglePrs, pickPrRemote, hidePrs } from './prs/prs-page.js';
 import { branchHere } from './graph/commit-actions.ts';
-import { openRepo, initRepo, cloneRepo, openPrefs, prefs } from './settings/prefs-window.js';
+import { openRepo, initRepo, cloneRepo, openPrefs, prefs } from './settings/prefs-window.ts';
 import { sbNarrow, applySidebar, setSbNarrow, setView, goBack, goForward, toggleSidebar, toggleShow, openOrigin, openLfs, sbState, sbHideTimer, setSidebar, isMenuKey, resetPanes, toggleDetail, renderSidebar, renderTopbar, renderView, startView, renderShell, setStartView } from './shell/navigation.js';
 import { addWorktree, branchSwitcher, worktreeSwitcher, updateSubmodules, openReview, mergePrCmd, closePrCmd, takeHandoff, startCleanup } from './lanes/worktrees.js';
 import { openPalette, resetHard, openHosting, repoSwitcher } from './palette/palette.js';

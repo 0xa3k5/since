@@ -24,7 +24,7 @@ import { quickView, openQuick } from '../graph/quick-view.ts';
 import { prViewer } from '../prs/prs-page.js';
 import { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView } from '../graph/map.ts';
 import { copy, checkout, refMenu } from '../graph/commit-actions.ts';
-import { renderWelcome, openPrefs } from '../settings/prefs-window.js';
+import { renderWelcome, openPrefs } from '../settings/prefs-window.ts';
 import { createCommitView } from '../commit/commit-view.js';
 
 // The shell: sidebar, top bar, banner and switching views, plus back and forward.

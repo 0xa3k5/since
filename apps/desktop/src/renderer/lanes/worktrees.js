@@ -31,7 +31,7 @@ import { showCommit } from '../history/file-history.ts';
 import { checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, approvePr, requestChangesPr, mergePr, closePr, openPrOnGitHub, updatePrBranch, REMOTE_NOTE, prCall, OWN_PR, refreshPrs, fixMergeGate, prCheckLines, checkFailEl } from '../prs/prs-page.js';
 import { commitSide } from '../graph/map.ts';
 import { refMenu, canSwitchFrom, switchTarget, switchChanges, switchAndDelete, changesText, showStashAction, copy, checkout, createBranch } from '../graph/commit-actions.ts';
-import { openRepo } from '../settings/prefs-window.js';
+import { openRepo } from '../settings/prefs-window.ts';
 import { jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView } from '../shell/navigation.js';
 
 // Worktrees: extra working folders of this repository, each with its own

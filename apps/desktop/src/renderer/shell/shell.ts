@@ -12,8 +12,8 @@ import type { createCommitView } from '../commit/commit-view.js';
 type CommitView = ReturnType<typeof createCommitView>;
 type LanesPage = ReturnType<typeof lanesView>;
 type CatchupPage = ReturnType<typeof catchupView>;
-const root = $('#app');
-let sidebarEl: HTMLElement | undefined, topbarEl: HTMLElement | undefined, bannerEl: HTMLElement | undefined, contentEl: HTMLElement | undefined;
+const root = $('#app') as HTMLElement; // index.html always has #app
+let sidebarEl: HTMLElement | null | undefined, topbarEl: HTMLElement | null | undefined, bannerEl: HTMLElement | null | undefined, contentEl: HTMLElement | null | undefined;
 let mapView: MapView | null = null, commitView: CommitView | null = null, lanesPage: LanesPage | null = null, reviewPage: ReviewView | null = null, catchupPage: CatchupPage | null = null, branchesPage: BranchesView | null = null;
 let finishedCount = 0, finishedRun: Promise<unknown> | null = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
 let reviewCount = 0, reviewRun: Promise<unknown> | null = null; // Review's sidebar badge: the page's Needs you count, stuck plus ready (countReview)
@@ -22,10 +22,10 @@ let stashFocus: string | null = null; // the stash a sidebar click asked the Sta
 let stashShown: string | null = null; // the stash selected on the Stashes page (for ⌘K)
 
 // Other modules assign these through setters: an imported binding can't be assigned.
-function setSidebarEl(value: HTMLElement) { return (sidebarEl = value); }
-function setTopbarEl(value: HTMLElement) { return (topbarEl = value); }
-function setBannerEl(value: HTMLElement) { return (bannerEl = value); }
-function setContentEl(value: HTMLElement) { return (contentEl = value); }
+function setSidebarEl(value: HTMLElement | null) { return (sidebarEl = value); }
+function setTopbarEl(value: HTMLElement | null) { return (topbarEl = value); }
+function setBannerEl(value: HTMLElement | null) { return (bannerEl = value); }
+function setContentEl(value: HTMLElement | null) { return (contentEl = value); }
 function setMapView(value: MapView | null) { return (mapView = value); }
 function setCommitView(value: CommitView | null) { return (commitView = value); }
 function setCatchupPage(value: CatchupPage | null) { return (catchupPage = value); }
