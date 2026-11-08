@@ -7,7 +7,7 @@ import { lanesView, reviewCounts, cachedPrs } from './lanes-view.js';
 import { branchesView } from '../branches/branches-view.js';
 import { isFinished } from '../branches/branches.ts';
 import { catchupView } from '../catchup/catchup-view.js';
-import { landedEntries } from '../catchup/catchup.js';
+import { landedEntries } from '../catchup/catchup.ts';
 import { STALE_DAYS, cleanupItem } from '../branches/cleanup.ts';
 import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.ts';
 import { reviewPane } from '../review/review-pane.js';
