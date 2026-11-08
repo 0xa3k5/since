@@ -3,7 +3,7 @@
 // conflict, Idle and Finished. The tabs come from the lane buckets (lanes.js laneBucket) and the
 // Clean up groups (cleanup.js): a finished lane is only ever in Finished.
 
-import { laneBucket, aheadBehind } from '../lanes/lanes.js';
+import { laneBucket, aheadBehind } from '../lanes/lanes.ts';
 import { cleanupGroup } from './cleanup.js';
 
 export const BRANCH_TABS = [

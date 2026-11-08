@@ -9,7 +9,7 @@ import { isFinished } from '../branches/branches.js';
 import { catchupView } from '../catchup/catchup-view.js';
 import { landedEntries } from '../catchup/catchup.js';
 import { STALE_DAYS, cleanupItem } from '../branches/cleanup.js';
-import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.js';
+import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.ts';
 import { reviewPane } from '../review/review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';

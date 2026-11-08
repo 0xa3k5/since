@@ -1,5 +1,5 @@
 import { h, icon, timeAgo, fullDate, tipFor, loading } from '../lib/ui.ts';
-import { ACTIONS, aheadBehind, laneActions, laneTitle, laneKey, conflictText, canRemove } from '../lanes/lanes.js';
+import { ACTIONS, aheadBehind, laneActions, laneTitle, laneKey, conflictText, canRemove } from '../lanes/lanes.ts';
 import { statusBadge, fileName } from '../commit/diff.ts';
 
 // A branch at a glance, shared by Review's Everything else and Branches (AK-396): the pane's head

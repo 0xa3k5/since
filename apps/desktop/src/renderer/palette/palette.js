@@ -3,7 +3,7 @@ import * as keymap from './keymap.ts';
 import { otherRecent, PALETTE_RECENT_LIMIT } from './recent.ts';
 import { CONFLICT_KEYS } from '../commit/conflict-view.js';
 import { BRANCH_TABS } from '../branches/branches.js';
-import { laneTitle, canRemove, checkoutHereMode } from '../lanes/lanes.js';
+import { laneTitle, canRemove, checkoutHereMode } from '../lanes/lanes.ts';
 import { paneActions, fixActions } from '../prs/pr-review.js';
 import { sidebarToggleLabel, SECTION_PAGES, orderedSections, showSection } from '../shell/sidebar.ts';
 import { authorProfile, loginProfile } from '../lib/profile.ts';

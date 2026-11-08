@@ -3,7 +3,7 @@ import * as keymap from '../palette/keymap.ts';
 import {
   LESSONS, TOUR_BRANCH, TOUR_FEATURE, createTour, setLesson, select, moveTip, squash, rebase, cherryPick,
   undoTip, redoTip, filterCommands, tourHint,
-} from './tour.js';
+} from './tour.ts';
 
 // Welcome-screen onboarding (state in tour.js): four short lessons on one live mini graph you can
 // poke at. ⌘Z / ⇧⌘Z reach it through the app's undo/redo commands while no repository is open.

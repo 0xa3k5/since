@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/lanes/lanes.js');
+const load = () => import('../src/renderer/lanes/lanes.ts');
 const NOW = Date.UTC(2026, 9, 15, 12);
 const H = 3600e3;
 const lane = (name, extra = {}) => ({ name, branch: name, head: 'a'.repeat(40), isBase: false, worktree: null, activity: NOW - H, ahead: 1, behind: 0, changes: null, merged: null, agent: null, pr: null, ...extra });

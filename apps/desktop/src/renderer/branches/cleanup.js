@@ -1,7 +1,7 @@
 // Clean up, the Finished tab of Branches: pure helpers (no DOM) for cleanup-view.js. A lane is one entry of
 // `app:lanes-list` (git.lanes). Each finished lane lands in the first group it matches.
 
-import { laneKey } from '../lanes/lanes.js';
+import { laneKey } from '../lanes/lanes.ts';
 
 const DAY = 24 * 3600e3;
 // "Untouched for N days": its own card, never ticked up front. The default N.

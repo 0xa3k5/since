@@ -1,7 +1,7 @@
 // Review stages: pure helpers (no DOM) that turn lanes, open PRs and the Inbox data into one row
 // per piece of work, sorted into stages. A lane is one entry of `app:lanes-list` (git.lanes, with
 // `pr` joined on); a PR is one of github.listPrs `prs`.
-import { laneKey } from '../lanes/lanes.js';
+import { laneKey } from '../lanes/lanes.ts';
 import { AGENT_HINTS } from '../lib/agents.ts';
 
 const HOUR = 3600e3;
