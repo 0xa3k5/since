@@ -3,7 +3,7 @@ import { mergeGateFix, ghErrorFix } from './gh-gates.ts';
 import * as keymap from '../palette/keymap.ts';
 import { prefetchReview } from '../lanes/lanes-view.js';
 import { stageMemory, STAGES } from '../review/review-rows.ts';
-import { prefetchCatchup } from '../catchup/catchup-view.js';
+import { prefetchCatchup } from '../catchup/catchup-view.ts';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';
 import { failingChecks, passedCount, checkLines, mergeConfirm } from '../lanes/check-confirm.ts';
 import { peekEvidence } from '../review/evidence-store.ts';

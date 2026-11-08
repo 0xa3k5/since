@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -60,6 +60,8 @@ export interface GitResults {
   /** What would conflict merging the second commit into the first (git merge-tree, read-only). */
   mergeConflicts: ConflictReview;
   fileHistory: FileHistoryPage;
+  /** One commit's header and message. */
+  commit: CommitDetails;
   /** A commit's diff against its first parent, one entry per file. */
   commitDiffs: (FileDiff & { path: string })[];
   blame: Blame;

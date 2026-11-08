@@ -1,3 +1,4 @@
+import type { Child, MenuEntry } from '../lib/ui.ts';
 import { h, icon, kbd, fullDate, ago as agoSec, contextMenu, toast, tipFor, loading } from '../lib/ui.ts';
 import { renderDiff } from '../commit/diff.ts';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.ts';
@@ -5,6 +6,10 @@ import { sharedLoad, loadGuard } from '../lanes/lanes.ts';
 import * as keymap from '../palette/keymap.ts';
 import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from '../review/reader.ts';
 import { factsFor, peekFacts } from '../review/evidence-store.ts';
+import type { git as gitCall } from '../lib/bridge.ts';
+import type { CatchupResult, LandedEntry, StackItem, TimelineItem, Stat } from './catchup.ts';
+import type { ChangeFacts, Ref } from '../../shared/git-types.ts';
+import type { GitResults } from '../../shared/ipc-contract.ts';
 import { authorsOf, messageAgent } from '../review/review-rows.ts';
 
 // Catch up (AK-365, was Review's catch-up card, AK-281): what landed on the base since your
@@ -32,50 +37,69 @@ import { authorsOf, messageAgent } from '../review/review-rows.ts';
 // git(method, ...args) reads a change (commitDiffs, commit); prsOn() and markAgents() read the settings; counts() →
 // { stuck, ready } from Review (lanes-view.js reviewCounts); onReview() opens Review; onCount(n)
 // reports what landed since the checkpoint, for the sidebar badge.
-const short = (s) => (s || '').slice(0, 7);
-const ago = (ms) => agoSec(ms / 1000);
-const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+/** The range the view reads: since the checkpoint, yesterday, last week or a tag. */
+interface Since { since: string; tag?: string }
+type Checkpoint = NonNullable<CatchupResult['checkpoint']>;
+/** What app:catchup returns: git's landed commits on the base, plus merged PRs and the base's CI while PRs are on. */
+export interface CatchupRes extends CatchupResult {
+  base: string; baseSha: string; baseDate: number; defaultBase?: boolean; tags?: string[]; truncated?: boolean;
+  ci?: { state: string; failed?: string[] } | null; prError?: { message: string } | null;
+}
+type Extra = Pick<CatchupRes, 'merged' | 'ci'>;
+interface Cache { repo: string | null; since: Since; base: string | null; extra: Extra | null; loadedAt: number | null; defaultName?: string | null; res: CatchupRes | null }
+type LoadFn = (opts: Since & { prs: boolean; base?: string }) => Promise<CatchupRes | null>;
+interface Read { diffs: GitResults['commitDiffs']; message: string }
+type Diff = Read['diffs'][number];
+export interface CatchupViewOptions {
+  repo?: string | null; paneHandle?: ((target: () => HTMLElement) => Node) | null; git: typeof gitCall; load: LoadFn;
+  mark(to: Checkpoint | null): Promise<Checkpoint | null>; prsOn(): boolean; markAgents?: () => boolean; refs?: () => readonly Ref[] | null;
+  counts?: () => Promise<{ stuck: number; ready: number } | null>; onReview?: () => void; onCount?: (n: number) => void;
+}
+const short = (s: string | null | undefined) => (s || '').slice(0, 7);
+const ago = (ms: number) => agoSec(ms / 1000);
+const CI_MARK: Record<string, string> = { passing: '✓', failing: '✗', pending: '…' };
+const clock = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 const AGO_TICK = 30e3;
 const READ_DELAY = 120; // ↑/↓ held down: the reader waits for the selection to settle
 
 // The view's range and its last load with PRs, per repo (this window, this session), so coming back to
 // the view shows them at once: { repo, since, res, extra: { merged, ci } | null, loadedAt }.
-let cache = null;
+let cache: Cache | null = null;
 // The load with PRs in flight for the default range (since the checkpoint, default base), shared by Reload and
 // the load when a repo opens: one `gh` call per repo. openRepo: the repo it's for; a load for another lands nowhere.
-const prLoads = sharedLoad();
-let openRepo = null;
-const DEFAULT_SINCE = { since: 'checkpoint' };
+const prLoads = sharedLoad<CatchupRes | null>();
+let openRepo: string | null = null;
+const DEFAULT_SINCE: Since = { since: 'checkpoint' };
 // What the reader read, per commit, for this repo: sha → Promise<{ diffs, message }>.
-const reads = new Map();
+const reads = new Map<string, Promise<Read>>();
 
-export function catchupView({ repo = null, paneHandle = null, git, load, mark, prsOn, markAgents = () => true, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }) {
+export function catchupView({ repo = null, paneHandle = null, git, load, mark, prsOn, markAgents = () => true, refs = () => [], counts = async () => null, onReview = () => {}, onCount = () => {} }: CatchupViewOptions) {
   if (cache && cache.repo !== repo) { cache = null; reads.clear(); }
   openRepo = repo;
   if (cache && !prsOn() && cache.extra) cache = { ...cache, res: null, extra: null, loadedAt: null };
-  let since = cache?.since || { since: 'checkpoint' };
-  let base = cache?.base || null; // null: the default base (origin/main); else a branch ref from the select (AK-372)
-  let extra = cache?.extra || null; // merged PRs and CI from the last load with PRs, kept on local refreshes
-  let loadedAt = cache?.loadedAt || null;
-  let res = cache?.res || null;
-  let entries = res ? landedEntries(res.commits, res.merged) : [];
-  let failed = null;
+  let since: Since = cache?.since || { since: 'checkpoint' };
+  let base: string | null = cache?.base || null; // null: the default base (origin/main); else a branch ref from the select (AK-372)
+  let extra: Extra | null = cache?.extra || null; // merged PRs and CI from the last load with PRs, kept on local refreshes
+  let loadedAt: number | null = cache?.loadedAt || null;
+  let res: CatchupRes | null = cache?.res || null;
+  let entries: LandedEntry[] = res ? landedEntries(res.commits, res.merged) : [];
+  let failed: string | null = null;
   let more = false;
-  let selId = null;
+  let selId: string | null = null;
   let reloading = false;
-  let review = null; // { stuck, ready }
+  let review: { stuck: number; ready: number } | null = null; // { stuck, ready }
   let seq = 0;
   const loads = loadGuard(); // a git-only refresh can overtake a PR load: its merged PRs still count (AK-338)
   let loaded = Boolean(res);
-  let readId = null; // the entry in the reader
-  let readTimer = 0;
-  let change = null; // { id, diffs, message } once the reader's entry is read
-  let facts = null; // the reader's change facts (AK-520), once read
-  const viewed = new Map(); // entry id → Set of viewed paths (this view only)
-  const folds = new Map(); // "id\0path" → folded, set by hand; otherwise viewed files are folded
-  const full = new Set(); // "id\0path" of diffs shown past the truncation limit
-  const opened = new Set(); // stack items expanded in the timeline (AK-616), collapsed by default
-  const readParts = new Set(); // ids of a stack's parts ticked read in its reader (this view only)
+  let readId: string | null = null; // the entry in the reader
+  let readTimer: ReturnType<typeof setTimeout> | undefined;
+  let change: (Read & { id: string }) | null = null; // { id, diffs, message } once the reader's entry is read
+  let facts: ChangeFacts | null = null; // the reader's change facts (AK-520), once read
+  const viewed = new Map<string, Set<string>>(); // entry id → Set of viewed paths (this view only)
+  const folds = new Map<string, boolean>(); // "id\0path" → folded, set by hand; otherwise viewed files are folded
+  const full = new Set<string>(); // "id\0path" of diffs shown past the truncation limit
+  const opened = new Set<string>(); // stack items expanded in the timeline (AK-616), collapsed by default
+  const readParts = new Set<string>(); // ids of a stack's parts ticked read in its reader (this view only)
 
   const el = h('div.page.flush.catchup', { tabIndex: 0, role: 'region', 'aria-label': 'Since' });
   const updated = h('span.muted.review-updated', { 'aria-live': 'polite' });
@@ -85,7 +109,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   const branchBtn = h('button.btn.ghost.small.catchup-branch', { 'aria-haspopup': 'menu', 'aria-label': 'Branch', 'data-tip': tipFor('Pick another branch', 'catchup.branch'), onclick: (e) => { e.stopPropagation(); branchMenu(); } });
   // The head reads as one sentence (AK-390, option A): "88 PRs merged on origin/main ▾ since your checkpoint ▾",
   // then one quiet line: date · other commits · CI · Updated. Actions on the right.
-  const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Since…', 'catchup.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget); } });
+  const sinceBtn = h('button.btn.ghost.small.catchup-since', { 'data-tip': tipFor('Since…', 'catchup.since'), 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); pickSince(e.currentTarget as Element); } });
   const lead = h('span.catchup-lead');
   const sub = h('div.catchup-subline');
   const actions = h('div.catchup-actions');
@@ -107,11 +131,11 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       sub),
     strip, cols, msg);
 
-  const btn = (label, keyId, onclick, cls = 'button.btn.subtle') => h(cls, { 'data-tip': tipFor(label, keyId), onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...keymap.keys(keyId)));
+  const btn = (label: string, keyId: string, onclick: (e: MouseEvent) => void, cls = 'button.btn.subtle') => h(cls, { 'data-tip': tipFor(label, keyId), onclick: (e) => { e.stopPropagation(); onclick(e); } }, label, kbd(...(keymap.keys(keyId) ?? [])));
   // The timeline's days, a merged stack as one item per day (AK-616).
   const days = () => groupStacks(byDay(entries));
   const items = () => days().flatMap((d) => d.entries);
-  const rowsOf = (list) => timelineRows(list, opened);
+  const rowsOf = (list: readonly TimelineItem[]) => timelineRows(list, opened);
   const visible = () => rowsOf((more ? days() : firstOf(days(), FIRST).days).flatMap((d) => d.entries));
   const navList = () => rowsOf(items());
   const count = () => headline(items()).total;
@@ -127,7 +151,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
   // The default base's name, remembered from the last load on it, so the menu names it while
   // another branch is picked.
-  let defaultName = cache?.defaultName || null;
+  let defaultName: string | null = cache?.defaultName || null;
   function renderBranches() {
     if (!base && res?.base && res.defaultBase !== false) { defaultName = res.base; if (cache) cache.defaultName = defaultName; }
     const shown = base ? (refs() || []).find((r) => r.name === base)?.short || base : defaultName || 'the default base';
@@ -136,7 +160,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   function branchMenu() {
     const r = branchBtn.getBoundingClientRect();
     const seen = new Set();
-    const items = [{ label: defaultName ? `${defaultName} (default)` : 'Default base', icon: base ? undefined : 'check', run: () => pickBranch(null) }];
+    const items: MenuEntry[] = [{ label: defaultName ? `${defaultName} (default)` : 'Default base', icon: base ? undefined : 'check', run: () => pickBranch(null) }];
     for (const kind of ['remote', 'branch']) {
       const group = (refs() || []).filter((x) => x.kind === kind && !x.name.endsWith('/HEAD') && !seen.has(x.name) && seen.add(x.name));
       if (group.length) items.push('-', { section: kind === 'remote' ? 'Remote branches' : 'Local branches' }, ...group.map((x) => ({ label: x.short, icon: x.name === base ? 'check' : undefined, run: () => pickBranch(x.name) })));
@@ -144,7 +168,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     contextMenu(r.left, r.bottom, items);
   }
   // Another branch has no checkpoint: catch up from last week, and Mark caught up doesn't apply.
-  function pickBranch(ref) {
+  function pickBranch(ref: string | null) {
     if ((ref || null) === base) return;
     base = ref || null;
     since = base ? { since: 'week' } : { since: 'checkpoint' };
@@ -153,11 +177,11 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
 
   // Messages (failed, loading, caught up) take the whole width; no columns.
-  function showMsg(...children) {
+  function showMsg(...children: (Node | null)[]) {
     strip.hidden = true;
     cols.hidden = true;
     msg.hidden = false;
-    msg.replaceChildren(...children.filter(Boolean));
+    msg.replaceChildren(...children.filter((c) => c !== null));
   }
 
   function render() {
@@ -166,17 +190,19 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     if (failed) return showMsg(h('div.empty', null, `Couldn’t read what landed: ${failed}`));
     if (!res) return showMsg(h('div.empty', null, loaded ? 'No base branch.' : 'Loading…'));
     const head = sinceText(res, { short, ago: (ms) => ago(ms) });
-    const cp = res.checkpoint || {};
+    const cp: Checkpoint = res.checkpoint || {};
     const when = since.since === 'checkpoint' ? whenText(cp.date) : '';
-    const ci = res.ci && { passing: '✓', failing: '✗', pending: '…' }[res.ci.state];
+    const rci = res.ci;
+    const ci = rci && CI_MARK[rci.state];
+    const ciEl = rci && ci ? h('span.catchup-ci.' + rci.state, { title: `${res.base} CI ${rci.state}${rci.failed?.length ? `: ${rci.failed.join(', ')}` : ''}` }, `CI ${ci} on ${res.base}`) : null;
     sinceBtn.textContent = `${sincePhrase(since)} ▾`;
     const warn = head.warn ? h('div.catchup-warn', null, icon('warning', 12), head.warn) : null;
-    const subline = (extraText) => sub.replaceChildren(...[
+    const subline = (extraText: string | null) => sub.replaceChildren(...[
       when ? h('span', { title: cp.date ? fullDate(cp.date / 1000) : '' }, when) : null,
       extraText ? h('span', null, extraText) : null,
-      ci ? h('span.catchup-ci.' + res.ci.state, { title: `${res.base} CI ${res.ci.state}${res.ci.failed?.length ? `: ${res.ci.failed.join(', ')}` : ''}` }, `CI ${ci} on ${res.base}`) : null,
+      ciEl,
       prsOn() ? updated : null,
-    ].filter(Boolean).flatMap((x, i) => (i ? [h('span.catchup-dot', { 'aria-hidden': 'true' }, '·'), x] : [x])), warn || '');
+    ].filter((x) => x !== null).flatMap((x, i) => (i ? [h('span.catchup-dot', { 'aria-hidden': 'true' }, '·'), x] : [x])), warn || '');
     actions.replaceChildren(...(res.defaultBase === false || !entries.length ? [] : [btn('Mark since', 'catchup.caughtUp', () => markCaughtUp())]));
 
     if (!entries.length) {
@@ -188,7 +214,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
         h('h2', null, since.since === 'checkpoint' ? 'You’re up to date.' : 'Nothing new.'),
         h('p.muted', null, `Nothing landed on ${res.base} ${what}.`),
         warn,
-        btn('Since…', 'catchup.since', (e) => pickSince(e.currentTarget))),
+        btn('Since…', 'catchup.since', (e) => pickSince(e.currentTarget as Element | null))),
       bridge());
     }
 
@@ -209,12 +235,12 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
         ]),
         hidden ? h('button.btn.ghost.small.catchup-more', { onclick: () => { more = true; render(); } }, `+ ${hidden} more ▸`) : null),
       res.truncated ? h('div.muted.small.catchup-note', null, `Showing the newest ${entries.length}.`) : null,
-      bridge()].filter(Boolean));
+      bridge()].filter((x) => x !== null));
     list.querySelector('.catchup-row.active')?.scrollIntoView({ block: 'nearest' });
     syncReader();
   }
 
-  function row(e, part = false) {
+  function row(e: LandedEntry, part = false) {
     const active = e.id === selId;
     return h('div.catchup-row' + (part ? '.stack-part' : '') + (active ? '.active' : ''), {
       role: 'option', 'aria-selected': String(active), 'data-id': e.id,
@@ -230,7 +256,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
   // A merged stack's row (AK-616): time · #257 → #271 · Stack · 14 PRs · chevron. A click selects it,
   // a click on the selected row or its chevron expands or collapses it; → and ← do the same.
-  function stackRow(e) {
+  function stackRow(e: StackItem) {
     const active = e.id === selId;
     const isOpen = opened.has(e.id);
     return h('div.catchup-row.stack-row' + (active ? '.active' : ''), {
@@ -246,18 +272,18 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     h('span.catchup-title', null, e.title),
     h('span.stack-chev', { 'aria-hidden': 'true' }, icon('chevron', 12)));
   }
-  function setOpen(e, on) {
+  function setOpen(e: StackItem, on: boolean) {
     if (on) opened.add(e.id); else opened.delete(e.id);
     if (!on && e.parts.some((p) => p.id === selId)) selId = e.id;
   }
   // The stack item a merged PR row sits under, or null.
-  const stackOf = (id) => items().find((x) => x.kind === 'stack' && x.parts.some((p) => p.id === id)) || null;
+  const stackOf = (id: string) => items().find((x): x is StackItem => x.kind === 'stack' && x.parts.some((p) => p.id === id)) || null;
   // ← and → on a stack (stackArrow). → whether it handled the key (else ←/→ step the timeline).
-  function stackKey(d) {
+  function stackKey(d: number) {
     const e = entryById(selId);
     const a = stackArrow(e, d, { opened, up: e?.kind === 'pr' ? stackOf(e.id) : null });
     if (!a) return false;
-    if (a.select) selId = a.select; else setOpen(e, Boolean(a.open));
+    if ('select' in a) selId = a.select; else if (e?.kind === 'stack') setOpen(e, 'open' in a);
     render();
     return true;
   }
@@ -265,16 +291,16 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   // "2 stuck and 3 ready to merge are waiting in Review", with PRs off just the stuck; nothing waiting, no line.
   function bridge() {
     if (!review) return null;
-    const parts = [h('strong', null, `${review.stuck} stuck`)];
+    const parts: Child[] = [h('strong', null, `${review.stuck} stuck`)];
     if (prsOn()) parts.push(' and ', h('strong', null, `${review.ready} ready to merge`));
     const n = review.stuck + (prsOn() ? review.ready : 0);
     if (!n) return null;
     return h('div.catchup-bridge', null,
       h('span', null, ...parts, n === 1 ? ' is waiting in Review' : ' are waiting in Review'),
-      h('button.btn.ghost.small', { onclick: () => onReview(), 'data-tip': tipFor('Open Review', 'view.lanes') }, 'Open Review', kbd(...keymap.keys('view.lanes'))));
+      h('button.btn.ghost.small', { onclick: () => onReview(), 'data-tip': tipFor('Open Review', 'view.lanes') }, 'Open Review', kbd(...(keymap.keys('view.lanes') ?? []))));
   }
 
-  async function fetch({ prs = false } = {}) {
+  async function fetch({ prs = false }: { prs?: boolean } = {}) {
     const n = ++seq;
     const withPrs = Boolean(prs && prsOn());
     const t = loads.start(withPrs);
@@ -283,13 +309,13 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     try {
       const opts = { ...since, prs: withPrs, ...(base ? { base } : {}) };
       // The default range with PRs joins the load from opening the repo, if it's still running.
-      const r = await (withPrs && since.since === 'checkpoint' && !base ? prLoads.run(repo, () => load(opts)) : load(opts));
+      const r = await (withPrs && since.since === 'checkpoint' && !base ? prLoads.run(repo ?? '', () => load(opts)) : load(opts));
       if (n !== seq) {
         // Overtaken by a newer git-only refresh of the same range: keep this load's merged PRs and CI.
         if (r && loads.prs(t) && prsOn() && range === JSON.stringify([since, base])) {
           extra = { merged: r.merged, ci: r.ci };
           loadedAt = Date.now();
-          res = withLateExtra(res, extra);
+          res = withLateExtra(res, extra) ?? null;
           cache = { repo, since, base, extra, loadedAt, defaultName, res };
           entries = res ? landedEntries(res.commits, res.merged) : [];
           if (res && since.since === 'checkpoint' && !base) onCount(count());
@@ -301,15 +327,14 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       loaded = true;
       if (withPrs) { extra = r ? { merged: r.merged, ci: r.ci } : null; loadedAt = Date.now(); }
       if (!prsOn()) { extra = null; loadedAt = null; }
-      cache = { repo, since, base, extra, loadedAt, defaultName };
       res = r && { ...r, ...(withPrs || !extra ? {} : extra) };
-      cache.res = res;
+      cache = { repo, since, base, extra, loadedAt, defaultName, res };
       entries = res ? landedEntries(res.commits, res.merged) : [];
       if (since.since === 'checkpoint' && !base) onCount(count());
       if (r?.prError) toast('Could not load merged pull requests', { kind: 'error', detail: r.prError.message });
     } catch (e) {
       if (n !== seq) return;
-      failed = e.message;
+      failed = (e as Error).message;
     } finally {
       if (n === seq) reloading = false;
     }
@@ -318,7 +343,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
   const reload = () => (reloading ? Promise.resolve() : fetch({ prs: true }));
 
-  function pickSince(anchor = el.querySelector('.catchup-since, .catchup-empty .btn')) {
+  function pickSince(anchor: Element | null = el.querySelector('.catchup-since, .catchup-empty .btn')) {
     const r = anchor?.getBoundingClientRect() || { left: 0, bottom: 0 };
     const cur = since.since === 'tag' ? `tag:${since.tag}` : since.since;
     contextMenu(r.left, r.bottom, sinceOptions(res?.tags || []).map((o) => ({
@@ -338,13 +363,13 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       await fetch({ prs: Boolean(extra) });
       toast(`Checkpoint moved to ${short(to.sha)} on ${to.base}`, { kind: 'success', action: { label: 'Undo', run: async () => { await mark(before); fetch({ prs: Boolean(extra) }); } } });
     } catch (e) {
-      toast('Couldn’t move the checkpoint', { kind: 'error', detail: e.message });
+      toast('Couldn’t move the checkpoint', { kind: 'error', detail: (e as Error).message });
     }
   }
 
   // The reader (AK-372): the selected entry's header, description and files. It follows the
   // selection after READ_DELAY, or at once (`now`) on a click or ↵.
-  const entryById = (id) => entries.find((e) => e.id === id) || (String(id).startsWith('stack:') ? items().find((e) => e.id === id) : null) || null;
+  const entryById = (id: string | null): TimelineItem | null => entries.find((e) => e.id === id) || (String(id).startsWith('stack:') ? items().find((e) => e.id === id) : null) || null;
   function syncReader(now = false) {
     clearTimeout(readTimer);
     if (selId === readId) return renderReaderHead();
@@ -353,13 +378,14 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
   // A commit's files against its first parent (a merged PR's merge or squash commit: what the PR
   // brought in) and its message, read once per sha.
-  function read(sha) {
-    if (!reads.has(sha)) {
-      const p = Promise.all([git('commitDiffs', sha), git('commit', sha).then((c) => c?.message || '', () => '')]).then(([diffs, message]) => ({ diffs: diffs || [], message }));
+  function read(sha: string): Promise<Read> {
+    let p = reads.get(sha);
+    if (!p) {
+      p = Promise.all([git('commitDiffs', sha), git('commit', sha).then((c) => c?.message || '', () => '')]).then(([diffs, message]) => ({ diffs: diffs || [], message }));
       p.catch(() => reads.delete(sha));
       reads.set(sha, p);
     }
-    return reads.get(sha);
+    return p;
   }
   function showReader() {
     const e = entryById(readId);
@@ -389,13 +415,13 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
 
   // "+42 −2 · 3 files" once the change is read, like Review's pane head.
-  const sizeEl = (z) => (z && z.files ? h('span.stat.small', { title: `${z.files} file${z.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${z.additions}`), ' ', h('span.del', null, `−${z.deletions}`), ` · ${z.files} file${z.files === 1 ? '' : 's'}`) : null);
+  const sizeEl = (z: Stat | null) => (z && z.files ? h('span.stat.small', { title: `${z.files} file${z.files === 1 ? '' : 's'} changed` }, h('span.add', null, `+${z.additions}`), ' ', h('span.del', null, `−${z.deletions}`), ` · ${z.files} file${z.files === 1 ? '' : 's'}`) : null);
   // The shared head (reader.js): "‹ 3 of 21 ›", "#313 title", then "(M) mira  agent/web-313 →
   // origin/main  WEB-142  merged Tuesday 18:40  ✓ Merged".
   function renderReaderHead() {
     const e = entryById(readId);
     if (!e || !res) return;
-    if (e.kind === 'stack') return renderStackHead(e);
+    if (e.kind === 'stack') return renderStackHead(e, res.base);
     const pr = e.kind === 'pr';
     const num = pr ? `#${e.number}` : short(e.sha);
     // Who made it (AK-390): the commit's author, + the agent its message's trailers name once it's read.
@@ -419,8 +445,8 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
 
   // A stack's head (AK-616): "#257 → #271 Stack · 14 PRs", who made its parts, into <base>, its size, Merged <time>.
-  function renderStackHead(e) {
-    const seen = new Set();
+  function renderStackHead(e: StackItem, into: string) {
+    const seen = new Set<string>();
     const authors = e.parts.flatMap((p) => authorsOf({ person: p.author ? { name: p.author } : null, agents: markAgents() }))
       .filter((a) => !seen.has(a.key) && seen.add(a.key));
     const num = `#${e.lo} → #${e.hi}`;
@@ -429,7 +455,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       num, numTip: e.parts.map((p) => `#${p.number}`).join(' '), title: e.title, nav: { ...navPos(navList(), e.id), onStep: step },
       authors,
       meta: [
-        h('span.reader-branch', null, 'into ', h('span.mono', null, res.base)),
+        h('span.reader-branch', null, 'into ', h('span.mono', null, into)),
         z ? h('span.stat.small', null, h('span.add', null, `+${z.additions}`), ' ', h('span.del', null, `−${z.deletions}`)) : null,
         h('span.catchup-merged', { title: e.date ? fullDate(e.date / 1000) : '' }, icon('check-circle', 12), e.date ? `Merged ${whenText(e.date)}` : 'Merged'),
       ].filter(Boolean),
@@ -449,18 +475,18 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
         const done = readParts.has(p.id);
         const files = p.stat?.files ?? p.files.length;
         return h('div.stack-ov-row' + (done ? '.seen' : ''), { role: 'listitem' },
-          h('input', { type: 'checkbox', checked: done, 'aria-label': `Read #${p.number}`, onchange: (ev) => setRead(p.id, ev.target.checked) }),
+          h('input', { type: 'checkbox', checked: done, 'aria-label': `Read #${p.number}`, onchange: (ev) => setRead(p.id, (ev.target as HTMLInputElement).checked) }),
           h('button.stack-ov-open', { title: p.title, onclick: () => openPart(e, p) },
             h('span.n', null, `#${p.number}`), h('span.t', null, p.title),
             h('span.s', null, p.stat ? `+${p.stat.additions} −${p.stat.deletions}` : ''),
             h('span.s', null, `${files} file${files === 1 ? '' : 's'}`)));
       })));
   }
-  function setRead(id, on) {
+  function setRead(id: string, on: boolean) {
     if (on) readParts.add(id); else readParts.delete(id);
     renderParts();
   }
-  function openPart(e, p) {
+  function openPart(e: StackItem, p: LandedEntry) {
     opened.add(e.id);
     selId = p.id;
     render();
@@ -471,7 +497,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   // The PR's description (or the commit message), clamped until … Show more.
   function renderDescription() {
     const e = entryById(readId);
-    if (!e || change?.id !== e.id) return;
+    if (!e || e.kind === 'stack' || change?.id !== e.id) return;
     const { text, from } = readerDescription(e, change.message);
     readerDesc.replaceChildren(descriptionBlock({
       label: e.kind === 'pr' ? 'Description' : 'Commit message',
@@ -481,13 +507,14 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
   }
 
   // Each file a shared card (reader.js): fold chevron, viewed tick, path, +N −M. Viewed files fold.
-  const viewedOf = (id) => { if (!viewed.has(id)) viewed.set(id, new Set()); return viewed.get(id); };
+  const viewedOf = (id: string) => { let v = viewed.get(id); if (!v) { v = new Set(); viewed.set(id, v); } return v; };
+  const cardOf = (path: string) => [...readerFiles.children].find((x) => (x as HTMLElement).dataset.path === path) as HTMLElement | undefined;
   function renderFiles() {
-    if (!change) return;
-    readerFiles.replaceChildren(...(change.diffs.length ? change.diffs.map(fileBlock) : [h('div.empty', null, 'No file changes.')]));
+    const c = change;
+    if (!c) return;
+    readerFiles.replaceChildren(...(c.diffs.length ? c.diffs.map((d) => fileBlock(d, c.id)) : [h('div.empty', null, 'No file changes.')]));
   }
-  function fileBlock(d) {
-    const id = change.id;
+  function fileBlock(d: Diff, id: string) {
     const done = viewedOf(id).has(d.path);
     const { add, del } = diffCounts(d);
     const fk = `${id}\0${d.path}`;
@@ -500,28 +527,31 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
       body: h('div.review-file-body', null, renderDiff(d, { full: full.has(fk), onShowAll: () => { full.add(fk); replaceFile(d.path); } })),
     });
   }
-  function replaceFile(path) {
-    const old = [...readerFiles.children].find((x) => x.dataset.path === path);
-    const d = change?.diffs.find((x) => x.path === path);
-    if (!old || !d) return null;
+  function replaceFile(path: string) {
+    const old = cardOf(path);
+    const c = change;
+    const d = c?.diffs.find((x) => x.path === path);
+    if (!old || !c || !d) return null;
     const focused = document.activeElement;
-    const refocus = old.contains(focused) ? (focused.classList.contains('review-tick') ? '.review-tick' : '.review-file-fold') : null;
-    const next = fileBlock(d);
+    const refocus = old.contains(focused) ? (focused?.classList.contains('review-tick') ? '.review-tick' : '.review-file-fold') : null;
+    const next = fileBlock(d, c.id);
     old.replaceWith(next);
-    if (refocus) next.querySelector(refocus)?.focus({ preventScroll: true });
+    if (refocus) next.querySelector<HTMLElement>(refocus)?.focus({ preventScroll: true });
     // Folding a file you scrolled into: bring its header back into view.
     if (next.classList.contains('folded') && next.getBoundingClientRect().top < reader.getBoundingClientRect().top) next.scrollIntoView({ block: 'start' });
     return next;
   }
-  function fold(path, on) {
+  function fold(path: string, on: boolean) {
+    if (!change) return;
     folds.set(`${change.id}\0${path}`, on);
     replaceFile(path);
   }
-  function setViewed(path, on) {
+  function setViewed(path: string, on: boolean) {
+    if (!change) return;
     const set = viewedOf(change.id);
     if (on) set.add(path); else set.delete(path);
     folds.delete(`${change.id}\0${path}`); // ticking folds it, unticking shows it again
-    const old = [...readerFiles.children].find((x) => x.dataset.path === path);
+    const old = cardOf(path);
     if (on && old && !old.classList.contains('folded')) foldShut(old, reader, () => replaceFile(path));
     else replaceFile(path)?.classList.toggle('just-ticked', on); // already folded: swap in place, flash
   }
@@ -540,19 +570,19 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     return true;
   }
   // , and . in the reader: the previous or next file's header to the top.
-  function jumpFile(d) {
+  function jumpFile(d: number) {
     const cards = [...readerFiles.querySelectorAll('.reader-file')];
     if (!cards.length) return;
     const line = reader.getBoundingClientRect().top + 48; // just under the slim bar
     let cur = -1; // the file being read: the last one whose top is above the line
     cards.forEach((c, i) => { if (c.getBoundingClientRect().top <= line) cur = i; });
     // Back from the middle of a file: its own header first.
-    const to = d < 0 && cur >= 0 && cards[cur].getBoundingClientRect().top < line - 12 ? cur : cur + d;
-    cards[Math.max(0, Math.min(cards.length - 1, to))].scrollIntoView({ block: 'start' });
+    const to = d < 0 && cur >= 0 && cards[cur]!.getBoundingClientRect().top < line - 12 ? cur : cur + d;
+    cards[Math.max(0, Math.min(cards.length - 1, to))]!.scrollIntoView({ block: 'start' });
   }
 
   // ←/→ (from the timeline or the reader) and ‹ ›: the previous or next item, the reader following.
-  function step(d) {
+  function step(d: number) {
     const id = stepId(navList(), selId, d);
     if (!id || id === selId) return;
     selId = id;
@@ -560,32 +590,32 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
     render();
   }
   // ↵: show it now and move focus into the reader, so Space and Page Down scroll it.
-  function open(e = entryById(selId)) {
+  function open(e: TimelineItem | null = entryById(selId)) {
     if (!e) return;
     selId = e.id;
     render();
     syncReader(true);
     reader.focus({ preventScroll: true });
   }
-  function move(d) {
+  function move(d: number) {
     const vis = visible();
     if (!vis.length) return;
     const i = vis.findIndex((e) => e.id === selId);
-    selId = vis[Math.max(0, Math.min(vis.length - 1, (i < 0 ? 0 : i + d)))].id;
+    selId = vis[Math.max(0, Math.min(vis.length - 1, (i < 0 ? 0 : i + d)))]!.id;
     render();
   }
   const showMore = () => { if (!more) { more = true; render(); } };
 
   el.addEventListener('keydown', (e) => {
     // In the reader (AK-381): ↑/↓ and Space scroll it, ←/→ step the timeline, , and . the files, Esc back.
-    if (reader.contains(e.target) && readerKey(e, { scroller: reader, onStep: step, onFile: jumpFile, onBack: () => el.focus({ preventScroll: true }) })) return;
+    if (reader.contains(e.target as Node | null) && readerKey(e, { scroller: reader, onStep: step, onFile: jumpFile, onBack: () => el.focus({ preventScroll: true }) })) return;
     const r = keymap.match('reader', e);
     if (r === 'reader.next' || r === 'reader.prev') { e.preventDefault(); e.stopPropagation(); const d = r === 'reader.next' ? 1 : -1; if (!stackKey(d)) step(d); return; }
     const id = keymap.match('catchup', e);
     if (!id) return;
     if (id === 'catchup.next') move(1);
     else if (id === 'catchup.prev') move(-1);
-    else if (id === 'catchup.open') { if (e.target.closest?.('button, input')) return; open(); }
+    else if (id === 'catchup.open') { if ((e.target as Element | null)?.closest?.('button, input')) return; open(); }
     else if (id === 'catchup.caughtUp') markCaughtUp();
     else if (id === 'catchup.since') pickSince();
     else if (id === 'catchup.reload') reload();
@@ -604,7 +634,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 
   render();
   // The load from opening the repo is still running: wait for it ("Reloading…") instead of asking again.
-  if (prsOn() && since.since === 'checkpoint' && !base && prLoads.pending(repo)) reload(); else fetch();
+  if (prsOn() && since.since === 'checkpoint' && !base && prLoads.pending(repo ?? '')) reload(); else fetch();
   setTimeout(() => el.focus({ preventScroll: true }));
   return {
     el, destroy: () => { clearInterval(tick); window.removeEventListener('focus', onFocus); }, refresh: () => fetch(), reload, markCaughtUp, pickSince: () => pickSince(), showMore, canMore: () => !more && items().length > FIRST, canReload: () => true,
@@ -616,7 +646,7 @@ export function catchupView({ repo = null, paneHandle = null, git, load, mark, p
 // The load when a repo opens (AK-382): merged PRs and CI since the checkpoint, the same as Reload, into `cache`,
 // so Catch up shows them without a Reload; onCount(n) updates the sidebar badge. Catch up open on this repo
 // calls its own reload() instead (app.js). Quiet on failure; a repo switch before it lands drops it.
-export async function prefetchCatchup({ repo, load, prsOn, onCount = () => {} }) {
+export async function prefetchCatchup({ repo, load, prsOn, onCount = () => {} }: { repo: string; load: LoadFn; prsOn(): boolean; onCount?: (n: number) => void }) {
   openRepo = repo;
   if (!prsOn()) return;
   const r = await prLoads.run(repo, () => load({ ...DEFAULT_SINCE, prs: true })).catch(() => null);
