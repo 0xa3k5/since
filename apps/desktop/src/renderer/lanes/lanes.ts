@@ -90,7 +90,7 @@ export const switchAway = (l: Pick<ViewLane, 'worktree' | 'branch' | 'isBase'>):
 // Its changes are stashed, not discarded, so it says Delete. `switchTo(branch, base)` → the branch
 // it would switch to, or null.
 /** The branch to switch to before `branch` goes, or null when there's none. */
-type SwitchTo = (branch: string, base?: string | null) => string | null | undefined;
+export type SwitchTo = (branch: string, base?: string | null) => string | null | undefined;
 export function removeLabel(l: ViewLane, switchTo: SwitchTo | null = null): string {
   const to = switchAway(l) && l.branch && switchTo?.(l.branch);
   return to ? `Switch to ${to} & Delete` : l.changes ? 'Discard Branch…' : 'Delete Branch…';
@@ -101,7 +101,7 @@ export function mergeLabel(l: ViewLane, switchTo: SwitchTo | null = null, base: 
 }
 // Can the lane's worktree and branch go? Not the base, nor a worktree this window or the main one shows.
 // With `canSwitch(branch)` (is there a branch to switch to?), the lane this window shows can go too.
-type CanSwitch = (branch: string) => boolean;
+export type CanSwitch = (branch: string) => boolean;
 export const canRemove = (l: ViewLane, canSwitch: CanSwitch | null = null): boolean => (!l.isBase && !l.worktree?.current && !l.worktree?.main && !l.worktree?.locked && Boolean(l.branch || l.worktree))
   || Boolean(canSwitch && switchAway(l) && l.branch && canSwitch(l.branch));
 // Why a lane can't go (canRemove false), in a few words; null when it can.

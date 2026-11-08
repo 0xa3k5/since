@@ -1,11 +1,31 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from '../lib/ui.ts';
-import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel } from '../lanes/lanes.ts';
-import { cleanupPanel } from './cleanup-view.ts';
+import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel, type ActionId, type CanSwitch, type LaneConflict, type LoadToken, type SwitchTo, type ViewLane } from '../lanes/lanes.ts';
+import { cleanupPanel, type CleanupPanelOptions } from './cleanup-view.ts';
 import { authorsOf } from '../review/review-rows.ts';
-import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.ts';
+import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished, type TabId } from './branches.ts';
 import { branchPreview, laneBadges } from './branch-preview.ts';
 import { authorsStack } from '../review/reader.ts';
 import * as keymap from '../palette/keymap.ts';
+import type { git as gitCall } from '../lib/bridge.ts';
+import type { GitFeature } from '../lib/git-version.ts';
+import type { ForecastPair } from '../../shared/git-types.ts';
+
+export interface BranchesViewOptions {
+  repo?: unknown; git?: typeof gitCall | null;
+  load(opts: { prs: boolean }): Promise<{ base: string | null; lanes: ViewLane[] } | null>;
+  forecast?: () => Promise<{ supported: boolean; pairs: ForecastPair[] } | null>;
+  prs?: () => ViewLane[]; markAgents?: () => boolean;
+  onOpen(l: ViewLane): void; onReview(l: ViewLane, base: string | null): void; onMerge(l: ViewLane, base: string | null): void;
+  onAction(id: string, l: ViewLane, base: string | null): void;
+  canSwitch?: CanSwitch | null; switchTo?: SwitchTo | null; onNewWorktree?: (() => void) | null; onCount?(n: number): void;
+  paneWidth?(): number | null; setPaneWidth?(px: number): void;
+  tab?: string | null; only?: string | null; cleanup: Omit<CleanupPanelOptions, 'onBack'>; gitWhy?(feature: GitFeature): string | null;
+}
+export interface BranchesView {
+  el: HTMLElement; refresh(): void; rerender(): void; setTab(id: string): void; cleanup(l?: ViewLane | null): void;
+  panel: ReturnType<typeof cleanupPanel>; tab(): TabId; selected(): { lane: ViewLane; base: string | null } | null;
+  run(id: string): unknown; can(id: string): boolean;
+}
 
 // Branches (AK-396, ⌘5): every local branch and worktree on this Mac, one list at a time behind tabs
 // (branches.js BRANCH_TABS; 1–5): Active · Agent-made · Would conflict · Idle · Finished. Finished is
@@ -17,14 +37,14 @@ import * as keymap from '../palette/keymap.ts';
 // and tidies, B rebases, O opens its checks, ⌘⌫ deletes it (⌘Z brings it back), X cleans up a finished one;
 // typing filters. Local data only (no `gh`): pull requests come from Review's last load.
 
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const TAB = new Map(BRANCH_TABS.map((t) => [t.id, t]));
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const isTab = (id: unknown): id is TabId => BRANCH_TABS.some((t) => t.id === id);
 const DEBOUNCE = 400;
 // Branch keys → their action (lanes.js ACTIONS).
-const KEYS = { 'branches.review': 'review', 'branches.merge': 'merge', 'branches.rebase': 'rebase', 'branches.checks': 'checks', 'branches.delete': 'delete', 'branches.cleanup': 'cleanup' };
-const ACTION_KEYS = Object.fromEntries(Object.entries(KEYS).map(([k, v]) => [v, k]));
+const KEYS: Record<string, ActionId> = { 'branches.review': 'review', 'branches.merge': 'merge', 'branches.rebase': 'rebase', 'branches.checks': 'checks', 'branches.delete': 'delete', 'branches.cleanup': 'cleanup' };
+const ACTION_KEYS: Partial<Record<ActionId, string>> = Object.fromEntries(Object.entries(KEYS).map(([k, v]) => [v, k]));
 // The last tab, kept across visits (this window, this session).
-let lastTab = 'active';
+let lastTab: TabId = 'active';
 
 // load({ prs }) → app:lanes-list; forecast() → app:lanes-forecast; prs() → the lanes with a PR from
 // Review's last load (keepPrs); markAgents() reads the setting. onOpen(lane), onReview(lane, base),
@@ -33,17 +53,17 @@ let lastTab = 'active';
 // badge). paneWidth()/setPaneWidth(px) keep the pane's width, shared with Review. `tab` opens on that
 // tab; `only` (a laneKey) opens Finished with just that branch ticked. `cleanup` holds Clean up's
 // own props (cleanup-view.js cleanupPanel: run, runRemote, days, onProgress, onDone, onUndo).
-export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, switchTo = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup, gitWhy = () => null }) {
-  let lanes = [];
-  let byTab = branchTabs([]);
-  let shown = [];
-  let selKey = null;
-  let base = null;
+export function branchesView({ repo = null, git = null, load, forecast = async () => null, prs = () => [], markAgents = () => true, onOpen, onReview, onMerge, onAction, canSwitch = null, switchTo = null, onNewWorktree = null, onCount = () => {}, paneWidth = () => null, setPaneWidth = () => {}, tab: initial = null, only = null, cleanup, gitWhy = () => null }: BranchesViewOptions): BranchesView {
+  let lanes: ViewLane[] = [];
+  let byTab = branchTabs<ViewLane>([]);
+  let shown: ViewLane[] = [];
+  let selKey: string | null = null;
+  let base: string | null = null;
   let loaded = false;
   let forecastOk = true;
-  let conflicts = new Map();
+  let conflicts = new Map<string, LaneConflict[]>();
   let timer = 0;
-  let tab = TAB.has(initial) ? initial : lastTab;
+  let tab: TabId = isTab(initial) ? initial : lastTab;
   const loads = loadGuard();
   const previewFiles = new Map();
 
@@ -53,7 +73,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   const count = h('span.muted.lanes-count');
   const sub = h('p.muted');
   const tabBar = h('div.review-tabs', { role: 'tablist', 'aria-label': 'Branch lists' });
-  const newBtn = onNewWorktree ? h('button.btn.ghost.small', { onclick: () => onNewWorktree(), 'data-tip': tipFor('New worktree…', 'repo.worktreeAdd') }, icon('plus', 14), 'New worktree…', kbd(...keymap.keys('repo.worktreeAdd'))) : null;
+  const newBtn = onNewWorktree ? h('button.btn.ghost.small', { onclick: () => onNewWorktree(), 'data-tip': tipFor('New worktree…', 'repo.worktreeAdd') }, icon('plus', 14), 'New worktree…', kbd(...(keymap.keys('repo.worktreeAdd') ?? []))) : null;
   const head = h('div.review-top', null,
     h('div.page-head.review-head', null,
       h('div.review-head-row', null, h('h1', null, 'Branches'), count, h('span.spacer'), newBtn),
@@ -74,26 +94,27 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
     const box = el.getBoundingClientRect();
-    let px = null;
-    const onMove = (m) => { px = Math.round(Math.max(360, Math.min(box.width - 320, box.right - m.clientX))); el.style.setProperty('--pane-w', `${px}px`); };
+    let px: number | null = null;
+    const onMove = (m: PointerEvent) => { px = Math.round(Math.max(360, Math.min(box.width - 320, box.right - m.clientX))); el.style.setProperty('--pane-w', `${px}px`); };
     const onUp = () => { handle.removeEventListener('pointermove', onMove); handle.removeEventListener('pointerup', onUp); if (px) setPaneWidth(px); };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
   });
 
   // Who made it: the PR's author and the agent guess (review-rows.js authorsOf), when there's one.
-  const authors = (l) => authorsOf({ pr: l.pr || null, agent: l.agent || null, agents: markAgents() });
+  const authors = (l: ViewLane) => authorsOf({ pr: l.pr || null, agent: l.agent || null, agents: markAgents() });
 
   // The quiet line under the name. Would conflict: what it clashes with; Finished: why it's done.
-  function line(l) {
-    if (tab === 'conflict' && l.conflicts?.length) {
+  function line(l: ViewLane): { text: string; cls: string; title?: string } {
+    const first = l.conflicts?.[0];
+    if (tab === 'conflict' && l.conflicts && first) {
       const more = l.conflicts.length > 1 ? ` · and ${plural(l.conflicts.length - 1, 'other')}` : '';
-      return { text: conflictText(l.conflicts[0], 2) + more, cls: '.warn', title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') };
+      return { text: conflictText(first, 2) + more, cls: '.warn', title: l.conflicts.map((c) => conflictText(c, 10)).join('\n') };
     }
     return { text: branchLine(l), cls: '' };
   }
 
-  function row(l) {
+  function row(l: ViewLane) {
     const key = laneKey(l);
     const active = key === selKey;
     const who = authors(l);
@@ -106,7 +127,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
       ondblclick: () => onOpen(l),
       oncontextmenu: (e) => { e.preventDefault(); select(key); menu(e.clientX, e.clientY, l); },
     },
-      h('span.review-dot' + (dot ? `.${dot}` : ''), { role: 'img', 'aria-label': { warn: 'Would conflict', red: 'CI failing', green: 'Work in progress' }[dot] || 'Branch' }),
+      h('span.review-dot' + (dot ? `.${dot}` : ''), { role: 'img', 'aria-label': ({ warn: 'Would conflict', red: 'CI failing', green: 'Work in progress' } as Record<string, string>)[dot] || 'Branch' }),
       h('div.list-main', null,
         h('div.list-title', null, h('span.lanes-name.branches-name', { title: l.name }, l.name), ...laneBadges(l).filter((b) => b && !b.classList.contains('lanes-conflict'))),
         h('div.list-sub.review-row-sub' + ln.cls, null,
@@ -120,7 +141,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     const q = filter.value.trim();
     shown = filterBranches(byTab[tab], q);
     if (!shown.some((l) => laneKey(l) === selKey)) selKey = shown[0] ? laneKey(shown[0]) : null;
-    const rows = [];
+    const rows: HTMLElement[] = [];
     if (tab === 'conflict' && !q) {
       rows.push(h('div.branches-explain', null, h('b', null, 'Would conflict'), ' lists branches that would conflict if they were merged — with ', h('span.mono', null, base || 'main'), ' or with another branch here. Since checks this on your Mac with git, without merging anything.'));
     }
@@ -135,7 +156,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   function emptyText() {
     if (tab === 'agents' && !markAgents()) return 'Agent-made marks are off. Turn on “Mark branches that look agent-made” in ⌘K.';
     if (tab === 'conflict' && !forecastOk) return 'The conflict forecast needs git 2.38 or later.';
-    return { active: 'No active branches. Branches with commits or edits in the last 3 days show here.', agents: 'No agent-made branches.', conflict: 'Nothing would conflict.', idle: 'No idle branches.', finished: 'Nothing to clean up.' }[tab];
+    return ({ active: 'No active branches. Branches with commits or edits in the last 3 days show here.', agents: 'No agent-made branches.', conflict: 'Nothing would conflict.', idle: 'No idle branches.', finished: 'Nothing to clean up.' } as Record<TabId, string>)[tab];
   }
 
   function renderHead() {
@@ -157,24 +178,25 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     const l = current();
     if (!l) { paneHost.replaceChildren(h('div.review-none.branches-pane-empty', null, loaded ? 'Select a branch to see it here.' : '')); return; }
     const key = laneKey(l);
-    if (paneHost.firstChild?.dataset?.key === key && paneHost.firstChild.lane === l) return;
+    const shownPane = paneHost.firstElementChild as (HTMLElement & { lane?: ViewLane }) | null;
+    if (shownPane?.dataset.key === key && shownPane.lane === l) return;
     paneHost.replaceChildren(branchPreview({ lane: l, key, base, git, cache: previewFiles, onRun: (a, x) => run(a, x), keys: ACTION_KEYS, remove: true }));
   }
 
   const current = () => shown.find((l) => laneKey(l) === selKey) || null;
-  function select(key, scroll = true) {
+  function select(key: string | null, scroll = true) {
     selKey = key;
-    list.querySelectorAll('.lanes-row').forEach((r) => { const on = r.dataset.key === key; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
+    list.querySelectorAll<HTMLElement>('.lanes-row').forEach((r) => { const on = r.dataset.key === key; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
     if (scroll) list.querySelector('.lanes-row.active')?.scrollIntoView({ block: 'nearest' });
     syncPane();
   }
-  function move(d) {
-    if (!shown.length) return;
+  function move(d: number) {
     const i = shown.findIndex((l) => laneKey(l) === selKey);
-    select(laneKey(shown[Math.max(0, Math.min(shown.length - 1, i + d))]));
+    const to = shown[Math.max(0, Math.min(shown.length - 1, i + d))];
+    if (to) select(laneKey(to));
   }
-  function setTab(id) {
-    if (!TAB.has(id)) return;
+  function setTab(id: string) {
+    if (!isTab(id)) return;
     tab = lastTab = id;
     if (filter.value) filter.value = '';
     render();
@@ -182,12 +204,12 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   }
 
   // Why an action doesn't apply to the lane (null when it does); the keys toast it, the menu greys it.
-  const why = (id, l) => actionWhy(id, l, { base, finished: isFinished(l), canSwitch });
-  const can = (id, l) => !why(id, l);
-  function run(id, l) {
+  const why = (id: string, l: ViewLane) => actionWhy(id, l, { base, finished: isFinished(l), canSwitch });
+  const can = (id: string, l: ViewLane) => !why(id, l);
+  function run(id: string, l: ViewLane | null) {
     if (!l) return;
     const no = why(id, l);
-    if (no) return toast(`${ACTIONS[id]?.label || 'That'} doesn’t apply to ${l.name}`, { detail: no });
+    if (no) return toast(`${(ACTIONS as Record<string, { label: string }>)[id]?.label || 'That'} doesn’t apply to ${l.name}`, { detail: no });
     if (id === 'review') onReview(l, base);
     else if (id === 'merge') onMerge(l, base);
     else if (id === 'open') onOpen(l);
@@ -196,12 +218,12 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   }
 
   // Finished, with just this branch ticked (X, ⌘K, the global Clean up key on a branch).
-  function showCleanup(l = null) {
+  function showCleanup(l: ViewLane | null = null) {
     setTab('finished');
     if (l) panel.only(laneKey(l));
   }
 
-  function menu(x, y, l) {
+  function menu(x: number, y: number, l: ViewLane) {
     contextMenu(x, y, [
       { label: l.worktree && !l.worktree.current && !l.worktree.prunable ? 'Switch to Worktree' : 'Show in Map', icon: l.worktree ? 'worktree' : 'map', kbd: keymap.keys('branches.open'), run: () => onOpen(l) },
       { label: 'Review Branch', icon: 'check', kbd: keymap.keys('branches.review'), disabled: !can('review', l), why: why('review', l), run: () => run('review', l) },
@@ -215,7 +237,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   }
 
   // Keys shared by the list and the filter box; in the box, letters type instead.
-  function command(e, typing) {
+  function command(e: KeyboardEvent, typing: boolean): boolean {
     const id = keymap.match('branches', e);
     if (!id || (typing && e.key.length === 1)) return false;
     if (id === 'branches.next') move(1);
@@ -228,7 +250,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
       el.focus({ preventScroll: true });
     } else if (id === 'branches.open') { const l = current(); if (l) onOpen(l); }
     else if (typing && id === 'branches.delete') return false; // ⌘⌫ deletes the word typed
-    else if (BRANCH_TABS.some((t) => t.keyId === id)) { if (typing) return false; setTab(BRANCH_TABS.find((t) => t.keyId === id).id); }
+    else if (BRANCH_TABS.some((t) => t.keyId === id)) { if (typing) return false; setTab(BRANCH_TABS.find((t) => t.keyId === id)?.id ?? 'active'); }
     else if (KEYS[id]) { const l = current(); if (!l) return false; run(KEYS[id], l); }
     else return false;
     e.preventDefault();
@@ -237,14 +259,14 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
   }
   el.addEventListener('keydown', (e) => {
     if (tab === 'finished') {
-      if (e.target !== el && !panel.el.contains(e.target)) return;
+      if (e.target !== el && !panel.el.contains(e.target as Node | null)) return;
       if (panel.keydown(e)) return;
       // Only the tab keys besides: the branch keys would act on a row the list isn't showing.
       const id = keymap.match('branches', e);
       if (BRANCH_TABS.some((t) => t.keyId === id)) command(e, false);
       return;
     }
-    if (paneHost.contains(e.target) || e.target === filter || command(e, false)) return;
+    if (paneHost.contains(e.target as Node | null) || e.target === filter || command(e, false)) return;
     if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -269,7 +291,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     render();
     runForecast(t);
   }
-  async function runForecast(t) {
+  async function runForecast(t: LoadToken) {
     const res = await forecast().catch(() => null);
     if (!res || !loads.lanes(t) || !el.isConnected) return;
     forecastOk = res.supported;
@@ -277,7 +299,7 @@ export function branchesView({ repo = null, git = null, load, forecast = async (
     lanes = sortLanes(withConflicts(lanes, conflicts));
     render();
   }
-  const fail = (e) => { loaded = true; panel.update(lanes, base); render(); toast('Could not load branches', { kind: 'error', detail: e.message }); };
+  const fail = (e: Error) => { loaded = true; panel.update(lanes, base); render(); toast('Could not load branches', { kind: 'error', detail: e.message }); };
 
   // Repo changes: debounced, local only; window focus recounts the other worktrees.
   function refresh() {
