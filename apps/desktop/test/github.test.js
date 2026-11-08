@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
-const remote = (name, url) => ({ name, url, web: require('../src/main/git').remoteWebUrl(url) });
+const remote = (name, url) => ({ name, url, web: require('../src/main/git/index.ts').remoteWebUrl(url) });
 const ORIGIN = remote('origin', 'git@github.com:acme/app.git');
 
 // A folder with a fake `gh` so findBinary finds it; the exec stub records calls instead of running it.
@@ -322,7 +322,7 @@ test('mergeInfo: one pr view and one repo view, with the gate', async () => {
 });
 
 test('ipc: prNumber and knownRemote', () => {
-  const check = require('../src/main/ipc');
+  const check = require('../src/main/ipc.ts');
   assert.equal(check.prNumber(3), 3);
   for (const bad of [0, -1, 1.5, '3', null]) assert.throws(() => check.prNumber(bad), check.IpcArgError);
   assert.equal(check.knownRemote([ORIGIN], 'origin'), ORIGIN);

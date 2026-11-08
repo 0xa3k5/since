@@ -2,7 +2,7 @@
 // Review stages (renderer/review-rows.js reviewRows) and the PR fields they read (github.normalizePr).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
 const load = () => import('../src/renderer/review/review-rows.js');
 const NOW = Date.parse('2026-10-15T12:00:00Z');
@@ -564,7 +564,7 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
 });
 
 test('git.js and Catch up read agents from the same list (AK-393)', async () => {
-  const git = require('../src/main/git');
+  const git = require('../src/main/git/index.ts');
   const { AGENT_HINTS } = await import('../src/renderer/lib/agents.js');
   const { messageAgent } = await load();
   assert.equal(git.AGENT_HINTS, AGENT_HINTS);

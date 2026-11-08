@@ -16,7 +16,7 @@ process.env.SSH_ASKPASS = '/usr/bin/false';
 process.env.SSH_ASKPASS_REQUIRE = 'force';
 process.env.GNUPGHOME = path.join(tmp, 'gnupg');
 fs.mkdirSync(process.env.GNUPGHOME, { mode: 0o700 });
-const git = require('../src/main/git');
+const git = require('../src/main/git/index.ts');
 
 const has = (bin) => { try { execFileSync('which', [bin], { stdio: 'ignore' }); return true; } catch { return false; } };
 const sshKey = (name, pass) => {

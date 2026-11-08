@@ -14,7 +14,7 @@
     "watch": "node scripts/build.js --watch",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json",
     "start": "node scripts/dev-app-name.js && node scripts/build.js --dev && electron .",
-    "test": "pnpm run typecheck && node --test \"test/**/*.test.js\"",
+    "test": "pnpm run typecheck && node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \"test/**/*.test.js\"",
     "test:e2e": "playwright test -c e2e",
     "dist": "node scripts/build.js && electron-builder --mac --config electron-builder.config.js --publish never",
     "brand-assets": "electron scripts/render-brand-assets.js",

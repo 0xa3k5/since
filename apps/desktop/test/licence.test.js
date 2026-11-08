@@ -20,6 +20,6 @@ test('every package declares GPL-3.0-or-later', () => {
 
 test('the app bundle and the About panel carry the same copyright line', () => {
   assert.ok(read('apps/desktop/electron-builder.config.js').includes(`copyright: '${COPYRIGHT}'`));
-  assert.ok(read('apps/desktop/src/main/main.js').includes(`copyright: '${COPYRIGHT}'`));
+  assert.ok(read('apps/desktop/src/main/main.ts').includes(`copyright: '${COPYRIGHT}'`));
   assert.ok(read('apps/web/src/config.ts').includes(`COPYRIGHT = '${COPYRIGHT}'`));
 });

@@ -6,8 +6,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
-const { Journal } = require('../src/main/journal');
+const git = require('../src/main/git/index.ts');
+const { Journal } = require('../src/main/journal.ts');
 
 async function repo() {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-wt-')));

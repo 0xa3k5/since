@@ -9,10 +9,10 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
 ## Layout
 
 - `apps/desktop`: the app.
-  - `src/main/`: the main process. `main.js` (entry, app lifecycle), `windows.js`, `menu.js`,
-    `lockdown.js` (session lock-down), `handlers/` (IPC handlers by area), `ipc.js` (argument checks
-    for every IPC call), `git/` (all git calls: `run.js` spawns git, one module per area, `index.js` exports them), `journal.js` (undo/redo),
-    `updater.js`, `github.js`, `ai.js`, and `stores/` (recent repos, catch-up, window state, tabs)
+  - `src/main/`: the main process. `main.ts` (entry, app lifecycle), `windows.ts`, `menu.ts`,
+    `lockdown.ts` (session lock-down), `handlers/` (IPC handlers by area), `ipc.ts` (argument checks
+    for every IPC call), `git/` (all git calls: `run.ts` spawns git, one module per area, `index.ts` exports them), `journal.ts` (undo/redo),
+    `updater.ts`, `github.ts`, `ai.ts`, and `stores/` (recent repos, catch-up, window state, tabs)
   - `src/preload/preload.ts`: the sandboxed bridge (`window.since`)
   - `src/shared/channels.ts`: IPC channel names; `src/shared/ipc-contract.ts`: what each channel
     takes and returns, shared by main, preload and renderer
@@ -52,8 +52,8 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
   about irreversible actions only. Teaching goes on the website docs.
 - Light and dark themes are both first-class for every UI change.
 - Everything that changes a local repo (refs, work tree, stashes, config) is undoable through
-  `journal.js`. Identify stashes by SHA, not by `stash@{n}` index.
-- Every IPC argument is validated in `ipc.js`; the renderer is sandboxed and has no network.
+  `journal.ts`. Identify stashes by SHA, not by `stash@{n}` index.
+- Every IPC argument is validated in `ipc.ts`; the renderer is sandboxed and has no network.
 - No network calls beyond those listed in `docs/security.md`.
 - Use tokens (`var(--…)`) instead of hard-coded colours.
 - No competitor names anywhere public-facing or shipped (code, UI, README, website, changelog).

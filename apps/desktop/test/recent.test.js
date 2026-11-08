@@ -45,7 +45,7 @@ test('recent.json: closing a repository removes it; others and the order stay', 
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
-  const store = require('../src/main/stores/recent-store');
+  const store = require('../src/main/stores/recent-store.ts');
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-recent-')));
   const file = path.join(tmp, 'data', 'recent.json');
   const dirs = ['a', 'b', 'c'].map((n) => { fs.mkdirSync(path.join(tmp, n)); return { root: path.join(tmp, n), name: n }; });
@@ -70,7 +70,7 @@ test('closing a repository cancels the Review, Branches and Catch up loads still
   const main = require('./main-source').mainSource();
   const handler = (name) => { const start = main.indexOf(`handle('${name}'`); return main.slice(start, main.indexOf('\n}', start)); };
   // The session's `closed` signal is aborted on dispose (close, reopen, window closed).
-  assert.match(main, /dispose\(\) \{\n\s+this\.closed\.abort\(\);/);
+  assert.match(main, /dispose\(\)(?:: void)? \{\n\s+this\.closed\.abort\(\);/);
   for (const name of ['app:lanes-list', 'app:catchup', 'app:pr-list']) {
     const h = handler(name);
     // One session lookup, before anything is awaited: no "No repository open in this window" later.

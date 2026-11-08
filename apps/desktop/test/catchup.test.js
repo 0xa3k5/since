@@ -7,9 +7,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
-const github = require('../src/main/github');
-const store = require('../src/main/stores/catchup-store');
+const git = require('../src/main/git/index.ts');
+const github = require('../src/main/github.ts');
+const store = require('../src/main/stores/catchup-store.ts');
 
 const tmp = (p) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `since-catchup-${p}-`)));
 let clock = 1700000000;
@@ -243,7 +243,7 @@ test('a root commit reads its whole tree as its files (AK-287)', async () => {
 });
 
 test('app:catchup options: default base, other branches and bad refs (AK-377)', async () => {
-  const { catchupOptions, WEEK } = require('../src/main/stores/catchup-store');
+  const { catchupOptions, WEEK } = require('../src/main/stores/catchup-store.ts');
   const now = 1e12;
   const cp = { sha: 'a'.repeat(40), date: now - 1000 };
   let asked = 0;

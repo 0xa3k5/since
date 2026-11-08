@@ -6,7 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const updater = require('../src/main/updater');
+const { useElectron } = require('./fake-electron.js');
+const updater = require('../src/main/updater.ts');
 const { compareVersions, buildFeed, readFeed, feedUrl, feedName, squirrelFeedName, squirrelFeedUrl, zipName, isSignedOutput } = updater;
 const pkg = require('../package.json');
 
@@ -84,8 +85,6 @@ test('only bundles with a real signing identity are handed to Squirrel', () => {
 test('a pre-release hands the release entry to Squirrel, reports a refused update and restarts into a downloaded one', async () => {
   const { EventEmitter } = require('node:events');
   const childProcess = require('node:child_process');
-  const Module = require('node:module');
-  const load = Module._load;
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   const execFile = childProcess.execFile;
   const autoUpdater = Object.assign(new EventEmitter(), { feeds: [], installs: 0, setFeedURL(o) { this.feeds.push(o); }, checkForUpdates() {}, quitAndInstall() { this.installs++; } });
@@ -93,7 +92,7 @@ test('a pre-release hands the release entry to Squirrel, reports a refused updat
   const fetched = [];
   const session = { fromPartition: () => ({ fetch: async (url) => { fetched.push(url); return { status: 200, ok: true, json: async () => buildFeed({ version: '0.1.1', url: zip }) }; } }) };
   const electron = { app: { isPackaged: true, getVersion: () => '0.1.0-rc.4' }, autoUpdater, session };
-  Module._load = function (request, ...rest) { return request === 'electron' ? electron : load.call(this, request, ...rest); };
+  useElectron(electron);
   Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' });
   childProcess.execFile = (_cmd, _args, cb) => cb(null, '', 'Authority=Developer ID Application: Test\n');
   try {
@@ -117,6 +116,6 @@ test('a pre-release hands the release entry to Squirrel, reports a refused updat
   } finally {
     Object.defineProperty(process, 'platform', platform);
     childProcess.execFile = execFile;
-    Module._load = load;
+    useElectron({});
   }
 });

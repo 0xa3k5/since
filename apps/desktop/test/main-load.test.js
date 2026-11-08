@@ -3,7 +3,7 @@
 // stubbed so a handler registered before its helper is declared fails here, not at app start.
 const test = require('node:test');
 const assert = require('node:assert');
-const Module = require('node:module');
+const { useElectron } = require('./fake-electron.js');
 const os = require('node:os');
 
 // Every property is another stub, every call returns one. The app never gets ready, so no window opens.
@@ -27,12 +27,11 @@ test('main.js loads without errors', () => {
   const electron = stub();
   const ipcMain = { handle: (ch) => channels.push(ch), on() {}, removeHandler() {} };
   const fake = new Proxy({}, { get: (_t, k) => (k === 'ipcMain' ? ipcMain : electron[k]) });
-  const load = Module._load;
-  Module._load = function (req, ...rest) { return req === 'electron' ? fake : load.call(this, req, ...rest); };
+  useElectron(fake);
   try {
-    require('../src/main/main.js');
+    require('../src/main/main.ts');
   } finally {
-    Module._load = load;
+    useElectron({});
   }
   assert.ok(channels.includes('app:git-info'));
   assert.ok(channels.includes('app:ai-preview'));

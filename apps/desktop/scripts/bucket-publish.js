@@ -25,7 +25,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { compareVersions, parseVersion, feedName, squirrelFeedName, zipName } = require('../src/main/updater');
+const { compareVersions, parseVersion, feedName, squirrelFeedName, zipName } = require('../src/main/updater.ts');
 
 const BUCKET = 'gitlanes-beta';
 // The feed host baked into every beta build.

@@ -3,7 +3,7 @@
 // (renderer/gh-gates.js), and the login script Terminal runs (github.loginScript).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const github = require('../src/main/github');
+const github = require('../src/main/github.ts');
 
 const load = () => import('../src/renderer/prs/gh-gates.js');
 const info = (o) => ({ state: 'open', ...o, gate: github.mergeGate({ state: 'open', ...o }) });

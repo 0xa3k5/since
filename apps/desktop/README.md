@@ -20,10 +20,10 @@ smoke screenshots (saved under `test-results/`). CI runs the suite on macOS and 
 A known bug is kept as a `test.fail` so the suite flags when it is fixed.
 
 ## Architecture
-- `src/main/git/`: dependency-free git CLI layer, one module per area (`run.js` spawns git, `index.js` exports every call) (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
-- `src/main/updater.js`: update checks and install (see Updates).
-- `src/main/main.js`: the entry; `windows.js`, `menu.js`, `lockdown.js`, `session.js` (FSEvents watcher for live refresh, unlimited undo/redo journal in `.git/since-history.json`) and `handlers/` (IPC by area) hold the rest.
-- `src/main/ipc.js`: argument checks for every IPC call. The renderer is sandboxed, has no network access and only reaches git through these checks; see [docs/security.md](../../docs/security.md).
+- `src/main/git/`: dependency-free git CLI layer, one module per area (`run.ts` spawns git, `index.ts` exports every call) (log/refs/status parsing, partial-line patches, history rewriting via scripted `rebase -i`, ref snapshots).
+- `src/main/updater.ts`: update checks and install (see Updates).
+- `src/main/main.ts`: the entry; `windows.ts`, `menu.ts`, `lockdown.ts`, `session.ts` (FSEvents watcher for live refresh, unlimited undo/redo journal in `.git/since-history.json`) and `handlers/` (IPC by area) hold the rest.
+- `src/main/ipc.ts`: argument checks for every IPC call. The renderer is sandboxed, has no network access and only reaches git through these checks; see [docs/security.md](../../docs/security.md).
 - `src/preload/preload.ts`: the sandboxed bridge; `src/shared/channels.ts`: the IPC channel names; `src/shared/ipc-contract.ts`: what each channel takes and returns, so a mismatched call fails `tsc`.
 - `scripts/build.js`: builds `src/` into `out/`, which Electron runs and electron-builder packages. esbuild transpiles each `.ts` file on its own (no bundling) and copies everything else; `pnpm test` type-checks with `tsc` first.
 - `src/renderer/`: ES modules, one folder per area, wired together by `app.js`. Imports only point down; a lower module calls a higher one through `lib/upcalls.js`. Canvas commit graph + virtualized list. The log streams in from git

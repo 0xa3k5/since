@@ -7,7 +7,7 @@ const { GIT, APP_PREFIX, PUSH } = require('../src/shared/channels.ts');
 
 const src = path.join(__dirname, '..', 'src');
 const read = (f) => fs.readFileSync(path.join(src, f), 'utf8');
-const mainFiles = fs.readdirSync(path.join(src, 'main'), { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => `main/${f}`);
+const mainFiles = fs.readdirSync(path.join(src, 'main'), { recursive: true }).filter((f) => /\.(js|ts)$/.test(f)).map((f) => `main/${f}`);
 
 test('the preload lets through exactly the shared push channels', () => {
   const preload = read('preload/preload.ts');
@@ -33,7 +33,7 @@ test('every invoke channel the main process handles is git or app:', () => {
 
 test('the git methods in the contract are exactly the ones ipc.js checks', () => {
   const { GIT_METHODS } = require('../src/shared/channels.ts');
-  const { gitSchemas } = require('../src/main/ipc.js');
+  const { gitSchemas } = require('../src/main/ipc.ts');
   assert.deepEqual([...GIT_METHODS].sort(), Object.keys(gitSchemas).sort());
 });
 
@@ -54,7 +54,7 @@ test('every app call and git call in the renderer is in the contract', () => {
 });
 
 test('handle() refuses a channel that is not in the contract', () => {
-  const source = read('main/handlers/handle.js');
-  assert.match(source, /APP_CHANNELS\.includes\(channel\.slice\(APP_PREFIX\.length\)\)/);
+  const source = read('main/handlers/handle.ts');
+  assert.match(source, /APP_CHANNELS as readonly string\[\]\)\.includes\(channel\.slice\(APP_PREFIX\.length\)\)/);
   assert.match(source, /if \(!known\) throw/);
 });

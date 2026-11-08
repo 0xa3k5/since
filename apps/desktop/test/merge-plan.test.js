@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
-const github = require('../src/main/github');
+const git = require('../src/main/git/index.ts');
+const github = require('../src/main/github.ts');
 
 const load = () => import('../src/renderer/lanes/merge-plan.js');
 
@@ -239,7 +239,7 @@ test('repoMergeMethods, openPrBranches and mergeStack call gh the way the plan n
 
 test('clean up after merging: removes worktrees and branches, skips dirty and checked-out ones, one undo', async () => {
   const { cleanupItems, cleanupSummary } = await load();
-  const { Journal } = require('../src/main/journal');
+  const { Journal } = require('../src/main/journal.ts');
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-mergeplan-')));
   const dir = path.join(parent, 'app');
   fs.mkdirSync(dir);

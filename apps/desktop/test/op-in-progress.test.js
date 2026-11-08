@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
-const { Journal } = require('../src/main/journal');
-const { checkGit } = require('../src/main/ipc');
+const git = require('../src/main/git/index.ts');
+const { Journal } = require('../src/main/journal.ts');
+const { checkGit } = require('../src/main/ipc.ts');
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-test-')));
 
@@ -260,7 +260,7 @@ test('the banner’s Abort offers the saved files back, without an Undo (the abo
 
 test('every branch switch is a git method that gets the stopped-op toast (AK-577)', async () => {
   const { SWITCHES } = await import('../src/renderer/commit/resolve-text.js');
-  const { gitSchemas } = require('../src/main/ipc');
+  const { gitSchemas } = require('../src/main/ipc.ts');
   assert.ok(SWITCHES.has('checkout') && SWITCHES.has('moveCheckout'));
   for (const m of SWITCHES) assert.ok(gitSchemas[m], `${m} is a git method`);
 });

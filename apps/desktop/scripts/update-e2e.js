@@ -21,7 +21,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('@playwright/test');
-const { feedName, zipName } = require('../src/main/updater');
+const { feedName, zipName } = require('../src/main/updater.ts');
 
 const APP_DIR = path.join(__dirname, '..');
 const KEEP = process.argv.includes('--keep');

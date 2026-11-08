@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
-const check = require('../src/main/ipc');
+const git = require('../src/main/git/index.ts');
+const check = require('../src/main/ipc.ts');
 
 async function repo() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'since-fh-')));

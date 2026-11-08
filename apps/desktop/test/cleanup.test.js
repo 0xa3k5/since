@@ -7,9 +7,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const git = require('../src/main/git');
-const { Journal } = require('../src/main/journal');
-const { checkGit } = require('../src/main/ipc');
+const git = require('../src/main/git/index.ts');
+const { Journal } = require('../src/main/journal.ts');
+const { checkGit } = require('../src/main/ipc.ts');
 
 const load = () => import('../src/renderer/branches/cleanup.js');
 let clock = 1700000000;

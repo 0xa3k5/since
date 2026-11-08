@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { byNumber, step, afterClose, reopenActive, remember, takeClosed } = require('../src/main/stores/tab-order');
+const { byNumber, step, afterClose, reopenActive, remember, takeClosed } = require('../src/main/stores/tab-order.ts');
 
 test('⌘1–⌘8 pick a tab by place, ⌘9 the last one', () => {
   assert.equal(byNumber(3, 1), 0);
@@ -37,8 +37,8 @@ test('launch shows the tab that was showing, else the last one', () => {
 test('tabs are views in one window; tab keys and IPC go through the keymap and ipc.js', async () => {
   const main = require('./main-source').mainSource();
   assert.doesNotMatch(main, /BrowserWindow/, 'every page is a tab in a BaseWindow');
-  assert.match(main, /check\.tabAction\(action\)/);
-  const { tabAction } = require('../src/main/ipc');
+  assert.match(main, /check\.tabAction\(action(?:, '[^']+')?\)/);
+  const { tabAction } = require('../src/main/ipc.ts');
   assert.equal(tabAction('next', 'tab action'), 'next');
   assert.throws(() => tabAction('reload', 'tab action'));
   const { defaults } = await import('../src/renderer/palette/keymap.js');

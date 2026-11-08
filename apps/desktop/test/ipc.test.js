@@ -3,16 +3,16 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const check = require('../src/main/ipc');
+const check = require('../src/main/ipc.ts');
 
 const root = path.join(__dirname, '..');
 const rejects = (fn, re) => assert.throws(fn, (e) => e instanceof check.IpcArgError && (!re || re.test(e.message)));
 
 test('every git method the main process serves has a schema, and nothing else does', () => {
   const main = require('./main-source').mainSource();
-  const block = (name) => main.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`))[1];
+  const block = (name) => main.match(new RegExp(`const ${name}(?:: [^=]+)? = \\{([\\s\\S]*?)\\n\\}(?: satisfies [^;]+)?;`))[1];
   const keys = (src) => [...src.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
-  const { workOps, worktreeOps, laneOps, remoteOps } = require('../src/main/journal');
+  const { workOps, worktreeOps, laneOps, remoteOps } = require('../src/main/journal.ts');
   const served = [...keys(block('reads')), ...keys(block('refMutations')), ...keys(block('plainMutations')), ...Object.keys(workOps), ...Object.keys(worktreeOps), ...Object.keys(remoteOps), ...laneOps, 'cleanupLanes', 'updateSubmodules', 'submoduleWork', 'autostashCheckout', 'switchDelete', 'switchMerge', 'switchRewrite', 'freeCheckout', 'moveCheckout', 'stashAnd', 'abortAnd', 'restoreResolved', 'undo', 'redo', 'restoreHistory'];
   assert.deepStrictEqual(Object.keys(check.gitSchemas).sort(), [...new Set(served)].sort());
 });
@@ -182,7 +182,7 @@ test('worktree folders: shape in the schema, membership against git worktree lis
 test('sessions reach no network, except the updater session to its feed host over https', () => {
   for (const url of ['file:///app/renderer/index.html', 'data:image/png;base64,AA==', 'devtools://devtools/x', 'since-media://video/' + '0'.repeat(32)]) assert.ok(check.requestAllowed(url), url);
   for (const url of ['https://github.com/x', 'http://example.com/', 'wss://example.com/', 'not a url']) assert.ok(!check.requestAllowed(url), url);
-  const updater = require('../src/main/updater');
+  const updater = require('../src/main/updater.ts');
   const feed = updater.feedUrl('https://github.com/0xa3k5/since/releases/latest/download', 'arm64');
   const allow = updater.feedOrigins(feed);
   assert.deepStrictEqual(allow, ['https://github.com', 'https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com']);
@@ -276,7 +276,7 @@ test('PR calls: positive PR numbers, a known remote, fixed merge options', () =>
   // AK-446: a missing remote is still refused, not defaulted.
   for (const v of [undefined, null, '']) rejects(() => check.knownRemote(remotes, v), /remote: (expected a string|empty)/);
   rejects(() => check.knownRemote([], 'origin'), /not a remote/);
-  const method = check.oneOf(...require('../src/main/github').MERGE_METHODS);
+  const method = check.oneOf(...require('../src/main/github.ts').MERGE_METHODS);
   for (const m of ['squash', 'merge', 'rebase']) assert.strictEqual(method(m, 'merge method'), m);
   for (const m of ['--admin', 'squash --admin', '', undefined]) rejects(() => method(m, 'merge method'));
   rejects(() => check.bool('true', 'delete branch'));
