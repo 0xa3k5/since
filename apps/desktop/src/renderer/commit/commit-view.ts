@@ -14,12 +14,19 @@ import { openDifftool } from './external-tools.ts';
 import { openMergetool, openFileHistory } from '../history/file-history.ts';
 import { loadCommit, fileRow } from '../graph/map.ts';
 import { copy, changesText } from '../graph/commit-actions.ts';
+import type { Child } from '../lib/ui.ts';
+import type { CommitViewState } from '../lib/app-helpers.ts';
+import type { StatusEntry } from '../../shared/git-types.ts';
+
+type List = CommitViewState['list'];
+type LineOp = 'discardLines' | 'stashLines' | 'stageLines' | 'unstageLines';
+export interface CommitView { refresh(): void; selectAll(): void }
 
 // Commit view (stage / unstage / partial lines / commit)
 
-function draftKey() { return 'draft:' + state.repo.root; }
+function draftKey() { return 'draft:' + (state.repo?.root ?? ''); }
 
-function createCommitView(container) {
+function createCommitView(container: HTMLElement): CommitView {
   const el = h('div.commit-view');
   const side = h('div.cv-side');
   const lists = h('div.cv-lists');
@@ -29,11 +36,11 @@ function createCommitView(container) {
   textarea.addEventListener('input', () => { try { localStorage.setItem(draftKey(), textarea.value); } catch { /* ignore */ } updateCommitBtn(); });
   textarea.addEventListener('keydown', (e) => { if (keymap.match('message', e) === 'message.commit') { e.preventDefault(); doCommit(); } });
   const amend = h('input', { type: 'checkbox', checked: state.amend, onchange: async (e) => {
-    state.amend = e.target.checked;
+    state.amend = (e.target as HTMLInputElement).checked;
     if (state.amend && !textarea.value.trim() && state.head.oid) { textarea.value = (await loadCommit(state.head.oid)).message; }
     updateCommitBtn();
   } });
-  const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(...keymap.keys('message.commit')));
+  const commitBtn = h('button.btn.primary.wide', { onclick: () => doCommit() }, 'Commit', kbd(...(keymap.keys('message.commit') ?? [])));
   // Only shown once the user has turned AI commit messages on.
   const aiBtn = h('button.icon-btn.ai-btn', { title: tip('Write message with AI', 'repo.aiMessage'), hidden: !aiOn(), onclick: () => writeMessageWithAi() }, icon('sparkle', 15));
   // Show changes as one list (Preferences → Git, or ⌘K): the unified page takes the lists' and the diff pane's place.
@@ -48,7 +55,7 @@ function createCommitView(container) {
   const composer = h('div.composer', null, uv ? summary : null, textarea, h('div.composer-row', null, h('label.check.small', null, amend, h('span', null, 'Amend last commit')), h('span.spacer'), aiBtn, commitBtn));
   // Split (Unstaged and Staged lists, one file's diff) or Unified (every change on one page); same switch as Preferences → Git.
   const layoutTip = tip('Switch between split and unified changes', 'cv.layout');
-  const layout = h('div.cv-layout', null, h('div.setup-seg', { role: 'group', 'aria-label': 'Changes layout' }, [['split', 'Split', false], ['unified', 'Unified', true]].map(([id, label, on]) => h('button', {
+  const layout = h('div.cv-layout', null, h('div.setup-seg', { role: 'group', 'aria-label': 'Changes layout' }, ([['split', 'Split', false], ['unified', 'Unified', true]] as const).map(([id, label, on]) => h('button', {
     type: 'button', 'aria-pressed': String(!!state.show.unified === on), title: layoutTip, 'data-layout': id,
     onclick: () => { if (!!state.show.unified !== on) up.toggleShow('unified'); },
   }, label))));
@@ -61,7 +68,7 @@ function createCommitView(container) {
     commitBtn.disabled = !can;
     // Greyed for a reason the message can't fix: the label says it.
     const n = state.status.staged.length;
-    commitBtn.firstChild.textContent = state.status.conflicts.length ? 'Resolve conflicts' : state.amend ? 'Amend' : n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing staged';
+    commitBtn.firstChild!.textContent = state.status.conflicts.length ? 'Resolve conflicts' : state.amend ? 'Amend' : n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing staged'; // firstChild: the label's text node
   }
 
   async function doCommit() {
@@ -78,41 +85,44 @@ function createCommitView(container) {
   }
 
   // Drag files between Unstaged and Staged. A row in the selection carries the whole selection.
-  let dragging = null;
-  function dragStart(e, list, f) {
+  let dragging: { from: List; paths: string[] } | null = null;
+  function dragStart(e: DragEvent, list: List, f: StatusEntry) {
     if (list !== state.cv.list || !state.cv.sel.has(f.path)) selectFile(list, f.path);
-    dragging = { from: list, paths: paths(targets(list, f)) };
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', dragging.paths.join('\n'));
-    e.dataTransfer.setData(up.CV_DRAG_TYPE, '');
+    const dt = e.dataTransfer!; // a dragstart always carries one
+    const drag = { from: list, paths: paths(targets(list, f)) };
+    dragging = drag;
+    dt.effectAllowed = 'move';
+    dt.setData('text/plain', drag.paths.join('\n'));
+    dt.setData(up.CV_DRAG_TYPE, '');
     // A status refresh can detach the source row mid-drag, so its own dragend never reaches us: clear at the window too.
     const done = () => { dragging = null; document.querySelectorAll('.cv-section.drop-target').forEach((s) => s.classList.remove('drop-target')); };
     window.addEventListener('dragend', done, { once: true });
     window.addEventListener('drop', done, { once: true });
-    if (dragging.paths.length > 1) {
-      const pill = h('div.drag-pill', null, `${dragging.paths.length} files`);
+    if (drag.paths.length > 1) {
+      const pill = h('div.drag-pill', null, `${drag.paths.length} files`);
       document.body.append(pill);
-      e.dataTransfer.setDragImage(pill, -8, -8);
+      dt.setDragImage(pill, -8, -8);
       setTimeout(() => pill.remove());
     }
   }
-  function dropZone(sec, list) {
+  function dropZone(sec: HTMLElement, list: List) {
     if (list === 'conflicts') return sec;
     // Only our own rows: a stale `dragging` must never turn a drag from Finder into a stage.
-    const over = (e) => dragging && e.dataTransfer.types.includes(up.CV_DRAG_TYPE) && dragging.from !== list && dragging.from !== 'conflicts';
-    sec.addEventListener('dragover', (e) => { if (!over(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
-    sec.addEventListener('dragleave', (e) => { if (!sec.contains(e.relatedTarget)) sec.classList.remove('drop-target'); });
+    const over = (e: DragEvent) => dragging && e.dataTransfer?.types.includes(up.CV_DRAG_TYPE) && dragging.from !== list && dragging.from !== 'conflicts';
+    sec.addEventListener('dragover', (e) => { if (!over(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; sec.classList.add('drop-target'); });
+    sec.addEventListener('dragleave', (e) => { if (!sec.contains(e.relatedTarget as Node | null)) sec.classList.remove('drop-target'); });
     sec.addEventListener('drop', (e) => {
       sec.classList.remove('drop-target');
-      if (!over(e)) return;
+      const d = dragging;
+      if (!over(e) || !d) return;
       e.preventDefault();
-      quiet(list === 'staged' ? 'stageFiles' : 'unstageFiles', dragging.paths);
+      quiet(list === 'staged' ? 'stageFiles' : 'unstageFiles', d.paths);
       dragging = null;
     });
     return sec;
   }
 
-  const section = (title, files, list, actions) => dropZone(h('div.cv-section', null,
+  const section = (title: string, files: StatusEntry[], list: List, actions: Child) => dropZone(h('div.cv-section', null,
     h('div.cv-section-head', null, h('span', null, title), h('span.sb-count', null, files.length), h('span.spacer'), actions),
     files.length ? h('div.file-list', null, files.map((f) => {
       const row = fileRow(f, (e) => clickFile(e, list, f.path), h('span.row-actions', null,
@@ -184,7 +194,7 @@ function createCommitView(container) {
         h('button.btn.ghost.tiny' + (gitTooOld('stashStaged') ? '.gated' : ''), { title: gitWhy('stashStaged') || tip('Stash only the staged changes', 'repo.stashStaged'), onclick: () => stashSave({ staged: true }) }, 'Stash'),
         h('button.btn.ghost.tiny', { onclick: () => quiet('unstageFiles', staged.map((f) => f.path)) }, 'Unstage all'),
       ] : null),
-    ].filter(Boolean));
+    ].filter((x) => x !== null));
     // Files that were staged, unstaged or discarded drop out of the selection.
     const left = new Set(paths(listFiles(state.cv.list)));
     state.cv.sel = new Set([...state.cv.sel].filter((p) => left.has(p)));
@@ -193,65 +203,65 @@ function createCommitView(container) {
   }
 
   // Multi-select: `sel` holds the selected paths of `state.cv.list`; the diff pane shows `state.cv.path`.
-  const listFiles = (list) => state.status[list] || [];
-  const paths = (files) => files.map((f) => f.path);
+  const listFiles = (list: List): StatusEntry[] => state.status[list] || [];
+  const paths = (files: readonly { path: string }[]) => files.map((f) => f.path);
   const selected = () => listFiles(state.cv.list).filter((f) => state.cv.sel.has(f.path));
   // A row action applies to the whole selection when the row is part of it, otherwise to that row only.
-  const targets = (list, f) => (list === state.cv.list && state.cv.sel.size > 1 && state.cv.sel.has(f.path) ? selected() : [f]);
+  const targets = (list: List, f: StatusEntry): StatusEntry[] => (list === state.cv.list && state.cv.sel.size > 1 && state.cv.sel.has(f.path) ? selected() : [f]);
 
   function markSelection() {
     const many = state.cv.sel.size > 1;
     lists.classList.toggle('multi', many);
-    lists.querySelectorAll('.file-row').forEach((r) => {
+    lists.querySelectorAll<HTMLElement>('.file-row').forEach((r) => {
       const mine = r.dataset.list === state.cv.list;
       r.classList.toggle('active', mine && r.dataset.path === state.cv.path);
-      r.classList.toggle('selected', many && mine && state.cv.sel.has(r.dataset.path));
+      r.classList.toggle('selected', many && mine && state.cv.sel.has(r.dataset.path ?? ''));
     });
   }
 
-  function selectFile(list, path, keep = false) {
+  function selectFile(list: List, path: string | null, keep = false) {
     if (state.cv.list !== list || state.cv.path !== path) { state.cv.lines = new Set(); state.cv.full = false; }
-    if (!keep) { state.cv.sel = new Set([path]); state.cv.anchor = path; }
+    if (!keep) { state.cv.sel = new Set(path == null ? [] : [path]); state.cv.anchor = path; }
     state.cv.list = list; state.cv.path = path;
     markSelection();
     renderDiffPane();
   }
 
   // Shift selects a range from the anchor, Cmd toggles one file. Both stay inside one list.
-  function selectRange(list, path) {
+  function selectRange(list: List, path: string) {
     const all = paths(listFiles(list));
-    const a = all.indexOf(state.cv.anchor), b = all.indexOf(path);
+    const a = state.cv.anchor == null ? -1 : all.indexOf(state.cv.anchor), b = all.indexOf(path);
     if (list !== state.cv.list || a === -1 || b === -1) return selectFile(list, path);
     state.cv.sel = new Set(all.slice(Math.min(a, b), Math.max(a, b) + 1));
     selectFile(list, path, true);
   }
-  function clickFile(e, list, path) {
+  function clickFile(e: MouseEvent, list: List, path: string) {
     if (e.shiftKey) return selectRange(list, path);
     // ⌘ only: on macOS Ctrl-click opens the context menu.
     if (!e.metaKey || list !== state.cv.list) return selectFile(list, path);
     const sel = new Set(state.cv.sel);
     if (sel.has(path) && sel.size > 1) sel.delete(path); else sel.add(path);
     state.cv.sel = sel; state.cv.anchor = path;
-    selectFile(list, sel.has(path) ? path : paths(listFiles(list)).find((p) => sel.has(p)), true);
+    selectFile(list, sel.has(path) ? path : paths(listFiles(list)).find((p) => sel.has(p)) ?? null, true);
   }
   function selectAll() {
     const all = paths(listFiles(state.cv.list));
     if (!all.length) return;
     state.cv.sel = new Set(all);
-    selectFile(state.cv.list, all.includes(state.cv.path) ? state.cv.path : all[0], true);
+    selectFile(state.cv.list, state.cv.path && all.includes(state.cv.path) ? state.cv.path : all[0] ?? null, true);
   }
 
-  async function discard(files) {
+  async function discard(files: StatusEntry[]) {
     // Restoring a submodule's recorded commit leaves the files inside it as they are.
     for (const f of files.filter((x) => x.inside)) await discardInSubmodule(f.path);
     files = files.filter((x) => !x.inside);
     if (!files.length) return;
-    const what = files.length === 1 ? baseName(files[0].path) : `${files.length} files`;
+    const what = files.length === 1 ? baseName(files[0]!.path) : `${files.length} files`;
     if (!(await confirm(`Discard changes to ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
     act(`Discard changes to ${what}`, 'discardFiles', [files.map(fileRef)]);
   }
 
-  async function discardInSubmodule(p) {
+  async function discardInSubmodule(p: string) {
     const ch = await git('submoduleChanges', p).catch(() => null);
     const n = ch?.count || 0;
     const name = baseName(p);
@@ -264,12 +274,12 @@ function createCommitView(container) {
     });
   }
 
-  function chooseSide(p, side) {
+  function chooseSide(p: string, side: 'ours' | 'theirs') {
     act(`Use ${side === 'ours' ? 'our' : 'their'} version of ${baseName(p)}`, 'chooseSide', [p, side]);
   }
 
-  async function renderConflict(file, token) {
-    const info = await git('conflict', file.path).catch((e) => { toast('Couldn’t read the conflict', { kind: 'error', detail: e.message }); return null; });
+  async function renderConflict(file: StatusEntry, token: number) {
+    const info = await git('conflict', file.path).catch((e: Error) => { toast('Couldn’t read the conflict', { kind: 'error', detail: e.message }); return null; });
     if (token !== diffToken) return;
     if (!info) { up.conflictEd = null; diffPane.replaceChildren(); return; }
     // A status refresh with the file unchanged keeps the editor (and its scroll) as it is.
@@ -279,14 +289,14 @@ function createCommitView(container) {
       mod: MOD,
       badge: h('span', null, statusBadge(file.status), file.lfs ? up.lfsBadge() : null),
       onResolve: (text) => act(`Resolve conflicts in ${baseName(file.path)}`, 'resolveConflict', [file.path, text]),
-      onSide: (side) => chooseSide(file.path, side),
+      onSide: (side: 'ours' | 'theirs') => chooseSide(file.path, side),
       onMergetool: () => openMergetool([file.path]),
     });
     diffPane.replaceChildren(up.conflictEd.el);
   }
 
   let diffToken = 0;
-  let stageSelectedLines = null; // set while the diff pane has a stageable file
+  let stageSelectedLines: (() => unknown) | null = null; // set while the diff pane has a stageable file
   async function renderDiffPane() {
     const { list, path } = state.cv;
     const file = (state.status[list] || []).find((f) => f.path === path);
@@ -295,7 +305,8 @@ function createCommitView(container) {
       // After resolving a file, move on to the next conflicted one.
       if (list === 'conflicts' && state.status.conflicts[0]) return selectFile('conflicts', state.status.conflicts[0].path);
       stageSelectedLines = null;
-      const any = state.status.unstaged[0] ? ['unstaged', state.status.unstaged[0]] : state.status.staged[0] ? ['staged', state.status.staged[0]] : state.status.conflicts[0] ? ['conflicts', state.status.conflicts[0]] : null;
+      const u = state.status.unstaged[0], s = state.status.staged[0], c = state.status.conflicts[0];
+      const any: [List, StatusEntry] | null = u ? ['unstaged', u] : s ? ['staged', s] : c ? ['conflicts', c] : null;
       if (any) return selectFile(any[0], any[1].path);
       diffPane.replaceChildren(h('div.empty.big', null, icon('check', 28), h('div', null, 'Nothing to commit'), h('div.muted', null, 'Your working tree matches HEAD.')));
       return;
@@ -304,12 +315,12 @@ function createCommitView(container) {
     stageSelectedLines = null;
     if (list === 'conflicts') return renderConflict(file, token);
     up.conflictEd = null;
-    const d = await git('workingDiff', fileRef(file), list === 'staged').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
+    const d = await git('workingDiff', fileRef(file), list === 'staged').catch((e: Error) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
     if (token !== diffToken) return;
     state.cv.diff = d;
     // Drop selections that no longer exist.
     if (d) {
-      const valid = new Set();
+      const valid = new Set<string>();
       d.hunks.forEach((hk, hi) => hk.lines.forEach((l, li) => { if (l.t !== ' ') valid.add(`${hi}:${li}`); }));
       for (const k of state.cv.lines) if (!valid.has(k)) state.cv.lines.delete(k);
     }
@@ -317,15 +328,15 @@ function createCommitView(container) {
     const bar = h('div.sel-bar');
     const updateBar = () => {
       bar.replaceChildren();
-      if (!sel.size || list === 'conflicts') return;
-      bar.append(h('span.muted', null, `${sel.size} line${sel.size > 1 ? 's' : ''} selected`),
+      if (!sel.size) return;
+      bar.append(...[h('span.muted', null, `${sel.size} line${sel.size > 1 ? 's' : ''} selected`),
         list === 'unstaged' ? h('button.btn.ghost.small', { onclick: () => lineOp('discardLines') }, 'Discard') : null,
         list === 'unstaged' ? h('button.btn.ghost.small', { onclick: () => lineOp('stashLines') }, 'Stash') : null,
         h('button.btn.primary.small', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines') }, list === 'unstaged' ? 'Stage lines' : 'Unstage lines'),
         h('button.icon-btn.tiny', { title: 'Clear selection', onclick: () => { sel.clear(); renderDiffPane(); } }, icon('x', 13)),
-      );
+      ].filter((x) => x !== null)); // append(null) would add the text "null"
     };
-    async function lineOp(method, keys = [...sel], hunk = false) {
+    const lineOp = async (method: LineOp, keys: string[] = [...sel], hunk = false) => {
       if (method === 'discardLines') {
         const what = hunk ? 'hunk' : `${keys.length} line${keys.length > 1 ? 's' : ''}`;
         if (!(await confirm(`Discard selected ${what}?`, `The changes are removed from your working tree. You can undo this with ${MOD}Z.`, { submit: 'Discard' }))) return;
@@ -341,46 +352,48 @@ function createCommitView(container) {
         await act(`Stash ${what} in ${baseName(file.path)}`, 'stashLines', [fileRef(file), keys, v.msg.trim()]);
         return;
       }
-      try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: e.message }); }
+      try { await git(method, fileRef(file), keys); } catch (e) { toast('Could not apply partial change', { kind: 'error', detail: (e as Error).message }); }
       sel.clear();
       await refreshStatus();
-    }
-    stageSelectedLines = list === 'conflicts' ? null : () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines');
-    const hunkActions = list === 'conflicts' ? null : (hi, hunk) => [
+    };
+    stageSelectedLines = () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines');
+    const hunkActions = (hi: number, hunk: Parameters<typeof hunkKeys>[0]) => [
       list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('discardLines', hunkKeys(hunk, hi), true) }, 'Discard hunk') : null,
       list === 'unstaged' ? h('button.btn.ghost.tiny', { onclick: () => lineOp('stashLines', hunkKeys(hunk, hi), true) }, 'Stash hunk') : null,
       h('button.btn.ghost.tiny', { onclick: () => lineOp(list === 'unstaged' ? 'stageLines' : 'unstageLines', hunkKeys(hunk, hi)) }, list === 'unstaged' ? 'Stage hunk' : 'Unstage hunk'),
     ];
     diffPane.replaceChildren(...[
       h('div.diff-head', null, statusBadge(file.status), h('span.mono', null, file.oldPath ? `${file.oldPath} → ${file.path}` : file.path), file.lfs ? up.lfsBadge() : null, h('span.spacer'), bar,
-        list === 'conflicts' ? null : h('button.btn.subtle.small', { onclick: () => quiet(list === 'unstaged' ? 'stageFiles' : 'unstageFiles', [file.path]) }, list === 'unstaged' ? 'Stage file' : 'Unstage file'),
+        h('button.btn.subtle.small', { onclick: () => quiet(list === 'unstaged' ? 'stageFiles' : 'unstageFiles', [file.path]) }, list === 'unstaged' ? 'Stage file' : 'Unstage file'),
         h('button.icon-btn', { title: 'Open file', onclick: () => api.app('open-file', file.path) }, icon('external', 14)),
       ),
-      h('div.diff-scroll', null, renderDiff(d, { selectable: list !== 'conflicts', selection: sel, onSelect: updateBar, hunkActions, full: state.cv.full, onShowAll: () => { state.cv.full = true; renderDiffPane(); } })),
+      h('div.diff-scroll', null, renderDiff(d, { selectable: true, selection: sel, onSelect: updateBar, hunkActions, full: state.cv.full, onShowAll: () => { state.cv.full = true; renderDiffPane(); } })),
     ].filter(Boolean));
     updateBar();
   }
 
   el.addEventListener('keydown', (e) => {
     if (e.target === textarea) return;
+    const t = e.target as HTMLElement;
     if (uv) {
-      if (e.target.tagName === 'TEXTAREA') return;
+      if (t.tagName === 'TEXTAREA') return;
       const id = keymap.match('commit', e);
       // A focused tick box handles its own Enter.
-      if (!id || (id === 'cv.stage' && e.target.tagName === 'BUTTON') || (id === 'cv.selectAll' && isEditable(e.target))) return;
+      if (!id || (id === 'cv.stage' && t.tagName === 'BUTTON') || (id === 'cv.selectAll' && isEditable(t))) return;
       if (id === 'cv.message') { e.preventDefault(); textarea.focus(); return; }
       if (id === 'cv.layout') { e.preventDefault(); up.toggleShow('unified'); return; }
       if (uv.key(id)) e.preventDefault();
       return;
     }
     if (state.cv.list === 'conflicts' && up.conflictEd?.key(e)) return;
-    if (e.target.tagName === 'TEXTAREA') return;
-    const all = [...state.status.conflicts.map((f) => ['conflicts', f]), ...state.status.unstaged.map((f) => ['unstaged', f]), ...state.status.staged.map((f) => ['staged', f])];
+    if (t.tagName === 'TEXTAREA') return;
+    const tag = (l: List) => (f: StatusEntry): [List, StatusEntry] => [l, f];
+    const all = [...state.status.conflicts.map(tag('conflicts')), ...state.status.unstaged.map(tag('unstaged')), ...state.status.staged.map(tag('staged'))];
     const i = all.findIndex(([l, f]) => l === state.cv.list && f.path === state.cv.path);
     const id = keymap.match('commit', e);
-    const step = { 'cv.next': 1, 'cv.prev': -1, 'cv.extendNext': 1, 'cv.extendPrev': -1 }[id];
+    const step = id ? ({ 'cv.next': 1, 'cv.prev': -1, 'cv.extendNext': 1, 'cv.extendPrev': -1 } as Record<string, number | undefined>)[id] : undefined;
     if (id === 'cv.selectAll') {
-      if (isEditable(e.target)) return;
+      if (isEditable(t)) return;
       e.preventDefault(); selectAll();
     } else if (step) {
       e.preventDefault();
@@ -394,13 +407,14 @@ function createCommitView(container) {
       e.preventDefault();
       // Selected lines in the diff take precedence over the file selection.
       if (state.cv.lines.size && stageSelectedLines) return stageSelectedLines();
-      const [l, f] = all[i];
+      const [l, f] = all[i]!;
       if (l === 'unstaged') quiet('stageFiles', paths(targets(l, f))); else if (l === 'staged') quiet('unstageFiles', paths(targets(l, f)));
       else toast(`Can’t stage ${baseName(f.path)}`, { detail: 'Conflicted' });
     } else if (id === 'cv.discard' && i !== -1) {
       e.preventDefault();
-      if (all[i][0] === 'unstaged') discard(targets('unstaged', all[i][1]));
-      else toast(`Can’t discard ${baseName(all[i][1].path)}`, { detail: all[i][0] === 'staged' ? 'Staged' : 'Conflicted' });
+      const [l, f] = all[i]!;
+      if (l === 'unstaged') discard(targets('unstaged', f));
+      else toast(`Can’t discard ${baseName(f.path)}`, { detail: l === 'staged' ? 'Staged' : 'Conflicted' });
     } else if (id === 'cv.message') {
       e.preventDefault(); textarea.focus();
     } else if (id === 'cv.layout') {

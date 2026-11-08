@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RepoInfo, RestorePreview, Stash, Submodule, WorkStatus, Worktree } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictFile, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RepoInfo, RestorePreview, Stash, Submodule, SubmoduleHead, WorkStatus, Worktree } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -85,6 +85,12 @@ export interface GitResults {
   logDetails: string;
   /** One commit's header and message. */
   commit: CommitDetails;
+  /** A work-tree file's diff against the index, or the index's against HEAD (`staged`). */
+  workingDiff: FileDiff | null;
+  /** A conflicted file's three sides and its text with markers. */
+  conflict: ConflictFile;
+  /** The changed files inside a submodule (the first few) and how many there are. */
+  submoduleChanges: { count: number; files: { status: string; path: string }[]; head: SubmoduleHead | null };
   /** Whether HEAD contains the commit, and the local branches that do. */
   commitBranches: { onHead: boolean; branches: string[] };
   /** Why that worktree can't give up its branch, or its uncommitted changes. */

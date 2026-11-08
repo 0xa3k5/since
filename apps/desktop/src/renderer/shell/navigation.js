@@ -25,7 +25,7 @@ import { prViewer } from '../prs/prs-page.js';
 import { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView } from '../graph/map.ts';
 import { copy, checkout, refMenu } from '../graph/commit-actions.ts';
 import { renderWelcome, openPrefs } from '../settings/prefs-window.ts';
-import { createCommitView } from '../commit/commit-view.js';
+import { createCommitView } from '../commit/commit-view.ts';
 
 // The shell: sidebar, top bar, banner and switching views, plus back and forward.
 

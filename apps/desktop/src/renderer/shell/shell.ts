@@ -5,11 +5,10 @@ import type { catchupView } from '../catchup/catchup-view.ts';
 import type { BranchesView } from '../branches/branches-view.ts';
 import type { ReviewView } from '../review/review-view.ts';
 import type { MapView } from '../graph/map.ts';
-import type { createCommitView } from '../commit/commit-view.js';
+import type { CommitView } from '../commit/commit-view.ts';
 
 // Shell: the window's views and layout elements, set at boot and read by every area.
 
-type CommitView = ReturnType<typeof createCommitView>;
 type LanesPage = ReturnType<typeof lanesView>;
 type CatchupPage = ReturnType<typeof catchupView>;
 const root = $('#app') as HTMLElement; // index.html always has #app
