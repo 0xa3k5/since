@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 
-const load = () => import('../src/renderer/review/review.js');
+const load = () => import('../src/renderer/review/review.ts');
 
 // localStorage stand-in.
 function memoryStore() {

@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/shell/sidebar.js');
+const load = () => import('../src/renderer/shell/sidebar.ts');
 
 test('wide windows follow the saved choice and ignore overlay state', async () => {
   const { sidebarMode, SIDEBAR_BREAKPOINT: bp } = await load();
@@ -81,7 +81,7 @@ test('the sidebar: eight pages, a divider, then three fold-out lists; History ha
 });
 
 test('sidebar layout: defaults, saved order, unknown ids, moves, drags and hiding (AK-464, AK-491)', async () => {
-  const { NAV_ITEMS, SECTION_PAGES, sectionLayout, orderedSections, moveSection, placeSection, showSection } = await import('../src/renderer/shell/sidebar.js');
+  const { NAV_ITEMS, SECTION_PAGES, sectionLayout, orderedSections, moveSection, placeSection, showSection } = await import('../src/renderer/shell/sidebar.ts');
   const nav = NAV_ITEMS.map((p) => p.id), list = SECTION_PAGES.map((p) => p.id), ids = [...nav, ...list];
   assert.deepEqual(sectionLayout(), { order: ids, hidden: [] });
   assert.deepEqual(orderedSections({}, 'nav').map((p) => p.id), nav);

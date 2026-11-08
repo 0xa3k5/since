@@ -106,10 +106,10 @@ function randomHistory(n, seed) {
 const rowsOf = (g, n) => Array.from({ length: n }, (_, i) => g.row(i));
 
 // Every layout in this file also checks that only the trunk takes lane 0 while it is held.
-test.before(async () => { (await import('../src/renderer/graph/graph.js')).debugChecks.trunk = true; });
+test.before(async () => { (await import('../src/renderer/graph/graph.ts')).debugChecks.trunk = true; });
 
 test('incremental layout matches the one-shot layout', async () => {
-  const { createGraph, layout } = await import('../src/renderer/graph/graph.js');
+  const { createGraph, layout } = await import('../src/renderer/graph/graph.ts');
   for (const seed of [1, 2, 3, 4, 5]) {
     const commits = randomHistory(1500, seed);
     const ref = referenceLayout(commits);
@@ -134,7 +134,7 @@ test('incremental layout matches the one-shot layout', async () => {
 });
 
 test('graph truncate and fork reuse the shared prefix', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   const a = randomHistory(900, 7);
   const g = layout(a);
   const before = rowsOf(g, a.length);
@@ -156,7 +156,7 @@ test('graph truncate and fork reuse the shared prefix', async () => {
 });
 
 test('parseLog and details', async () => {
-  const { parseLog, createHistory } = await import('../src/renderer/graph/log.js');
+  const { parseLog, createHistory } = await import('../src/renderer/graph/log.ts');
   const topo = 'a\0b c\x1e\nb\0d\x1e\nc\0d\x1e\nd\0\x1e\n';
   const commits = parseLog(topo, 'topo');
   assert.deepEqual(commits.map((c) => [c.sha, c.parents]), [['a', ['b', 'c']], ['b', ['d']], ['c', ['d']], ['d', []]]);
@@ -176,7 +176,7 @@ test('parseLog and details', async () => {
 });
 
 test('parseCoAuthors: multiple, duplicate, author, malformed', async () => {
-  const { parseCoAuthors, parseLog, createHistory } = await import('../src/renderer/graph/log.js');
+  const { parseCoAuthors, parseLog, createHistory } = await import('../src/renderer/graph/log.ts');
   assert.deepEqual(parseCoAuthors('', 'a@x'), []);
   assert.deepEqual(parseCoAuthors('Bo <bo@x>\x1fCy Dee <cy@x>', 'a@x'), [{ name: 'Bo', email: 'bo@x' }, { name: 'Cy Dee', email: 'cy@x' }]);
   assert.deepEqual(parseCoAuthors('Bo <bo@x>\x1fBob <BO@x>', 'a@x'), [{ name: 'Bo', email: 'bo@x' }], 'duplicate email');
@@ -192,7 +192,7 @@ test('parseCoAuthors: multiple, duplicate, author, malformed', async () => {
 });
 
 test('merge keeps an unchanged history and rebuilds from the first difference', async () => {
-  const { createHistory, createMerge } = await import('../src/renderer/graph/log.js');
+  const { createHistory, createMerge } = await import('../src/renderer/graph/log.ts');
   const base = randomHistory(2000, 9);
   const cur = createHistory().add(base.map((c) => ({ ...c, subject: 's' })));
   cur.complete = true;
@@ -223,7 +223,7 @@ test('merge keeps an unchanged history and rebuilds from the first difference', 
 });
 
 test('scrollMap scales lists taller than the browser allows', async () => {
-  const { scrollMap, MAX_SCROLL } = await import('../src/renderer/lib/ui.js');
+  const { scrollMap, MAX_SCROLL } = await import('../src/renderer/lib/ui.ts');
   const small = scrollMap(1000, 32, 800);
   assert.equal(small.scale, 1);
   assert.equal(small.spacer, 32000);
@@ -250,7 +250,7 @@ async function readAll(stream) {
 }
 
 test('streamLog streams the same history as getLog', async () => {
-  const { parseLog, createHistory } = await import('../src/renderer/graph/log.js');
+  const { parseLog, createHistory } = await import('../src/renderer/graph/log.ts');
   const dir = await repo();
   assert.deepEqual(await readAll(git.streamLog(dir, { kind: 'topo' })), [], 'no commits yet');
   fs.rmSync(dir, { recursive: true });
@@ -321,7 +321,7 @@ function assertTrunk(g, commits, head, msg = '') {
 const lanes = (g, n) => Array.from({ length: n }, (_, i) => g.col(i));
 
 test('HEAD on a side branch takes lane 0; the newer branch moves right', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   // main: r - a - b   feature (HEAD): r - f1 - f2, in date order
   const commits = [
     { sha: 'b', parents: ['a'] },
@@ -340,7 +340,7 @@ test('HEAD on a side branch takes lane 0; the newer branch moves right', async (
 });
 
 test('merges: HEAD\'s first parent stays in lane 0, merged branches fan out', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   // m merges b into a. HEAD at m.
   const merge = [
     { sha: 'm', parents: ['a', 'b'] },
@@ -369,7 +369,7 @@ test('merges: HEAD\'s first parent stays in lane 0, merged branches fan out', as
 });
 
 test('octopus merges keep HEAD\'s chain in lane 0', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   const commits = [
     { sha: 'o', parents: ['a', 'b', 'c'] },
     { sha: 'c', parents: ['r'] },
@@ -388,7 +388,7 @@ test('octopus merges keep HEAD\'s chain in lane 0', async () => {
 });
 
 test('HEAD on an orphan branch: lane 0 is reused once its trunk ends', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   // main: x0 - x1   orphan (HEAD): h (a root)   later branch: z0 - z, in date order
   const commits = [
     { sha: 'x1', parents: ['x0'] },
@@ -405,7 +405,7 @@ test('HEAD on an orphan branch: lane 0 is reused once its trunk ends', async () 
 });
 
 test('detached HEAD deep in history, and no HEAD', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   const commits = randomHistory(1200, 21);
   const head = commits[700].sha; // detached at an old commit
   const g = layout(commits, head);
@@ -416,7 +416,7 @@ test('detached HEAD deep in history, and no HEAD', async () => {
 });
 
 test('random histories: trunk in lane 0, streamed, truncated and forked', async () => {
-  const { createGraph, layout } = await import('../src/renderer/graph/graph.js');
+  const { createGraph, layout } = await import('../src/renderer/graph/graph.ts');
   for (const seed of [31, 32, 33, 34, 35, 36]) {
     const commits = randomHistory(1500, seed);
     const rand = rng(seed + 7);
@@ -461,7 +461,7 @@ test('random histories: trunk in lane 0, streamed, truncated and forked', async 
 });
 
 test('a HEAD move deep in history reuses the rows above both HEADs', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   const commits = randomHistory(3000, 51);
   const at = (i) => commits[i].sha;
   const touches = (c, s) => c.sha === s || c.parents.includes(s);
@@ -479,8 +479,8 @@ test('a HEAD move deep in history reuses the rows above both HEADs', async () =>
 });
 
 test('a reload redoes the layout when HEAD moves, even if the log did not change', async () => {
-  const { createHistory, createMerge } = await import('../src/renderer/graph/log.js');
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { createHistory, createMerge } = await import('../src/renderer/graph/log.ts');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   const base = randomHistory(800, 41);
   const cur = createHistory(base[0].sha).add(base.map((c) => ({ ...c, subject: 's' })));
   cur.complete = true;
@@ -524,7 +524,7 @@ test('real repo: checkout and detach move the trunk to lane 0', async () => {
   await git.run(dir, ['checkout', '-q', 'side']);
   await commit('s2');
 
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   const check = async (what) => {
     const commits = await git.getLog(dir);
     const { head } = await git.getRefs(dir);

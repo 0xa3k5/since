@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import type { ExecFileException } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { GIT_NEEDS, GIT_FEATURES } from '../../renderer/lib/git-version.js';
+import { GIT_NEEDS, GIT_FEATURES } from '../../renderer/lib/git-version.ts';
 import type { GitInfo } from '../../shared/git-types.ts';
 
 // Thin, dependency-free wrapper around the git CLI. Every read uses

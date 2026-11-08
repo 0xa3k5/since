@@ -104,8 +104,9 @@ test('both themes define the same tokens', () => {
 test('colours outside the token blocks come from tokens', () => {
   const rest = css.slice(darkMedia.end);
   assert.deepEqual(rest.match(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/gi) || [], []);
-  for (const f of ['app.js', 'lib/ui.js', 'graph/graph.js', 'commit/diff.js']) {
-    const src = fs.readFileSync(path.join(renderer, f), 'utf8');
+  for (const f of ['app', 'lib/ui', 'graph/graph', 'commit/diff']) {
+    const file = ['.ts', '.js'].map((x) => path.join(renderer, f + x)).find((x) => fs.existsSync(x)) ?? `${f}.ts`;
+    const src = fs.readFileSync(file, 'utf8');
     assert.deepEqual(src.match(/['"`]#[0-9a-f]{3,8}['"`]/gi) || [], [], `${f} has hard-coded colours`);
   }
 });

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const github = require('../src/main/github.ts');
 
-const load = () => import('../src/renderer/review/review-rows.js');
+const load = () => import('../src/renderer/review/review-rows.ts');
 const NOW = Date.parse('2026-10-15T12:00:00Z');
 const HOUR = 3600e3;
 const OLD = new Date(NOW - 10 * 24 * HOUR).toISOString();
@@ -233,21 +233,23 @@ test('filter: every word in the title, branch, number or author', async () => {
 test('rename: the view is "Review" and its user-visible strings never say "Lanes"', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   const labels = keymap.COMMANDS.filter((c) => c.id === 'view.lanes' || c.id?.startsWith('lanes.') || c.id === 'cleanup.back').map((c) => c.label);
   assert.ok(labels.length > 10);
   assert.ok(labels.includes('Review'));
   for (const l of labels) assert.doesNotMatch(l, /\blanes?\b/i, l);
   // String literals in the view, its keymap context and the menu: no "Lanes" (the brand "Since" is fine).
-  const visible = (file) => (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
+  // A file moved to TypeScript keeps its .js name here until the whole renderer has (SNC-696).
+  const read = (file) => { const p = path.join(__dirname, '..', file); return fs.readFileSync(fs.existsSync(p) ? p : p.replace(/\.js$/, '.ts'), 'utf8'); };
+  const visible = (file) => (read(file).match(/(['`])(?:(?!\1)[^\\\n]|\\.)*\1/g) || [])
     .filter((s) => !/^['`][\w.:/-]*['`]$/.test(s)); // ids, keys, class names
   for (const file of ['src/renderer/lanes/lanes-view.js', 'src/renderer/review/review-rows.js']) {
     for (const s of visible(file)) assert.doesNotMatch(s.replace(/Since/g, ''), /\bLanes\b|\bInbox\b/, `${file}: ${s}`);
   }
-  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/palette/keymap.js'), 'utf8'), /lanes: 'Review',/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/palette/keymap.ts'), 'utf8'), /lanes: 'Review',/);
   assert.match(require('./main-source').mainSource(), /item\('Review', acc\('view\.lanes'\)/);
   assert.doesNotMatch(require('./main-source').mainSource(), /Pull Request Inbox/);
-  assert.match(fs.readFileSync(path.join(__dirname, '../src/renderer/shell/sidebar.js'), 'utf8'), /\{ id: 'lanes', label: 'Review'/);
+  assert.match(read('src/renderer/shell/sidebar.js'), /\{ id: 'lanes', label: 'Review'/);
 });
 
 // Split view (AK-272): what an action does to the row, and where the selection goes next.
@@ -323,8 +325,8 @@ test('next selection: the next row below that still needs you, else the first, e
 });
 
 test('approve: greyed with its reason on your own PR or without write access (AK-577)', async () => {
-  const { paneActions } = await import('../src/renderer/prs/pr-review.js');
-  const { approveWhy } = await import('../src/renderer/prs/prs.js');
+  const { paneActions } = await import('../src/renderer/prs/pr-review.ts');
+  const { approveWhy } = await import('../src/renderer/prs/prs.ts');
   const mine = { pr: pr(1, { author: 'Ana' }), lane: null };
   assert.equal(approveWhy(mine.pr, { login: 'ana', write: true }), 'Your own pull request');
   assert.equal(approveWhy(pr(2, { author: 'bo' }), { login: 'ana', write: false }), 'Needs write access');
@@ -337,7 +339,7 @@ test('approve: greyed with its reason on your own PR or without write access (AK
 });
 
 test('pane actions: every PR action with a primary by stage; local branches merge and tidy', async () => {
-  const { paneActions } = await import('../src/renderer/prs/pr-review.js');
+  const { paneActions } = await import('../src/renderer/prs/pr-review.ts');
   const ids = (r, s) => paneActions(r, s).actions.map((a) => a.id);
   const p = { pr: pr(1, { url: 'https://github.com/o/r/pull/1' }), lane: null };
   assert.deepEqual(ids(p, 'review'), ['merge', 'approve', 'close', 'checkout', 'github']);
@@ -407,9 +409,9 @@ test('Review is home: a repository opens on Review, the Map keeps its own key', 
   const fs = require('node:fs');
   const path = require('node:path');
   const app = require('./app-source').appSource();
-  assert.match(app, /let startView = 'lanes';/);
+  assert.match(app, /let startView(?:: View)? = 'lanes';/);
   assert.match(app, /state\.view = (?:up\.)?startView;/);
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.ok(keymap.keys('view.map').length);
   assert.ok(keymap.keys('view.lanes').length);
 });
@@ -509,7 +511,7 @@ test('overlaps: an open PR gets a note and no stage change; merge order names th
 
 test('Review tabs: Needs you is stuck then ready, All open is every stage, 1–5 each have a key', async () => {
   const { TABS, STAGES } = await load();
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.deepEqual(TABS.map((t) => t.id), ['needs', 'stuck', 'ready', 'inProgress', 'open']);
   assert.deepEqual(TABS[0].stages, ['stuck', 'ready']);
   assert.deepEqual(TABS.at(-1).stages, STAGES.map((s) => s.id));
@@ -565,7 +567,7 @@ test('row signals: failing checks count, conflict marker, bare check names', asy
 
 test('git.js and Catch up read agents from the same list (AK-393)', async () => {
   const git = require('../src/main/git/index.ts');
-  const { AGENT_HINTS } = await import('../src/renderer/lib/agents.js');
+  const { AGENT_HINTS } = await import('../src/renderer/lib/agents.ts');
   const { messageAgent } = await load();
   assert.equal(git.AGENT_HINTS, AGENT_HINTS);
   for (const w of AGENT_HINTS.coauthors) {

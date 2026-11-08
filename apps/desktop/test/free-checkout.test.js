@@ -164,7 +164,7 @@ test('ipc: moveCheckout takes a branch, a worktree folder and an optional stash'
 });
 
 test('in-use sheet: dirty, clean, open in another window', async () => {
-  const { inUsePlan } = await import('../src/renderer/graph/checkout-plan.js');
+  const { inUsePlan } = await import('../src/renderer/graph/checkout-plan.ts');
   const wt = { name: 'wt-dirty', path: '/Users/ak/code/wt-dirty' };
   const now = 1e9;
   const dirty = inUsePlan(wt, { blocker: null, changes: 3, changedAt: now - 2 * 60e3 }, 2, now);

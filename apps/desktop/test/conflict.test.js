@@ -10,7 +10,7 @@ const git = require('../src/main/git/index.ts');
 const { Journal } = require('../src/main/journal.ts');
 const { checkGit } = require('../src/main/ipc.ts');
 
-const load = () => import('../src/renderer/commit/conflict.js');
+const load = () => import('../src/renderer/commit/conflict.ts');
 const conflictCount = (segs) => segs.filter((s) => s.type === 'conflict').length;
 
 async function repo() {

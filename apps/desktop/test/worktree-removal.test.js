@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const load = () => import('../src/renderer/lanes/worktree-removal.js');
+const load = () => import('../src/renderer/lanes/worktree-removal.ts');
 const wt = (o = {}) => ({ name: 'wt-dirty', path: '/r/wt-dirty', ...o });
 const main = (o = {}) => ({ name: 'r', path: '/r', main: true, ...o });
 

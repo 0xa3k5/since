@@ -19,7 +19,7 @@ export { getStashes, dropStashCommit, restoreStash, stashPush, stashLines, stash
 export { getReflog, getConfig, getIdentity } from './config.ts';
 export { captureRefState, restoreRefState, snapshotWork, workChanges, snapshotBlobs, restoreWork, resetHardPaths, stashPaths, stashPushPaths, pinUndo, pruneUndoPins, moveUndoPins, moveOldPins } from './undo.ts';
 export { freeBlocker, worktreeHold, removalFacts, mergeLanePlan, mergeLane } from './merge.ts';
-export { AGENT_HINTS } from '../../renderer/lib/agents.js';
+export { AGENT_HINTS } from '../../renderer/lib/agents.ts';
 export { canForecast, mergeTreeSupported, _setForecastGate } from './support.ts';
 export { mergeConflicts, mergeConflictHunks, conflictHunks, simulateSquash, simulateRebase, forecastLanes, forecastConflicts } from './forecast.ts';
 export { getExternalTools, checkTool, difftoolArgs, mergetoolArgs, difftool, mergetool } from './tools.ts';

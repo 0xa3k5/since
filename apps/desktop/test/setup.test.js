@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/settings/setup.js');
+const load = () => import('../src/renderer/settings/setup.ts');
 
 test('the step shows until it has been finished once', async () => {
   const { needsSetup } = await load();

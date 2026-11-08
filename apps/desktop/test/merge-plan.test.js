@@ -10,7 +10,7 @@ const path = require('node:path');
 const git = require('../src/main/git/index.ts');
 const github = require('../src/main/github.ts');
 
-const load = () => import('../src/renderer/lanes/merge-plan.js');
+const load = () => import('../src/renderer/lanes/merge-plan.ts');
 
 // A fake merge: `conflicts` maps "tip head" to conflicting files; clean merges make tip+head.
 const fake = (conflicts = {}) => async (tip, head) => (conflicts[`${tip} ${head}`] ? { files: conflicts[`${tip} ${head}`], commit: null } : { files: [], commit: `${tip}+${head}` });
@@ -293,7 +293,7 @@ test('cleanupItems skips the main worktree, other windows and locked worktrees',
 });
 
 test('the sheet names the method and counts the picks (AK-542)', async () => {
-  const { mergeLabel, METHOD_NAMES } = await import('../src/renderer/lanes/merge-plan.js');
+  const { mergeLabel, METHOD_NAMES } = await import('../src/renderer/lanes/merge-plan.ts');
   assert.equal(mergeLabel('squash', 3), 'Squash & Merge 3 in order');
   assert.equal(mergeLabel('merge', 2), 'Merge 2 in order');
   assert.equal(mergeLabel('rebase', 1), 'Rebase & Merge 1');
@@ -377,7 +377,7 @@ test('needs groups (AK-549)', async () => {
 });
 
 test('bottomPart cuts a chain where GitHub stacks begin or end (AK-541)', async () => {
-  const { bottomPart } = await import('../src/renderer/lanes/merge-plan.js');
+  const { bottomPart } = await import('../src/renderer/lanes/merge-plan.ts');
   const facts = new Map([[226, { stack: { number: 243 } }], [227, { stack: { number: 243 } }], [237, { stack: null }], [238, { stack: null }], [240, { stack: { number: 242 } }]]);
   const chain = { id: 'stack-226', prs: [226, 227, 237, 238, 240], heads: ['a', 'b', 'c', 'd', 'e'] };
   assert.deepEqual(bottomPart(chain, facts), { id: 'stack-226', prs: [226, 227], heads: ['a', 'b'] });

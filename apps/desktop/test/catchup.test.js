@@ -31,7 +31,8 @@ async function repo() {
   await commit(dir, 'README.md', 'start');
   return dir;
 }
-const load = (p) => import(path.join(__dirname, '..', 'src', 'renderer', 'catchup', p));
+// A module moved to TypeScript keeps its .js name here until the whole renderer has (SNC-696).
+const load = (p) => { const f = path.join(__dirname, '..', 'src', 'renderer', 'catchup', p); return import(fs.existsSync(f) ? f : f.replace(/\.js$/, '.ts')); };
 
 test('checkpoint store: a week back at first, then the previous open’s tip; only Mark moves it', () => {
   const file = path.join(tmp('store'), 'catchup.json');

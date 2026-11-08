@@ -9,7 +9,7 @@ import * as tabOrder from './stores/tab-order.ts';
 import { menuChanged } from './app-events.ts';
 import * as recentStore from './stores/recent-store.ts';
 import * as windowState from './stores/window-state.ts';
-import * as keymap from '../renderer/palette/keymap.js';
+import * as keymap from '../renderer/palette/keymap.ts';
 import { THEMES, currentTheme, writeSettings, windowColors, isMac, windowStateFile, recentFile } from './settings.ts';
 import { sessions, notifyWindows, handoffs, notRepoDirs, windowFor } from './session.ts';
 

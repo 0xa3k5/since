@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
 const dir = new URL('../../desktop/src/renderer/', import.meta.url);
-const app = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
+const app = readdirSync(dir, { recursive: true }).filter((f) => /\.(js|ts)$/.test(f) && !f.endsWith('.d.ts')).map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
 const preview = (name) => readFileSync(new URL(`../src/components/landing/previews/${name}.astro`, import.meta.url), 'utf8');
 
 const strings = {
   SincePreview: ['since your checkpoint', 'Mark since', '`CI ${ci} on ${res.base}`', '`Updated ${ago(', '`Stack · ${size} PRs`', "' are waiting in Review'"],
   ReviewPreview: ["'Changed since last look'", "'Commits'"],
   MergePlanPreview: ["'Merged'", "'Ready'", '} would conflict in ${fileList(f.files)}`', '`#${w.number} will conflict in ${fileList(w.files)} after these merge`'],
-  StackPreview: ['`Stack #${prs[0].number} → #${prs[prs.length - 1].number}`', "`${s.on ? `on #${s.on}` : 'Stack'} · ${s.at} of ${s.of}`"],
+  StackPreview: ['`Stack #${prs[0]!.number} → #${prs[prs.length - 1]!.number}`', "`${s.on ? `on #${s.on}` : 'Stack'} · ${s.at} of ${s.of}`"],
   CleanUpPreview: ['`Cleaned up: ${done}`', "' deleted'", "label: 'Undo'", '`${dir === \'undo\' ? \'Undid\' : \'Redid\'} “${label}”`', "`Clean up ${chosen.length}`"],
 };
 

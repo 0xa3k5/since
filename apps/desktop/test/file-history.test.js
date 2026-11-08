@@ -109,7 +109,7 @@ test('IPC checks reject unsafe file history and blame arguments', () => {
 });
 
 test('blame rows mark commit runs and age buckets', async () => {
-  const { blameRows, historyRows, splitPath } = await import('../src/renderer/history/blame.js');
+  const { blameRows, historyRows, splitPath } = await import('../src/renderer/history/blame.ts');
   const commits = [{ time: 100 }, { time: 200 }, { time: 0, uncommitted: true }];
   const lines = [{ line: 1, commit: 0 }, { line: 2, commit: 0 }, { line: 3, commit: 1 }, { line: 4, commit: 2 }];
   assert.deepEqual(blameRows({ commits, lines }).map((l) => [l.first, l.age]), [[true, 0], [false, 0], [true, 4], [true, 4]]);

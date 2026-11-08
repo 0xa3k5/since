@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 test('sheetActions: the first action is the primary and sits rightmost', async () => {
-  const { sheetActions } = await import('../src/renderer/lib/ui.js');
+  const { sheetActions } = await import('../src/renderer/lib/ui.ts');
   const out = sheetActions([{ id: 'go', label: 'Switch and merge' }, null, { id: 'keep', label: 'Merge, keep branch' }]);
   assert.deepEqual(out.map((a) => [a.id, a.primary]), [['keep', false], ['go', true]]);
   assert.deepEqual(sheetActions([{ id: 'one' }]).map((a) => [a.id, a.primary]), [['one', true]]);
@@ -12,6 +12,6 @@ test('sheetActions: the first action is the primary and sits rightmost', async (
 });
 
 test('sheetActions: an action marked primary: false leaves the sheet without a primary', async () => {
-  const { sheetActions } = await import('../src/renderer/lib/ui.js');
+  const { sheetActions } = await import('../src/renderer/lib/ui.ts');
   assert.deepEqual(sheetActions([{ id: 'init', primary: false }]).map((a) => [a.id, a.primary]), [['init', false]]);
 });

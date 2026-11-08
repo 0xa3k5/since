@@ -6,7 +6,7 @@ import path from 'node:path';
 import * as updater from './updater.ts';
 import pkg from '../../package.json' with { type: 'json' };
 import * as prMedia from './pr-media.ts';
-import * as keymap from '../renderer/palette/keymap.js';
+import * as keymap from '../renderer/palette/keymap.ts';
 import './user-data.ts';
 import './handlers/git.ts';
 import './handlers/app.ts';

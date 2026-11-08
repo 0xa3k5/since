@@ -1,4 +1,4 @@
-import { GIT_NEEDS, gitMeets } from '../../renderer/lib/git-version.js';
+import { GIT_NEEDS, gitMeets } from '../../renderer/lib/git-version.ts';
 import { onGitPathChange, run } from './run.ts';
 
 // What the git in use supports. Checked once per git path (see onGitPathChange in run.ts).

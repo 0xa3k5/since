@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process');
 const github = require('../src/main/github.ts');
 const git = require('../src/main/git/index.ts');
 
-const load = () => import('../src/renderer/prs/pr-review.js');
+const load = () => import('../src/renderer/prs/pr-review.ts');
 const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
 
 test('fetchPrHead: fetches refs/pull/<n>/head into FETCH_HEAD only; branchReview diffs it', async () => {
@@ -71,7 +71,7 @@ test('loadPrReview: errors pass through; no remote makes no call', async () => {
 
 test('PR actions: every action has a review key; keys map back; merge and close leave', async () => {
   const { PR_ACTIONS, prActionFor, leavesPage } = await load();
-  const keymap = await import('../src/renderer/palette/keymap.js');
+  const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.deepEqual(PR_ACTIONS.map((a) => a.id), ['approve', 'changes', 'merge', 'close', 'checkout']);
   for (const a of PR_ACTIONS) {
     assert.ok(keymap.keys(a.key).length, `${a.key} has no key`);
@@ -92,8 +92,8 @@ test('prDescription: plain text without template comments, null when not sent', 
 });
 
 test('fixActions: a stuck row offers its fixes in order, with keys in both scopes', async () => {
-  const { fixActions } = await import('../src/renderer/prs/pr-review.js');
-  const { COMMANDS } = await import('../src/renderer/palette/keymap.js');
+  const { fixActions } = await import('../src/renderer/prs/pr-review.ts');
+  const { COMMANDS } = await import('../src/renderer/palette/keymap.ts');
   const ids = new Set(COMMANDS.map((c) => c.id));
   const pr = { number: 7, url: 'https://github.com/o/r/pull/7', checks: 'failure' };
   const lane = { branch: 'feat', name: 'feat' };
@@ -111,7 +111,7 @@ test('fixActions: a stuck row offers its fixes in order, with keys in both scope
 });
 
 test('updateBranchBlock: U only updates what the pane offers, else says why', async () => {
-  const { updateBranchBlock } = await import('../src/renderer/prs/pr-review.js');
+  const { updateBranchBlock } = await import('../src/renderer/prs/pr-review.ts');
   const pr = { number: 7, mergeState: 'behind' };
   assert.equal(updateBranchBlock({ stage: 'stuck', title: 'A', pr }, { base: 'main' }), null);
   assert.equal(updateBranchBlock({ stage: 'stuck', title: 'A', pr: { number: 7 } }, { base: 'main', conflicts: true }), null);

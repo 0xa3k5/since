@@ -34,7 +34,7 @@ export function handle(channel: `app:${AppChannel}` | typeof GIT, fn: Handler): 
 }
 
 export function serializeError(error: unknown): IpcError {
-  const err = error as { message?: string; stderr?: string | null; code?: string | number | null; kind?: string; moved?: unknown; step?: unknown };
+  const err = error as { message?: string; stderr?: string | null; code?: string | number | null; kind?: string; moved?: IpcError['moved']; step?: IpcError['step'] };
   return { message: err.message || String(err), stderr: err.stderr || null, code: err.code || err.kind || null, ...(err.moved ? { moved: err.moved } : {}), ...(err.step ? { step: err.step } : {}) };
 }
 // Wraps a handler so it returns { ok } or { error } instead of throwing across IPC.

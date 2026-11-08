@@ -47,7 +47,7 @@ test('co-authors come from Co-authored-by trailers', async () => {
   const want = [{ name: 'Bo', email: 'bo@x' }, { name: 'Cy', email: 'cy@x' }];
   assert.deepEqual((await git.getLog(dir))[0].coAuthors, want);
   assert.deepEqual((await git.getCommit(dir, sha)).coAuthors, want);
-  const { parseDetails } = await import('../src/renderer/graph/log.js');
+  const { parseDetails } = await import('../src/renderer/graph/log.ts');
   let got;
   parseDetails(await git.getLogDetails(dir, [sha]), (...f) => { got = f[5]; });
   assert.deepEqual(got, want);
@@ -155,7 +155,7 @@ test('redo that brings a deleted branch back restores its upstream config', asyn
 });
 
 test('graph layout assigns lanes for branches and merges', async () => {
-  const { layout } = await import('../src/renderer/graph/graph.js');
+  const { layout } = await import('../src/renderer/graph/graph.ts');
   // m merges b into a; a and b both descend from root
   const commits = [
     { sha: 'm', parents: ['a', 'b'] },

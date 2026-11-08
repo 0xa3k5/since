@@ -7,7 +7,7 @@
 // they can't be undone with ⌘Z, and the renderer's confirm sheets say so.
 
 import { findBinary, runCli, searchDirs } from './ai.ts';
-import { linkBlocker } from '../renderer/lanes/merge-plan.js';
+import { linkBlocker } from '../renderer/lanes/merge-plan.ts';
 
 // What `gh` prints is untrusted JSON. Every parser below reads it field by field and keeps only
 // values that pass a check (text(), count(), a regex, a known set), so it is typed `any` here and
@@ -661,7 +661,7 @@ export async function linkStack({ enabled, remotes, base, numbers, dirs = search
   if (remote.host.toLowerCase() !== 'github.com') return { failed: { number: numbers[0], reason: 'Stacks aren’t available on GitHub Enterprise Server.' } };
   const args = linkArgs(remote, base, numbers);
   const facts = await stackFacts({ enabled, remotes, numbers, dirs, exec });
-  const stop = linkBlocker(numbers, facts, base);
+  const stop = linkBlocker(numbers, facts, branchArg(base, 'base'));
   if (stop) return { failed: stop };
   const env = { GH_REPO: repo };
   try {

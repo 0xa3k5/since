@@ -1,0 +1,320 @@
+import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor, type Child, type Field } from '../lib/ui.ts';
+import { laneKey, type ViewLane } from '../lanes/lanes.ts';
+import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat, type CleanupItem, type CleanupLane, type GROUPS } from './cleanup.ts';
+import type { CleanupResult } from '../../shared/git-types.ts';
+
+type Failure = { name: string; message: string };
+/** What git.cleanupLanes did, and the branches deleted on the remote or not. */
+type CleanupOutcome = CleanupResult & { remoteDeleted?: string[]; remoteFailed?: Failure[] };
+/** The operation stopped in an item's worktree ('rebase', …), with its conflicted files, or null. */
+type StoppedOp = string | { op: string; conflicts?: number } | null;
+export interface CleanupPanelOptions {
+  run(items: (CleanupItem & { stash?: true; abort?: true })[], label: string): Promise<CleanupResult>;
+  runRemote(names: string[]): Promise<{ deleted: string[]; failed: Failure[] }>;
+  stoppedOps?(items: CleanupItem[]): Promise<StoppedOp[]>;
+  days?: number; onDays?(n: number): void;
+  onProgress(fn: (p: { done: number; total: number }) => void): () => void;
+  onDone(): unknown; onUndo(): unknown; onBack(): void;
+}
+export interface CleanupPanel {
+  el: HTMLElement; keydown(e: KeyboardEvent): boolean;
+  update(lanes: ViewLane[], base: string | null): void; only(key: string): void;
+  busy(): boolean; go(): Promise<void>; tickAll(): void; toggleRemote(): void; count(): number;
+}
+import * as keymap from '../palette/keymap.ts';
+
+// Clean up, the Finished tab of Branches (AK-396): finished branches and worktrees (merged, shipped,
+// deleted on GitHub, folder missing; untouched ones as your call), one card per reason (cleanup.js
+// GROUPS) with a tick for the whole group, a plain explanation and a count. A card opens to its
+// branches, each with its own tick. Safe groups are ticked up front; untouched and dirty ones aren't.
+// The sticky bar at the bottom cleans up the ticked ones as one undo step; deleting them on GitHub
+// too is an opt-in tick and can't be undone. One confirmation lists the branches; cancelling it
+// changes nothing.
+// Keys (cleanup scope): ↑/↓ move between cards and rows, Space ticks, ↵ opens or closes a card, A ticks
+// everything safe, R toggles "Also delete them on GitHub", ⌘⌫ cleans up, Esc goes back to Active.
+
+const tildify = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
+const SHOWN = 50; // rows a card lists before "+ N more"
+const lower = (s: string | null) => (s ? s[0]!.toLowerCase() + s.slice(1) : s);
+
+// run(items, label) and runRemote(names) call git; stoppedOps(items): per item, the operation stopped
+// in its worktree ('rebase', …, or { op, conflicts }) or null, listed in the confirmation with an abort tick; days: the "untouched for N days" card, set in
+// the action bar (onDays(n) saves it);
+// onProgress(fn) subscribes to progress and returns an unsubscribe; onDone() refreshes the app (and
+// with it the lanes); onUndo() undoes the last step; onBack() leaves the tab.
+// The panel doesn't load: Branches hands it the lanes (update(lanes, base)).
+export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack }: CleanupPanelOptions): CleanupPanel {
+  let lanes: ViewLane[] = [];
+  let groups: ReturnType<typeof groupLanes> = [];
+  let items: string[] = []; // the keyboard's stops: 'g:<group>' or a laneKey
+  let base: string | null = null;
+  let loaded = false;
+  let busy = false;
+  let sel: string | null = null; // the selected stop's id ('g:<group>' or the laneKey)
+  let only: string | null = null; // a laneKey: tick just that one when the lanes next arrive
+  let alsoRemote = false;
+  const ticked = new Set<string>();
+  const seen = new Set<string>(); // lanes already offered, so a refresh doesn't re-tick what the user unticked
+  const open = new Set<string>(['merged']); // cards that are open
+  const more = new Set<string>(); // cards showing every row
+
+  const verdict = h('div.cleanup-verdict');
+  const cards = h('div.cleanup-cards', { role: 'tree', 'aria-label': 'Finished branches', 'aria-multiselectable': 'true' });
+  const goBtn = h('button.btn.primary.cleanup-go', { onclick: () => go() });
+  const counts = h('span.cleanup-counts');
+  const remoteBox: HTMLInputElement = h('input', { type: 'checkbox', tabIndex: -1, onchange: () => { alsoRemote = remoteBox.checked; render(); } });
+  const remoteText = h('span', null, 'Also delete them on the remote (can’t be undone)');
+  const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': tipFor('Also delete them on the remote', 'cleanup.remote') }, remoteBox, remoteText);
+  const progressText = h('span');
+  const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), progressText);
+  const daysBox: HTMLInputElement = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
+    onkeydown: (e) => { if (e.key !== 'Escape') e.stopPropagation(); },
+    onchange: () => {
+      const n = daysValue(daysBox.value);
+      if (n == null) { daysBox.value = String(days); return; }
+      if (n !== days) { days = n; onDays(n); render(); }
+    } });
+  const daysLabel = h('label.cleanup-days', { 'data-tip': 'Branches with no commits for this many days show under Untouched' }, h('span', null, 'Untouched after'), daysBox, h('span', null, 'days'));
+  const bar = h('div.cleanup-actionbar', null, goBtn, counts, remoteLabel, progress, daysLabel);
+  const el = h('div.cleanup-panel', null, verdict, cards, bar);
+
+  const isOn = (l: ViewLane) => ticked.has(laneKey(l));
+  // Clicks re-render the cards: keys go back to the view, not the removed element.
+  const home = () => (el.closest<HTMLElement>('[tabindex="0"]') || el).focus({ preventScroll: true });
+  const label = (g: typeof GROUPS[number]) => (g.id === 'old' ? `${g.label} for ${days}+ days` : g.label);
+  // The branch's note: where it merged, or why it's here.
+  const note = (l: ViewLane): string => blocked(l) || (l.upstreamGone && !l.done && !l.merged ? 'deleted on GitHub' : lower(reason(l, { days })) || '');
+
+  function card({ group: g, lanes: ls }: { group: typeof GROUPS[number]; lanes: CleanupLane[] }) {
+    const can = ls.filter((l) => !blocked(l));
+    const all = can.length > 0 && can.every(isOn);
+    const some = can.some(isOn);
+    const isOpen = open.has(g.id);
+    const box = h('input', { type: 'checkbox', checked: all, disabled: !can.length || busy, tabIndex: -1, 'aria-label': `Tick all in ${label(g)}` });
+    box.indeterminate = some && !all;
+    const gsel = sel === `g:${g.id}`;
+    const summary = h('summary.cleanup-card-head' + (gsel ? '.active' : ''), {
+      'data-key': `g:${g.id}`, role: 'treeitem', 'aria-expanded': String(isOpen), 'aria-selected': String(gsel),
+      onclick: (e) => {
+        e.preventDefault(); // the card opens through `open` (render), the tick through tickGroup
+        sel = `g:${g.id}`;
+        if (e.target === box) tickGroup(g.id);
+        else toggleOpen(g.id);
+        home();
+      },
+    },
+      box,
+      h('span.cleanup-card-text', null, h('b', null, g.warn ? icon('warning', 12) : null, label(g))),
+      h('span.cleanup-card-n', null, String(ls.length)),
+      h('span.cleanup-card-chev', { 'aria-hidden': 'true' }, isOpen ? '▴' : '▾'));
+    const rows = isOpen ? (more.has(g.id) ? ls : ls.slice(0, SHOWN)).map(row) : [];
+    const rest = isOpen && !more.has(g.id) && ls.length > SHOWN
+      ? h('button.cleanup-more', { onclick: () => { more.add(g.id); render(); home(); } }, `+ ${ls.length - SHOWN} more`) : null;
+    return h('details.cleanup-card' + (g.warn ? '.warn' : ''), { open: isOpen }, summary, ...rows, rest);
+  }
+
+  function row(l: CleanupLane) {
+    const key = laneKey(l);
+    const why = blocked(l);
+    const n = dirty(l);
+    const box = h('input', { type: 'checkbox', checked: isOn(l), disabled: Boolean(why) || busy, tabIndex: -1, 'aria-label': `Clean up ${l.name}` });
+    return h('div.cleanup-item' + (sel === key ? '.active' : '') + (why ? '.blocked' : ''), {
+      'data-key': key, role: 'treeitem', 'aria-selected': String(sel === key), 'aria-disabled': why ? 'true' : null,
+      title: [l.title !== l.name ? l.title : null, l.worktree ? tildify(l.worktree.path) : null, why].filter(Boolean).join('\n'),
+      onclick: (e) => { sel = key; if (e.target === box) e.preventDefault(); toggle(key); home(); },
+    },
+      box,
+      h('span.cleanup-item-name', null, l.name),
+      h('span.cleanup-item-note' + (n ? '.warn' : ''), null, [note(l), n ? `${plural(n, 'uncommitted file')}` : null].filter(Boolean).join(' · ')),
+      h('span.cleanup-item-age', { title: l.activity ? fullDate(l.activity / 1000) : '' }, l.activity ? timeAgo(l.activity / 1000) : ''));
+  }
+
+  function render() {
+    groups = groupLanes(lanes, { days });
+    const shown = groups.flatMap((g) => g.lanes);
+    const keys = new Set(shown.map(laneKey));
+    for (const l of shown) {
+      const k = laneKey(l);
+      if (!seen.has(k)) { seen.add(k); if (!only && preselect(l)) ticked.add(k); }
+      if (blocked(l)) ticked.delete(k);
+    }
+    if (only && loaded) { ticked.clear(); if (keys.has(only)) { ticked.add(only); const g = shown.find((l) => laneKey(l) === only)?.group; if (g) open.add(g); sel = only; } only = null; }
+    for (const k of ticked) if (!keys.has(k)) ticked.delete(k);
+    items = groups.flatMap((g) => [`g:${g.group.id}`, ...(open.has(g.group.id) ? (more.has(g.group.id) ? g.lanes : g.lanes.slice(0, SHOWN)).map(laneKey) : [])]);
+    if (sel === null || !items.includes(sel)) sel = items[0] ?? null;
+
+    const finished = shown.filter((l) => l.group !== 'old').length;
+    verdict.replaceChildren(...(!loaded ? [h('div.cleanup-big', null, 'Loading…')]
+      : finished || shown.length ? [h('div.cleanup-big', null, finished ? `${plural(finished, 'finished branch', 'finished branches')} can go` : 'Nothing finished yet')]
+        : [h('div.cleanup-big', null, 'Nothing to clean up')]));
+    cards.replaceChildren(...groups.map(card));
+
+    const chosen = selected();
+    const s = summarize(chosen);
+    const refs = (list: ViewLane[]) => list.map((l) => remoteOf(l, base)).filter((r): r is string => !!r);
+    const remoteRefs = refs(chosen), remotes = remoteRefs.length;
+    const where = remoteWhere(remoteRefs.length ? remoteRefs : refs(lanes));
+    remoteText.textContent = `Also delete them on ${where} (can’t be undone)`;
+    remoteLabel.dataset.tip = tipFor(`Also delete them on ${where}`, 'cleanup.remote');
+    goBtn.disabled = busy || !chosen.length;
+    goBtn.replaceChildren(chosen.length ? `Clean up ${chosen.length}` : 'Clean up', kbd(...(keymap.keys('cleanup.run') ?? [])));
+    counts.textContent = chosen.length ? [chosen.length === 1 ? 'branch' : 'branches', s.worktrees ? plural(s.worktrees, 'worktree') : null].filter(Boolean).join(' · ') : 'Tick what can go';
+    remoteBox.checked = alsoRemote && remotes > 0;
+    remoteBox.disabled = busy || !remotes;
+    remoteLabel.classList.toggle('disabled', !remotes);
+    bar.hidden = !shown.length;
+  }
+
+  const selected = () => groups.flatMap((g) => g.lanes).filter(isOn);
+  function toggle(key: string) {
+    const l = groups.flatMap((g) => g.lanes).find((x) => laneKey(x) === key);
+    if (!l || blocked(l) || busy) return render();
+    if (ticked.has(key)) ticked.delete(key);
+    else {
+      ticked.add(key);
+      if (dirty(l)) toast(`${l.name} has ${plural(dirty(l), 'uncommitted change')}`, { kind: 'error' });
+    }
+    render();
+  }
+  function tickGroup(id: string) {
+    const g = groups.find((x) => x.group.id === id);
+    if (!g || busy) return render();
+    const can = g.lanes.filter((l) => !blocked(l));
+    const all = can.length > 0 && can.every(isOn);
+    for (const l of can) (all ? ticked.delete(laneKey(l)) : ticked.add(laneKey(l)));
+    if (!all && g.group.warn) toast(`${plural(can.length, 'worktree has', 'worktrees have')} uncommitted changes`, { kind: 'error' });
+    render();
+  }
+  function toggleOpen(id: string) {
+    if (open.has(id)) open.delete(id); else open.add(id);
+    render();
+  }
+  // Tick everything safe (not dirty, not untouched), or untick all when it already is.
+  function tickAll() {
+    if (busy) return;
+    const ok = groups.flatMap((g) => g.lanes).filter(preselect);
+    const all = ok.length > 0 && ok.every(isOn);
+    if (all) ticked.clear();
+    else for (const l of ok) ticked.add(laneKey(l));
+    render();
+  }
+
+  function move(d: number) {
+    if (!items.length) return;
+    const i = sel === null ? -1 : items.indexOf(sel);
+    sel = items[Math.max(0, Math.min(items.length - 1, i + d))] ?? null;
+    render();
+    el.querySelector('.cleanup-card-head.active, .cleanup-item.active')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function go() {
+    const lanesToGo = selected();
+    if (busy || !lanesToGo.length) return;
+    const remoteSet = new Set(alsoRemote ? lanesToGo.filter((l) => remoteOf(l, base)).map(laneKey) : []);
+    const s = summarize(lanesToGo, remoteSet, { all: lanes, base });
+    const remoteNames = s.remotes;
+    const gone = new Set(remoteNames), where = remoteWhere(remoteNames);
+    const picked = lanesToGo.map(cleanupItem);
+    const found = await stoppedOps(picked).catch(() => []);
+    // An op name, or { op, conflicts }: conflicted files go with the abort, so they aren't uncommitted.
+    const ops = picked.map((_, k): string | null => { const f = found[k]; return f && typeof f === 'object' ? f.op : f ?? null; });
+    const conflicted = picked.map((_, k) => { const f = found[k]; return f && typeof f === 'object' ? f.conflicts || 0 : 0; });
+    const stopped = ops.filter((o): o is string => !!o);
+    const left = (l: ViewLane, k: number) => Math.max(0, dirty(l) - (ops[k] ? conflicted[k] ?? 0 : 0));
+    const stashing = lanesToGo.filter((l, k) => left(l, k) > 0).length;
+    // One row per branch with only what changes for it; the warning and its tick only when
+    // something can't come back (GitHub branches). Uncommitted changes are stashed, or discarded
+    // (undo still has them).
+    const rows = lanesToGo.map((l, k) => {
+      const n = left(l, k);
+      const ro = remoteOf(l, base);
+      return h('div.cleanup-confirm-row', null,
+        h('span.cleanup-confirm-name', { title: l.name }, l.name),
+        ops[k] ? h('span.cleanup-confirm-tag.warn', null, `${ops[k]} stopped`) : null,
+        n ? h('span.cleanup-confirm-tag.warn', null, `${n} uncommitted`) : null,
+        l.worktree ? h('span.cleanup-confirm-tag', null, 'worktree') : null,
+        ro && remoteSet.has(laneKey(l)) && gone.has(ro) ? h('span.cleanup-confirm-tag', null, ro.split('/')[0]) : null);
+    });
+    const content: Child[] = [h('div.cleanup-confirm-list', null, ...rows)];
+    const fields: Field[] = [];
+    const lose = remoteNames.length ? [`${remoteNames.length} on ${where}`] : [];
+    if (lose.length) {
+      content.push(h('p.cleanup-confirm-warn', null, 'This can’t be undone.'));
+      fields.push({ name: 'sure', type: 'checkbox', label: `Delete ${lose.join(' and ')}, for good` });
+    }
+    // Unticked, those worktrees are kept and listed as failed.
+    if (stopped.length) fields.push({ name: 'abort', type: 'checkbox', label: `Abort the stopped ${stopped.length === 1 ? stopped[0] : 'operations'} (can’t be undone)`, value: true });
+    if (stashing) fields.push({ name: 'stash', type: 'checkbox', label: `Stash the uncommitted changes in ${plural(stashing, 'worktree')}`, value: true });
+    const v = await dialog({ title: `Clean up ${cleanupWhat(lanesToGo)}?`, content, fields, submit: 'Clean up', destructive: true, gate: lose.length ? 'sure' : undefined });
+    if (!v) return;
+    busy = true;
+    progress.hidden = false;
+    progressText.textContent = 'Cleaning up…';
+    const off = onProgress(({ done, total }) => { progressText.textContent = `Cleaning up… ${done} of ${total}`; });
+    render();
+    let res: CleanupOutcome | null = null;
+    let error: Error | null = null;
+    try {
+      res = await run(picked.map((i, k) => ({ ...i, ...(v.stash ? { stash: true } : {}), ...(ops[k] && v.abort ? { abort: true } : {}) })), `Clean up ${cleanupWhat(lanesToGo)}`);
+      if (remoteNames.length) {
+        progressText.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on ${where}…`;
+        const r = await runRemote(remoteNames).catch((err: Error) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));
+        res.remoteDeleted = r.deleted;
+        res.remoteFailed = r.failed;
+      }
+    } catch (err) {
+      error = err as Error;
+    } finally {
+      off();
+      busy = false;
+      progress.hidden = true;
+    }
+    if (error) toast('Clean up failed', { kind: 'error', detail: error.message });
+    else if (res) report(res);
+    ticked.clear();
+    alsoRemote = false;
+    render();
+    await onDone();
+  }
+
+  function report(res: CleanupOutcome) {
+    const done = [res.removed.length ? plural(res.removed.length, 'worktree') + ' removed' : null, res.deleted.length ? plural(res.deleted.length, 'branch', 'branches') + ' deleted' : null, res.remoteDeleted?.length ? `${res.remoteDeleted.length} on ${remoteWhere(res.remoteDeleted)}` : null].filter(Boolean).join(', ');
+    if (done) toast(`Cleaned up: ${done}`, { kind: 'success', action: res.removed.length || res.deleted.length ? { label: 'Undo', run: onUndo } : null });
+    const detail = (list: readonly Failure[]) => list.slice(0, 6).map((f) => `${f.name}: ${f.message}`).join('\n') + (list.length > 6 ? `\n…and ${list.length - 6} more` : '');
+    if (res.failed.length) toast(`${plural(res.failed.length, 'branch was', 'branches were')} kept`, { kind: 'error', timeout: 0, detail: detail(res.failed) });
+    if (res.remoteFailed?.length) toast(`${plural(res.remoteFailed.length, 'branch was', 'branches were')} not deleted on GitHub`, { kind: 'error', timeout: 0, detail: detail(res.remoteFailed) });
+  }
+
+  // The panel's keys (cleanup scope); true when one ran.
+  function keydown(e: KeyboardEvent): boolean {
+    const id = keymap.match('cleanup', e);
+    if (!id) return false;
+    if (id === 'cleanup.next') move(1);
+    else if (id === 'cleanup.prev') move(-1);
+    else if (id === 'cleanup.toggle') { if (sel?.startsWith('g:')) tickGroup(sel.slice(2)); else if (sel) toggle(sel); }
+    else if (id === 'cleanup.expand') { if (sel?.startsWith('g:')) toggleOpen(sel.slice(2)); else return false; }
+    else if (id === 'cleanup.all') tickAll();
+    else if (id === 'cleanup.remote') { if (!remoteBox.disabled) { alsoRemote = !alsoRemote; render(); } }
+    else if (id === 'cleanup.run') go();
+    else if (id === 'cleanup.back') { if (busy) return true; onBack(); }
+    else return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
+
+  render();
+  return {
+    el,
+    keydown,
+    // New lanes (Branches loaded or refreshed); never while a cleanup runs (it refreshes when done).
+    update(next: ViewLane[], b: string | null) { if (busy) return; lanes = next; base = b; loaded = true; render(); },
+    // Tick just this lane (a branch's Clean up), once the lanes are there.
+    only(key: string) { only = key; if (loaded) render(); },
+    busy: () => busy,
+    go,
+    tickAll,
+    toggleRemote: () => { if (!remoteBox.disabled) { alsoRemote = !alsoRemote; render(); } },
+    count: () => selected().length,
+  };
+}
