@@ -1,7 +1,7 @@
 import { h, icon, kbd, toast, dialog, confirm, contextMenu } from '../lib/ui.ts';
 import { renderDiff, hunkKeys, statusBadge, fileRef } from './diff.ts';
 import * as keymap from '../palette/keymap.ts';
-import { conflictEditor } from './conflict-view.js';
+import { conflictEditor } from './conflict-view.ts';
 import { unifiedChanges } from './unified-view.js';
 import { up } from '../lib/upcalls.ts';
 import { state, tip, api, baseName, MOD, isEditable } from '../lib/app-helpers.ts';

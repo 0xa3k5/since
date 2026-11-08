@@ -42,7 +42,7 @@ export function parseConflicts(text: string): Segment[] {
 }
 
 // A choice for one block: which ours/theirs lines to keep, and whether theirs come first.
-export function sideChoice(block: ConflictBlock, side: string): Choice {
+export function sideChoice(block: ConflictBlock, side: string | null): Choice {
   return {
     ours: block.ours.map(() => side === 'ours' || side === 'both' || side === 'both-rev'),
     theirs: block.theirs.map(() => side === 'theirs' || side === 'both' || side === 'both-rev'),
