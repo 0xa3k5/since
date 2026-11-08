@@ -30,7 +30,7 @@ import { prList, refreshPrs, createPr, pickPrBranch, pickPr, approvePr, approveT
 import { pendingAutostash, applyAutostash, createBranch, canSwitchFrom, checkoutSelected, guarded, checkout } from '../graph/commit-actions.ts';
 import { openRepo, openPrefs, cloneRepo, closeRepo } from '../settings/prefs-window.ts';
 import { VIEWS, setView, setSections, nav, goBack, goForward, openLfs, conflictEd, originRemote, openOrigin, toggleShow, lanesOpen, detailToggleLabel, toggleDetail, resetPanes, sbState, toggleSidebar, openAuthor, copyCommitLink, jumpTo } from '../shell/navigation.ts';
-import { pickPrReview, prDeskAction, mergePrCmd, closePrCmd, openReview, branchSwitcher, addWorktree, worktreeSwitcher, pruneWorktrees, removeWorktree, switchWorktree, openWorktreeWindow, toggleLock, updateSubmodules, openSubmodule, mergeLane, rebaseLane, laneAction, deleteLane, startCleanup, makeChainStack, paneAction, openLane, showBranches } from '../lanes/worktrees.js';
+import { pickPrReview, prDeskAction, mergePrCmd, closePrCmd, openReview, branchSwitcher, addWorktree, worktreeSwitcher, pruneWorktrees, removeWorktree, switchWorktree, openWorktreeWindow, toggleLock, updateSubmodules, openSubmodule, mergeLane, rebaseLane, laneAction, deleteLane, startCleanup, makeChainStack, paneAction, openLane, showBranches } from '../lanes/worktrees.ts';
 
 // Command palette
 

@@ -30,7 +30,7 @@ type ActionResult<T = unknown> = { ok: T; error?: undefined } | { ok?: undefined
 // The PR actions' channels (pr-approve, pr-merge, …) aren't in the IPC contract's result map yet, so their answers are typed here.
 const callAction = (channel: AppChannel, remote: string, number: number, opts: unknown) => api.app(channel, remote, number, opts) as unknown as Promise<ActionResult>;
 /** GitHub's word on merging a PR (app:pr-merge-info). */
-interface MergeInfo extends GateInfo {
+export interface MergeInfo extends GateInfo {
   gate: { hard?: string | null; soft: string[]; canOverride?: boolean; needsAdmin?: boolean };
   methods: string[]; headOid?: string | null; checking?: boolean; failing?: string[]; checkCounts?: { passed: number; total: number } | null;
 }

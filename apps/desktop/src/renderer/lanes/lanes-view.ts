@@ -16,6 +16,7 @@ import type { MergePlanOptions } from './merge-plan-view.ts';
 import type { ForecastPair, LanesResult } from '../../shared/git-types.ts';
 import type { PullRequest, Viewer } from '../../shared/github-types.ts';
 import type { IpcError } from '../../shared/ipc-contract.ts';
+import type { GitFeature } from '../lib/git-version.ts';
 
 /** What app:lanes-list returns; with { prs, inbox } also the open PRs, their remote, the viewer and review requests. */
 export interface LanesList extends LanesResult {
@@ -55,8 +56,8 @@ export interface LanesViewOptions {
   onMakeStack?: ((number: number) => unknown) | null;
   chains?: ((remote: string, base: string | null) => Promise<{ ok?: { chains?: Chain[] } | null } | null | undefined>) | null;
   onMergePlan?: ((plan: MergePlanRequest) => unknown) | null;
-  onGitTooOld?: ((feature: string, then: () => void) => unknown) | null;
-  gitWhy?: (feature: string) => string | null; onBranches?: (tab: string) => void; onCounts?: (counts: ReviewCounts) => void;
+  onGitTooOld?: ((feature: GitFeature, then: () => void) => unknown) | null;
+  gitWhy?: (feature: GitFeature) => string | null; onBranches?: (tab: string) => void; onCounts?: (counts: ReviewCounts) => void;
   mergeStates?: ((remote: string, numbers: number[]) => Promise<{ ok?: MergeStateEntry[] | null } | null | undefined>) | null;
   place?: ReviewPlace | null;
 }

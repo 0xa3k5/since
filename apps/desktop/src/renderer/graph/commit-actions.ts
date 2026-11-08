@@ -375,7 +375,7 @@ const changesText = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
 
 // Delete the checked-out branch: the menu item already said "Switch to main & Delete", so it
 // switches (stashing what's here), deletes, and says so (AK-598). One undo step.
-async function switchAndDelete(r: Ref, base: string | null = null) {
+async function switchAndDelete(r: Pick<Ref, 'short'>, base: string | null = null) {
   const to = switchTarget(r.short, base);
   if (!to) return;
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);

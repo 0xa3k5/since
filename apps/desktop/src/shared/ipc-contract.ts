@@ -8,8 +8,8 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictFile, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, Remote, RepoInfo, RestorePreview, Stash, Submodule, SubmoduleHead, WorkStatus, Worktree } from './git-types.ts';
-import type { GhRemote, PrEvidence, PrList, PrSettings } from './github-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CleanupFailure, CleanupResult, CombinedDiff, CommitDetails, ConfigEntry, ConflictFile, ConflictReview, Divergence, FileDiff, FileHistoryPage, ForecastPair, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, MergeLanePlan, OperationInfo, OperationKind, ReflogEntry, Refs, Remote, RepoInfo, RestorePreview, Stash, Submodule, SubmoduleHead, WorkStatus, Worktree } from './git-types.ts';
+import type { GhRemote, PrEvidence, PrList, PrSettings, PullRequest } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
 /** A window's tab as its tab strip shows it. */
@@ -68,6 +68,16 @@ export interface GitResults {
   mergeConflicts: ConflictReview;
   fileHistory: FileHistoryPage;
   refs: Refs;
+  /** The merge-and-tidy plan for a branch, with a commit message drafted from its commits. */
+  mergeLanePlan: MergeLanePlan & { message: string };
+  /** How many files a worktree has changed; null when its folder is gone. */
+  worktreeChanges: number | null;
+  /** What removing a worktree stashes and would abort. */
+  removalFacts: { changes: number; op: OperationKind | null };
+  /** The operation stopped in a worktree, and how many files conflict; null when there is none. */
+  worktreeOpInfo: (OperationInfo & { conflicts?: number }) | null;
+  cleanupLanes: CleanupResult;
+  deleteRemoteBranches: { deleted: string[]; failed: CleanupFailure[] };
   remotes: Remote[];
   opInfo: OperationInfo | null;
   status: WorkStatus;
@@ -168,6 +178,12 @@ export interface AppResults {
   /** null: pull requests are off here, or there's no GitHub remote. */
   'pr-list': IpcResult<PrList | null>;
   'pr-ai-draft': IpcResult<{ title: string; body: string }>;
+  /** The open PR chains onto a base: native GitHub stacks or plain chains, and whether each can be linked. */
+  'pr-chains': IpcResult<{ chains: { prs: number[]; native: boolean; linkable: boolean; why?: string | null }[]; extension: boolean }>;
+  /** GitHub's merge state for these PRs, asked again after it answered unknown. */
+  'pr-merge-states': IpcResult<(Pick<PullRequest, 'number'> & Partial<Pick<PullRequest, 'mergeState' | 'mergeable'>>)[]>;
+  /** The conflict forecast for the lanes app:lanes-list last returned; null when a newer request cancelled it. */
+  'lanes-forecast': { supported: boolean; pairs: ForecastPair[] } | null;
   /** A branch's pull request draft: where it would go, its title and body from the commits, and what to push first. */
   'pr-create-info': IpcResult<{ branch: string; base: string; remote: string; head: string; push: { remote: string; isNew: boolean; ahead: number } | null; title: string; body: string }>;
   /** Checking out a PR: ask first (`confirm`, the local branch would move), it's checked out elsewhere (`inUse`), or done. */

@@ -24,7 +24,7 @@ import { submoduleSwitcher, prList, refreshPrs, createPr, pickPr, approvePr, req
 import { branchHere } from './graph/commit-actions.ts';
 import { openRepo, initRepo, cloneRepo, openPrefs, prefs } from './settings/prefs-window.ts';
 import { sbNarrow, applySidebar, setSbNarrow, setView, goBack, goForward, toggleSidebar, toggleShow, openOrigin, openLfs, sbState, sbHideTimer, setSidebar, isMenuKey, resetPanes, toggleDetail, renderSidebar, renderTopbar, renderView, startView, renderShell, setStartView } from './shell/navigation.ts';
-import { addWorktree, branchSwitcher, worktreeSwitcher, updateSubmodules, openReview, mergePrCmd, closePrCmd, takeHandoff, startCleanup } from './lanes/worktrees.js';
+import { addWorktree, branchSwitcher, worktreeSwitcher, updateSubmodules, openReview, mergePrCmd, closePrCmd, takeHandoff, startCleanup } from './lanes/worktrees.ts';
 import { openPalette, resetHard, openHosting, repoSwitcher } from './palette/palette.js';
 
 // The renderer entry: global events, the tab strip and boot. Each area lives in its own folder;

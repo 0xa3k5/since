@@ -14,9 +14,10 @@ type CatchupPage = ReturnType<typeof catchupView>;
 const root = $('#app') as HTMLElement; // index.html always has #app
 let sidebarEl: HTMLElement | null | undefined, topbarEl: HTMLElement | null | undefined, bannerEl: HTMLElement | null | undefined, contentEl: HTMLElement | null | undefined;
 let mapView: MapView | null = null, commitView: CommitView | null = null, lanesPage: LanesPage | null = null, reviewPage: ReviewView | null = null, catchupPage: CatchupPage | null = null, branchesPage: BranchesView | null = null;
-let finishedCount = 0, finishedRun: Promise<unknown> | null = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
-let reviewCount = 0, reviewRun: Promise<unknown> | null = null; // Review's sidebar badge: the page's Needs you count, stuck plus ready (countReview)
-let catchupCount = 0, countRun: Promise<unknown> | null = null; // Catch up's sidebar badge (setCatchupCount)
+type Run = (() => Promise<unknown>) | null;
+let finishedCount = 0, finishedRun: Run = null; // Branches' quiet sidebar badge: "N to clean" (countFinished)
+let reviewCount = 0, reviewRun: Run = null; // Review's sidebar badge: the page's Needs you count, stuck plus ready (countReview)
+let catchupCount = 0, countRun: Run = null; // Catch up's sidebar badge (setCatchupCount)
 let stashFocus: string | null = null; // the stash a sidebar click asked the Stashes page to select
 let stashShown: string | null = null; // the stash selected on the Stashes page (for ⌘K)
 
@@ -34,10 +35,10 @@ function setStashFocus(value: string | null) { return (stashFocus = value); }
 function setStashShown(value: string | null) { return (stashShown = value); }
 function setLanesPage(value: LanesPage | null) { return (lanesPage = value); }
 function assignCatchupCount(value: number) { return (catchupCount = value); }
-function setCountRun(value: Promise<unknown> | null) { return (countRun = value); }
+function setCountRun(value: Run) { return (countRun = value); }
 function assignFinishedCount(value: number) { return (finishedCount = value); }
-function setFinishedRun(value: Promise<unknown> | null) { return (finishedRun = value); }
+function setFinishedRun(value: Run) { return (finishedRun = value); }
 function assignReviewCount(value: number) { return (reviewCount = value); }
-function setReviewRun(value: Promise<unknown> | null) { return (reviewRun = value); }
+function setReviewRun(value: Run) { return (reviewRun = value); }
 
 export { bannerEl, mapView, lanesPage, branchesPage, catchupPage, reviewPage, commitView, root, sidebarEl, topbarEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage, stashFocus, setStashFocus, stashShown, setStashShown, setLanesPage, assignCatchupCount, countRun, setCountRun, assignFinishedCount, finishedRun, setFinishedRun, assignReviewCount, reviewRun, setReviewRun };

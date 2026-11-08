@@ -34,35 +34,59 @@ import { refMenu, canSwitchFrom, switchTarget, switchChanges, switchAndDelete, c
 import { openRepo } from '../settings/prefs-window.ts';
 import { jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView } from '../shell/navigation.ts';
 
+import type { ViewLane } from './lanes.ts';
+import type { LanesList, LanesViewOptions } from './lanes-view.ts';
+import type { CatchupRes, CatchupViewOptions } from '../catchup/catchup-view.ts';
+import type { BranchesViewOptions } from '../branches/branches-view.ts';
+import type { ReviewRow } from '../review/review-rows.ts';
+import type { PaneContext } from '../review/review-pane.ts';
+import type { MergeInfo } from '../prs/prs-page.ts';
+import type { ReviewTarget } from '../lib/app-helpers.ts';
+import type { GitResults, SinceBridge } from '../../shared/ipc-contract.ts';
+import type { PullRequest } from '../../shared/github-types.ts';
+import type { Ref, Submodule, Worktree } from '../../shared/git-types.ts';
+
+type WorktreeEntry = Worktree & { elsewhere?: boolean };
+/** A lane, or as much of one as the action needs: its name and branch. */
+type LaneArg = Partial<ViewLane> & { name: string; branch?: string | null };
+/** What another window handed over (app:handoff), for this one to carry out. */
+type Handoff = { kind: 'removeWorktree'; path: string } | { kind: 'mergeLane' | 'rebaseLane'; branch: string; base: string };
+interface RefRow { icon: string; label: string; nested?: boolean; sub?: string; when?: string; open(): unknown; menu(x: number, y: number): unknown }
+// One pass-through for the views' own `call` option; each view types the channels it uses.
+const call = ((channel: string, ...args: unknown[]) => (api.app as (c: string, ...a: unknown[]) => Promise<unknown>)(channel, ...args)) as SinceBridge['app'];
+// The contract leaves these results untyped: the views that read them own their types.
+const lanesList = (opts: { prs: boolean; inbox?: boolean }) => api.app('lanes-list', opts) as Promise<LanesList | null>;
+const catchupLoad = (opts: unknown) => api.app('catchup', opts) as Promise<CatchupRes | null>;
+
 // Worktrees: extra working folders of this repository, each with its own
 // branch or detached HEAD. A window shows one worktree and can switch between them.
 
 // The Remotes, Tags and Submodules pages (AK-463): a sidebar section at full width. ↑/↓ move, ↵ opens the row
 // (a tag or remote branch shows in the Map, a remote edits its URL, a submodule opens), right-click for its menu.
-const REF_LISTS = {
+const REF_LISTS: Record<string, { lede: string; empty: string }> = {
   remoteList: { lede: 'Every remote and its branches.', empty: 'No remotes yet.' },
   tagList: { lede: 'Every tag, newest first.', empty: 'No tags yet.' },
   submoduleList: { lede: 'The repositories nested in this one.', empty: 'No submodules.' },
 };
-function refListRows(view) {
-  const refRow = (r, label, nested) => ({ icon: r.kind === 'tag' ? 'tag' : 'branch', label, nested, when: r.date ? timeAgo(r.date) : '', open: () => jumpTo(r.target), menu: (x, y) => refMenu(x, y, r) });
+function refListRows(view: string): RefRow[] {
+  const refRow = (r: Ref, label: string, nested = false): RefRow => ({ icon: r.kind === 'tag' ? 'tag' : 'branch', label, nested, when: r.date ? timeAgo(r.date) : '', open: () => jumpTo(r.target), menu: (x: number, y: number) => refMenu(x, y, r) });
   if (view === 'tagList') return state.refs.filter((r) => r.kind === 'tag').sort((a, b) => b.date - a.date).map((r) => refRow(r, r.short));
-  if (view === 'submoduleList') return state.submodules.map((m) => ({ icon: 'submodule', label: m.path, sub: [sentence(SUBMODULE_STATES[m.state][0]), m.url].filter(Boolean).join(' · '), open: () => openSubmodule(m), menu: (x, y) => submoduleMenu(x, y, m) }));
+  if (view === 'submoduleList') return state.submodules.map((m) => ({ icon: 'submodule', label: m.path, sub: [sentence(SUBMODULE_STATES[m.state]?.[0] ?? ''), m.url].filter(Boolean).join(' · '), open: () => openSubmodule(m), menu: (x: number, y: number) => submoduleMenu(x, y, m) }));
   const remote = state.refs.filter((r) => r.kind === 'remote');
-  const names = [...new Set([...state.remotes.map((r) => r.name), ...remote.map((r) => r.short.split('/')[0])])];
-  return names.flatMap((name) => {
+  const names = [...new Set([...state.remotes.map((r) => r.name), ...remote.map((r) => r.short.split('/')[0] ?? '')])];
+  return names.flatMap((name): (RefRow | null)[] => {
     const r = state.remotes.find((x) => x.name === name);
     return [
-      r ? { icon: 'cloud', label: name, sub: r.label, open: () => editRemoteUrl(r), menu: (x, y) => remoteMenu(x, y, r) } : null,
+      r ? { icon: 'cloud', label: name, sub: r.label, open: () => editRemoteUrl(r), menu: (x: number, y: number) => remoteMenu(x, y, r) } : null,
       ...remote.filter((b) => b.short.startsWith(name + '/')).map((b) => refRow(b, b.short.slice(name.length + 1), true)),
     ];
-  }).filter(Boolean);
+  }).filter((x) => x !== null);
 }
 let refListShown = '';
-const refListSel = {};
-const refListKey = (view, rows = refListRows(view)) => view + '\n' + rows.map((r) => `${r.label}\t${r.sub || ''}`).join('\n');
+const refListSel: Record<string, string | undefined> = {};
+const refListKey = (view: string, rows = refListRows(view)) => view + '\n' + rows.map((r) => `${r.label}\t${r.sub || ''}`).join('\n');
 
-function refListView(view) {
+function refListView(view: string) {
   const page = pageOf(view);
   const rows = refListRows(view);
   refListShown = refListKey(view, rows);
@@ -80,16 +104,16 @@ function refListView(view) {
   }, icon(r.icon, 14), h('span.ref-name', null, r.label), h('span.ref-sub', null, r.sub || ''), h('span.when', null, r.when || ''))));
   el.append(
     h('div.page-head', null,
-      h('div', null, h('h1', null, page.label), h('p.muted', null, REF_LISTS[view].lede)),
+      h('div', null, h('h1', null, page?.label), h('p.muted', null, REF_LISTS[view]?.lede)),
       view === 'remoteList' ? h('div.page-actions', null, h('button.btn.subtle', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), 'Add remote…')) : null),
-    rows.length ? list : h('div.empty', null, REF_LISTS[view].empty),
+    rows.length ? list : h('div.empty', null, REF_LISTS[view]?.empty),
   );
   el.addEventListener('keydown', (e) => {
     const id = keymap.match('list', e);
-    if (!id || isEditable(e.target) || !rows.length) return;
+    if (!id || isEditable(e.target as Element | null) || !rows.length) return;
     e.preventDefault();
-    if (id === 'list.open') return rows[idx].open();
-    idx = Math.max(0, Math.min(rows.length - 1, idx + { 'list.next': 1, 'list.prev': -1 }[id]));
+    if (id === 'list.open') return rows[idx]?.open();
+    idx = Math.max(0, Math.min(rows.length - 1, idx + (id === 'list.next' ? 1 : id === 'list.prev' ? -1 : 0)));
     mark();
     list.querySelector('.ref-row.selected')?.scrollIntoView({ block: 'nearest' });
   });
@@ -101,12 +125,12 @@ function refListView(view) {
 function worktreesView() {
   const el = h('div.page.flush', { tabIndex: 0 });
   const list = h('div.wt-list');
-  const changes = new Map();
+  const changes = new Map<string, number | null>();
   let idx = Math.max(0, state.worktrees.findIndex((w) => w.current));
   const main = state.worktrees.find((w) => w.main);
   const missing = state.worktrees.some((w) => w.missing);
 
-  function row(w, i) {
+  function row(w: WorktreeEntry, i: number) {
     const n = changes.get(w.path);
     return h('div.list-row.wt-row' + (i === idx ? '.active' : ''), {
       onclick: () => { idx = i; mark(); },
@@ -127,7 +151,7 @@ function worktreesView() {
       h('span.wt-changes' + (n ? '.dirty' : ''), null, n == null ? '' : n ? `${n} changed` : 'Clean'),
       h('span.wt-actions', null,
         w.current || w.missing ? null : h('button.btn.subtle.small', { onclick: (e) => { e.stopPropagation(); switchWorktree(w); } }, 'Switch'),
-        h('button.icon-btn', { title: 'More actions', onclick: (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); worktreeMenu(r.left, r.bottom + 4, w); } }, icon('more'))),
+        h('button.icon-btn', { title: 'More actions', onclick: (e) => { e.stopPropagation(); const r = (e.currentTarget as Element).getBoundingClientRect(); worktreeMenu(r.left, r.bottom + 4, w); } }, icon('more'))),
     );
   }
   function render() { list.replaceChildren(...state.worktrees.map(row)); }
@@ -138,7 +162,7 @@ function worktreesView() {
       h('div', null, h('h1', null, 'Worktrees'), h('p.muted', null, 'A working folder per branch.')),
       h('div.page-actions', null,
         missing ? h('button.btn.subtle', { onclick: pruneWorktrees }, 'Prune missing') : null,
-        h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...keymap.keys('repo.worktreeAdd'))))),
+        h('button.btn.primary', { onclick: () => addWorktree() }, icon('plus', 14), 'New worktree', kbd(...(keymap.keys('repo.worktreeAdd') ?? []))))),
     list,
     ...(state.worktrees.length < 2 ? [h('div.empty', null, `Only the ${main ? 'main ' : ''}worktree so far. Create one with ${keyText('repo.worktreeAdd')}, or press ${keyText('commit.worktree')} on a commit in the Map.`)] : []),
   );
@@ -169,10 +193,10 @@ function worktreesView() {
 function openLanes() {
   lanesPage?.destroy();
   setLanesPage(lanesView({
-    repo: state.repo.root,
+    repo: state.repo?.root ?? null,
     onCounts: (c) => setReviewCount(c.needs),
     git,
-    load: (opts) => api.app('lanes-list', opts),
+    load: lanesList,
     forecast: () => api.app('lanes-forecast'),
     mergeStates: (remote, numbers) => api.app('pr-merge-states', remote, numbers),
     prsOn: () => Boolean(state.prs?.active),
@@ -183,25 +207,25 @@ function openLanes() {
     onMergeReady: mergeReadyPrs,
     onPrSetup: () => setupPrs(),
     onSendBack: sendBackRow,
-    onMarkReady: (pr, remote) => toggleDraft({ ...pr, remote: prRemote(pr, remote) }),
+    onMarkReady: (pr, remote) => toggleDraft({ ...pr, remote: prRemote(pr, remote ?? null) }),
     onApproveAll: approveStack,
     onMakeStack: (n) => makeChainStack(n),
     chains: (remote, base) => api.app('pr-chains', remote, base),
     onGitTooOld: updateGit,
     gitWhy,
-    onMergePlan: (o) => openMergePlan({ ...o, call: (...a) => api.app(...a), onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
+    onMergePlan: (o) => openMergePlan({ ...o, call: call, onSendBack: sendBackPr, onUndo: undo, onDone: async () => { await fetchAll(); lanesPage?.reload(); } }),
     onBranches: (tab) => showBranches(tab),
     onReview: (lane, base) => openReview(lane, base),
     onMerge: mergeLane,
     onAction: laneAction,
     canSwitch: canSwitchFrom,
     switchTo: switchTarget,
-    progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo.root, laneKey(lane))), lane.head),
+    progress: (lane) => reviewProgress(readTicks(localStorage, storeKey(state.repo?.root ?? '', laneKey(lane))), lane.head),
     onCleanup: (lane) => startCleanup(lane),
     place: lanesPlace,
-    pane: (row, ctx) => reviewPane({ row, ctx, root: state.repo.root, git, store: localStorage, call: (...a) => api.app(...a), run: paneAction, onBack: () => lanesPage?.el.focus({ preventScroll: true }), commitSide }),
+    pane: (row, ctx) => reviewPane({ row, ctx, root: state.repo?.root ?? '', git, store: localStorage, call: call, run: paneAction, onBack: () => lanesPage?.el.focus({ preventScroll: true }), commitSide }),
     onPaneAction: paneAction,
-    paneWidth: () => loadPref('reviewPane', {}).width || null,
+    paneWidth: () => loadPref<{ width?: number }>('reviewPane', {}).width || null,
     setPaneWidth: (width) => savePref('reviewPane', { width }),
     // Moving to another row is a step for ⌘[ / ⌘] once the pane shows it.
     onSettle: (from) => { if (lanesOpen() && !navigating && !navDepth && nav.record({ ...place(), lanes: from, key: placeKey(from) }, placeKey())) renderTopbar(); },
@@ -214,40 +238,41 @@ function openLanes() {
 // reader (AK-372). Git alone until Reload.
 function openCatchup() {
   setCatchupPage(catchupView({
-    repo: state.repo.root,
+    repo: state.repo?.root ?? null,
     paneHandle: (box) => paneHandle('catchup', box),
     git,
-    load: (opts) => api.app('catchup', opts),
-    mark: (to) => api.app('catchup-mark', to),
+    load: catchupLoad,
+    mark: (to) => api.app('catchup-mark', to) as ReturnType<CatchupViewOptions['mark']>,
     prsOn: () => Boolean(state.prs?.active),
     markAgents: () => state.show.agentLanes !== false,
     refs: () => state.refs,
-    counts: () => reviewCounts({ repo: state.repo.root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }),
+    counts: () => reviewCounts({ repo: state.repo?.root ?? '', load: lanesList, prsOn: () => Boolean(state.prs?.active) }),
     onReview: () => setView('lanes'),
     onCount: setCatchupCount,
   }));
   return catchupPage;
 }
 // The sidebar badge on Catch up: what landed since the checkpoint (git alone); none once caught up.
-function setCatchupCount(n) { if (n === catchupCount) return; assignCatchupCount(n); renderNavCounts(); }
+function setCatchupCount(n: number) { if (n === catchupCount) return; assignCatchupCount(n); renderNavCounts(); }
 function countCatchup() {
-  (countRun ?? setCountRun(coalesce(async () => {
+  let run = countRun;
+  if (!run) run = setCountRun(coalesce(async () => {
     if (!state.repo) return;
-    const r = await api.app('catchup', { since: 'checkpoint' }).catch(() => null);
+    const r = await catchupLoad({ since: 'checkpoint' }).catch(() => null);
     setCatchupCount(r ? landedEntries(r.commits, r.merged).length : 0); // the page's count (catchup-view.js)
-  })));
-  return countRun();
+  }));
+  return run?.();
 }
 // Branches (branches-view.js, AK-396): every local branch and worktree behind tabs, with the
 // branch preview beside the list. Local data; pull requests from Review's last load.
-let branchesTab = null; // the tab the next Branches page opens on (null: the last one)
+let branchesTab: string | null = null; // the tab the next Branches page opens on (null: the last one)
 function openBranches() {
   setBranchesPage(branchesView({
-    repo: state.repo.root,
+    repo: state.repo?.root ?? null,
     git,
-    load: (opts) => api.app('lanes-list', opts),
+    load: lanesList,
     forecast: () => api.app('lanes-forecast'),
-    prs: () => (state.prs?.active ? cachedPrs(state.repo.root) : []),
+    prs: () => (state.prs?.active ? cachedPrs(state.repo?.root ?? null) : []),
     markAgents: () => state.show.agentLanes !== false,
     onOpen: openLane,
     onReview: (lane, base) => openReview(lane, base),
@@ -258,7 +283,7 @@ function openBranches() {
     switchTo: switchTarget,
     onNewWorktree: () => addWorktree(),
     onCount: setFinishedCount,
-    paneWidth: () => loadPref('reviewPane', {}).width || null,
+    paneWidth: () => loadPref<{ width?: number }>('reviewPane', {}).width || null,
     setPaneWidth: (width) => savePref('reviewPane', { width }),
     tab: branchesTab,
     only: cleanupOnly,
@@ -278,41 +303,43 @@ function openBranches() {
   return branchesPage;
 }
 // Branches on a tab (⌘K, the keys that used to open Everything else in Review).
-function showBranches(tab = null) {
+function showBranches(tab: string | null = null) {
   if (!state.repo) return;
   if (state.view === 'branches' && branchesPage && !state.review && !state.quick && !state.split && !state.fileHistory) return tab && branchesPage.setTab(tab);
   branchesTab = tab;
   setView('branches');
 }
 // The sidebar badge on Branches: finished branches waiting for Clean up, quiet (not the accent).
-function setFinishedCount(n) { if (n === finishedCount) return; assignFinishedCount(n); renderNavCounts(); }
+function setFinishedCount(n: number) { if (n === finishedCount) return; assignFinishedCount(n); renderNavCounts(); }
 function countFinished() {
-  (finishedRun ?? setFinishedRun(coalesce(async () => {
+  let run = finishedRun;
+  if (!run) run = setFinishedRun(coalesce(async () => {
     if (!state.repo) return;
-    const r = await api.app('lanes-list', { prs: false }).catch(() => null);
+    const r = await lanesList({ prs: false }).catch(() => null);
     if (!r?.lanes) return;
     setFinishedCount(r.lanes.filter(isFinished).length);
-  })));
+  }));
   countReview();
-  return finishedRun();
+  return run?.();
 }
 // The sidebar badge on Review: what the page calls "needs you" (reviewCounts), never the raw branch count.
-function setReviewCount(n) { if (n === reviewCount) return; assignReviewCount(n); renderNavCounts(); }
+function setReviewCount(n: number) { if (n === reviewCount) return; assignReviewCount(n); renderNavCounts(); }
 function countReview() {
-  (reviewRun ?? setReviewRun(coalesce(async () => {
+  let run = reviewRun;
+  if (!run) run = setReviewRun(coalesce(async () => {
     if (!state.repo) return;
     const root = state.repo.root;
-    const c = await reviewCounts({ repo: root, load: (opts) => api.app('lanes-list', opts), prsOn: () => Boolean(state.prs?.active) }).catch(() => null);
+    const c = await reviewCounts({ repo: root, load: lanesList, prsOn: () => Boolean(state.prs?.active) }).catch(() => null);
     if (c && state.repo?.root === root) setReviewCount(c.needs);
-  })));
-  return reviewRun();
+  }));
+  return run?.();
 }
 
 // Clean up (cleanup-view.js) is the Finished tab of Branches (AK-396): finished branches and
 // worktrees, removed in bulk as one undo step. With a lane, just that one is ticked.
-function startCleanup(...args) { return go(() => startCleanupNow(...args)); }
-let cleanupOnly = null; // a lane's Clean up: the laneKey to tick, alone
-function startCleanupNow(lane = null) {
+function startCleanup(...args: Parameters<typeof startCleanupNow>) { return go(() => startCleanupNow(...args)); }
+let cleanupOnly: string | null = null; // a lane's Clean up: the laneKey to tick, alone
+function startCleanupNow(lane: ViewLane | null = null) {
   if (!state.repo) return;
   const key = lane?.name ? laneKey(lane) : null;
   if (state.view === 'branches' && branchesPage && !state.review && !state.quick && !state.split && !state.fileHistory) return branchesPage.cleanup(lane?.name ? lane : null);
@@ -320,14 +347,14 @@ function startCleanupNow(lane = null) {
   branchesTab = 'finished';
   setView('branches');
 }
-const cleanupPrefs = () => ({ days: STALE_DAYS, ...loadPref('cleanup', {}) });
+const cleanupPrefs = (): { days: number } => ({ days: STALE_DAYS, ...loadPref<{ days?: number }>('cleanup', {}) });
 // Review a lane's branch (review-view.js): from Lanes, or the current branch from ⌘K / the menu.
-function openReview(...args) { return go(() => openReviewNow(...args)); }
-function openReviewNow(lane, base = null) {
+function openReview(...args: Parameters<typeof openReviewNow>) { return go(() => openReviewNow(...args)); }
+function openReviewNow(lane?: LaneArg | null, base: string | null = null) {
   if (!state.repo) return;
   if (!lane) {
     if (!state.head.oid) return toast('Nothing to review yet', { detail: 'This branch has no commits.' });
-    lane = state.head.branch ? { name: state.head.branch, branch: state.head.branch, head: state.head.oid } : { name: state.head.oid.slice(0, 7), branch: null, head: state.head.oid, worktree: state.worktrees.find((w) => w.current) };
+    lane = (state.head.branch ? { name: state.head.branch, branch: state.head.branch, head: state.head.oid } : { name: state.head.oid.slice(0, 7), branch: null, head: state.head.oid, worktree: state.worktrees.find((w) => w.current) }) as LaneArg;
   }
   if (lane.isBase) return toast(`${lane.name} is the base branch`, { detail: 'Review a branch made from it instead.' });
   const rev = lane.branch || lane.head;
@@ -335,21 +362,22 @@ function openReviewNow(lane, base = null) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
-  state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base, source: lane };
+  // The whole lane is kept: Merge and tidy reads its PR and upstream from it.
+  state.review = { lane: { key: laneKey(lane), name: lane.name, rev }, base, source: lane as ReviewTarget['source'] };
   renderTopbar();
   renderView();
 }
 // Review a pull request from the Inbox (pr-review.js): its head is fetched into FETCH_HEAD and
 // diffed locally, with the PR's actions on the page. Esc goes back to the Inbox row.
-function openPrReview(...args) { return go(() => openPrReviewNow(...args)); }
-async function openPrReviewNow(pr, given = null) {
+function openPrReview(...args: Parameters<typeof openPrReviewNow>) { return go(() => openPrReviewNow(...args)); }
+async function openPrReviewNow(pr: PullRequest | null | undefined, given: string | null = null) {
   if (!state.repo || !pr) return;
   const remote = prRemote(pr, given);
   if (!state.prs?.active) return setupPrs();
   const t = toast(`Fetching #${pr.number}…`, { kind: 'busy', timeout: 0 });
-  const res = await loadPrReview(pr, remote, (...a) => api.app(...a));
+  const res = await loadPrReview(pr, remote, call);
   t.close();
-  if (res.error) return prError(`Couldn’t fetch #${pr.number}`, res.error);
+  if ('error' in res) return prError(`Couldn’t fetch #${pr.number}`, res.error);
   if (state.view === 'lanes' && lanesPage && lanesOpen()) { setLanesPlace(lanesPage.location()); }
   state.quick = null;
   state.split = null;
@@ -360,12 +388,12 @@ async function openPrReviewNow(pr, given = null) {
 }
 function pickPrReview() {
   if (!state.prs?.active) return setupPrs();
-  const prs = state.prs.data?.prs || [];
+  const prs = state.prs?.data?.prs || [];
   if (!prs.length) return toast('No open pull requests', { detail: `Refresh pull requests (${keyText('repo.prRefresh')}) to load them.` });
   palette(() => prs.map((p) => ({ group: 'Open pull requests', label: `#${p.number} ${p.title}`, icon: 'diff', detail: p.branch, keywords: `${p.author} ${p.branch} ${p.base}`, run: () => openPrReview(p) })), { placeholder: 'Review pull request…' });
 }
 // The review page's PR buttons and keys. Merged or closed: back to where the review came from.
-function prDeskAction(id) {
+function prDeskAction(id: string) {
   const pr = state.review?.pr;
   if (!pr) return;
   const leave = () => { if (leavesPage(id) && state.review?.pr?.number === pr.number) closeReview(); };
@@ -383,10 +411,10 @@ const closePrCmd = () => (state.review?.pr ? prDeskAction('close') : closePr());
 // Review's split-view pane actions (review-pane.js, pr-review.js PANE_ACTIONS) on a row. Merge,
 // approve and close happen on GitHub (their dialogs say so); then the row re-stages and the
 // selection moves to the next row that needs you. Merge on a local branch is merge and tidy.
-function paneAction(id, row, ctx) {
+function paneAction(id: string, row: ReviewRow, ctx: PaneContext) {
   const { lane } = row;
   // The Inbox row's PR doesn't carry its remote; the page's context does.
-  const pr = row.pr && { ...row.pr, remote: prRemote(row.pr, ctx?.remote) };
+  const pr = row.pr && { ...row.pr, remote: prRemote(row.pr, ctx?.remote ?? null) };
   const done = () => lanesPage?.afterAction(row.key, id);
   const local = lane?.branch && !lane.isBase ? (pr && !lane.pr ? { ...lane, pr } : lane) : null;
   if (id === 'merge') return local ? mergeLane(local, ctx.base, done) : pr ? mergePr(pr, done) : toast(`Nothing to merge on ${row.title}`);
@@ -405,37 +433,37 @@ function paneAction(id, row, ctx) {
 
 // Send back (send-back-view.js): the sheet for a stuck row. sendBackPr(number) opens it for that
 // PR from anywhere (Merge plan links to it), going to Review first.
-function sendBackRow(row, ctx) {
-  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: prRemote(row.pr, ctx?.remote), call: (...a) => api.app(...a), git });
+function sendBackRow(row: ReviewRow, ctx: PaneContext | null | undefined) {
+  return openSendBack({ row, base: ctx?.base || null, prsOn: Boolean(state.prs?.active), remote: prRemote(row.pr, ctx?.remote ?? null), call: call, git });
 }
 // Make chain a GitHub stack (⌘K, AK-556): the open PR chains on the inbox's bases; one that can be
 // linked opens the dialog (a pick list when there are several), else a toast says why not. With
 // `number`, only the chain that PR is in (the selected stack, AK-609).
-async function makeChainStack(number = null) {
+async function makeChainStack(number: number | null = null) {
   const prs = lanesPage?.inboxPrs() || [];
   const remote = lanesPage?.inboxRemote();
   const branches = new Set(prs.map((p) => p.branch));
   const bases = [...new Set(prs.filter((p) => p.base && !branches.has(p.base)).map((p) => p.base))];
   if (!remote || !bases.length) return toast('No chain of pull requests here');
-  const found = [];
+  const found: { prs: number[]; native: boolean; linkable: boolean; why?: string | null; base: string }[] = [];
   let extension = false;
   for (const base of bases) {
-    const res = await api.app('pr-chains', remote, base).catch((e) => ({ error: { message: e.message } }));
-    if (res?.error) return toast('Couldn’t look for chains', { detail: res.error.message });
+    const res = await api.app('pr-chains', remote, base).catch((e: Error) => ({ ok: undefined, error: { message: e.message } }));
+    if (res.error) return toast('Couldn’t look for chains', { detail: res.error.message });
     extension ||= res.ok.extension;
     for (const c of res.ok.chains) if (!c.native && (number == null || c.prs.includes(number))) found.push({ ...c, base });
   }
   const linkable = found.filter((c) => c.linkable);
   if (!linkable.length) return toast(found.length ? 'Can’t make it a GitHub stack' : 'No chain of pull requests to link', { detail: found[0]?.why || undefined });
   const by = new Map(prs.map((p) => [p.number, { title: p.title, branch: p.branch }]));
-  const go = (c) => openStackLink({ chain: c, prs: by, base: c.base, remote, extension, call: (...a) => api.app(...a), onLinked: () => lanesPage?.reload() });
-  if (linkable.length === 1) return go(linkable[0]);
+  const go = (c: (typeof linkable)[number]) => openStackLink({ chain: c, prs: by, base: c.base, remote, extension, call: call, onLinked: () => lanesPage?.reload() });
+  if (linkable.length === 1) return go(linkable[0]!);
   palette(() => linkable.map((c) => ({ group: 'Chains', label: `#${c.prs[0]} → #${c.prs[c.prs.length - 1]}`, detail: `${c.prs.length} pull requests onto ${c.base}`, icon: 'merge', run: () => go(c) })), { placeholder: 'Make which chain a GitHub stack…' });
 }
 
 // Approve all on someone else's stack (AK-611): one dialog listing the parts, an optional comment,
 // then each part is approved in turn; a failure stops there and says which.
-async function approveStack(prs, remote, onDone) {
+async function approveStack(prs: PullRequest[], remote: string | null | undefined, onDone: () => void) {
   const v = await dialog({
     title: `Approve ${prs.length} pull requests?`,
     description: REMOTE_NOTE,
@@ -454,7 +482,7 @@ async function approveStack(prs, remote, onDone) {
   if (done) { onDone?.(); refreshPrs(); }
 }
 
-function sendBackPr(number) {
+function sendBackPr(number: number) {
   if (!state.repo) return;
   if (state.view !== 'lanes' || !lanesOpen()) setView('lanes');
   return lanesPage?.sendBack(number);
@@ -466,22 +494,24 @@ function sendBackPr(number) {
 // the local tidy after it is. Deleting the remote branch is opt-in and never undoable.
 // `handed`: another window handed this over (the base is checked out here); the window showing the
 // lane's worktree, if any, is closed when it's tidied.
-async function mergeLane(lane, base = null, onDone = null, { handed = false } = {}) {
+async function mergeLane(lane: LaneArg, base: string | null = null, onDone: (() => void) | null = null, { handed = false }: { handed?: boolean } = {}): Promise<unknown> {
   if (!state.repo || !lane) return;
   if (!lane.branch) return toast(`${lane.name} is not on a branch`, { detail: 'Merge and tidy works on branches.' });
-  let plan;
-  try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+  let plan: GitResults['mergeLanePlan'];
+  try { plan = await git('mergeLanePlan', lane.branch, ...(base ? [base] : [])); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: (e as Error).message }); }
   // Its worktree has an operation stopped in it: abort that as part of the tidy (one undo step).
-  const abort = Boolean(plan.blockerOp && plan.worktree);
-  if (abort) {
-    const info = await git('worktreeOpInfo', plan.worktree.path).catch(() => null);
-    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: info ? opSentence(info) : `“${plan.worktree.name}” has a ${plan.blockerOp} in progress.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
+  const stopped = plan.worktree;
+  const abort = Boolean(plan.blockerOp && stopped);
+  if (abort && stopped) {
+    const info = await git('worktreeOpInfo', stopped.path).catch(() => null);
+    const go = await resolveSheet({ title: `Merge and tidy ${lane.name}`, reason: info ? opSentence(info) : `“${stopped.name}” has a ${plan.blockerOp} in progress.`, actions: [{ id: 'abort', label: abortAnd(plan.blockerOp, 'merge') }] });
     if (!go) return;
-    try { plan = await git('mergeLanePlan', lane.branch, base, { abort: true }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+    try { plan = await git('mergeLanePlan', lane.branch, base, { abort: true }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: (e as Error).message }); }
   }
   if (plan.blocker) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: plan.blocker });
   const ab = abort ? [{ abort: true }] : [];
-  const away = plan.worktree && state.worktrees.find((w) => w.path === plan.worktree.path);
+  const pw = plan.worktree;
+  const away = pw && state.worktrees.find((w) => w.path === pw.path);
   // Open in another window: that window is closed as part of the tidy, stated in the merge dialog.
   let draft = false;
   try { draft = Boolean(away?.elsewhere && localStorage.getItem('draft:' + away.path)?.trim()); } catch { /* ignore */ }
@@ -492,7 +522,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   const n = plan.commits.length;
   // An open PR GitHub would refuse (a draft, conflicts): fix that first, from every entry point.
   if (pr) {
-    const info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+    const info = await prCall<MergeInfo>('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
     if (info.ok?.gate.hard && !(await fixMergeGate(pr, info.ok))) return;
   }
   const block = !pr && n ? mergeHereBlock(plan, state.gitInfo?.version) : null;
@@ -500,7 +530,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   if (block?.kind === 'git-version') return updateGit('mergeHere', () => mergeLane(lane, base, onDone, { handed }));
   // The base is checked out in another worktree: that worktree's window opens and merges there.
   if (plan.mergeBlocker && !pr && n && plan.baseWorktree && !handed) {
-    try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: e.message }); }
+    try { await api.app('handoff', { kind: 'mergeLane', dir: plan.baseWorktree.path, branch: lane.branch, base: plan.base }); } catch (e) { return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: (e as Error).message }); }
     return toast(`Continue in ${plan.baseWorktree.name}`);
   }
   if (block) return toast(`Can’t merge ${lane.name}`, { kind: 'error', detail: block.detail });
@@ -508,21 +538,21 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   // or merge and keep it. In the main worktree: merge and keep it (nothing to tidy).
   // The switch and stash are facts in the merge dialog, not a sheet before it (AK-598); Keep
   // branch merges and stays.
-  let move = null, dirty = 0;
+  let move: { to: string; stash?: { message: string; untracked: boolean } } | null = null, dirty = 0;
   const to = plan.keep === 'current' && n ? switchTarget(lane.branch, plan.base) : null;
   if (to) {
     const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
     dirty = switchChanges();
     move = { to, stash: dirty ? { message: stashMessage(lane.branch, to), untracked } : undefined };
   }
-  let kept = move ? null : plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
+  let kept: string | null = move ? null : plan.keep === 'current' ? `${lane.branch} stays checked out here` : plan.keep === 'main' ? `${lane.branch} stays checked out in the main worktree` : null;
   if (kept && !n) {
     if (plan.keep === 'current') return switchAndDelete({ short: lane.branch }, plan.base);
     return toast(`Nothing left to merge from ${lane.branch}`, { detail: `${kept}.` });
   }
   const keptToast = () => toast(`Merged ${lane.branch} into ${plan.base}`, { kind: 'success', detail: `${kept}.`, action: { label: 'Undo', run: undo } });
   const remote = lane.upstream && !lane.upstreamGone ? lane.upstream : null;
-  const laneChecks = pr && lane.pr.checks === 'failure' ? prCheckLines(lane.pr) : null;
+  const laneChecks = pr && pr.checks === 'failure' ? prCheckLines(pr) : null;
   const tidy = plan.worktree ? `remove the worktree ${plan.worktree.name} and delete ${lane.branch}` : `delete ${lane.branch}`;
   const here = kept ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}. ${kept}.`
     : n ? `${n} commit${n > 1 ? 's' : ''} → one commit on ${plan.base}, then ${tidy}.` : `Nothing left to merge into ${plan.base || 'the base'}: this will ${tidy}.`;
@@ -539,16 +569,16 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     alt: move ? 'Keep branch' : undefined,
     wide: n > 0,
     fields: [
-      pr ? { name: 'via', type: 'select', label: 'Merge', value: 'github', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }], note: (via) => mergeViaNote(via, pr.number) } : null,
-      n ? { name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message } : null,
-      remote && !kept ? { name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false } : null,
-    ].filter(Boolean),
+      ...(pr ? [{ name: 'via', type: 'select' as const, label: 'Merge', value: 'github', options: [{ value: 'here', label: 'Here, as one commit' }, { value: 'github', label: `On GitHub (#${pr.number}, squash)` }], note: (via: string) => mergeViaNote(via, pr.number) }] : []),
+      ...(n ? [{ name: 'message', label: 'Commit message (merging here)', multiline: true, rows: 6, value: plan.message }] as const : []),
+      ...(remote && !kept ? [{ name: 'remote', type: 'checkbox', label: `Also delete ${remote || 'the branch'} on the remote (can’t be undone)`, value: false }] as const : []),
+    ],
   });
   if (!v) return;
   if (v.alt) { move = null; kept = `${lane.branch} stays checked out here`; v.remote = false; }
   const label = `Merge and tidy ${lane.branch}`;
-  if (v.via === 'github') {
-    let info = await prCall('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
+  if (v.via === 'github' && pr) {
+    let info = await prCall<MergeInfo>('pr-merge-info', pr, undefined, `Checking #${pr.number}…`);
     if (info.error) return prError(`Couldn’t check #${pr.number}`, info.error);
     if (info.ok.gate.hard) {
       const fixed = await fixMergeGate(pr, info.ok);
@@ -573,7 +603,7 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
     await fetchAll();
     // Local commits GitHub never saw would go with the branch: keep it and say so.
     if (info.ok.headOid && plan.head && info.ok.headOid !== plan.head) return toast(`Kept ${lane.branch}`, { detail: `It has commits that aren’t in #${pr.number}. Push or move them, then delete the branch.` });
-    if (move) return act(`Delete branch ${lane.branch}`, 'switchDelete', [move.to, ...(move.stash ? [move.stash] : [])], { success: `Switched to ${move.to} and deleted ${lane.branch}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null });
+    if (move) return act(`Delete branch ${lane.branch}`, 'switchDelete', [move.to, ...(move.stash ? [move.stash] : [])], { success: `Switched to ${move.to} and deleted ${lane.branch}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : undefined });
     // Keep branch: it stays (AK-598).
     if (plan.keep === 'current' && !v.alt) return switchAndDelete({ short: lane.branch }, plan.base);
     if (kept) return;
@@ -581,22 +611,22 @@ async function mergeLane(lane, base = null, onDone = null, { handed = false } = 
   }
   if (n && !String(v.message || '').trim()) return toast('The commit message is empty', { kind: 'error' });
   const ok = move
-    ? await act(label, 'switchMerge', [move.to, lane.branch, plan.base, v.message, ...(move.stash ? [move.stash] : [])], { busy: 'Merging…', success: `Switched to ${move.to} and merged ${lane.branch} into ${plan.base}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : null })
+    ? await act(label, 'switchMerge', [move.to, lane.branch, plan.base, v.message, ...(move.stash ? [move.stash] : [])], { busy: 'Merging…', success: `Switched to ${move.to} and merged ${lane.branch} into ${plan.base}${move.stash ? '. Changes stashed.' : ''}`, actions: move.stash ? [showStashAction(move.stash.message)] : undefined })
     : n
-    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message, ...lopt], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : null })
+    ? await act(kept ? `Merge ${lane.branch}` : label, 'mergeLane', [lane.branch, plan.base, v.message, ...lopt], { busy: 'Merging…', success: `Merged ${lane.branch} into ${plan.base}`, quiet: Boolean(kept), then: kept ? keptToast : undefined })
     : await act(`Tidy ${lane.branch}`, 'tidyLane', [lane.branch, ...lopt], { busy: 'Tidying up…', success: `Tidied ${lane.branch}` });
   if (ok && v.remote && remote) act(`Delete ${remote}`, 'deleteRemoteBranch', [remote], { busy: 'Deleting remote branch…', undoable: false });
   if (ok) onDone?.();
   if (ok && state.review && !kept) closeReview();
 }
-function closeReview(...args) { return go(() => closeReviewNow(...args)); }
+function closeReview() { return go(() => closeReviewNow()); }
 function closeReviewNow() {
   state.review = null;
   renderTopbar();
   renderView();
 }
 // Row actions from Lanes (lanes.js ACTIONS) that aren't open, review, merge or clean up.
-function laneAction(id, lane, base) {
+function laneAction(id: string, lane: ViewLane, base: string | null) {
   if (id === 'rebase') return rebaseLane(lane, base);
   if (id === 'delete' || id === 'discard') return deleteLane(lane);
   if (id === 'checks' && lane.pr?.url) return api.app('external', `${lane.pr.url}/checks`);
@@ -605,7 +635,7 @@ function laneAction(id, lane, base) {
 // Rebase a lane's branch onto the base, where its conflicts can be fixed: in its own worktree (this
 // window switches there first), else in this window, which checks the branch out. A stop on conflicts
 // opens the conflict editor as usual; ⌘Z undoes the rebase.
-async function rebaseLane(lane, base) {
+async function rebaseLane(lane: LaneArg, base: string | null | undefined) {
   if (!state.repo || !lane?.branch || lane.isBase) return;
   if (!base) return toast('No base branch', { detail: 'Since couldn’t tell which branch this one is based on.' });
   const w = lane.worktree;
@@ -616,7 +646,7 @@ async function rebaseLane(lane, base) {
     if (!wt) return;
     // Open in another window: that window rebases it (handoff, as Merge and tidy does).
     if (wt.elsewhere) {
-      try { await api.app('handoff', { kind: 'rebaseLane', dir: wt.path, branch: lane.branch, base }); } catch (e) { return toast(`Can’t rebase ${lane.branch}`, { kind: 'error', detail: e.message }); }
+      try { await api.app('handoff', { kind: 'rebaseLane', dir: wt.path, branch: lane.branch, base }); } catch (e) { return toast(`Can’t rebase ${lane.branch}`, { kind: 'error', detail: (e as Error).message }); }
       return toast(`Rebasing in ${wt.name}`);
     }
     await switchWorktree(wt);
@@ -630,9 +660,9 @@ async function rebaseLane(lane, base) {
 
 // Delete a lane (Lanes: conflicts → Delete, stalled → Discard): its worktree and branch, one undo
 // step. Its remote branch stays.
-async function deleteLane(lane) {
+async function deleteLane(lane: ViewLane) {
   if (!state.repo || !lane || !canRemove(lane, canSwitchFrom)) return;
-  if (switchAway(lane)) return switchAndDelete({ short: lane.branch });
+  if (switchAway(lane)) return switchAndDelete({ short: lane.branch ?? '' });
   const n = lane.changes || 0;
   const verb = n ? 'Discard' : 'Delete';
   const what = [lane.worktree && `its worktree ${tildify(lane.worktree.path)}`, lane.branch && `branch ${lane.branch}`].filter(Boolean).join(' and ');
@@ -641,11 +671,11 @@ async function deleteLane(lane) {
   if (!(await confirm(`${verb} ${laneTitle(lane)}?`, `${op ? `${opSentence(op)} Aborting it can’t be undone. ` : ''}Removes ${what}${lost}. ${lane.worktree ? 'Ignored files in it, such as build output, are deleted for good; ' : ''}${MOD}Z brings everything else back. A remote branch is kept.`, { submit: op ? `Abort and ${verb.toLowerCase()}` : verb }))) return;
   act(`${verb} ${lane.branch || lane.name}`, 'cleanupLanes', [[{ ...cleanupItem(lane), ...(op ? { abort: true } : {}) }]], {
     busy: `${verb === 'Delete' ? 'Deleting' : 'Discarding'} ${lane.name}…`,
-    then: (res) => { if (res?.failed?.length) toast(`Couldn’t remove all of ${lane.name}`, { kind: 'error', detail: res.failed.map((f) => `${f.name}: ${f.message}`).join('\n') }); },
+    then: (res) => { if (res && res.failed.length) toast(`Couldn’t remove all of ${lane.name}`, { kind: 'error', detail: res.failed.map((f) => `${f.name}: ${f.message}`).join('\n') }); },
   });
 }
 
-function openLane(lane) {
+function openLane(lane: Pick<ViewLane, 'worktree' | 'head' | 'name'>) {
   const t = laneTarget(lane);
   const w = t?.kind === 'worktree' && state.worktrees.find((x) => x.path === t.path);
   if (w) return switchWorktree(w);
@@ -653,7 +683,7 @@ function openLane(lane) {
   toast(`${lane.name} has no commits yet`);
 }
 
-function worktreeMenu(x, y, w) {
+function worktreeMenu(x: number, y: number, w: WorktreeEntry) {
   contextMenu(x, y, [
     { label: 'Switch to This Worktree', icon: 'worktree', kbd: keymap.keys('worktrees.switch'), disabled: w.current || w.missing, run: () => switchWorktree(w) },
     { label: 'Open in New Window', icon: 'plus', kbd: keymap.keys('worktrees.window'), disabled: w.current || w.missing, run: () => openWorktreeWindow(w) },
@@ -670,7 +700,7 @@ function worktreeMenu(x, y, w) {
 }
 
 // `branch`: an existing local branch is checked out, a new name is created at `base` (default HEAD).
-async function addWorktree({ base = null, branch = '' } = {}) {
+async function addWorktree({ base = null, branch = '' }: { base?: string | null; branch?: string } = {}) {
   if (!state.repo) return;
   const main = state.worktrees.find((w) => w.main);
   const from = base ? (state.refs.find((r) => r.short === base)?.short || base.slice(0, 7)) : state.head.branch || state.head.oid?.slice(0, 7) || 'HEAD';
@@ -688,7 +718,7 @@ async function addWorktree({ base = null, branch = '' } = {}) {
   const b = v.branch.trim();
   await act(b ? `New worktree for ${b}` : 'New worktree', 'addWorktree', [{ dir: v.dir.trim() || null, branch: b || null, base }], {
     busy: 'Creating worktree…',
-    then: (wt) => { if (v.open && wt) openRepo(wt.path); },
+    then: (wt) => { const w = wt as { path: string } | null; if (v.open && w) openRepo(w.path); },
   });
 }
 
@@ -696,11 +726,11 @@ async function addWorktree({ base = null, branch = '' } = {}) {
 // ⌘Z brings it all back. Asks first, on the menu item, only when that window holds work undo
 // can't bring back. When this window shows it, the main worktree's window (or this one, switched
 // there) removes it. `handed`: another window asked already and handed it over.
-async function removeWorktree(w, opts) {
+async function removeWorktree(w: WorktreeEntry, opts?: { handed?: boolean }) {
   // Any failure says so (AK-577): never a silent no-op.
-  try { await removeWorktreeNow(w, opts); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: e.message }); }
+  try { await removeWorktreeNow(w, opts); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: (e as Error).message }); }
 }
-async function removeWorktreeNow(w, { handed = false } = {}) {
+async function removeWorktreeNow(w: WorktreeEntry, { handed = false }: { handed?: boolean } = {}): Promise<unknown> {
   const at = menuAnchor();
   if (w.locked && !w.main && !w.missing) {
     if (!(await askAt(at, `“${w.name}” is locked.`, 'Unlock and remove'))) return;
@@ -718,43 +748,45 @@ async function removeWorktreeNow(w, { handed = false } = {}) {
   if (plan.kind === 'prune') return pruneWorktrees();
   if (plan.kind === 'blocked') return toast(plan.why, { kind: 'error' });
   const asked = plan.kind === 'ask';
-  if (asked) {
-    if (!handed && !(await askAt(at, plan.why, plan.then.close || plan.then.kind === 'handoff' ? 'Close and remove' : 'Remove'))) return;
+  if (plan.kind === 'ask') {
+    if (!handed && !(await askAt(at, plan.why, ('close' in plan.then && plan.then.close) || plan.then.kind === 'handoff' ? 'Close and remove' : 'Remove'))) return;
     plan = plan.then;
   }
   if (plan.kind === 'handoff') {
-    try { await api.app('handoff', { kind: 'removeWorktree', dir: plan.dir, path: w.path }); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: e.message }); }
+    try { await api.app('handoff', { kind: 'removeWorktree', dir: plan.dir, path: w.path }); } catch (e) { toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: (e as Error).message }); }
     return;
   }
   if (plan.kind === 'switch') {
+    if (!main) return;
     await switchWorktree(main);
     if (state.repo?.root !== main.path) return toast(`Can’t remove “${w.name}”`, { kind: 'error', detail: `${main.name} didn’t open in this window.` });
     plan = plan.then;
   }
+  if (plan.kind !== 'remove') return; // handoff and switch are handled above
   const stash = plan.stash ? `Since: ${w.name} before removing it` : null;
   act(`Remove worktree ${w.name}`, 'removeWorktree', [w.path, { close: plan.close, stash: plan.stash, abort: plan.abort }], {
     busy: 'Removing worktree…',
     success: `Removed ${w.name}`,
     detail: plan.close ? 'Closed its window first.' : undefined,
-    actions: stash ? [showStashAction(stash)] : null,
+    actions: stash ? [showStashAction(stash)] : undefined,
   });
 }
 
 // A question about the menu item just chosen, on the same spot: `ok` or Cancel. Dismissing it is Cancel.
-function askAt(at, why, ok) {
-  return new Promise((resolve) => {
+function askAt(at: { x: number; y: number } | null, why: string, ok: string) {
+  return new Promise<boolean>((resolve) => {
     const a = at || { x: innerWidth / 3, y: innerHeight / 3 };
     let answered = false;
-    const pick = (v) => () => { answered = true; resolve(v); };
+    const pick = (v: boolean) => () => { answered = true; resolve(v); };
     contextMenu(a.x, a.y, [{ section: why }, { label: ok, icon: 'trash', danger: true, run: pick(true) }, { label: 'Cancel', icon: 'x', run: pick(false) }], { focus: 1 });
     const menu = document.querySelector('.menu');
-    new MutationObserver((_, obs) => { if (!menu.isConnected) { obs.disconnect(); setTimeout(() => { if (!answered) resolve(false); }); } }).observe(document.body, { childList: true });
+    new MutationObserver((_, obs) => { if (!menu?.isConnected) { obs.disconnect(); setTimeout(() => { if (!answered) resolve(false); }); } }).observe(document.body, { childList: true });
   });
 }
 
 // A step another window handed to this one (main process app:handoff, AK-581).
 async function takeHandoff() {
-  const h = await api.app('take-handoff').catch(() => null);
+  const h = (await api.app('take-handoff').catch(() => null)) as Handoff | null;
   if (!h || !state.repo) return;
   await refreshHistory();
   if (h.kind === 'removeWorktree') {
@@ -768,7 +800,7 @@ async function takeHandoff() {
   }
 }
 
-async function toggleLock(w) {
+async function toggleLock(w: WorktreeEntry) {
   if (w.main) return toast('The main worktree can’t be locked');
   if (w.locked) return act(`Unlock ${w.name}`, 'unlockWorktree', [w.path], { undoable: false });
   const v = await dialog({ title: `Lock worktree “${w.name}”?`, description: 'A locked worktree can’t be removed or pruned, by Since or by git, until it is unlocked.', submit: 'Lock', fields: [{ name: 'reason', label: 'Reason (optional)', placeholder: 'On an external drive' }] });
@@ -779,13 +811,13 @@ function pruneWorktrees() {
   return act('Prune missing worktrees', 'pruneWorktrees', [], { undoable: false });
 }
 
-function switchWorktree(w) {
+function switchWorktree(w: WorktreeEntry) {
   if (w.current) return;
   if (w.missing) return toast(`“${w.name}” no longer exists`, { kind: 'error', detail: 'Its folder was moved or deleted. Prune it from the Worktrees view.' });
   return openRepo(w.path);
 }
 
-function openWorktreeWindow(w) {
+function openWorktreeWindow(w: WorktreeEntry) {
   if (w.current || w.missing) return;
   api.app('open-window', w.path);
 }
@@ -804,7 +836,7 @@ function branchSwitcher() {
       return { group: 'Branches', label: r.short, icon: 'branch', detail: cur ? 'current' : wt ? `in worktree ${wt.name}` : r.upstream || '', keywords: r.upstream || '', run: () => cur ? null : checkout(r.short) };
     }),
     ...remotes.map((r) => ({ group: 'Remote branches', label: r.short, icon: 'cloud', detail: 'check out as local branch', run: () => act(`Checkout ${r.short}`, 'checkoutTracking', [r.short]) })),
-    { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('global.branch'), run: () => createBranch(state.head.oid) },
+    { group: 'Branches', label: 'New branch…', icon: 'plus', kbd: keymap.keys('global.branch'), run: () => createBranch(state.head.oid ?? '') },
   ], { placeholder: 'Switch to branch…' });
 }
 
@@ -816,7 +848,7 @@ function worktreeSwitcher() {
   ], { placeholder: 'Switch to worktree…' });
 }
 
-function submoduleMenu(x, y, m) {
+function submoduleMenu(x: number, y: number, m: Submodule) {
   contextMenu(x, y, [
     { label: 'Open in New Window', icon: 'plus', disabled: !m.head, run: () => openSubmodule(m) },
     { label: m.head ? 'Update to Recorded Commit' : 'Initialise and Check Out', icon: 'pull', disabled: !['outdated', 'uninitialized'].includes(m.state), run: () => updateSubmodules([m]) },
@@ -824,16 +856,16 @@ function submoduleMenu(x, y, m) {
     { label: 'Reveal in Finder', icon: 'folder', run: () => api.app('reveal', m.path) },
     { label: 'Copy Path', icon: 'copy', run: () => copy(m.path, 'Copied path') },
     m.url ? { label: 'Copy URL', icon: 'copy', run: () => copy(m.url, 'Copied URL') } : null,
-  ].filter(Boolean));
+  ]);
 }
 
-function openSubmodule(m) {
+function openSubmodule(m: Submodule) {
   if (!m.head) return toast(`${m.path} isn’t checked out yet`, { kind: 'error', detail: `Update it first (${keyText('repo.submoduleUpdate')}).` });
-  api.app('open-submodule', m.path).catch((e) => toast('Couldn’t open submodule', { kind: 'error', detail: e.message }));
+  api.app('open-submodule', m.path).catch((e: Error) => toast('Couldn’t open submodule', { kind: 'error', detail: e.message }));
 }
 
 // No list: every submodule that is out of date or not checked out. Undoable (git.updateSubmodules).
-async function updateSubmodules(list) {
+async function updateSubmodules(list?: Submodule[] | null) {
   if (!state.repo) return;
   let todo = (list || state.submodules).filter((m) => ['outdated', 'uninitialized'].includes(m.state));
   if (!state.submodules.length) return toast('This repository has no submodules');
@@ -842,23 +874,23 @@ async function updateSubmodules(list) {
   let stash = false;
   if (dirty.length) {
     const v = await resolveSheet({
-      title: todo.length + dirty.length === 1 ? `Update submodule ${dirty[0].path}` : 'Update submodules',
+      title: todo.length + dirty.length === 1 ? `Update submodule ${dirty[0]!.path}` : 'Update submodules',
       reason: `${dirty.map((m) => m.path).join(', ')} ${dirty.length > 1 ? 'have' : 'has'} local changes.`,
-      actions: [{ id: 'stash', label: 'Stash in submodule and continue' }, todo.length ? { id: 'skip', label: `Update the other ${todo.length}` } : null],
+      actions: [{ id: 'stash', label: 'Stash in submodule and continue' }, ...(todo.length ? [{ id: 'skip', label: `Update the other ${todo.length}` }] : [])],
     });
     if (!v) return;
     stash = v.id === 'stash';
     if (stash) todo = [...todo, ...dirty];
   }
   if (!todo.length) return toast(list ? 'Already up to date' : 'All submodules are up to date', { detail: state.submodules.some((m) => m.state === 'modified') ? 'Submodules with local changes are left alone.' : null });
-  const label = todo.length === 1 ? `Update submodule ${todo[0].path}` : `Update ${todo.length} submodules`;
+  const label = todo.length === 1 ? `Update submodule ${todo[0]!.path}` : `Update ${todo.length} submodules`;
   return act(label, 'updateSubmodules', [todo.map((m) => m.path), ...(stash ? [{ stash: true }] : [])], { busy: 'Updating submodules…' });
 }
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { countFinished, countCatchup, REF_LISTS, refListKey, switchWorktree, worktreeMenu, branchSwitcher, worktreeSwitcher, closeReview, mergeLane, prDeskAction, worktreesView, refListView, openLanes, openCatchup, openBranches, addWorktree, countReview, setCatchupCount, mergePrCmd, closePrCmd, rebaseLane, openSubmodule, updateSubmodules, takeHandoff });
 Object.defineProperties(up, {
-  refListShown: { get: () => refListShown, set: (value) => { refListShown = value; }, enumerable: true },
+  refListShown: { get: () => refListShown, set: (value: string) => { refListShown = value; }, enumerable: true },
 });
 
 export { pickPrReview, prDeskAction, mergePrCmd, closePrCmd, openReview, branchSwitcher, addWorktree, worktreeSwitcher, pruneWorktrees, removeWorktree, switchWorktree, openWorktreeWindow, toggleLock, updateSubmodules, openSubmodule, mergeLane, rebaseLane, laneAction, deleteLane, startCleanup, makeChainStack, paneAction, openLane, showBranches, takeHandoff };
