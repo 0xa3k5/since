@@ -19,7 +19,7 @@ import { cancelHistory, setHistory, refreshAll } from '../graph/load.js';
 import { openIdentity } from '../commit/identity-check.js';
 import { setupAi } from '../commit/ai-message.ts';
 import { addRemote, remoteItems } from '../branches/remote-ops.ts';
-import { aiLabel, openSetup, openShortcuts, importShortcuts, exportShortcuts, resetShortcuts, tour, setupPanel, setTour } from '../welcome/welcome.js';
+import { aiLabel, openSetup, openShortcuts, importShortcuts, exportShortcuts, resetShortcuts, tour, setupPanel, setTour } from '../welcome/welcome.ts';
 import { setupPrs, turnOffPrs, setPrRemote, hidePrs, prStage, loadPrs, prefetchOnOpen, setPrStage } from '../prs/prs-page.js';
 import { commitCache, selectCommit } from '../graph/map.js';
 import { copy } from '../graph/commit-actions.js';

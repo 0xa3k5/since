@@ -63,5 +63,14 @@ export interface PrEvidence {
   logs?: { run: string | number; log: string }[];
 }
 
+/** The PR settings (app:pr-state): on, hidden in this repository, the GitHub remote in use and the ones to choose from. */
+export interface PrSettings {
+  enabled: boolean; hidden?: boolean;
+  /** `missing` when GitHub CLI isn't installed. */
+  gh?: string;
+  remote?: { name: string; owner: string; repo: string } | null;
+  choices?: { name: string }[]; chosen?: string | null;
+}
+
 /** Who is looking (github.ts viewerFacts): their login and whether they can write. */
 export interface Viewer { login?: string; write?: boolean }

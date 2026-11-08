@@ -16,7 +16,7 @@ import { writeMessageWithAi, setupAi, showAiButton } from './commit/ai-message.t
 import { snapshotKey } from './history/snapshots.js';
 import { openDifftool } from './commit/external-tools.js';
 import { fetchAll, pull, push, remotesSwitcher } from './branches/remote-ops.ts';
-import { tour, openShortcuts, shortcuts, openSetup } from './welcome/welcome.js';
+import { tour, openShortcuts, shortcuts, openSetup } from './welcome/welcome.ts';
 import { closeSplit } from './commit/split.ts';
 import { openMergetool, openConflicts, openFileHistory, gPending, setGPending } from './history/file-history.js';
 import { closeQuick } from './graph/quick-view.js';

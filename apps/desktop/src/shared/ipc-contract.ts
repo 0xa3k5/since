@@ -9,7 +9,7 @@
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
 import type { Aborted, Blame, BranchReview, ChangeFacts, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
-import type { PrEvidence } from './github-types.ts';
+import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
 /** A window's tab as its tab strip shows it. */
@@ -92,6 +92,9 @@ export interface AppResults {
   'pr-review-head': IpcResult<{ sha: string; base: string | null }>;
   'pr-stack-install': IpcResult<unknown>;
   'pr-evidence': IpcResult<PrEvidence | null>;
+  'pr-state': PrSettings;
+  /** The file the shortcuts went to; null when the save dialog was cancelled. */
+  'keymap-export': string | null;
   /** `failed`: the PR GitHub refused and why; then nothing was linked. */
   'pr-stack-link': IpcResult<{ failed?: { number: number; reason: string } | null }>;
 }
