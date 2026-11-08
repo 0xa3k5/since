@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/commit/unified.js');
+const load = () => import('../src/renderer/commit/unified.ts');
 
 test('changedFiles lists each path once, conflicts first, keeping the staged status and old path', async () => {
   const { changedFiles } = await load();

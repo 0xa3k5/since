@@ -3,7 +3,7 @@ import { statusBadge, fileName, fileRef, codeSpan } from './diff.js';
 import {
   changedFiles, commitSummary, summaryText, stagedText, tickStages, hunkState, linesStage, folded, wholeFileText,
   stepCursor, lineRange, BIG_FILE_LINES,
-} from './unified.js';
+} from './unified.ts';
 
 // The unified changes view: every changed file on one scrolling page, with a tick box per file, hunk and line.
 // Ticking stages or unstages through the journal (one undo step per tick). The Commit view keeps its composer and

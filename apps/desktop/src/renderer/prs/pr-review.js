@@ -3,7 +3,7 @@
 // so the diff is a local git diff against the base's remote-tracking branch, and the per-file
 // ticks work as they do for a lane, keyed `pr:<number>`.
 
-import { approveWhy } from './prs.js';
+import { approveWhy } from './prs.ts';
 
 // The page's actions, with their key ids (keymap.js `review` scope). Approve, request changes,
 // merge and close happen on GitHub and can't be undone; checking out is a journaled lane.

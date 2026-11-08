@@ -7,7 +7,7 @@ import { prefetchCatchup } from '../catchup/catchup-view.js';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';
 import { failingChecks, passedCount, checkLines, mergeConfirm } from '../lanes/check-confirm.js';
 import { peekEvidence } from '../review/evidence-store.js';
-import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, draftSwitch, withDraft, REVIEW_LABELS, CHECK_LABELS } from './prs.js';
+import { prsByRef, prRef, prTitle, refKey, prActionRemote, prActionCall, approveWhy, draftSwitch, withDraft, REVIEW_LABELS, CHECK_LABELS } from './prs.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, api, prop, tildify, parentDir, MOD, keyText } from '../lib/app-helpers.ts';
 import { lanesPage, catchupPage, mapView, reviewPage } from '../shell/shell.ts';

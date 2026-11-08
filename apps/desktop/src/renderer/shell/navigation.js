@@ -8,7 +8,7 @@ import { reviewView } from '../review/review-view.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.ts';
 import { PANES, clampPane, stepPane, defaultSizes } from './pane-size.ts';
 import { authorProfile } from '../lib/profile.ts';
-import { approveWhy, draftSwitch } from '../prs/prs.js';
+import { approveWhy, draftSwitch } from '../prs/prs.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, tildePath, api, savePref, tip, MOD } from '../lib/app-helpers.ts';
 import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, mapView, branchesPage, commitView, catchupPage, reviewPage, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage } from './shell.ts';

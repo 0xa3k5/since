@@ -10,7 +10,7 @@ import { authorProfile, loginProfile } from '../lib/profile.ts';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';
 import { GIT_NEEDS } from '../lib/git-version.ts';
-import { draftSwitch } from '../prs/prs.js';
+import { draftSwitch } from '../prs/prs.ts';
 import { up } from '../lib/upcalls.ts';
 import { api, state, tildePath, loadPref, savePref, MOD } from '../lib/app-helpers.ts';
 import { stashShown, commitView, lanesPage, branchesPage, catchupPage } from '../shell/shell.ts';

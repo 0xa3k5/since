@@ -1,5 +1,5 @@
 import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from '../lib/ui.ts';
-import { draftSwitch } from '../prs/prs.js';
+import { draftSwitch } from '../prs/prs.ts';
 import { reviewView } from './review-view.js';
 import { laneKey } from '../lanes/lanes.js';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
