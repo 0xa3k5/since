@@ -3,7 +3,7 @@ import { renderDiff } from '../commit/diff.ts';
 import { landedEntries, withLateExtra, sinceOptions, sinceText, byDay, groupStacks, landedItems, timelineRows, stackArrow, stackPlace, stackSize, firstOf, headline, sincePhrase, whenText, FIRST, stepId, diffCounts, changeSize, firstUnviewed, readerDescription } from './catchup.ts';
 import { sharedLoad, loadGuard } from '../lanes/lanes.ts';
 import * as keymap from '../palette/keymap.ts';
-import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from '../review/reader.js';
+import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from '../review/reader.ts';
 import { factsFor, peekFacts } from '../review/evidence-store.ts';
 import { authorsOf, messageAgent } from '../review/review-rows.ts';
 

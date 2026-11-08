@@ -4,7 +4,7 @@ import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary
 import * as keymap from '../palette/keymap.ts';
 import { prStatusLine, draftSwitch } from '../prs/prs.ts';
 import { PR_ACTIONS, prActionFor } from '../prs/pr-review.ts';
-import { fileCard, foldShut, commitLines, markCommit } from './reader.js';
+import { fileCard, foldShut, commitLines, markCommit } from './reader.ts';
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).

@@ -5,7 +5,7 @@ import * as keymap from '../palette/keymap.ts';
 import { GIT_NEEDS } from '../lib/git-version.ts';
 import { updateBranchBlock } from '../prs/pr-review.ts';
 import { draftSwitch } from '../prs/prs.ts';
-import { navPos, authorsStack } from '../review/reader.js';
+import { navPos, authorsStack } from '../review/reader.ts';
 import { factsFor, peekFacts, peekEvidence } from '../review/evidence-store.ts';
 
 

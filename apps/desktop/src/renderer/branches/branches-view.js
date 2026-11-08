@@ -4,7 +4,7 @@ import { cleanupPanel } from './cleanup-view.ts';
 import { authorsOf } from '../review/review-rows.ts';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.ts';
 import { branchPreview, laneBadges } from './branch-preview.ts';
-import { authorsStack } from '../review/reader.js';
+import { authorsStack } from '../review/reader.ts';
 import * as keymap from '../palette/keymap.ts';
 
 // Branches (AK-396, ⌘5): every local branch and worktree on this Mac, one list at a time behind tabs

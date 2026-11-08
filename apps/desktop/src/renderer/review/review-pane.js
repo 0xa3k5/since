@@ -4,7 +4,7 @@ import { reviewView } from './review-view.js';
 import { laneKey } from '../lanes/lanes.ts';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.ts';
 import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from '../prs/pr-review.ts';
-import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
+import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.ts';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.ts';
 import * as keymap from '../palette/keymap.ts';
 import { loginProfile } from '../lib/profile.ts';

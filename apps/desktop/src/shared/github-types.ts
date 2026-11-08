@@ -57,11 +57,17 @@ export interface PrEvidence {
   /** The head has CI set up and no checks ran on it. */
   ciMissing?: boolean;
   reviews?: { login: string; state: string }[];
-  threads?: { open?: number; outdated?: number } | null;
-  media?: { kind: string }[];
-  annotations?: unknown[];
+  threads?: {
+    open?: number; total?: number; outdated?: number;
+    items?: { path?: string; line?: number | null; url?: string; author?: string; text?: string; outdated?: boolean }[];
+  } | null;
+  media?: PrMedia[];
+  /** Check annotations: their level (failure, warning, notice), where, and the message. */
+  annotations?: { level: string; path?: string | null; line?: number | null; check?: string; message: string }[];
   logs?: { run: string | number; log: string }[];
 }
+/** An image or video in a PR's description, comments or reviews (pr-media.ts); `id` fetches it. */
+export interface PrMedia { id: string; kind: string; from?: string; author?: string; url?: string; alt?: string }
 
 /** The PR settings (app:pr-state): on, hidden in this repository, the GitHub remote in use and the ones to choose from. */
 export interface PrSettings {
