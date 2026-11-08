@@ -70,12 +70,16 @@ export interface PrEvidence {
 export interface PrMedia { id: string; kind: string; from?: string; author?: string; url?: string; alt?: string }
 
 /** The PR settings (app:pr-state): on, hidden in this repository, the GitHub remote in use and the ones to choose from. */
+/** A GitHub remote of the repository. */
+export interface GhRemote { name: string; host: string; owner: string; repo: string }
 export interface PrSettings {
   enabled: boolean; hidden?: boolean;
-  /** `missing` when GitHub CLI isn't installed. */
-  gh?: string;
-  remote?: { name: string; owner: string; repo: string } | null;
-  choices?: { name: string }[]; chosen?: string | null;
+  /** Pull requests show for this repository: turned on, not hidden here, and it has a GitHub remote. */
+  active?: boolean;
+  /** `missing` when GitHub CLI isn't installed; `installUrl` is where to get it. */
+  gh?: string; installUrl?: string;
+  remote?: GhRemote | null;
+  choices?: GhRemote[]; chosen?: string | null;
 }
 
 /** Who is looking (github.ts viewerFacts): their login and whether they can write. */

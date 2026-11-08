@@ -9,7 +9,7 @@
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
 import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictFile, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RepoInfo, RestorePreview, Stash, Submodule, SubmoduleHead, WorkStatus, Worktree } from './git-types.ts';
-import type { PrEvidence, PrSettings } from './github-types.ts';
+import type { GhRemote, PrEvidence, PrList, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
 /** A window's tab as its tab strip shows it. */
@@ -158,6 +158,17 @@ export interface AppResults {
   /** An image from a PR, as a data: URL. */
   'pr-media-image': IpcResult<string | null>;
   'pr-state': PrSettings;
+  'pr-enable': PrSettings;
+  'pr-hide': PrSettings;
+  'pr-remote': PrSettings;
+  /** Whether GitHub CLI is installed, and the remote pull requests would use. */
+  'pr-detect': IpcResult<{ gh: string; remote: GhRemote | null }>;
+  'gh-login': IpcResult<true>;
+  /** null: pull requests are off here, or there's no GitHub remote. */
+  'pr-list': IpcResult<PrList | null>;
+  'pr-ai-draft': IpcResult<{ title: string; body: string }>;
+  /** The new pull request; `url` when GitHub CLI printed it. */
+  'pr-create': IpcResult<{ url: string | undefined; number: number }>;
   /** The file the shortcuts went to; null when the save dialog was cancelled. */
   'keymap-export': string | null;
   'sendback-templates': SendBackTemplates;
