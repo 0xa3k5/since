@@ -102,6 +102,8 @@ export interface AppResults {
   'pr-review-head': IpcResult<{ sha: string; base: string | null }>;
   'pr-stack-install': IpcResult<unknown>;
   'pr-evidence': IpcResult<PrEvidence | null>;
+  /** An image from a PR, as a data: URL. */
+  'pr-media-image': IpcResult<string | null>;
   'pr-state': PrSettings;
   /** The file the shortcuts went to; null when the save dialog was cancelled. */
   'keymap-export': string | null;

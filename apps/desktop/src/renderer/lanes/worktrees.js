@@ -10,7 +10,7 @@ import { catchupView } from '../catchup/catchup-view.js';
 import { landedEntries } from '../catchup/catchup.ts';
 import { STALE_DAYS, cleanupItem } from '../branches/cleanup.ts';
 import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.ts';
-import { reviewPane } from '../review/review-pane.js';
+import { reviewPane } from '../review/review-pane.ts';
 import { openSendBack } from './send-back-view.ts';
 import { openMergePlan } from './merge-plan-view.ts';
 import { openStackLink } from './stack-link-view.ts';

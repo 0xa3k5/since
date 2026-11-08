@@ -35,7 +35,7 @@ export interface PullRequest {
   /** The names of the failing checks. */
   failing?: string[];
   checkCounts?: { passed: number; total: number } | null;
-  size?: { additions?: number | null; deletions?: number | null } | null;
+  size?: { additions?: number | null; deletions?: number | null; files?: number } | null;
   reviewRequests?: { login: string; name?: string; team?: boolean }[];
   reviews?: { login: string; name?: string; state: string; submittedAt?: string }[];
 }

@@ -15,7 +15,7 @@ export interface ReviewAction { id: string; key: string; listKey?: string; label
 export type PaneAction = ReviewAction & { gated?: boolean; note?: string };
 export type FixAction = ReviewAction & { listKey: string; note: string };
 /** What the pane helpers read from a review row (review-rows.js). */
-export interface PaneRow { pr?: PullRequest | null; lane?: ViewLane | null; stage?: string; title?: string }
+export interface PaneRow { pr?: PullRequest | null; lane?: ViewLane | null; stage?: string | null; title?: string }
 
 // The page's actions, with their key ids (keymap.js `review` scope). Approve, request changes,
 // merge and close happen on GitHub and can't be undone; checking out is a journaled lane.
