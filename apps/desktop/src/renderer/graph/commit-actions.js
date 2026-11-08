@@ -13,7 +13,7 @@ import { worktreeOf, refreshAll } from './load.ts';
 import { openSplit } from '../commit/split.ts';
 import { openQuick } from './quick-view.ts';
 import { prFor, createPr } from '../prs/prs-page.js';
-import { loadCommit } from './map.js';
+import { loadCommit } from './map.ts';
 
 // Commit actions (map actions)
 

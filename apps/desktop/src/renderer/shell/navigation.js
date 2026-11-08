@@ -22,7 +22,7 @@ import { splitView } from '../commit/split.ts';
 import { showCommit, closeFileHistory } from '../history/file-history.ts';
 import { quickView, openQuick } from '../graph/quick-view.ts';
 import { prViewer } from '../prs/prs-page.js';
-import { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView } from '../graph/map.js';
+import { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView } from '../graph/map.ts';
 import { copy, checkout, refMenu } from '../graph/commit-actions.js';
 import { renderWelcome, openPrefs } from '../settings/prefs-window.js';
 import { createCommitView } from '../commit/commit-view.js';

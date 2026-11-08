@@ -11,26 +11,42 @@ import { git } from '../lib/bridge.ts';
 import { wantDetails, refPill } from './load.ts';
 import { withHistoryMenu } from '../history/file-history.ts';
 import { openQuick } from './quick-view.ts';
+import type { Child } from '../lib/ui.ts';
+import type { LogCommit } from './log.ts';
+import type { QuickBack } from '../lib/app-helpers.ts';
+import type { CommitDetails, CommitFile, Signature, Worktree } from '../../shared/git-types.ts';
+
+type Align = 'nearest' | 'center';
+export interface MapView {
+  refresh(): void; grow(): void; refreshPending(): void; lastVisible(): number; isVisible(sha: string): boolean;
+  select(sha: string, align?: Align): void; pickFirstResult(): void; focus(): void; destroy(): void;
+}
+/** A file row's file: a commit's, or a work-tree file from Commit view. */
+export type RowFile = Pick<CommitFile, 'path' | 'status'> & { oldPath?: string | null; lfs?: boolean; add?: number | null; del?: number | null };
+// The map only opens with a history loaded (setHistory), so the graph is there.
+const graph = () => state.graph!;
 
 // Map view
 
-const commitCache = new Map();
-async function loadCommit(sha) {
-  if (commitCache.has(sha)) return commitCache.get(sha);
+const commitCache = new Map<string, Promise<CommitDetails>>();
+async function loadCommit(sha: string): Promise<CommitDetails> {
+  const hit = commitCache.get(sha);
+  if (hit) return hit;
   const p = git('commit', sha);
   commitCache.set(sha, p);
-  if (commitCache.size > 300) commitCache.delete(commitCache.keys().next().value);
+  const oldest = commitCache.keys().next().value;
+  if (commitCache.size > 300 && oldest !== undefined) commitCache.delete(oldest);
   p.catch(() => commitCache.delete(sha));
   return p;
 }
 
-function selectCommit(sha, align = 'nearest') {
+function selectCommit(sha: string | null | undefined, align: Align = 'nearest') {
   if (!sha) return;
   state.selected = sha;
   if (mapView) mapView.select(sha, align);
 }
 
-function createMapView(container) {
+function createMapView(container: HTMLElement): MapView {
   const wrap = h('div.map-wrap');
   const listWrap = h('div.map-list-wrap');
   // Double-click checks out a row, read off the second press (see rowDoubleClick).
@@ -41,16 +57,16 @@ function createMapView(container) {
   listWrap.append(scroller, canvas);
   wrap.append(listWrap, detail);
   container.append(wrap);
-  const ctx = canvas.getContext('2d');
-  let results = null;
-  let gw = graphWidth(state.graph.maxLanes);
+  const ctx = canvas.getContext('2d')!; // a 2D context is always there for a new canvas
+  let results: LogCommit[] | null = null;
+  let gw = graphWidth(graph().maxLanes);
 
   const bg = () => getComputedStyle(document.documentElement).getPropertyValue('--bg-content').trim() || 'transparent';
   let bgColor = bg();
   let colors = readPalette();
 
-  function rowFor(i) {
-    const c = results ? results[i] : state.commits[i];
+  function rowFor(i: number) {
+    const c = (results ?? state.commits)[i]!; // VirtualList draws rows below its count
     const refs = state.byRef.get(c.sha) || [];
     const isSel = c.sha === state.selected;
     const pending = c.subject === null;
@@ -65,7 +81,7 @@ function createMapView(container) {
       oncontextmenu: (e) => { e.preventDefault(); select(c.sha); up.commitMenu(e.clientX, e.clientY, c); },
     },
       results ? null : h('span.graph-space', { style: { width: gw + 'px' } }),
-      results ? h('span.result-dot', { style: { background: laneColor(state.graph, state.index.get(c.sha)) } }) : null,
+      results ? h('span.result-dot', { style: { background: laneColor(graph(), state.index.get(c.sha)) } }) : null,
       refs.length ? h('span.pills', null, refs.slice(0, 4).map(refPill), refs.length > 4 ? h('span.pill.more', null, `+${refs.length - 4}`) : null) : null,
       h('span.subject', null, pending ? '' : c.subject),
       pending ? h('span.meta', null, h('span.sha', null, c.sha.slice(0, 7))) : h('span.meta', null,
@@ -90,14 +106,14 @@ function createMapView(container) {
         canvas.width = Math.ceil(w * dpr); canvas.height = Math.ceil(hh * dpr);
         canvas.style.width = w + 'px'; canvas.style.height = hh + 'px';
       }
-      paint(ctx, state.graph, { first, last, rowH: ROW_H, scrollTop: top, width: w, height: hh, headSha: state.head.oid, commits: state.commits, selected: state.selected, bg: bgColor, colors });
+      paint(ctx, graph(), { first, last, rowH: ROW_H, scrollTop: top, width: w, height: hh, headSha: state.head.oid, commits: state.commits, selected: state.selected, bg: bgColor, colors });
     },
   });
 
-  function computeResults() {
+  function computeResults(): LogCommit[] | null {
     const q = state.search.trim().toLowerCase();
     if (!q) return null;
-    const out = [];
+    const out: LogCommit[] = [];
     const refHit = new Set(state.refs.filter((r) => r.short.toLowerCase().includes(q)).map((r) => r.target));
     for (const c of state.commits) {
       if (c.sha.startsWith(q) || refHit.has(c.sha) || (c.subject !== null && (c.subject.toLowerCase().includes(q) || c.author.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)))) {
@@ -110,7 +126,7 @@ function createMapView(container) {
 
   function refresh() {
     results = computeResults();
-    gw = graphWidth(state.graph.maxLanes);
+    gw = graphWidth(graph().maxLanes);
     bgColor = bg();
     colors = readPalette();
     listWrap.classList.toggle('searching', !!results);
@@ -127,10 +143,10 @@ function createMapView(container) {
   }
 
   // More of the same history arrived: extend the list without re-rendering what is on screen.
-  let shownGraph = null;
+  let shownGraph: typeof state.graph = null;
   function grow() {
     if (results || shownGraph !== state.graph) return refresh();
-    const w = graphWidth(state.graph.maxLanes);
+    const w = graphWidth(graph().maxLanes);
     if (w !== gw) { gw = w; vl.invalidate(); }
     vl.setCount(state.commits.length, { keep: true });
   }
@@ -143,12 +159,12 @@ function createMapView(container) {
     }
   }
 
-  function select(sha, align = 'nearest') {
+  function select(sha: string, align: Align = 'nearest') {
     const prev = state.selected;
     state.selected = sha;
     if (!results) {
       const i = state.index.get(sha);
-      const pi = state.index.get(prev);
+      const pi = prev != null ? state.index.get(prev) : undefined;
       // Toggle the class, don't rebuild the rows: a rebuilt row under the pointer eats the double-click.
       if (pi != null) vl.rows.get(pi)?.classList.remove('selected');
       if (i != null) { vl.rows.get(i)?.classList.add('selected'); vl.scrollToIndex(i, align); }
@@ -160,7 +176,7 @@ function createMapView(container) {
 
   function clearSearch() {
     state.search = '';
-    const s = $('#map-search'); if (s) s.value = '';
+    const s = $('#map-search') as HTMLInputElement | null; if (s) s.value = '';
     results = null;
     refresh();
   }
@@ -177,8 +193,8 @@ function createMapView(container) {
       detail.querySelector(':scope > .loading-state')?.remove();
       detail.prepend(loading('Loading commit…'));
     }
-    let c;
-    try { c = await loadCommit(sha); } catch (e) { detail.replaceChildren(h('div.empty', null, e.message)); return; }
+    let c: CommitDetails;
+    try { c = await loadCommit(sha); } catch (e) { detail.replaceChildren(h('div.empty', null, (e as Error).message)); return; }
     if (token !== detailToken) return;
     detail.classList.remove('loading');
     detail.replaceChildren(commitDetail(c));
@@ -187,13 +203,14 @@ function createMapView(container) {
   scroller.addEventListener('keydown', (e) => {
     const list = results || state.commits;
     if (!list.length) return;
-    const cur = results ? results.findIndex((c) => c.sha === state.selected) : state.index.get(state.selected) ?? -1;
-    const move = (d) => { e.preventDefault(); const n = Math.max(0, Math.min(list.length - 1, cur + d)); select(list[n].sha); };
+    const sel = state.selected;
+    const cur = results ? results.findIndex((c) => c.sha === sel) : (sel != null ? state.index.get(sel) : undefined) ?? -1;
+    const move = (d: number) => { e.preventDefault(); const n = Math.max(0, Math.min(list.length - 1, cur + d)); select(list[n]!.sha); };
     const c = list[cur];
     const id = keymap.match('map', e);
     switch (id) {
-      case 'commit.checkoutBranch': if (!isEditable(e.target)) { e.preventDefault(); if (c) up.checkoutSelected(c); } break;
-      case 'map.copySha': if (!window.getSelection().toString()) { e.preventDefault(); up.copy(state.selected, 'Copied SHA'); } break;
+      case 'commit.checkoutBranch': if (!isEditable(e.target as Element | null)) { e.preventDefault(); if (c) up.checkoutSelected(c); } break;
+      case 'map.copySha': if (!window.getSelection()?.toString()) { e.preventDefault(); up.copy(state.selected, 'Copied SHA'); } break;
       case 'map.copyLink': e.preventDefault(); up.copyCommitLink(state.selected); break;
       case 'map.next': move(1); break;
       case 'map.prev': move(-1); break;
@@ -201,7 +218,7 @@ function createMapView(container) {
       case 'map.pageUp': move(-Math.floor(scroller.clientHeight / ROW_H)); break;
       case 'map.first': move(-list.length); break;
       case 'map.last': move(list.length); break;
-      case 'map.quick': if (results) { clearSearch(); select(c.sha, 'center'); } else openQuick(state.selected); e.preventDefault(); break;
+      case 'map.quick': if (results) { clearSearch(); if (c) select(c.sha, 'center'); } else openQuick(state.selected); e.preventDefault(); break;
       case 'map.detail': e.preventDefault(); up.toggleDetail(); break;
       case 'map.clearSearch': if (results) clearSearch(); break;
       case 'map.head': if (state.head.oid) select(state.head.oid, 'center'); break;
@@ -211,7 +228,7 @@ function createMapView(container) {
 
   refresh();
   // Read the selection on the frame: a jump right after this view opens (a sidebar PR or branch) has moved it by then.
-  requestAnimationFrame(() => { const i = state.index.get(state.selected); if (i != null) vl.scrollToIndex(i, 'center'); });
+  requestAnimationFrame(() => { const i = state.selected != null ? state.index.get(state.selected) : undefined; if (i != null) vl.scrollToIndex(i, 'center'); });
   scroller.focus({ preventScroll: true });
 
   return {
@@ -219,9 +236,9 @@ function createMapView(container) {
     grow,
     refreshPending,
     lastVisible: () => (results ? 0 : vl.range().last),
-    isVisible: (sha) => { const i = state.index.get(sha); return !results && i != null && vl.rows.has(i); },
+    isVisible: (sha: string) => { const i = state.index.get(sha); return !results && i != null && vl.rows.has(i); },
     select,
-    pickFirstResult: () => { if (results?.length) { const sha = results[0].sha; clearSearch(); select(sha, 'center'); scroller.focus(); } },
+    pickFirstResult: () => { if (results?.length) { const sha = results[0]!.sha; clearSearch(); select(sha, 'center'); scroller.focus(); } },
     focus: () => scroller.focus(),
     destroy: () => vl.destroy(),
   };
@@ -234,20 +251,20 @@ function renderSidebarSelection() {
 }
 
 // The worktree row selected in the sidebar (by path). It lasts until a different commit is selected.
-let sbWorktree = null;
-function selectWorktreeRow(path) {
+let sbWorktree: string | null = null;
+function selectWorktreeRow(path: string | null) {
   sbWorktree = path;
-  sidebarEl?.querySelectorAll('.sb-worktree').forEach((el) => el.classList.toggle('selected', el.dataset.path === path));
+  sidebarEl?.querySelectorAll<HTMLElement>('.sb-worktree').forEach((el) => el.classList.toggle('selected', el.dataset.path === path));
 }
-function selectWorktreeItem(w) {
+function selectWorktreeItem(w: Worktree) {
   if (state.view === 'map' && w.head && state.index.has(w.head)) up.jumpTo(w.head);
   selectWorktreeRow(w.path);
-  sidebarEl?.querySelector(`.sb-worktree[data-path="${CSS.escape(w.path)}"]`)?.focus({ preventScroll: true });
+  sidebarEl?.querySelector<HTMLElement>(`.sb-worktree[data-path="${CSS.escape(w.path)}"]`)?.focus({ preventScroll: true });
 }
 
 // open(path): Open and a file row (the commit on its own page, at that file); close: a × at the end
 // of the actions, for Review's commit pane (commitSide).
-function commitDetail(c, { open = (path) => openQuick(c.sha, path), close = null } = {}) {
+function commitDetail(c: CommitDetails, { open = (path?: string) => openQuick(c.sha, path), close = null }: { open?: (path?: string) => void; close?: (() => void) | null } = {}) {
   const refs = state.byRef.get(c.sha) || [];
   const [subject, ...rest] = c.message.split('\n');
   const body = rest.join('\n').trim();
@@ -257,7 +274,7 @@ function commitDetail(c, { open = (path) => openQuick(c.sha, path), close = null
       h('div.detail-actions', null,
         h('button.btn.subtle', { onclick: () => up.checkoutCommit(c) }, icon('checkout', 14), 'Checkout'),
         h('button.btn.subtle', { onclick: () => up.createBranch(c.sha) }, icon('branch', 14), 'Branch'),
-        h('button.icon-btn', { title: 'More actions', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); up.commitMenu(r.left, r.bottom + 4, c); } }, icon('more')),
+        h('button.icon-btn', { title: 'More actions', onclick: (e) => { const r = (e.currentTarget as Element).getBoundingClientRect(); up.commitMenu(r.left, r.bottom + 4, c); } }, icon('more')),
         close ? h('button.icon-btn.detail-close', { 'data-tip': 'Close', 'aria-label': 'Close', onclick: close }, icon('x')) : null,
       ),
       h('h2.detail-title', null, subject),
@@ -274,7 +291,7 @@ function commitDetail(c, { open = (path) => openQuick(c.sha, path), close = null
       c.parents.length ? prop(c.parents.length > 1 ? 'Parents' : 'Parent', h('span.parents', null, c.parents.map((p) => h('button.mono-link', { onclick: () => up.go(() => selectCommit(p, 'center')) }, p.slice(0, 7))))) : null,
     ),
     h('div.files-head', null, h('span', null, `${c.files.length} file${c.files.length === 1 ? '' : 's'} changed`), h('span.stat', null, h('span.add', null, `+${add}`), h('span.del', null, `−${del}`)),
-      h('button.btn.ghost.small', { onclick: () => open() }, 'Open', close ? null : kbd(...keymap.keys('map.quick')))),
+      h('button.btn.ghost.small', { onclick: () => open() }, 'Open', close ? null : kbd(...(keymap.keys('map.quick') ?? [])))),
     h('div.file-list', null, c.files.slice(0, 500).map((f) => withHistoryMenu(fileRow(f, () => open(f.path)), f))),
   );
 }
@@ -282,27 +299,27 @@ function commitDetail(c, { open = (path) => openQuick(c.sha, path), close = null
 // Review's commit pane (AK-640): the map's commit details on the right of `host` (Review's pane or the
 // review page), over the diff. The same commit again, × or Esc closes it; mark(sha or null) follows it.
 // Open shows just that commit's changes on a page of its own; Back (or Esc) returns to Review as it was.
-function commitSide(host, sha, mark = () => {}) {
-  const old = host.querySelector(':scope > .commit-side');
+function commitSide(host: HTMLElement, sha: string, mark: (sha: string | null) => void = () => {}) {
+  const old = host.querySelector<HTMLElement>(':scope > .commit-side');
   old?.remove();
   if (old?.dataset.sha === sha) return mark(null);
   const close = () => { el.remove(); mark(null); };
-  const back = () => ({ review: state.review, lanes: up.lanesOpen() ? lanesPage?.location() : null });
+  const back = (): QuickBack => ({ review: state.review ?? null, lanes: up.lanesOpen() ? lanesPage?.location() : null });
   const el = h('aside.detail.commit-side', { tabIndex: -1, 'data-sha': sha, 'aria-label': `Commit ${sha.slice(0, 7)}` }, loading('Loading commit…'));
-  el.addEventListener('keydown', (e) => { if (keymap.match('review', e) === 'review.close' && !e.target.closest?.('input, textarea')) { e.preventDefault(); e.stopPropagation(); close(); } });
+  el.addEventListener('keydown', (e) => { if (keymap.match('review', e) === 'review.close' && !(e.target as Element | null)?.closest?.('input, textarea')) { e.preventDefault(); e.stopPropagation(); close(); } });
   loadCommit(sha).then((c) => { if (el.isConnected) el.replaceChildren(commitDetail(c, { open: (path) => openQuick(sha, path, back()), close })); },
-    (e) => { if (el.isConnected) el.replaceChildren(h('div.empty', null, e.message)); });
+    (e: Error) => { if (el.isConnected) el.replaceChildren(h('div.empty', null, e.message)); });
   host.classList.add('commit-side-host');
   host.append(el);
   mark(sha);
 }
 
-const SIGNATURE_LABELS = { good: 'Verified', expired: 'Expired', revoked: 'Revoked', bad: 'Bad signature', unverified: 'Signed, not verified' };
-const SIGNATURE_TIPS = { unverified: 'Signed, but the key is not in your keyring or allowed signers file' };
-const signatureBadge = ({ state, signer }) => h(`span.sig-badge.sig-${state}`, { title: [SIGNATURE_TIPS[state], signer].filter(Boolean).join(' · ') || null },
+const SIGNATURE_LABELS: Record<Signature['state'], string> = { good: 'Verified', expired: 'Expired', revoked: 'Revoked', bad: 'Bad signature', unverified: 'Signed, not verified' };
+const SIGNATURE_TIPS: Partial<Record<Signature['state'], string>> = { unverified: 'Signed, but the key is not in your keyring or allowed signers file' };
+const signatureBadge = ({ state, signer }: Signature) => h(`span.sig-badge.sig-${state}`, { title: [SIGNATURE_TIPS[state], signer].filter(Boolean).join(' · ') || null },
   SIGNATURE_LABELS[state], signer ? h('span.sig-signer', null, signer) : null);
 
-function fileRow(f, onclick, extra) {
+function fileRow(f: RowFile, onclick: (e: MouseEvent) => unknown, extra?: Child) {
   const [name, dir] = fileName(f.path);
   return h('div.file-row', { onclick, title: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path },
     statusBadge(f.status),

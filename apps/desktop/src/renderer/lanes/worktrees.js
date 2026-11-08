@@ -29,7 +29,7 @@ import { refreshAll, refreshHistory, worktreeOf } from '../graph/load.ts';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll } from '../branches/remote-ops.ts';
 import { showCommit } from '../history/file-history.ts';
 import { checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, approvePr, requestChangesPr, mergePr, closePr, openPrOnGitHub, updatePrBranch, REMOTE_NOTE, prCall, OWN_PR, refreshPrs, fixMergeGate, prCheckLines, checkFailEl } from '../prs/prs-page.js';
-import { commitSide } from '../graph/map.js';
+import { commitSide } from '../graph/map.ts';
 import { refMenu, canSwitchFrom, switchTarget, switchChanges, switchAndDelete, changesText, showStashAction, copy, checkout, createBranch } from '../graph/commit-actions.js';
 import { openRepo } from '../settings/prefs-window.js';
 import { jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView } from '../shell/navigation.js';

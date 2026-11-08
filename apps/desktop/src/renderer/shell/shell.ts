@@ -4,12 +4,11 @@ import type { lanesView } from '../lanes/lanes-view.ts';
 import type { catchupView } from '../catchup/catchup-view.ts';
 import type { BranchesView } from '../branches/branches-view.ts';
 import type { ReviewView } from '../review/review-view.ts';
-import type { createMapView } from '../graph/map.js';
+import type { MapView } from '../graph/map.ts';
 import type { createCommitView } from '../commit/commit-view.js';
 
 // Shell: the window's views and layout elements, set at boot and read by every area.
 
-type MapView = ReturnType<typeof createMapView>;
 type CommitView = ReturnType<typeof createCommitView>;
 type LanesPage = ReturnType<typeof lanesView>;
 type CatchupPage = ReturnType<typeof catchupView>;
