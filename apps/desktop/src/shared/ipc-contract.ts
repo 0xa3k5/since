@@ -167,6 +167,14 @@ export interface AppResults {
   /** null: pull requests are off here, or there's no GitHub remote. */
   'pr-list': IpcResult<PrList | null>;
   'pr-ai-draft': IpcResult<{ title: string; body: string }>;
+  /** A branch's pull request draft: where it would go, its title and body from the commits, and what to push first. */
+  'pr-create-info': IpcResult<{ branch: string; base: string; remote: string; head: string; push: { remote: string; isNew: boolean; ahead: number } | null; title: string; body: string }>;
+  /** Checking out a PR: ask first (`confirm`, the local branch would move), it's checked out elsewhere (`inUse`), or done. */
+  'pr-checkout': IpcResult<
+    | { confirm: { branch: string; from: string; to: string } }
+    | { inUse: { branch: string; worktree: { name: string; path: string; missing: boolean; elsewhere: boolean } } }
+    | { branch: string; sha: string; worktree?: { path: string; name?: string } | null }
+  >;
   /** The new pull request; `url` when GitHub CLI printed it. */
   'pr-create': IpcResult<{ url: string | undefined; number: number }>;
   /** The file the shortcuts went to; null when the save dialog was cancelled. */

@@ -20,7 +20,7 @@ import { tour, openShortcuts, shortcuts, openSetup } from './welcome/welcome.ts'
 import { closeSplit } from './commit/split.ts';
 import { openMergetool, openConflicts, openFileHistory, gPending, setGPending } from './history/file-history.ts';
 import { closeQuick } from './graph/quick-view.ts';
-import { submoduleSwitcher, prList, refreshPrs, createPr, pickPr, approvePr, requestChangesPr, togglePrs, pickPrRemote, hidePrs } from './prs/prs-page.js';
+import { submoduleSwitcher, prList, refreshPrs, createPr, pickPr, approvePr, requestChangesPr, togglePrs, pickPrRemote, hidePrs } from './prs/prs-page.ts';
 import { branchHere } from './graph/commit-actions.ts';
 import { openRepo, initRepo, cloneRepo, openPrefs, prefs } from './settings/prefs-window.ts';
 import { sbNarrow, applySidebar, setSbNarrow, setView, goBack, goForward, toggleSidebar, toggleShow, openOrigin, openLfs, sbState, sbHideTimer, setSidebar, isMenuKey, resetPanes, toggleDetail, renderSidebar, renderTopbar, renderView, startView, renderShell, setStartView } from './shell/navigation.js';

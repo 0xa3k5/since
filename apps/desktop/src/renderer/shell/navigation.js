@@ -21,7 +21,7 @@ import { reflogView } from '../history/reflog.ts';
 import { splitView } from '../commit/split.ts';
 import { showCommit, closeFileHistory } from '../history/file-history.ts';
 import { quickView, openQuick } from '../graph/quick-view.ts';
-import { prViewer } from '../prs/prs-page.js';
+import { prViewer } from '../prs/prs-page.ts';
 import { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView } from '../graph/map.ts';
 import { copy, checkout, refMenu } from '../graph/commit-actions.ts';
 import { renderWelcome, openPrefs } from '../settings/prefs-window.ts';

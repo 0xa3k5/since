@@ -26,7 +26,7 @@ import { fetchAll, pull, push, remotesSwitcher, addRemote, remoteItems } from '.
 import { exportShortcuts, importShortcuts, resetShortcuts, openShortcuts, openSetup } from '../welcome/welcome.ts';
 import { openSplit } from '../commit/split.ts';
 import { openFileHistory, fileHistoryTarget, openConflicts, openMergetool } from '../history/file-history.ts';
-import { prList, refreshPrs, createPr, pickPrBranch, pickPr, approvePr, approveTargetWhy, requestChangesPr, togglePrs, hidePrs, pickPrRemote, submoduleSwitcher, checkoutPr, prRemote, prFor, prViewer, toggleDraft } from '../prs/prs-page.js';
+import { prList, refreshPrs, createPr, pickPrBranch, pickPr, approvePr, approveTargetWhy, requestChangesPr, togglePrs, hidePrs, pickPrRemote, submoduleSwitcher, checkoutPr, prRemote, prFor, prViewer, toggleDraft } from '../prs/prs-page.ts';
 import { pendingAutostash, applyAutostash, createBranch, canSwitchFrom, checkoutSelected, guarded, checkout } from '../graph/commit-actions.ts';
 import { openRepo, openPrefs, cloneRepo, closeRepo } from '../settings/prefs-window.ts';
 import { VIEWS, setView, setSections, nav, goBack, goForward, openLfs, conflictEd, originRemote, openOrigin, toggleShow, lanesOpen, detailToggleLabel, toggleDetail, resetPanes, sbState, toggleSidebar, openAuthor, copyCommitLink, jumpTo } from '../shell/navigation.js';

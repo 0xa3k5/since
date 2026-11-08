@@ -12,7 +12,7 @@ import { act, resolveOp, git, undo } from '../lib/bridge.ts';
 import { worktreeOf, refreshAll } from './load.ts';
 import { openSplit } from '../commit/split.ts';
 import { openQuick } from './quick-view.ts';
-import { prFor, createPr } from '../prs/prs-page.js';
+import { prFor, createPr } from '../prs/prs-page.ts';
 import { loadCommit } from './map.ts';
 import type { MenuEntry, MenuItem } from '../lib/ui.ts';
 import type { GuardCommit } from './commit-guards.ts';

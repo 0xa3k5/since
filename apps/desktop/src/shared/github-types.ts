@@ -46,6 +46,8 @@ export interface PrList {
   owners?: Record<string, string>;
   prs: PullRequest[];
   at?: number;
+  /** You on GitHub: login and write access, for Approve's reason. */
+  viewer?: Viewer | null;
 }
 
 /** A check on a PR's head (github.ts checkList): its result, and how long it ran in seconds. */
