@@ -6,7 +6,7 @@ import { stageMemory } from '../review/review-rows.ts';
 import { orderedSections, moveSection, showSection } from '../shell/sidebar.ts';
 import { tourView } from '../welcome/tour-view.ts';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';
-import { prefsWindow } from './prefs-view.js';
+import { prefsWindow } from './prefs-view.ts';
 import { prefRows, prRemoteChoice } from './prefs.ts';
 import { SETUP_PREF, needsSetup } from './setup.ts';
 import { up } from '../lib/upcalls.ts';

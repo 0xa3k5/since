@@ -1,6 +1,13 @@
 import { h, icon, contextMenu } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
-import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.ts';
+import { PREF_SECTIONS, prefSections, nextChoice, type PrefRow } from './prefs.ts';
+
+/** A row's element, with the row it shows. */
+type RowEl = HTMLElement & { _row: PrefRow };
+export interface PrefsWindowOptions {
+  section?: string | null; rows(): PrefRow[]; act(row: PrefRow, value?: unknown): unknown; onClose?: () => void;
+}
+export interface PrefsWindow { close(): void; find(): void; refresh(): void; show(id: string): void }
 
 // The Preferences window (⌘,, Since → Settings…, ⌘K). Rows come from prefs.js; every section is in one list,
 // the sidebar jumps to a section. Type to search; ↑↓ move, ↵ toggles a switch or runs a button, ← → change a
@@ -11,8 +18,8 @@ import { PREF_SECTIONS, prefSections, nextChoice } from './prefs.ts';
 // or undefined for a button / config row; 'unset' and 'copy' for a config row's other actions) and may return a
 // promise, after which the window redraws. Returns { close, find, refresh, show(section) }.
 
-export function prefsWindow({ section, rows: getRows, act, onClose }) {
-  const prev = document.activeElement;
+export function prefsWindow({ section, rows: getRows, act, onClose }: PrefsWindowOptions): PrefsWindow {
+  const prev = document.activeElement as HTMLElement | null;
   const input = h('input.palette-input.prefs-search', {
     placeholder: 'Search preferences…', spellcheck: false, autocomplete: 'off', 'aria-label': 'Search preferences', 'aria-controls': 'prefs-list',
   });
@@ -20,16 +27,16 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
   const list = h('div.prefs-list', { id: 'prefs-list', role: 'list' });
   const box = h('div.palette.prefs', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'prefs-title' },
     h('div.shortcuts-title', null, h('h2', { id: 'prefs-title' }, 'Preferences'),
-      h('button.icon-btn.tiny', { type: 'button', tabindex: -1, title: `Close (Esc, ${keymap.keys('app.settings').join('')})`, 'aria-label': 'Close', onclick: () => close() }, icon('x', 12))),
+      h('button.icon-btn.tiny', { type: 'button', tabindex: -1, title: `Close (Esc, ${(keymap.keys('app.settings') ?? []).join('')})`, 'aria-label': 'Close', onclick: () => close() }, icon('x', 12))),
     h('div.palette-head', null, icon('search'), input),
     h('div.prefs-body', null, nav, list));
-  const overlay = h('div.overlay.prefs-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
-  let items = [], idx = -1, current = section || null, busy = false;
+  const overlay: HTMLElement = h('div.overlay.prefs-overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, box);
+  let items: RowEl[] = [], idx = -1, current = section || null, busy = false;
 
-  const sw = (on) => h('span.switch' + (on ? '.on' : ''), { 'aria-hidden': 'true' }, h('span.switch-knob'));
-  function control(r) {
+  const sw = (on: boolean) => h('span.switch' + (on ? '.on' : ''), { 'aria-hidden': 'true' }, h('span.switch-knob'));
+  function control(r: PrefRow): HTMLElement | null {
     if (r.kind === 'switch' && r.move) {
-      const mv = (dir, ic, label, off) => h('button.icon-btn.tiny', { type: 'button', tabindex: -1, disabled: off, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); run(r, dir); } }, icon(ic, 12));
+      const mv = (dir: string, ic: string, label: string, off: boolean | undefined) => h('button.icon-btn.tiny', { type: 'button', tabindex: -1, disabled: off, title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); run(r, dir); } }, icon(ic, 12));
       return h('div.prefs-move', null, mv('up', 'chevronUp', 'Move up', r.first), mv('down', 'chevronDown', 'Move down', r.last), r.fixed ? h('span.switch-spacer', { 'aria-hidden': 'true' }) : sw(r.value));
     }
     if (r.kind === 'switch') return sw(r.value);
@@ -43,7 +50,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     }
     return null;
   }
-  function rowEl(r) {
+  function rowEl(r: PrefRow): HTMLElement {
     if (r.kind === 'config') {
       const c = r.value;
       return h('div.prefs-row.prefs-config', {
@@ -72,18 +79,19 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     items = [];
     // Each section is one group of rows. Git config rows are grouped by scope under a small heading instead of a
     // badge on every row.
-    const scopeNote = { local: 'click to edit', global: 'read-only here', system: 'read-only here' };
+    const scopeNote: Record<string, string> = { local: 'click to edit', global: 'read-only here', system: 'read-only here' };
     list.replaceChildren(...sections.map((sec) => h('section.prefs-section', { 'data-section': sec.id },
       h('h3.prefs-heading', null, sec.label),
       h('div.prefs-group', null, sec.rows.flatMap((r, i) => {
-        const el = rowEl(r);
+        const el = rowEl(r) as RowEl;
         el.dataset.key = r.id;
         el._row = r;
         el.addEventListener('mousemove', () => { if (idx !== items.indexOf(el)) { idx = items.indexOf(el); mark(false); } });
         items.push(el);
         const scope = r.kind === 'config' && r.value.scope;
-        if (!scope || sec.rows[i - 1]?.value?.scope === scope) return [el];
-        return [h('div.prefs-subhead', { 'aria-hidden': 'true' }, scope[0].toUpperCase() + scope.slice(1), h('span', null, ` · ${scopeNote[scope] || 'read-only here'}`)), el];
+        const before = sec.rows[i - 1];
+        if (!scope || (before?.kind === 'config' && before.value.scope === scope)) return [el];
+        return [h('div.prefs-subhead', { 'aria-hidden': 'true' }, (scope[0] ?? '').toUpperCase() + scope.slice(1), h('span', null, ` · ${scopeNote[scope] || 'read-only here'}`)), el];
       })))));
     if (!sections.length) list.append(h('div.palette-empty', null, 'No preferences match'));
     const shown = new Set(sections.map((s) => s.id));
@@ -96,23 +104,24 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
   }
   function mark(scroll = true) {
     items.forEach((el, i) => el.classList.toggle('active', i === idx));
-    if (idx >= 0) {
-      current = items[idx]._row.section;
-      if (scroll) items[idx].scrollIntoView({ block: 'nearest' });
+    const active = items[idx];
+    if (active) {
+      current = active._row.section;
+      if (scroll) active.scrollIntoView({ block: 'nearest' });
     }
     for (const b of nav.children) b.setAttribute('aria-current', String(b.textContent === PREF_SECTIONS.find((s) => s.id === current)?.label));
   }
   // Jump to a section: its first row becomes the active one, at the top of the list.
-  function show(id) {
+  function show(id: string): void {
     const i = items.findIndex((el) => el._row.section === id);
     current = id;
     if (i < 0) return mark(false);
     idx = i;
     mark(false);
-    list.scrollTop = items[i].closest('.prefs-section').offsetTop - list.offsetTop;
+    list.scrollTop = (items[i]?.closest<HTMLElement>('.prefs-section')?.offsetTop ?? 0) - list.offsetTop;
     input.focus();
   }
-  async function run(r, value) {
+  async function run(r: PrefRow, value?: unknown) {
     if (busy) return;
     idx = items.findIndex((el) => el._row === r);
     busy = true;
@@ -130,11 +139,12 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     else return false;
     return true;
   }
-  function step(dir) {
+  function step(dir: number) {
     if (!items.length) return;
     const secs = [...new Set(items.map((el) => el._row.section))];
-    const at = secs.indexOf(items[idx]?._row.section ?? current);
-    show(secs[Math.max(0, Math.min(secs.length - 1, at < 0 ? 0 : at + dir))]);
+    const at = secs.indexOf(items[idx]?._row.section ?? current ?? '');
+    const to = secs[Math.max(0, Math.min(secs.length - 1, at < 0 ? 0 : at + dir))];
+    if (to) show(to);
   }
   function find() { input.focus(); input.select(); }
   function close() {
@@ -148,7 +158,7 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
   input.addEventListener('input', () => { idx = -1; render(); if (items.length) { idx = 0; mark(); } });
   overlay.addEventListener('keydown', (e) => {
     // A dialog or menu opened from a row handles its own keys.
-    if (!box.contains(e.target) && e.target !== overlay) return;
+    if (!box.contains(e.target as Node | null) && e.target !== overlay) return;
     const id = keymap.match('prefs', e);
     if (id === 'prefs.next') { e.preventDefault(); idx = Math.min(idx + 1, items.length - 1); mark(); }
     else if (id === 'prefs.prev') { e.preventDefault(); idx = Math.max(idx - 1, -1); mark(); }
@@ -156,8 +166,8 @@ export function prefsWindow({ section, rows: getRows, act, onClose }) {
     else if (id === 'prefs.prevSection') { e.preventDefault(); step(-1); }
     else if (id === 'prefs.toggle') { if (activate()) e.preventDefault(); }
     else if (id === 'prefs.right' || id === 'prefs.left') { if (activate(id === 'prefs.right' ? 1 : -1)) e.preventDefault(); }
-    else if ((id === 'prefs.moveUp' || id === 'prefs.moveDown') && items[idx]?._row.move) { e.preventDefault(); run(items[idx]._row, id === 'prefs.moveUp' ? 'up' : 'down'); }
-    else if (id === 'prefs.unset' && items[idx]?._row.kind === 'config') { e.preventDefault(); run(items[idx]._row, 'unset'); }
+    else if ((id === 'prefs.moveUp' || id === 'prefs.moveDown') && items[idx]?._row.move) { e.preventDefault(); run(items[idx]!._row, id === 'prefs.moveUp' ? 'up' : 'down'); }
+    else if (id === 'prefs.unset' && items[idx]?._row.kind === 'config') { e.preventDefault(); run(items[idx]!._row, 'unset'); }
     else if (id === 'prefs.find') { e.preventDefault(); find(); }
     else if (id === 'prefs.close') {
       e.preventDefault(); e.stopPropagation();
