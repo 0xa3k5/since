@@ -42,6 +42,9 @@ export interface ReviewTarget {
   pr?: PullRequest & { remote?: string | null };
 }
 
+/** The Split commit view: the commit, and the branch it's on when that isn't this one. */
+export interface SplitState { sha: string; branch: string | null }
+
 export interface AppState {
   repo: RepoInfo | null;
   view: View;
@@ -58,7 +61,7 @@ export interface AppState {
   selected: string | null;
   detail: boolean;
   quick: Later;
-  split: Later;
+  split: SplitState | null;
   status: WorkStatus;
   opState: OperationKind | null;
   opInfo: OperationInfo | null;

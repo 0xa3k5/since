@@ -24,7 +24,7 @@ import { snapshotEntries, restoreSnapshot } from '../history/snapshots.js';
 import { openDifftool } from '../commit/external-tools.js';
 import { fetchAll, pull, push, remotesSwitcher, addRemote, remoteItems } from '../branches/remote-ops.ts';
 import { exportShortcuts, importShortcuts, resetShortcuts, openShortcuts, openSetup } from '../welcome/welcome.js';
-import { openSplit } from '../commit/split.js';
+import { openSplit } from '../commit/split.ts';
 import { openFileHistory, fileHistoryTarget, openConflicts, openMergetool } from '../history/file-history.js';
 import { prList, refreshPrs, createPr, pickPrBranch, pickPr, approvePr, approveTargetWhy, requestChangesPr, togglePrs, hidePrs, pickPrRemote, submoduleSwitcher, checkoutPr, prRemote, prFor, prViewer, toggleDraft } from '../prs/prs-page.js';
 import { pendingAutostash, applyAutostash, createBranch, canSwitchFrom, checkoutSelected, guarded, checkout } from '../graph/commit-actions.js';

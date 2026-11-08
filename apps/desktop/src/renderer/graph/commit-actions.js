@@ -10,7 +10,7 @@ import { state, MOD, api, loadPref, savePref } from '../lib/app-helpers.ts';
 import { stashFocus, setStashFocus, contentEl } from '../shell/shell.ts';
 import { act, resolveOp, git, undo } from '../lib/bridge.ts';
 import { worktreeOf, refreshAll } from './load.js';
-import { openSplit } from '../commit/split.js';
+import { openSplit } from '../commit/split.ts';
 import { openQuick } from './quick-view.js';
 import { prFor, createPr } from '../prs/prs-page.js';
 import { loadCommit } from './map.js';

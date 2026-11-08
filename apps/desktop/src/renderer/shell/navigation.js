@@ -18,7 +18,7 @@ import { stashSave, stashesView } from '../commit/stashes.ts';
 import { snapshotsView } from '../history/snapshots.js';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll, pull, push } from '../branches/remote-ops.ts';
 import { reflogView } from '../history/reflog.ts';
-import { splitView } from '../commit/split.js';
+import { splitView } from '../commit/split.ts';
 import { showCommit, closeFileHistory } from '../history/file-history.js';
 import { quickView, openQuick } from '../graph/quick-view.js';
 import { prViewer } from '../prs/prs-page.js';

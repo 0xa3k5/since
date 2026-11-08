@@ -53,6 +53,8 @@ export interface GitResults {
   branchReview: BranchReview;
   changeFacts: ChangeFacts;
   fileHistory: FileHistoryPage;
+  /** A commit's diff against its first parent, one entry per file. */
+  commitDiffs: (FileDiff & { path: string })[];
   blame: Blame;
   /** The label of the step undone or redone; null when there was none. */
   undo: string | null;

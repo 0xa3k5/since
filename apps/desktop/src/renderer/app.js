@@ -17,7 +17,7 @@ import { snapshotKey } from './history/snapshots.js';
 import { openDifftool } from './commit/external-tools.js';
 import { fetchAll, pull, push, remotesSwitcher } from './branches/remote-ops.ts';
 import { tour, openShortcuts, shortcuts, openSetup } from './welcome/welcome.js';
-import { closeSplit } from './commit/split.js';
+import { closeSplit } from './commit/split.ts';
 import { openMergetool, openConflicts, openFileHistory, gPending, setGPending } from './history/file-history.js';
 import { closeQuick } from './graph/quick-view.js';
 import { submoduleSwitcher, prList, refreshPrs, createPr, pickPr, approvePr, requestChangesPr, togglePrs, pickPrRemote, hidePrs } from './prs/prs-page.js';
