@@ -78,6 +78,14 @@ export interface GitResults {
   logDetails: string;
   /** One commit's header and message. */
   commit: CommitDetails;
+  /** Whether HEAD contains the commit, and the local branches that do. */
+  commitBranches: { onHead: boolean; branches: string[] };
+  /** Why that worktree can't give up its branch, or its uncommitted changes. */
+  worktreeHold: { blocker?: string | null; changes?: number; changedAt?: number | null };
+  moveCheckout: { conflicts: boolean };
+  /** The stash a stash-and-switch made, offered back on returning; null when nothing was stashed. */
+  autostashCheckout: { sha: string; message: string; untracked: boolean; branch: string | null } | null;
+  switchRewrite: { sha: string; message: string; untracked: boolean; branch: string | null } | null;
   /** The configured user, who made this clone's commits, and the remote URLs. */
   identity: Identity;
   /** Every file git tracks at HEAD. */

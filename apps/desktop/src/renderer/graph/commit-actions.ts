@@ -14,51 +14,66 @@ import { openSplit } from '../commit/split.ts';
 import { openQuick } from './quick-view.ts';
 import { prFor, createPr } from '../prs/prs-page.js';
 import { loadCommit } from './map.ts';
+import type { MenuEntry, MenuItem } from '../lib/ui.ts';
+import type { GuardCommit } from './commit-guards.ts';
+import type { ReturnOffer } from '../commit/autostash.ts';
+import type { Ref, Worktree } from '../../shared/git-types.ts';
+
+/** A commit the map acts on: a graph row or a commit's details. */
+type MapCommit = GuardCommit & { email?: string | null };
+type RewriteOp = 'reword' | 'squash' | 'fixup' | 'swapParent' | 'split' | 'drop';
+type WorktreeEntry = Worktree & { elsewhere?: boolean };
+/** What to stash before a switch. */
+interface StashSpec { message: string; untracked: boolean }
+/** A menu item in a group; `inline` is its label when it stands alone (menuGroup). */
+type GroupItem = MenuItem & { inline?: string };
+type ItemProps = Omit<GroupItem, 'label'>;
 
 // Commit actions (map actions)
 
-const branchesAt = (sha) => state.refs.filter((r) => r.kind === 'branch' && r.target === sha);
+const branchesAt = (sha: string) => state.refs.filter((r) => r.kind === 'branch' && r.target === sha);
 
-function commitShortcut(e, id, c) {
-  const run = {
+function commitShortcut(e: KeyboardEvent, id: string, c: MapCommit) {
+  const run = ({
     'commit.branch': () => createBranch(c.sha), 'commit.tag': () => createTag(c.sha), 'commit.merge': () => mergeCommit(c),
     'commit.rebase': () => rebaseOnto(c), 'commit.cherryPick': () => cherryPick(c), 'commit.revert': () => revertCommit(c),
     'commit.edit': () => rewriteVia(c, 'reword', (b) => editMessage(c, b)), 'commit.squash': () => rewriteVia(c, 'squash', (b) => rewriteOp('squash', c, b)),
     'commit.fixup': () => rewriteVia(c, 'fixup', (b) => rewriteOp('fixup', c, b)), 'commit.drop': () => rewriteVia(c, 'drop', (b) => rewriteOp('drop', c, b)),
     'commit.checkout': () => checkoutCommit(c), 'commit.diffHead': () => diffWithHead(c),
     'commit.worktree': () => up.addWorktree({ base: c.sha }), 'commit.split': () => rewriteVia(c, 'split', (b) => openSplit(c, b)), 'commit.author': () => up.openAuthor(c),
-  }[id];
+  } as Record<string, () => unknown>)[id];
   if (!run) return;
   e.preventDefault();
   guarded(id, c, run);
 }
 
 // Loaded graph commits by sha, for commitBlock (a new lookup per menu: its answers are cached per lookup).
-const graphCommits = () => (sha) => state.commits[state.index.get(sha)];
+const graphCommits = () => (sha: string | null | undefined) => { const i = sha == null ? undefined : state.index.get(sha); return i == null ? undefined : state.commits[i]; };
 // Runs a map action, or toasts why it can't run on this commit (the menu greys the same cases).
-function guarded(id, c, run) {
+function guarded(id: string, c: MapCommit, run: () => unknown) {
   const why = commitBlock(id, c, state.head.oid, graphCommits());
   if (why) toast(why);
   else run();
 }
 
-async function commitMenu(x, y, c) {
+async function commitMenu(x: number, y: number, c: MapCommit) {
   // Not on this branch: each rewrite switches to a local branch containing it first (AK-581).
   const targets = await rewriteTargets(c);
   const locals = branchesAt(c.sha);
   const isHead = c.sha === state.head.oid;
+  const curBranch = state.head.branch;
   const remote = up.originRemote();
   // Greyed with the reason under the label (AK-582).
   const get = graphCommits();
-  const off = (id) => { const why = commitBlock(id, c, state.head.oid, get); return { disabled: !!why, why }; };
+  const off = (id: string) => { const why = commitBlock(id, c, state.head.oid, get); return { disabled: !!why, why }; };
   contextMenu(x, y, [
     { label: 'Quick View', icon: 'eye', kbd: keymap.keys('map.quick'), run: () => openQuick(c.sha) },
     { label: 'Diff with HEAD', icon: 'diff', kbd: keymap.keys('commit.diffHead'), ...off('commit.diffHead'), run: () => diffWithHead(c) },
     '-',
     ...menuGroup('Checkout', 'checkout', locals.length
-      ? locals.map((b) => (worktreeOf(b.short)
-        ? { label: `Switch to Worktree “${worktreeOf(b.short).name}”`, icon: 'worktree', run: () => up.switchWorktree(worktreeOf(b.short)) }
-        : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, why: b.short === state.head.branch ? 'Current branch' : null, run: () => checkout(b.short) }))
+      ? locals.map((b): GroupItem => { const wt = worktreeOf(b.short); return (wt
+        ? { label: `Switch to Worktree “${wt.name}”`, icon: 'worktree', run: () => up.switchWorktree(wt) }
+        : { label: `Checkout “${b.short}”`, icon: 'checkout', kbd: !isHead && b === locals.find((x) => x.short !== state.head.branch) ? [MOD, '↵'] : null, disabled: b.short === state.head.branch, why: b.short === state.head.branch ? 'Current branch' : null, run: () => checkout(b.short) }); })
       : [{ label: 'Checkout (detached)', icon: 'checkout', kbd: keymap.keys('commit.checkout'), disabled: isHead && state.head.detached, why: isHead && state.head.detached ? 'Checked out' : null, run: () => checkoutCommit(c) }]),
     ...menuGroup('Create', 'plus', [
       { label: 'Branch…', inline: 'Create Branch…', icon: 'branch', kbd: keymap.keys('commit.branch'), run: () => createBranch(c.sha) },
@@ -66,7 +81,7 @@ async function commitMenu(x, y, c) {
       { label: 'Worktree…', inline: 'New Worktree Here…', icon: 'worktree', kbd: keymap.keys('commit.worktree'), run: () => up.addWorktree({ base: c.sha }) },
     ]),
     ...menuGroup('Branch', 'branch', [
-      state.head.branch && !isHead ? { label: 'Move Current Branch Here', icon: 'swap', run: () => setTip(state.head.branch, c) } : null,
+      curBranch && !isHead ? { label: 'Move Current Branch Here', icon: 'swap', run: () => setTip(curBranch, c) } : null,
       ...locals.map((b) => deleteBranchItem(b)),
     ]),
     '-',
@@ -92,7 +107,7 @@ async function commitMenu(x, y, c) {
       { label: 'Message', icon: 'copy', run: async () => copy((await loadCommit(c.sha)).message, 'Copied message') },
     ]),
     ...menuGroup('Open in Browser', 'external', [
-      authorProfile(c.email, remote?.web) ? { label: 'Author', inline: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => up.openAuthor(c) } : null,
+      authorProfile(c.email ?? '', remote?.web) ? { label: 'Author', inline: 'View Author on GitHub', icon: 'external', kbd: keymap.keys('commit.author'), run: () => up.openAuthor(c) } : null,
       remote?.web ? { label: 'Commit', inline: 'View on Hosting Service', icon: 'external', run: () => api.app('external', `${remote.web}/commit/${c.sha}`) } : null,
     ]),
   ]);
@@ -100,22 +115,23 @@ async function commitMenu(x, y, c) {
 
 // A submenu row for a group of menu items (AK-629): nothing when the group is empty, the item
 // itself (under its `inline` label, when the short one needs the group's context) when there's only one.
-function menuGroup(label, icon, items) {
-  const real = items.filter((it) => it && typeof it === 'object' && !it.section);
-  if (!real.length) return [];
-  if (real.length === 1) return [{ ...real[0], label: real[0].inline || real[0].label }];
+function menuGroup(label: string, icon: string, items: (GroupItem | '-' | null | false | undefined)[]): MenuEntry[] {
+  const real = items.filter((it): it is GroupItem => Boolean(it) && typeof it === 'object');
+  const one = real[0];
+  if (!one) return [];
+  if (real.length === 1) return [{ ...one, label: one.inline || one.label }];
   return [{ label, icon, submenu: items }];
 }
 
 // Delete a branch label: the one checked out here through the switch-and-delete sheet.
-function deleteBranchItem(r) {
+function deleteBranchItem(r: Ref): GroupItem {
   const cur = r.short === state.head.branch;
   const why = cur ? (canSwitchFrom(r.short) ? null : 'Only branch') : worktreeOf(r.short) ? 'In another worktree' : null;
   return { label: cur && !why ? `Switch to ${switchTarget(r.short)} & Delete “${r.short}”` : `Delete Branch “${r.short}”`, icon: 'trash', danger: true, disabled: Boolean(why), why, run: () => (cur ? switchAndDelete(r) : deleteBranch(r)) };
 }
 
-function refMenu(x, y, r) {
-  const items = [];
+function refMenu(x: number, y: number, r: Ref) {
+  const items: MenuEntry[] = [];
   if (r.kind === 'branch') {
     const cur = r.short === state.head.branch;
     const wt = worktreeOf(r.short);
@@ -153,9 +169,9 @@ function refMenu(x, y, r) {
   contextMenu(x, y, items);
 }
 
-async function copy(text, msg) { await api.app('copy', text); toast(msg); }
+async function copy(text: string, msg: string) { await api.app('copy', text); toast(msg); }
 
-async function checkout(branch) {
+async function checkout(branch: string): Promise<unknown> {
   const wt = worktreeOf(branch);
   const label = `Checkout ${branch}`;
   closeMenu();
@@ -170,9 +186,10 @@ async function checkout(branch) {
     await git('checkout', branch, { __label: label });
   } catch (e) {
     // Only when local changes are in the way: offer to stash them and switch.
-    const blocked = blockedCheckout(`${e.stderr || ''}\n${e.message}`);
+    const err = e as Error & { stderr?: string };
+    const blocked = blockedCheckout(`${err.stderr || ''}\n${err.message}`);
     if (blocked) return autostashCheckout(branch, blocked);
-    toast(`${label} failed`, { kind: 'error', detail: e.message });
+    toast(`${label} failed`, { kind: 'error', detail: err.message });
     await refreshAll();
     return false;
   }
@@ -185,8 +202,8 @@ async function checkout(branch) {
 // `branch` is checked out in worktree `wt`: offer to free it there (HEAD detached) and check it
 // out here, bringing its uncommitted changes along, or to open that worktree. Resolves to
 // { id: 'free' }, { id: 'move', stash } (this window's changes to stash first, or null) or null.
-async function inUseSheet(branch, wt) {
-  const hold = wt.missing ? { blocker: 'Its folder no longer exists.' } : await git('worktreeHold', wt.path).catch((e) => ({ blocker: e.message }));
+async function inUseSheet(branch: string, wt: WorktreeEntry): Promise<{ id: 'free' } | { id: 'move'; stash: StashSpec | null } | null> {
+  const hold = wt.missing ? { blocker: 'Its folder no longer exists.' } : await git('worktreeHold', wt.path).catch((e: Error) => ({ blocker: e.message }));
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   const mine = switchChanges();
   const p = inUsePlan(wt, hold, mine);
@@ -199,29 +216,30 @@ async function inUseSheet(branch, wt) {
     reason: ['In use by ', h('span.sheet-strong', null, wt.name), '.'],
     rows: [
       [[wt.name, h('span.sheet-row-path', null, p.where)], h(status === 'clean' ? 'span' : 'span.warn', null, status)],
-      p.changed && [h('span.muted', null, p.changed), ''],
-    ].filter(Boolean),
-    checkbox: p.stash ? { label: p.stash, checked: true } : null,
-    actions: p.actions.filter((id) => id !== 'free').map((id) => ({ move: { id, label: 'Move changes & check out' }, open: { id, label: 'Open that worktree' } })[id]),
+      ...(p.kind === 'dirty' && p.changed ? [[h('span.muted', null, p.changed), ''] as const] : []),
+    ],
+    checkbox: p.kind === 'dirty' && p.stash ? { label: p.stash, checked: true } : null,
+    actions: p.actions.map((id) => (id === 'move' ? { id, label: 'Move changes & check out' } : { id, label: 'Open that worktree' })),
   });
   if (v?.id === 'open') wt.elsewhere ? api.app('open-window', wt.path) : up.openRepo(wt.path);
   if (v?.id === 'move') return { id: 'move', stash: v.checked ? { message: stashMessage(state.head.branch, branch), untracked } : null };
-  return v?.id === 'free' ? v : null;
+  return v?.id === 'free' ? { id: 'free' } : null;
 }
 
 // Check out `branch` from clean worktree `wt`, leaving it detached (one undo step). Changes here in
 // the way are stashed first, as a plain checkout does.
-async function freeCheckout(label, branch, wt) {
+async function freeCheckout(label: string, branch: string, wt: WorktreeEntry) {
   try {
     await git('freeCheckout', branch, wt.path, { __label: label });
   } catch (e) {
-    if (blockedCheckout(`${e.stderr || ''}\n${e.message}`)) {
+    const err = e as Error & { stderr?: string };
+    if (blockedCheckout(`${err.stderr || ''}\n${err.message}`)) {
       const n = switchChanges();
       const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
       const stash = { message: stashMessage(state.head.branch, branch), untracked };
       return act(label, 'moveCheckout', [branch, wt.path, stash], { success: `Checked out ${branch}`, detail: `Took it from ${wt.name}. ${changesText(n)} stashed.`, actions: [showStashAction(stash.message)] });
     }
-    toast(`${label} failed`, { kind: 'error', detail: e.message });
+    toast(`${label} failed`, { kind: 'error', detail: err.message });
     await refreshAll();
     return false;
   }
@@ -232,20 +250,20 @@ async function freeCheckout(label, branch, wt) {
 
 // Check out `branch` from worktree `wt` and bring its changes here (one undo step). A conflict
 // while bringing them stops there, with the changes still in their stash.
-async function moveCheckout(label, branch, wt, stash) {
+async function moveCheckout(label: string, branch: string, wt: WorktreeEntry, stash: StashSpec | null) {
   try {
     const res = await git('moveCheckout', branch, wt.path, ...(stash ? [stash] : []), { __label: label });
     if (res?.conflicts) toast(`Switched to ${branch}. The changes from “${wt.name}” conflict here.`, { kind: 'error', detail: 'Their stash is kept.', action: { label: 'Undo', run: undo } });
-    else toast(`Checked out ${branch}`, { kind: 'success', detail: `Moved the changes from ${wt.name}.${stash ? ' Yours are stashed.' : ''}`, actions: [{ label: 'Undo', run: undo }, stash && showStashAction(stash.message)].filter(Boolean) });
+    else toast(`Checked out ${branch}`, { kind: 'success', detail: `Moved the changes from ${wt.name}.${stash ? ' Yours are stashed.' : ''}`, actions: [{ label: 'Undo', run: undo }, ...(stash ? [showStashAction(stash.message)] : [])] });
   } catch (e) {
-    toast(`${label} failed`, { kind: 'error', detail: e.message });
+    toast(`${label} failed`, { kind: 'error', detail: (e as Error).message });
   }
   await refreshAll();
   return true;
 }
 
 // Stash, then switch (one undoable step). Asks first unless "Don't ask again" was ticked.
-async function autostashCheckout(branch, blocked) {
+async function autostashCheckout(branch: string, blocked: { untracked: boolean }) {
   const from = state.head.branch;
   const plan = autostashPlan(loadPref('autostash', AUTOSTASH_DEFAULT), blocked);
   let message = stashMessage(from, branch), untracked = plan.untracked;
@@ -266,25 +284,26 @@ async function autostashCheckout(branch, blocked) {
   }
   return act(`Checkout ${branch}`, 'autostashCheckout', [branch, message, untracked], {
     success: `Stashed changes and switched to ${branch}`,
-    then: (a) => { if (a?.branch) savePref('autostashes', { list: [...loadPref('autostashes', { list: [] }).list, { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
+    then: (a) => { if (a?.branch && state.repo) savePref('autostashes', { list: [...autostashes(), { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
   });
 }
+const autostashes = () => loadPref<{ list: ReturnOffer['records'] }>('autostashes', { list: [] }).list;
 
 // Back on a branch that was auto-stashed: offer its stash back.
-async function pendingAutostash(branch) {
+async function pendingAutostash(branch: string | null) {
   const stashes = await git('stashes').catch(() => null);
   if (!stashes || !state.repo) return null;
-  const { offer, records } = returnOffer(loadPref('autostashes', { list: [] }).list, state.repo.root, branch, stashes);
+  const { offer, records } = returnOffer(autostashes(), state.repo.root, branch, stashes);
   savePref('autostashes', { list: records });
   return offer;
 }
 // Resolve the ref from the sha at click time: the toast lives 15 s and positions shift if something else is stashed.
-async function applyAutostash(o, drop) {
+async function applyAutostash(o: { sha: string }, drop: boolean) {
   const ref = stashRefBySha(await git('stashes').catch(() => null), o.sha);
   if (!ref) return toast('That auto-stash is gone');
   return act(drop ? `Apply and drop ${ref}` : `Apply ${ref}`, 'stashApply', [ref, drop]);
 }
-async function offerAutostash(branch) {
+async function offerAutostash(branch: string) {
   const o = await pendingAutostash(branch);
   if (o) toast(['Changes stashed on ', h('span.toast-ref', { title: branch }, branch)], {
     detail: 'Saved when you switched away. Bring them back?',
@@ -292,7 +311,7 @@ async function offerAutostash(branch) {
     actions: [{ label: 'Apply and drop', run: () => applyAutostash(o, true) }, { label: 'Apply and keep', run: () => applyAutostash(o, false) }],
   });
 }
-function checkoutCommit(c) {
+function checkoutCommit(c: { sha: string }) {
   const b = branchesAt(c.sha).find((x) => x.short !== state.head.branch);
   if (b) return checkout(b.short);
   return act(`Checkout ${c.sha.slice(0, 7)}`, 'checkout', [c.sha], { success: `HEAD detached at ${c.sha.slice(0, 7)}` });
@@ -300,7 +319,7 @@ function checkoutCommit(c) {
 // ⌘↵ / double-click on a map row (see checkoutPlan): a branch tip switches to it; a remote-only
 // branch or a plain commit opens a small popover at `at` (or the selected row), Enter = default,
 // Esc = cancel. Every choice is an undoable act. Never throws: a failure is a toast.
-async function checkoutSelected(c, at) {
+async function checkoutSelected(c: { sha: string }, at?: [number, number] | null) {
   try {
     const plan = checkoutPlan(c, state.refs, state.head);
     if (!plan) return;
@@ -314,7 +333,7 @@ async function checkoutSelected(c, at) {
     const [x, y] = at || (row ? [row.left + 48, row.bottom + 2] : [innerWidth / 3, innerHeight / 3]);
     contextMenu(x, y, [{ section: plan.kind === 'remote' ? `Check out ${plan.remote}` : `Check out ${short}` }, first, detached], { focus: 0 });
   } catch (e) {
-    toast('Checkout failed', { kind: 'error', detail: e?.message || String(e) });
+    toast('Checkout failed', { kind: 'error', detail: (e as Error | null)?.message || String(e) });
   }
 }
 // ⌘B: the selected commit in the Map, HEAD everywhere else.
@@ -324,39 +343,39 @@ function branchHere() {
   createBranch(sha);
 }
 
-async function createBranch(sha) {
+async function createBranch(sha: string) {
   const v = await dialog({ title: 'Create branch', description: `At ${sha.slice(0, 7)}`, submit: 'Create branch', fields: [{ name: 'name', label: 'Name', placeholder: 'feature/my-branch', required: true }, { name: 'co', type: 'checkbox', label: 'Check out after creating', value: true }] });
   if (!v || !v.name.trim()) return;
   act(`Create branch ${v.name.trim()}`, 'createBranch', [v.name.trim(), sha, v.co]);
 }
-async function createTag(sha) {
+async function createTag(sha: string) {
   const v = await dialog({ title: 'Create tag', description: `At ${sha.slice(0, 7)}`, submit: 'Create tag', fields: [{ name: 'name', label: 'Name', placeholder: 'v0.1.0', required: true }, { name: 'msg', label: 'Message (optional, makes it annotated)', multiline: true, rows: 3 }] });
   if (!v || !v.name.trim()) return;
   act(`Create tag ${v.name.trim()}`, 'createTag', [v.name.trim(), sha, v.msg.trim() || null]);
 }
-async function renameBranch(r) {
+async function renameBranch(r: Ref) {
   const name = await prompt('Rename branch', { label: 'New name', value: r.short, submit: 'Rename' });
   if (name && name !== r.short) act(`Rename ${r.short}`, 'renameBranch', [r.short, name]);
 }
-async function deleteBranch(r) {
+async function deleteBranch(r: Ref) {
   act(`Delete branch ${r.short}`, 'deleteBranch', [r.short]);
 }
 
 // Local branches this window can switch to instead of `name` (not checked out in another worktree).
-const switchTargets = (name) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
-const canSwitchFrom = (name) => switchTargets(name).length > 0;
+const switchTargets = (name: string) => state.refs.filter((x) => x.kind === 'branch' && x.short !== name && !worktreeOf(x.short)).map((x) => x.short);
+const canSwitchFrom = (name: string) => switchTargets(name).length > 0;
 // The branch the window switches to when `name` goes: `base`, else main or master, else the first.
-const switchTarget = (name, base = null) => { const o = switchTargets(name); return [base, 'main', 'master'].find((b) => b && o.includes(b)) || o[0] || null; };
+const switchTarget = (name: string, base: string | null = null): string | null => { const o = switchTargets(name); return [base, 'main', 'master'].find((b) => b && o.includes(b)) || o[0] || null; };
 // This window's changes a switch would stash (submodule insides stay).
 const switchChanges = () => {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   return state.status.staged.length + state.status.unstaged.filter((f) => !f.inside && (untracked || f.status !== '?')).length;
 };
-const changesText = (n) => `${n} change${n === 1 ? '' : 's'}`;
+const changesText = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
 
 // Delete the checked-out branch: the menu item already said "Switch to main & Delete", so it
 // switches (stashing what's here), deletes, and says so (AK-598). One undo step.
-async function switchAndDelete(r, base = null) {
+async function switchAndDelete(r: Ref, base: string | null = null) {
   const to = switchTarget(r.short, base);
   if (!to) return;
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
@@ -365,96 +384,98 @@ async function switchAndDelete(r, base = null) {
   return act(`Delete branch ${r.short}`, 'switchDelete', [to, ...(stash ? [stash] : [])], {
     success: `Deleted ${r.short}`,
     detail: `Switched to ${to}.${stash ? ` ${changesText(n)} stashed.` : ''}`,
-    actions: stash ? [showStashAction(stash.message)] : null,
+    actions: stash ? [showStashAction(stash.message)] : undefined,
   });
 }
 // "Show stash" on a toast: opens Stashes with the stash saved as `message` selected.
-const showStashAction = (message) => ({ label: 'Show stash', run: async () => {
+const showStashAction = (message: string) => ({ label: 'Show stash', run: async () => {
   setStashFocus((await git('stashes').catch(() => [])).find((x) => x.message.endsWith(message))?.ref ?? null);
   up.showView('stashes');
 } });
-async function setTip(branch, c) {
+async function setTip(branch: string, c: { sha: string }) {
   act(`Move ${branch} to ${c.sha.slice(0, 7)}`, 'setBranchTip', [branch, c.sha]);
 }
-function mergeCommit(c) {
+function mergeCommit(c: { sha: string }) {
   if (c.sha === state.head.oid) return;
   const b = branchesAt(c.sha)[0] || state.refs.find((r) => r.kind === 'remote' && r.target === c.sha);
   act(`Merge ${b ? b.short : c.sha.slice(0, 7)}`, 'merge', [b ? b.short : c.sha]);
 }
-function rebaseOnto(c) {
+function rebaseOnto(c: { sha: string }) {
   if (c.sha === state.head.oid) return;
   act(`Rebase onto ${c.sha.slice(0, 7)}`, 'rebaseOnto', [c.sha], { busy: 'Rebasing…' });
 }
-function cherryPick(c) { act(`Cherry-pick ${c.sha.slice(0, 7)}`, 'cherryPick', [c.sha]); }
-function revertCommit(c) { act(`Revert ${c.sha.slice(0, 7)}`, 'revert', [c.sha]); }
-async function editMessage(c, branch = null) {
+function cherryPick(c: { sha: string }) { act(`Cherry-pick ${c.sha.slice(0, 7)}`, 'cherryPick', [c.sha]); }
+function revertCommit(c: { sha: string }) { act(`Revert ${c.sha.slice(0, 7)}`, 'revert', [c.sha]); }
+async function editMessage(c: { sha: string }, branch: string | null = null) {
   const full = await loadCommit(c.sha);
   const msg = await prompt('Edit commit message', { value: full.message, multiline: true, submit: 'Save', description: `${c.sha.slice(0, 7)} · descendants will be rewritten` });
   if (!msg || msg === full.message) return;
   if (branch) return switchRewrite('reword', c, branch, { message: msg + '\n' });
   act('Edit message', 'rewrite', ['reword', c.sha, { message: msg + '\n' }], { busy: 'Rewriting history…' });
 }
-const REWRITE_LABELS = { reword: 'Edit message', squash: 'Squash with parent', fixup: 'Fixup with parent', swapParent: 'Swap with parent', split: 'Split commit', drop: 'Delete commit' };
-function rewriteOp(op, c, branch = null) {
+const REWRITE_LABELS: Record<RewriteOp, string> = { reword: 'Edit message', squash: 'Squash with parent', fixup: 'Fixup with parent', swapParent: 'Swap with parent', split: 'Split commit', drop: 'Delete commit' };
+function rewriteOp(op: RewriteOp, c: { sha: string }, branch: string | null = null) {
   if (branch) return switchRewrite(op, c, branch);
   act(REWRITE_LABELS[op], 'rewrite', [op, c.sha], { busy: 'Rewriting history…' });
 }
 
 // The local branches to switch to for rewriting `c` when it isn't on this branch (AK-581): those
 // containing it, except ones checked out in another worktree. null: it's on this branch.
-async function rewriteTargets(c) {
+async function rewriteTargets(c: { sha: string }): Promise<string[] | null> {
   const where = await git('commitBranches', c.sha).catch(() => null);
   return !where || where.onHead ? null : where.branches.filter((b) => !worktreeOf(b));
 }
 // A Rewrite menu item that says what happens: run here, "Switch to feature/api & Squash", or a
 // "Switch to" submenu when several branches contain the commit.
-const REWRITE_VERBS = { reword: 'Edit Message…', squash: 'Squash', fixup: 'Fixup', swapParent: 'Swap', split: 'Split…', drop: 'Delete' };
-function rewriteItem(targets, op, label, props, run) {
+const REWRITE_VERBS: Record<RewriteOp, string> = { reword: 'Edit Message…', squash: 'Squash', fixup: 'Fixup', swapParent: 'Swap', split: 'Split…', drop: 'Delete' };
+function rewriteItem(targets: string[] | null, op: RewriteOp, label: string, props: ItemProps, run: (branch: string | null) => unknown): GroupItem {
   if (!targets) return { label, ...props, run: () => run(null) };
   if (props.disabled) return { label, ...props };
   if (!targets.length) return { label, ...props, kbd: null, disabled: true, why: 'Not on a branch here' };
   const verb = REWRITE_VERBS[op];
-  if (targets.length === 1) return { label: `Switch to ${targets[0]} & ${verb}`, ...props, kbd: null, run: () => run(targets[0]) };
+  const only = targets[0];
+  if (targets.length === 1 && only) return { label: `Switch to ${only} & ${verb}`, ...props, kbd: null, run: () => run(only) };
   return { label: `Switch & ${verb.replace('…', '')}`, ...props, kbd: null, submenu: [{ section: 'Switch to' }, ...targets.map((b) => ({ label: b, icon: 'branch', run: () => run(b) }))] };
 }
 
 // A rewrite shortcut: here, on the one branch containing the commit, or with a "Switch to" choice.
-async function rewriteVia(c, op, run) {
+async function rewriteVia(c: MapCommit, op: RewriteOp, run: (branch: string | null) => unknown) {
   const t = await rewriteTargets(c);
-  if (!t || t.length === 1) return run(t ? t[0] : null);
+  if (!t || t.length === 1) return run(t ? t[0]! : null);
   if (!t.length) return toast('This commit isn’t on a branch here', { kind: 'error' });
   const row = document.querySelector('.map-list .row.selected')?.getBoundingClientRect();
-  contextMenu(row ? row.left + 48 : innerWidth / 3, row ? row.bottom + 2 : innerHeight / 3, rewriteItem(t, op, '', {}, run).submenu, { focus: 0 });
+  contextMenu(row ? row.left + 48 : innerWidth / 3, row ? row.bottom + 2 : innerHeight / 3, rewriteItem(t, op, '', {}, run).submenu ?? [], { focus: 0 });
 }
 
 // Switch to `branch` (stashing this window's changes), then rewrite `c` there: one undo step that
 // brings back the branch, the switch and the stash (Journal.switchRewrite).
-function switchRewrite(op, c, branch, extra = null) {
+function switchRewrite(op: RewriteOp, c: { sha: string }, branch: string, extra: unknown = null) {
   const { untracked } = loadPref('autostash', AUTOSTASH_DEFAULT);
   const n = switchChanges();
   const from = state.head.branch;
   const stash = n ? { message: stashMessage(from, branch), untracked } : null;
-  const done = { reword: 'Reworded', squash: 'Squashed', fixup: 'Fixed up', swapParent: 'Swapped', split: 'Split', drop: 'Deleted' }[op];
+  const done = ({ reword: 'Reworded', squash: 'Squashed', fixup: 'Fixed up', swapParent: 'Swapped', split: 'Split', drop: 'Deleted' } satisfies Record<RewriteOp, string>)[op];
   return act(`${REWRITE_LABELS[op]} on ${branch}`, 'switchRewrite', [branch, op, c.sha, extra, ...(stash ? [stash] : [])], {
     busy: 'Rewriting history…',
     success: `${done} ${c.sha.slice(0, 7)} on ${branch}`,
     detail: `Switched from ${from || 'detached HEAD'}.${n ? ` ${n} change${n === 1 ? '' : 's'} stashed.` : ''}`,
-    actions: stash ? [showStashAction(stash.message)] : null,
+    actions: stash ? [showStashAction(stash.message)] : undefined,
     // Offered back on returning to `from`, like any stash-and-switch.
-    then: (a) => { if (a?.branch) savePref('autostashes', { list: [...loadPref('autostashes', { list: [] }).list, { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
+    then: (a) => { if (a?.branch && state.repo) savePref('autostashes', { list: [...autostashes(), { root: state.repo.root, branch: a.branch, sha: a.sha }] }); },
   });
 }
-async function diffWithHead(c) {
+async function diffWithHead(c: { sha: string }) {
   if (!state.head.oid || c.sha === state.head.oid) return;
-  const diffs = await git('compare', c.sha, 'HEAD').catch((e) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
-  if (!diffs) return;
+  const diffs = await git('compare', c.sha, 'HEAD').catch((e: Error) => { toast('Diff failed', { kind: 'error', detail: e.message }); return null; });
+  const host = contentEl;
+  if (!diffs || !host) return;
   state.quick = null;
-  contentEl.replaceChildren(h('div.compare', null,
-    h('div.diff-head', null, h('button.btn.ghost.small', { onclick: () => up.renderView() }, icon('chevron', 12), 'Back', kbd(...keymap.keys('diff.close'))),
+  host.replaceChildren(h('div.compare', null,
+    h('div.diff-head', null, h('button.btn.ghost.small', { onclick: () => up.renderView() }, icon('chevron', 12), 'Back', kbd(...(keymap.keys('diff.close') ?? []))),
       h('span.mono', null, `${c.sha.slice(0, 7)} → HEAD`), h('span.spacer'), h('span.muted', null, `${diffs.length} files`)),
     h('div.diff-scroll', { tabIndex: 0, onkeydown: (e) => { if (keymap.match('diff', e) === 'diff.close') up.renderView(); } }, diffs.map((d) => h('div.diff-file', null, h('div.diff-file-head', null, h('span.mono', null, d.newPath === '/dev/null' ? d.oldPath : d.newPath)), renderDiff(d)))),
   ));
-  contentEl.querySelector('.diff-scroll').focus();
+  host.querySelector<HTMLElement>('.diff-scroll')?.focus();
 }
 
 // Lower modules call these through `up` (lib/upcalls.js).

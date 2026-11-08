@@ -13,7 +13,7 @@ import { aiOn, writeMessageWithAi } from './ai-message.ts';
 import { openDifftool } from './external-tools.ts';
 import { openMergetool, openFileHistory } from '../history/file-history.ts';
 import { loadCommit, fileRow } from '../graph/map.ts';
-import { copy, changesText } from '../graph/commit-actions.js';
+import { copy, changesText } from '../graph/commit-actions.ts';
 
 // Commit view (stage / unstage / partial lines / commit)
 

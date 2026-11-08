@@ -273,7 +273,7 @@ function layoutToasts(root: HTMLElement): void {
   root.style.height = `${open ? Math.max(0, y - TOAST_GAP) : front + TOAST_PEEK * Math.min(live.length - 1, TOAST_SHOWN - 1)}px`;
 }
 
-export function toast(message: string, { kind = 'info', action, actions = [], timeout = 4200, detail }: ToastOptions = {}): Toast {
+export function toast(message: Child, { kind = 'info', action, actions = [], timeout = 4200, detail }: ToastOptions = {}): Toast {
   const root = toastRoot();
   const run = (a: ToastAction) => () => { a.run(); close(); };
   const choice = actions.length > 0;
@@ -444,8 +444,8 @@ export function sheetActions<A extends SheetAction>(actions: readonly (A | null 
 }
 
 export interface SheetOptions {
-  title: string;
-  reason?: string | null;
+  title: Child;
+  reason?: Child;
   rows?: readonly (readonly [Child, Child, (string | null)?])[] | null;
   lists?: readonly { title: string; rows: readonly (readonly [string, string, string, string])[]; more?: number }[] | null;
   forecast?: { text: string; ok: boolean } | null;

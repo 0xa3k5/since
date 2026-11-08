@@ -7,7 +7,7 @@ import type {
   CommitFile, ConfigEntry, FileDiff, GitInfo, Head, JournalList, LfsInfo, OperationInfo, OperationKind, Ref, ReflogEntry, Remote, RepoInfo, Stash, Submodule, WorkStatus, Worktree,
 } from '../../shared/git-types.ts';
 import type { AiState, Theme } from '../../shared/ipc-contract.ts';
-import type { PullRequest } from '../../shared/github-types.ts';
+import type { PrList, PrSettings, PullRequest } from '../../shared/github-types.ts';
 
 // Small helpers the views share: labels, paths, links and tooltips.
 
@@ -27,6 +27,8 @@ export type QuickBack = { path: string } | { review: ReviewTarget | null; lanes:
 export interface QuickState { sha: string; path?: string | null; back?: QuickBack | null; file?: CommitFile | null; parent?: string | null }
 /** A label on a commit row: a ref, HEAD when it's detached, or another worktree's detached HEAD. */
 export type PillRef = Ref | { kind: 'head'; short: string } | { kind: 'worktree'; short: string; worktree: Worktree };
+/** Pull requests for the open repo (prs-page loadPrs): the settings, the last list (`stale` until refreshed) and the PRs by ref. */
+export type PrsState = PrSettings & { active: boolean; data: PrList | null; stale: boolean; error: string | null; busy: boolean; byRef: Map<string, PullRequest> };
 /** File history & blame: the file it shows. */
 export interface FileHistoryState { path: string }
 export type View =
@@ -82,14 +84,15 @@ export interface AppState {
   reflog: ReflogEntry[];
   config: ConfigEntry[];
   remotes: Remote[];
-  worktrees: Worktree[];
+  /** `elsewhere`: open in another Since window. */
+  worktrees: (Worktree & { elsewhere?: boolean })[];
   submodules: Submodule[];
   cv: CommitViewState;
   amend: boolean;
   collapsed: Record<string, boolean>;
   sections: SidebarSections;
   theme: Theme;
-  prs: Later;
+  prs: PrsState | null;
   review?: ReviewTarget | null;
   fileHistory?: FileHistoryState | null;
   ai?: AiState | null;

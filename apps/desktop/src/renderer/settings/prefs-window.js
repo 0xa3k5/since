@@ -22,7 +22,7 @@ import { addRemote, remoteItems } from '../branches/remote-ops.ts';
 import { aiLabel, openSetup, openShortcuts, importShortcuts, exportShortcuts, resetShortcuts, tour, setupPanel, setTour } from '../welcome/welcome.ts';
 import { setupPrs, turnOffPrs, setPrRemote, hidePrs, prStage, loadPrs, prefetchOnOpen, setPrStage } from '../prs/prs-page.js';
 import { commitCache, selectCommit } from '../graph/map.ts';
-import { copy } from '../graph/commit-actions.js';
+import { copy } from '../graph/commit-actions.ts';
 
 // Preferences window (⌘,; prefs.js / prefs-view.js). No new store: each row reads and writes the same saved
 // value as ⌘K and the menus (settings.json in the main process, or the renderer's prefs), and acts the same way.
