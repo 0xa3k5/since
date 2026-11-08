@@ -8,7 +8,7 @@ import { state, tip, api, baseName, MOD, isEditable } from '../lib/app-helpers.t
 import { git, act, quiet, gitTooOld, gitWhy } from '../lib/bridge.ts';
 import { refreshStatus } from '../graph/load.js';
 import { identityOk } from './identity-check.js';
-import { stashSave } from './stashes.js';
+import { stashSave } from './stashes.ts';
 import { aiOn, writeMessageWithAi } from './ai-message.ts';
 import { openDifftool } from './external-tools.js';
 import { openMergetool, openFileHistory } from '../history/file-history.js';

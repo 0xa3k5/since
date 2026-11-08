@@ -325,7 +325,7 @@ test('next selection: the next row below that still needs you, else the first, e
 });
 
 test('approve: greyed with its reason on your own PR or without write access (AK-577)', async () => {
-  const { paneActions } = await import('../src/renderer/prs/pr-review.js');
+  const { paneActions } = await import('../src/renderer/prs/pr-review.ts');
   const { approveWhy } = await import('../src/renderer/prs/prs.ts');
   const mine = { pr: pr(1, { author: 'Ana' }), lane: null };
   assert.equal(approveWhy(mine.pr, { login: 'ana', write: true }), 'Your own pull request');
@@ -339,7 +339,7 @@ test('approve: greyed with its reason on your own PR or without write access (AK
 });
 
 test('pane actions: every PR action with a primary by stage; local branches merge and tidy', async () => {
-  const { paneActions } = await import('../src/renderer/prs/pr-review.js');
+  const { paneActions } = await import('../src/renderer/prs/pr-review.ts');
   const ids = (r, s) => paneActions(r, s).actions.map((a) => a.id);
   const p = { pr: pr(1, { url: 'https://github.com/o/r/pull/1' }), lane: null };
   assert.deepEqual(ids(p, 'review'), ['merge', 'approve', 'close', 'checkout', 'github']);

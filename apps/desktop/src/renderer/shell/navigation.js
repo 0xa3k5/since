@@ -14,7 +14,7 @@ import { state, tildePath, api, savePref, tip, MOD } from '../lib/app-helpers.ts
 import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, mapView, branchesPage, commitView, catchupPage, reviewPage, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage } from './shell.ts';
 import { git, undoTitle, undo, redoTitle, redo, act, aborted } from '../lib/bridge.ts';
 import { refreshAux, refreshHistory, worktreeOf } from '../graph/load.js';
-import { stashSave, stashesView } from '../commit/stashes.js';
+import { stashSave, stashesView } from '../commit/stashes.ts';
 import { snapshotsView } from '../history/snapshots.js';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll, pull, push } from '../branches/remote-ops.ts';
 import { reflogView } from '../history/reflog.ts';

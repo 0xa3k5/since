@@ -14,7 +14,7 @@ import { reviewPane } from '../review/review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';
 import { openStackLink } from './stack-link-view.js';
-import { loadPrReview, leavesPage } from '../prs/pr-review.js';
+import { loadPrReview, leavesPage } from '../prs/pr-review.ts';
 import { storeKey, readTicks, progress as reviewProgress } from '../review/review.ts';
 import { pageOf } from '../shell/sidebar.ts';
 import { SUBMODULE_STATES } from '../lib/submodule.ts';

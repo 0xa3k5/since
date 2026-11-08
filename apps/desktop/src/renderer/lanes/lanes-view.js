@@ -3,7 +3,7 @@ import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWai
 import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from '../review/review-rows.js';
 import * as keymap from '../palette/keymap.ts';
 import { GIT_NEEDS } from '../lib/git-version.ts';
-import { updateBranchBlock } from '../prs/pr-review.js';
+import { updateBranchBlock } from '../prs/pr-review.ts';
 import { draftSwitch } from '../prs/prs.ts';
 import { navPos, authorsStack } from '../review/reader.js';
 import { factsFor, peekFacts, peekEvidence } from '../review/evidence-store.js';

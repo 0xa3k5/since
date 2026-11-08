@@ -3,7 +3,7 @@ import { draftSwitch } from '../prs/prs.ts';
 import { reviewView } from './review-view.js';
 import { laneKey } from '../lanes/lanes.ts';
 import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
-import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from '../prs/pr-review.js';
+import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from '../prs/pr-review.ts';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.js';
 import * as keymap from '../palette/keymap.ts';

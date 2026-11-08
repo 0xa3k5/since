@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, Divergence, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, Divergence, FileDiff, GitInfo, Stash } from './git-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
 /** A window's tab as its tab strip shows it. */
@@ -47,6 +47,8 @@ export interface PushArgs extends Record<PushChannel, unknown[]> {
 /** What each git method resolves to, for the methods the TypeScript renderer reads so far. The rest resolve to unknown. */
 export interface GitResults {
   divergence: Divergence;
+  /** The diff between two commits, one entry per file. */
+  compare: FileDiff[];
   /** The label of the step undone or redone; null when there was none. */
   undo: string | null;
   redo: string | null;
@@ -79,6 +81,8 @@ export interface AppResults {
   'ai-preview': IpcResult<AiState & { prompt: string; hash: string }>;
   /** The commit message. */
   'ai-generate': IpcResult<string>;
+  /** The PR's head, fetched into FETCH_HEAD, and the base to diff against. */
+  'pr-review-head': IpcResult<{ sha: string; base: string | null }>;
 }
 export type AppResult<C extends AppChannel> = C extends keyof AppResults ? AppResults[C] : unknown;
 

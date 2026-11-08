@@ -28,6 +28,10 @@ export interface PullRequest {
   /** The remote the PR belongs to, set on the review page. */
   remote?: string | null;
   mergeable?: boolean | null;
+  /** behind, blocked, clean… (github.ts mergeFacts). */
+  mergeState?: string | null;
+  /** The description; missing in older list data. */
+  body?: string;
 }
 
 /** The PR list (app:pr-list): the GitHub remote, each remote's owner, and the open PRs. */

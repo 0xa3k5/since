@@ -8,6 +8,7 @@ import type {
   Remote, Stash, Submodule, WorkStatus, Worktree, JournalList,
 } from '../../shared/git-types.ts';
 import type { AiState, Theme } from '../../shared/ipc-contract.ts';
+import type { PullRequest } from '../../shared/github-types.ts';
 
 // Small helpers the views share: labels, paths, links and tooltips.
 
@@ -33,6 +34,14 @@ export interface CommitViewState {
   list: 'unstaged' | 'staged' | 'conflicts'; path: string | null; sel: Set<string>; anchor: string | null;
   lines: Set<string>; diff: FileDiff | null; full: boolean;
 }
+/** What the review page shows: the lane (and the revision reviewed), its base, where it came from, and the PR in PR mode. */
+export interface ReviewTarget {
+  lane: { key: string; name: string; rev: string | null };
+  base: string | null;
+  source: { name: string; branch: string | null; head: string | null };
+  pr?: PullRequest & { remote?: string | null };
+}
+
 export interface AppState {
   repo: RepoInfo | null;
   view: View;
@@ -71,7 +80,7 @@ export interface AppState {
   sections: SidebarSections;
   theme: Theme;
   prs: Later;
-  review?: Later;
+  review?: ReviewTarget | null;
   fileHistory?: Later;
   ai?: AiState | null;
   gitInfo?: GitInfo | null;
