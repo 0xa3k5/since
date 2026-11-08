@@ -2,7 +2,7 @@ import { h, icon, brandMark, kbd, toast, dialog, prompt, palette, timeAgo } from
 import { createHistory } from '../graph/log.ts';
 import { setSwatches } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
-import { stageMemory } from '../review/review-rows.js';
+import { stageMemory } from '../review/review-rows.ts';
 import { orderedSections, moveSection, showSection } from '../shell/sidebar.ts';
 import { tourView } from '../welcome/tour-view.js';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';

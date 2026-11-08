@@ -1,4 +1,4 @@
-import { checkFailed, checkTally, duration } from '../review/review-rows.js';
+import { checkFailed, checkTally, duration } from '../review/review-rows.ts';
 import type { EvidenceCheck } from '../../shared/github-types.ts';
 
 export interface FailingCheck { name: string; duration: number | null }

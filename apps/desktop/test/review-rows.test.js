@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const github = require('../src/main/github.ts');
 
-const load = () => import('../src/renderer/review/review-rows.js');
+const load = () => import('../src/renderer/review/review-rows.ts');
 const NOW = Date.parse('2026-10-15T12:00:00Z');
 const HOUR = 3600e3;
 const OLD = new Date(NOW - 10 * 24 * HOUR).toISOString();

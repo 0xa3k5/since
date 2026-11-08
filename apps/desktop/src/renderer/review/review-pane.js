@@ -2,7 +2,7 @@ import { h, icon, kbd, loading, contextMenu, tipFor, ago, fullDate, toast } from
 import { draftSwitch } from '../prs/prs.ts';
 import { reviewView } from './review-view.js';
 import { laneKey } from '../lanes/lanes.ts';
-import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.js';
+import { rowBadges, rowAuthors, reviewers as reviewersOf, mergeOrder, stuckReason, stackFoldOrder } from './review-rows.ts';
 import { loadPrReview, stackedBase, paneActions, fixActions, prDescription } from '../prs/pr-review.ts';
 import { readerHead, descriptionBlock, miniHeader, miniContent, readerKey, factsBlock, evidenceStrip, markCommit } from './reader.js';
 import { factsFor, peekFacts, evidenceFor, peekEvidence } from './evidence-store.ts';

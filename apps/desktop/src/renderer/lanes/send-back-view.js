@@ -5,7 +5,7 @@
 import { h, icon, kbd, toast, dialog, confirm } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { TEMPLATE_IDS, TEMPLATE_LABELS, PLACEHOLDERS, templateFor, buildPrompt, appendLog } from './send-back.ts';
-import { stuckReason } from '../review/review-rows.js';
+import { stuckReason } from '../review/review-rows.ts';
 
 const FROM = { repo: 'this repository’s', default: 'your default', builtin: 'the built-in' };
 

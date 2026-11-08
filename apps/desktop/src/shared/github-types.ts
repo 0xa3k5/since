@@ -32,6 +32,12 @@ export interface PullRequest {
   mergeState?: string | null;
   /** The description; missing in older list data. */
   body?: string;
+  /** The names of the failing checks. */
+  failing?: string[];
+  checkCounts?: { passed: number; total: number } | null;
+  size?: { additions?: number | null; deletions?: number | null } | null;
+  reviewRequests?: { login: string; name?: string; team?: boolean }[];
+  reviews?: { login: string; name?: string; state: string; submittedAt?: string }[];
 }
 
 /** The PR list (app:pr-list): the GitHub remote, each remote's owner, and the open PRs. */
@@ -51,6 +57,10 @@ export interface PrEvidence {
   /** The head has CI set up and no checks ran on it. */
   ciMissing?: boolean;
   reviews?: { login: string; state: string }[];
+  threads?: { open?: number; outdated?: number } | null;
+  media?: { kind: string }[];
+  annotations?: unknown[];
+  logs?: { run: string | number; log: string }[];
 }
 
 /** Who is looking (github.ts viewerFacts): their login and whether they can write. */

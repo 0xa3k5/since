@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, ago, fullDate, contextMenu, toast, tipFor } from '../lib/ui.ts';
 import { ACTIONS, sortLanes, laneKey, aheadBehind, keepPrs, takePrs, sendBackWaits, loadGuard, withTimeout, sharedLoad, savedLanes, saveLanes, conflictsByLane, withConflicts, conflictText, laneTitle, canRemove, removeWhy, actionWhy, checkoutHereMode, checkoutChoices, removeLabel } from './lanes.ts';
-import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from '../review/review-rows.js';
+import { STAGES, TABS, reviewRows, primaryAction, STEPS, rowBadges, rowSignals, rowChips, rowAuthors, filterRows, applyAction, rowPrNumber, nextSelection, stuckReason, mergeBlock, baseConflict, conflictNote, overlapNote, needsYou, stackNote, stackRail, stackTitle, stackStatus, stackApproval, partWhy, stackFit, checksBlock } from '../review/review-rows.ts';
 import * as keymap from '../palette/keymap.ts';
 import { GIT_NEEDS } from '../lib/git-version.ts';
 import { updateBranchBlock } from '../prs/pr-review.ts';

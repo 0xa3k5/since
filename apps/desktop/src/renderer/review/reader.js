@@ -1,7 +1,7 @@
 import { h, icon, avatar, avatarStack, tipFor, timeAgo, fullDate } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
 import { markdown } from '../lib/markdown.ts';
-import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.js';
+import { factLines, evidenceTabs, evidenceDefault, checkFailed, duration, checkLog } from './review-rows.ts';
 
 // The reader (AK-381): one set of building blocks for Review's right-hand pane (review-pane.js +
 // review-view.js) and Catch up's reader (catchup-view.js), so both read the same way.

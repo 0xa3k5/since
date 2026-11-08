@@ -5,7 +5,7 @@ import { sharedLoad, loadGuard } from '../lanes/lanes.ts';
 import * as keymap from '../palette/keymap.ts';
 import { readerHead, descriptionBlock, fileCard, foldShut, miniHeader, miniContent, readerKey, navPos, factsBlock } from '../review/reader.js';
 import { factsFor, peekFacts } from '../review/evidence-store.ts';
-import { authorsOf, messageAgent } from '../review/review-rows.js';
+import { authorsOf, messageAgent } from '../review/review-rows.ts';
 
 // Catch up (AK-365, was Review's catch-up card, AK-281): what landed on the base since your
 // checkpoint. Under the full-width head (the big number, PRs merged or commits with PRs off; the

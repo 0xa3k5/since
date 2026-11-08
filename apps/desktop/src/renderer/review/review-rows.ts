@@ -1,15 +1,38 @@
 // Review stages: pure helpers (no DOM) that turn lanes, open PRs and the Inbox data into one row
 // per piece of work, sorted into stages. A lane is one entry of `app:lanes-list` (git.lanes, with
 // `pr` joined on); a PR is one of github.listPrs `prs`.
-import { laneKey } from '../lanes/lanes.ts';
+import { laneKey, type LaneConflict, type ViewLane } from '../lanes/lanes.ts';
 import { AGENT_HINTS } from '../lib/agents.ts';
+import type { ChangeFact, ChangeFacts } from '../../shared/git-types.ts';
+import type { PrEvidence, PullRequest, Viewer } from '../../shared/github-types.ts';
+
+export type StageId = 'stuck' | 'ready' | 'inProgress';
+export type Stage = StageId | 'finished';
+/** A PR's place in a stack (prStacks): the PR it sits on, the stack bottom first, its 1-based place, the bottom PR and the stack's base. */
+export interface PrStack { on: number | null; path: number[]; at: number; of: number; root: number; base: string | null }
+/** Another open PR this one would conflict with (withOverlaps). */
+export interface Overlap { number: number; title: string; files: string[]; size: { additions: number; deletions: number } | null }
+/** What the row helpers read: a PR, a lane and the forecast's conflicts with the base. Any can be missing. */
+export interface RowLike { pr?: PullRequest | null; lane?: ViewLane | null; conflicts?: readonly LaneConflict[] | null }
+/** One piece of work in Review: a PR (with its lane, when it's here) or a lane alone. */
+export interface ReviewRow {
+  key: string; title: string; pr: PullRequest | null; lane: ViewLane | null; branch: string | null;
+  worktree: { path: string; changes: number } | null;
+  /** Local commits on the lane's branch that aren't on the base. */
+  ahead: number | null;
+  conflicts: LaneConflict[]; others?: LaneConflict[]; overlaps: Overlap[];
+  stack?: PrStack | null; stage?: Stage | null;
+}
+export type Tone = 'ready' | 'failing' | 'conflicts' | null;
+export interface StackFix { id: 'ready' | 'checks' | 'rebase'; label: string; row: ReviewRow }
+export type StepId = 'review' | 'merge' | 'rebase' | 'open' | 'sendBack';
 
 const HOUR = 3600e3;
 // "Pushed recently": a lane committed to or edited within this long is still being worked on
 // (In progress) when it has no pull request.
 const RECENT_FOR = 48 * HOUR;
 
-export const STAGES = [
+export const STAGES: { id: StageId; label: string }[] = [
   { id: 'stuck', label: 'Stuck' },
   { id: 'ready', label: 'Ready to merge' },
   { id: 'inProgress', label: 'In progress' },
@@ -17,7 +40,7 @@ export const STAGES = [
 
 // Review's tabs (AK-361), one list at a time instead of stacked stages; 1–5 switch. Needs you is
 // Stuck and Ready to merge, each under its heading; All open is every stage.
-export const TABS = [
+export const TABS: { id: string; label: string; keyId: string; stages: StageId[] }[] = [
   { id: 'needs', label: 'Needs you', keyId: 'lanes.tabNeeds', stages: ['stuck', 'ready'] },
   { id: 'stuck', label: 'Stuck', keyId: 'lanes.tabStuck', stages: ['stuck'] },
   { id: 'ready', label: 'Ready', keyId: 'lanes.tabReady', stages: ['ready'] },
@@ -25,31 +48,31 @@ export const TABS = [
   { id: 'open', label: 'All open', keyId: 'lanes.tabAll', stages: ['stuck', 'ready', 'inProgress'] },
 ];
 
-const time = (iso) => {
+const time = (iso: string | null | undefined) => {
   const t = Date.parse(iso || '');
   return Number.isFinite(t) ? t : 0;
 };
 
 // The row's newest sign of life: the PR's last update or the lane's last commit or edit.
-const rowActivity = (row) => Math.max(time(row.pr?.updatedAt), row.lane?.activity || 0);
+const rowActivity = (row: RowLike) => Math.max(time(row.pr?.updatedAt), row.lane?.activity || 0);
 
 // GitHub's merge box state (pr.mergeState, github.normalizePr) once it has worked it out.
 // A draft's state is just "draft", so GitHub's older mergeable check and the forecast still count.
-const known = (pr) => Boolean(pr?.mergeState && pr.mergeState !== 'unknown' && pr.mergeState !== 'draft');
+const known = (pr: Partial<PullRequest> | null | undefined): boolean => Boolean(pr?.mergeState && pr.mergeState !== 'unknown' && pr.mergeState !== 'draft');
 // Conflicts with the base only (AK-321): GitHub's word when it has one, else its older mergeable
 // check or the local forecast against the base. Overlaps with other PRs never count.
-const conflicted = (row) => (known(row.pr) ? row.pr.mergeState === 'dirty'
+const conflicted = (row: RowLike): boolean => (known(row.pr) ? row.pr?.mergeState === 'dirty'
   : row.pr?.mergeable === false || (row.conflicts || []).some((c) => c.base));
 // Failing checks that hold a PR back (AK-611). GitHub merges past them when its merge box says
 // clean, unstable, behind or has_hooks (none is required); a draft's state hides that, and the
 // draft is its blocker, so they don't count there. With no word from GitHub (an older gh) they
 // count; while GitHub is still checking (unknown) they don't yet, it may well merge past them (AK-625).
 const LETS_MERGE = new Set(['clean', 'unstable', 'behind', 'has_hooks']);
-export const checksBlock = (pr) => pr?.checks === 'failure' && !pr.draft && !LETS_MERGE.has(pr.mergeState) && pr.mergeState !== 'unknown';
+export const checksBlock = (pr: Partial<PullRequest> | null | undefined): boolean => pr?.checks === 'failure' && !pr.draft && !LETS_MERGE.has(pr.mergeState ?? '') && pr.mergeState !== 'unknown';
 // Without GitHub's merge state (an older gh, or still unknown): failing checks (checksBlock) or
 // conflicts are stuck; approved, CI green (or no checks at all) and not a draft is ready.
-const stuck = (row) => checksBlock(row.pr) || conflicted(row);
-const ready = (pr) => !pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null);
+const stuck = (row: RowLike): boolean => checksBlock(row.pr) || conflicted(row);
+const ready = (pr: Partial<PullRequest>): boolean => !pr.draft && pr.review === 'approved' && (pr.checks === 'success' || pr.checks == null);
 
 // A PR's stage from GitHub's merge box, the way GitHub would let you merge it (AK-321):
 //   dirty                     stuck (conflicts with the base)
@@ -59,8 +82,7 @@ const ready = (pr) => !pr.draft && pr.review === 'approved' && (pr.checks === 's
 //   has_hooks                 behind: GitHub didn't block it, so it only gets a note)
 //   draft                     in progress; stuck only when it conflicts (its checks don't count, AK-611)
 //   unknown                   null: the caller keeps the row's previous stage
-function prStage(row) {
-  const { pr } = row;
+function prStage(row: RowLike, pr: PullRequest): Stage | null {
   const s = pr.mergeState;
   if (s === 'unknown') return null;
   if (!s) return stuck(row) ? 'stuck' : ready(pr) ? 'ready' : 'inProgress';
@@ -80,11 +102,11 @@ function prStage(row) {
 // with the base are stuck, uncommitted changes or recent commits are in progress; it's never
 // ready, there's no review). One with none of those, and the base branch, has no stage (null):
 // it's only in Everything else. Overlaps with other PRs (row.overlaps) never change the stage.
-export function rowStage(row, { now = Date.now(), previous = null } = {}) {
+export function rowStage(row: RowLike, { now = Date.now(), previous = null }: { now?: number; previous?: Stage | null } = {}): Stage | null {
   const { pr, lane } = row;
   const conflicts = row.conflicts || [];
   if (pr) {
-    const s = prStage(row);
+    const s = prStage(row, pr);
     if (s) return s;
     if (previous && previous !== 'finished') return previous;
     return stuck(row) ? 'stuck' : ready(pr) ? 'ready' : 'inProgress';
@@ -92,15 +114,15 @@ export function rowStage(row, { now = Date.now(), previous = null } = {}) {
   if (!lane || lane.isBase) return null;
   if (lane.done) return 'finished';
   if (conflicts.length) return 'stuck';
-  if (lane.changes > 0 || now - rowActivity(row) < RECENT_FOR) return 'inProgress';
+  if ((lane.changes ?? 0) > 0 || now - rowActivity(row) < RECENT_FOR) return 'inProgress';
   return null;
 }
 
 // rowStage for a PR outside Review (the sidebar and graph dots, AK-388): remembers each PR's last
 // stage, so while GitHub is still checking one it keeps that stage, as Review does, instead of
 // falling back to the CI-only rules. Make a new one per repository.
-export function stageMemory() {
-  const last = new Map();
+export function stageMemory(): (pr: PullRequest) => Stage | null {
+  const last = new Map<string | number, Stage>();
   return (pr) => {
     const key = pr.url || pr.number;
     const stage = rowStage({ pr }, { previous: last.get(key) || null });
@@ -115,8 +137,8 @@ export function stageMemory() {
 //   ready      the one waiting longest (oldest activity) first
 //   inProgress your review requests first, then newest activity
 // Ties fall back to newest activity, then PR number, then title, so the order is stable.
-function rank(row, stage, requested) {
-  if (stage === 'inProgress') return requested.has(row.pr?.number) ? 0 : 1;
+function rank(row: ReviewRow, stage: Stage | null, requested: Set<number>): number {
+  if (stage === 'inProgress') return requested.has(row.pr?.number ?? -1) ? 0 : 1;
   if (stage === 'stuck') {
     if (conflicted(row)) return 0;
     return row.pr?.checks === 'failure' ? 1 : 2;
@@ -124,7 +146,7 @@ function rank(row, stage, requested) {
   return 0;
 }
 
-function sortStage(rows, stage, requested) {
+function sortStage(rows: ReviewRow[], stage: Stage | null, requested: Set<number>): ReviewRow[] {
   const oldestFirst = stage === 'ready';
   return rows.sort((a, b) => rank(a, stage, requested) - rank(b, stage, requested)
     || (oldestFirst ? rowActivity(a) - rowActivity(b) : rowActivity(b) - rowActivity(a))
@@ -133,15 +155,16 @@ function sortStage(rows, stage, requested) {
 
 // The lane of a PR: the one `app:lanes-list` joined it to (lane.pr, github.joinLanes), which
 // already knows a fork's owner, so a fork's PR never lands on a same-named local branch.
-const laneOf = (pr, lanes, taken) => lanes.find((l) => !taken.has(l) && !l.isBase && l.pr?.number === pr.number) || null;
+const laneOf = (pr: PullRequest, lanes: readonly ViewLane[], taken: Set<ViewLane>): ViewLane | null => lanes.find((l) => !taken.has(l) && !l.isBase && l.pr?.number === pr.number) || null;
 
 // `conflicts` keeps the forecast's conflicts with the base only, and none once GitHub says the PR
 // doesn't conflict; the ones with other lanes become overlaps (withOverlaps) or are dropped.
-const toRow = (pr, lane, forecast) => {
+const toRow = (pr: PullRequest | null, lane: ViewLane | null, forecast: Map<string, LaneConflict[]> | null): ReviewRow => {
   const all = (lane && (forecast ? forecast.get(laneKey(lane)) : lane.conflicts)) || [];
-  const conflicts = known(pr) && pr.mergeState !== 'dirty' ? [] : all.filter((c) => c.base);
+  const conflicts = known(pr) && pr?.mergeState !== 'dirty' ? [] : all.filter((c) => c.base);
   return {
-    key: pr ? `pr:${pr.number}` : laneKey(lane),
+    // A row has a PR or a lane.
+    key: pr ? `pr:${pr.number}` : laneKey(lane!),
     title: pr?.title || lane?.title || lane?.name || '',
     pr: pr || null,
     lane: lane || null,
@@ -158,14 +181,16 @@ const toRow = (pr, lane, forecast) => {
 // Overlaps (AK-321): the forecast's lane-vs-lane conflicts whose other side is an open PR, as
 // [{ number, title, files, size }]. Local branches and work in progress don't count: they may
 // still change. Information only.
-const prSize = (pr) => (pr?.size?.additions != null && pr.size.deletions != null ? { additions: pr.size.additions, deletions: pr.size.deletions } : null);
-function withOverlaps(rows) {
-  const byLane = new Map(rows.filter((r) => r.pr && r.lane).map((r) => [laneKey(r.lane), r.pr]));
+const prSize = (pr: Partial<PullRequest> | null | undefined): Overlap['size'] => (pr?.size?.additions != null && pr.size.deletions != null ? { additions: pr.size.additions, deletions: pr.size.deletions } : null);
+function withOverlaps(rows: ReviewRow[]): ReviewRow[] {
+  const byLane = new Map<string | null, PullRequest>();
+  for (const r of rows) if (r.pr && r.lane) byLane.set(laneKey(r.lane), r.pr);
   for (const row of rows) {
-    const seen = new Set();
-    row.overlaps = row.pr ? row.others.flatMap((c) => {
+    const seen = new Set<number>();
+    const { pr } = row;
+    row.overlaps = pr ? (row.others ?? []).flatMap((c) => {
       const other = byLane.get(c.key);
-      if (!other || other.number === row.pr.number || seen.has(other.number)) return [];
+      if (!other || other.number === pr.number || seen.has(other.number)) return [];
       seen.add(other.number);
       return [{ number: other.number, title: other.title, files: c.files || [], size: prSize(other) }];
     }).sort((a, b) => a.number - b.number) : [];
@@ -180,34 +205,36 @@ function withOverlaps(rows) {
 // in it, root the bottom PR and base the branch the stack lands on. Where two PRs sit on one, the path
 // goes up through the lower number. The PR it sits on comes from the same owner, so a fork's `main`
 // never counts as a stack.
-export function prStacks(prs = []) {
-  const byBranch = new Map();
+export function prStacks(prs: readonly PullRequest[] | null | undefined = []): Map<number, PrStack> {
+  const byBranch = new Map<string, PullRequest>();
   for (const p of prs || []) if (p?.branch) byBranch.set(`${(p.headOwner || '').toLowerCase()}\0${p.branch}`, p);
-  const parent = (p) => { const q = byBranch.get(`${(p.headOwner || '').toLowerCase()}\0${p.base}`); return q && q.number !== p.number ? q : null; };
-  const children = new Map();
+  const parent = (p: PullRequest): PullRequest | null => { const q = byBranch.get(`${(p.headOwner || '').toLowerCase()}\0${p.base}`); return q && q.number !== p.number ? q : null; };
+  const children = new Map<number, PullRequest[]>();
   for (const p of prs || []) {
     const q = p?.base && parent(p);
     if (q) children.set(q.number, [...(children.get(q.number) || []), p].sort((a, b) => a.number - b.number));
   }
-  const out = new Map();
+  const out = new Map<number, PrStack>();
   for (const p of prs || []) {
     if (!p?.number || (!parent(p) && !children.has(p.number))) continue;
     const down = [p];
     for (let q = parent(p); q && !down.includes(q); q = parent(q)) down.unshift(q);
     const path = [...down];
     for (let q = children.get(p.number)?.[0]; q && !path.includes(q); q = children.get(q.number)?.[0]) path.push(q);
-    out.set(p.number, { on: parent(p)?.number ?? null, path: path.map((q) => q.number), at: down.length, of: path.length, root: path[0].number, base: path[0].base || null });
+    out.set(p.number, { on: parent(p)?.number ?? null, path: path.map((q) => q.number), at: down.length, of: path.length, root: path[0]!.number, base: path[0]!.base || null });
   }
   return out;
 }
 
 // A stage's rows with each stack's rows together, bottom first, where its first row was (AK-537).
-function keepStacks(rows) {
-  const out = [];
-  const placed = new Set();
+function keepStacks(rows: ReviewRow[]): ReviewRow[] {
+  const out: ReviewRow[] = [];
+  const placed = new Set<ReviewRow>();
   for (const r of rows) {
     if (placed.has(r)) continue;
-    const mates = r.stack ? rows.filter((x) => x.stack?.root === r.stack.root).sort((a, b) => a.stack.at - b.stack.at || a.pr.number - b.pr.number) : [r];
+    const root = r.stack?.root;
+    // Rows in a stack all have a PR and a stack.
+    const mates = root != null ? rows.filter((x) => x.stack?.root === root).sort((a, b) => a.stack!.at - b.stack!.at || a.pr!.number - b.pr!.number) : [r];
     for (const m of mates) { placed.add(m); out.push(m); }
   }
   return out;
@@ -216,15 +243,15 @@ function keepStacks(rows) {
 // A stack stays together in Review (AK-609, AK-611): every open part moves to the stage of its
 // least-ready part (Stuck, then In progress, then Ready to merge), so a draft part no longer drops out
 // of its stack. Each row keeps its own stage (its dot); only the list it's in changes.
-const READINESS = { stuck: 0, inProgress: 1, ready: 2 };
-function stackHomes(stages) {
-  const home = new Map();
+const READINESS: Record<StageId, number> = { stuck: 0, inProgress: 1, ready: 2 };
+function stackHomes(stages: Record<StageId, ReviewRow[]>): void {
+  const home = new Map<number, StageId>();
   for (const s of STAGES) for (const r of stages[s.id]) {
     const h = r.stack && home.get(r.stack.root);
     if (r.stack && (!h || READINESS[s.id] < READINESS[h])) home.set(r.stack.root, s.id);
   }
   for (const s of STAGES) {
-    const stay = [];
+    const stay: ReviewRow[] = [];
     for (const r of stages[s.id]) {
       const to = r.stack && home.get(r.stack.root);
       if (to && to !== s.id) stages[to].push(r); else stay.push(r);
@@ -236,12 +263,12 @@ function stackHomes(stages) {
 // A stack's name over its rows (AK-609): the title its PRs share once a part marker ("part 2 of 3",
 // "[2/3]") is gone, else "Stack #4 → #6". `prs` bottom first.
 const PART_MARK = /\[\d+\/\d+\]|\(?\bpart \d+ of \d+\)?/gi;
-export function stackTitle(prs = []) {
-  const bare = (t) => String(t || '').replace(PART_MARK, ' ').replace(/\s+/g, ' ').replace(/[\s:·,–—-]+$/, '').trim();
+export function stackTitle(prs: readonly Pick<PullRequest, 'number' | 'title'>[] = []): string {
+  const bare = (t: unknown) => String(t || '').replace(PART_MARK, ' ').replace(/\s+/g, ' ').replace(/[\s:·,–—-]+$/, '').trim();
   const names = new Set(prs.map((p) => bare(p.title)));
   const [one] = names;
   if (prs.length > 1 && names.size === 1 && one) return one;
-  return prs.length ? `Stack #${prs[0].number} → #${prs[prs.length - 1].number}` : 'Stack';
+  return prs.length ? `Stack #${prs[0]!.number} → #${prs[prs.length - 1]!.number}` : 'Stack';
 }
 
 // A stack's status line (AK-609, AK-611) from its rows bottom first: how far up it merges now and
@@ -249,27 +276,33 @@ export function stackTitle(prs = []) {
 // doesn't, text: "Ready to merge" | "Mergeable through #5 · #6 waiting for review" | "#4 is a draft, checks failing",
 // why (the held part's blockers, partWhy), stage, tone, fixes, fix }. tone colours the rail: 'ready' | 'failing' (checks) | 'conflicts' | null.
 // fixes are the header's fixes for the held part, one per blocker: { id: 'ready' | 'checks' | 'rebase', label, row }; fix is the first.
-export function stackStatus(rows = [], { base = null } = {}) {
+export interface StackStatus {
+  through: number[]; held: ReviewRow | null; text: string; short: string; why?: string;
+  stage: Stage; tone: Tone; fix: StackFix | null; fixes?: StackFix[];
+}
+export function stackStatus(rows: readonly ReviewRow[] = [], { base = null }: { base?: string | null } = {}): StackStatus {
   let k = 0;
-  while (k < rows.length && rows[k].stage === 'ready') k++;
-  const through = rows.slice(0, k).map((r) => r.pr.number);
+  while (k < rows.length && rows[k]!.stage === 'ready') k++;
+  // A stack's rows all have a PR.
+  const through = rows.slice(0, k).map((r) => r.pr!.number);
   const held = rows[k] || null;
   if (!held) return { through, held, text: 'Ready to merge', short: 'Ready to merge', stage: 'ready', tone: 'ready', fix: null };
   const { why, brief, tone, fixes } = partWhy(held, { base });
-  const text = `${k ? `Mergeable through #${through[k - 1]} · ` : ''}#${held.pr.number} ${why}`;
-  return { through, held, text, short: `#${held.pr.number} ${brief}`, why, stage: held.stage || 'inProgress', tone, fix: fixes[0] || null, fixes };
+  const n = held.pr?.number;
+  const text = `${k ? `Mergeable through #${through[k - 1]} · ` : ''}#${n} ${why}`;
+  return { through, held, text, short: `#${n} ${brief}`, why, stage: held.stage || 'inProgress', tone, fix: fixes[0] || null, fixes };
 }
 
 // What holds one part of a stack back (AK-611), every blocker, draft first:
 // → { why: "is a draft, checks failing", brief: the first blocker in a word or two ("draft"),
 //     tone: 'failing' | 'conflicts' | null, fixes: [{ id, label, row }] }.
 // A draft's failing checks are named but never colour it; a ready part's why is "ready to merge".
-export function partWhy(row, { base = null } = {}) {
-  const pr = row.pr || {};
+export function partWhy(row: ReviewRow, { base = null }: { base?: string | null } = {}): { why: string; brief: string; tone: Tone; fixes: StackFix[] } {
+  const pr: Partial<PullRequest> = row.pr || {};
   if (row.stage === 'ready') return { why: 'ready to merge', brief: 'ready', tone: null, fixes: [] };
-  const out = [];
-  const short = [];
-  const fixes = [];
+  const out: string[] = [];
+  const short: string[] = [];
+  const fixes: StackFix[] = [];
   if (pr.draft) { out.push('is a draft'); short.push('draft'); fixes.push({ id: 'ready', label: `Mark #${pr.number} ready`, row }); }
   const conflicts = conflicted(row);
   if (conflicts) {
@@ -285,7 +318,7 @@ export function partWhy(row, { base = null } = {}) {
   if (pr.review === 'changes') out.push('changes requested');
   if (!out.length) out.push(pr.checks === 'pending' ? 'checks running' : 'waiting for review');
   const tone = checksBlock(pr) ? 'failing' : conflicts ? 'conflicts' : null;
-  return { why: out.join(', '), brief: short[0] || out[0], tone, fixes };
+  return { why: out.join(', '), brief: short[0] || out[0]!, tone, fixes };
 }
 
 // A stack head's line as the list narrows (AK-611): one line at every width, never scrolled. The
@@ -295,13 +328,15 @@ export function partWhy(row, { base = null } = {}) {
 // widths (styles.css, review-list); the rest depends on how wide a stack's actions are, so a fit
 // pass measures each head (stackFit).
 export const STACK_SHED = { count: 720, tag: 600, short: 520 };
-const stackTier = (width) => ({ count: width > STACK_SHED.count, tag: width > STACK_SHED.tag ? 'name' : 'icon', sentence: width > STACK_SHED.short ? 'full' : 'short' });
+const stackTier = (width: number) => ({ count: width > STACK_SHED.count, tag: width > STACK_SHED.tag ? 'name' : 'icon', sentence: width > STACK_SHED.short ? 'full' : 'short' });
 // The fit pass's level for a head `room` px wide: '' (all shown), 'quiet' (no sentence), 'menu'
 // (secondary actions in ⋯) or 'tight' (every action in ⋯). base: padding plus what never sheds;
 // sentence: its narrowest before it hides; main, secondary: the actions' widths; more: ⋯'s.
-const SHED_LEVELS = ['', 'quiet', 'menu', 'tight'];
-export function stackFit(room, { base = 0, sentence = 0, main = 0, secondary = [], more = 22, gap = 8, actGap = 12 } = {}) {
-  const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+type ShedLevel = '' | 'quiet' | 'menu' | 'tight';
+const SHED_LEVELS: ShedLevel[] = ['', 'quiet', 'menu', 'tight'];
+export interface FitWidths { base?: number; sentence?: number; main?: number; secondary?: number[]; more?: number; gap?: number; actGap?: number }
+export function stackFit(room: number, { base = 0, sentence = 0, main = 0, secondary = [], more = 22, gap = 8, actGap = 12 }: FitWidths = {}): ShedLevel {
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
   for (const lv of SHED_LEVELS) {
     const inline = (lv === 'tight' ? [] : lv === 'menu' ? [main] : [main, ...secondary]).filter((w) => w > 0);
     const menu = (lv === 'menu' && secondary.length) || (lv === 'tight' && (main > 0 || secondary.length));
@@ -314,10 +349,11 @@ export function stackFit(room, { base = 0, sentence = 0, main = 0, secondary = [
 // Both together for a list `width` px wide, from a head's full-size parts (need: { pad, inset,
 // numbers, count, tag, tagIcon, bar, sentence, main, secondary, more, gap }).
 // → { count, tag: 'name' | 'icon', sentence: 'full' | 'short' | 'none', secondary, main: 'inline' | 'menu' }.
-export function stackShed(width, need = {}) {
+export interface HeadWidths extends FitWidths { pad?: number; inset?: number; numbers?: number; count?: number; tag?: number; tagIcon?: number; bar?: number }
+export function stackShed(width: number, need: HeadWidths = {}) {
   const t = stackTier(width);
   const gap = need.gap ?? 8;
-  const kept = [need.numbers, t.count ? need.count : 0, t.tag === 'name' ? need.tag : need.tagIcon, need.bar].filter((w) => w > 0);
+  const kept = [need.numbers, t.count ? need.count : 0, t.tag === 'name' ? need.tag : need.tagIcon, need.bar].filter((w): w is number => (w ?? 0) > 0);
   const base = (need.pad || 0) + kept.reduce((a, b) => a + b, 0) + gap * (kept.length - 1);
   const lv = stackFit(width - (need.inset || 0), { ...need, base, gap });
   return { ...t, sentence: lv ? 'none' : t.sentence, secondary: lv === 'menu' || lv === 'tight' ? 'menu' : 'inline', main: lv === 'tight' ? 'menu' : 'inline' };
@@ -325,7 +361,7 @@ export function stackShed(width, need = {}) {
 
 // Approve all on a stack (AK-611): the parts you can approve and why the button is greyed.
 // Your own stack → null (not offered). → { prs, why: null | 'Needs write access' }.
-export function stackApproval(prs = [], viewer = null) {
+export function stackApproval(prs: readonly PullRequest[] = [], viewer: Viewer | null = null): { prs: PullRequest[]; why: string | null } | null {
   if (!viewer?.login) return null;
   const me = viewer.login.toLowerCase();
   const theirs = prs.filter((p) => !p.draft && (p.author || '').toLowerCase() !== me && p.review !== 'approved');
@@ -335,7 +371,7 @@ export function stackApproval(prs = [], viewer = null) {
 
 // The row's stack note: "on #41 · 2 of 3", or "Stack · 1 of 3" at the bottom; null outside a stack.
 // Its tooltip spells the stack out: "Stacked: main ‹ #41 ‹ #42 ‹ #43. Merge from the bottom."
-export function stackNote(row) {
+export function stackNote(row: Pick<ReviewRow, 'stack'> | null | undefined): { text: string; title: string } | null {
   const s = row?.stack;
   if (!s) return null;
   return {
@@ -347,7 +383,7 @@ export function stackNote(row) {
 // The order the pane's stack path folds its PRs into "··· N" when the line runs out of room (AK-540):
 // indexes into `path`, the PRs farthest from this one (`at`, 1-based) first, then the bottom PR, then
 // the one above this, then the one below. This PR never folds.
-export function stackFoldOrder(path, at) {
+export function stackFoldOrder(path: readonly unknown[], at: number): number[] {
   const me = at - 1;
   const kept = [me - 1, me + 1, 0];
   const rest = path.map((_, i) => i).filter((i) => i !== me && !kept.includes(i)).sort((a, b) => Math.abs(b - me) - Math.abs(a - me) || b - a);
@@ -355,7 +391,7 @@ export function stackFoldOrder(path, at) {
 }
 
 // Whether the rows next to rows[i] are in its stack (the list's rail joins their dots): { up, down }.
-export function stackRail(rows, i) {
+export function stackRail(rows: readonly Pick<ReviewRow, 'stack'>[], i: number): { up: boolean; down: boolean } {
   const root = rows[i]?.stack?.root;
   if (root == null) return { up: false, down: false };
   return { up: rows[i - 1]?.stack?.root === root, down: rows[i + 1]?.stack?.root === root };
@@ -371,12 +407,19 @@ export function stackRail(rows, i) {
 // `previous` (row key → stage, from the last call) holds a PR GitHub is still checking in place.
 // `all` lists every row, staged ones first in stage order, then the rest by newest activity.
 // What the Review page's title calls "needs you": stuck plus ready to merge. The sidebar badge shows the same count.
-export const needsYou = (stages) => stages.stuck.length + stages.ready.length;
+export const needsYou = (stages: Record<StageId, readonly unknown[]>): number => stages.stuck.length + stages.ready.length;
 
-export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecast = null, prsOn = false, now = Date.now(), previous = null } = {}) {
-  const requested = new Set(prsOn ? reviewRequested : []);
-  const taken = new Set();
-  const rows = [];
+export interface ReviewRowsOptions {
+  lanes?: readonly ViewLane[]; prs?: readonly PullRequest[] | null; reviewRequested?: readonly number[];
+  forecast?: Map<string, LaneConflict[]> | null; prsOn?: boolean; now?: number;
+  /** Row key → its stage at the last call. */
+  previous?: Map<string, Stage | null | undefined> | null;
+}
+export interface ReviewRowsResult { stages: Record<StageId, ReviewRow[]>; finished: { count: number; items: ReviewRow[] }; all: ReviewRow[] }
+export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecast = null, prsOn = false, now = Date.now(), previous = null }: ReviewRowsOptions = {}): ReviewRowsResult {
+  const requested = new Set<number>(prsOn ? reviewRequested : []);
+  const taken = new Set<ViewLane>();
+  const rows: ReviewRow[] = [];
   if (prsOn) {
     for (const pr of prs || []) {
       const lane = laneOf(pr, lanes, taken);
@@ -386,12 +429,12 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
   }
   for (const lane of lanes) if (!taken.has(lane)) rows.push(toRow(null, lane, forecast));
   withOverlaps(rows);
-  const stacks = prsOn ? prStacks(prs) : new Map();
+  const stacks = prsOn ? prStacks(prs) : new Map<number, PrStack>();
   for (const row of rows) row.stack = (row.pr && stacks.get(row.pr.number)) || null;
 
-  const stages = Object.fromEntries(STAGES.map((s) => [s.id, []]));
-  const finished = [];
-  const rest = [];
+  const stages = Object.fromEntries(STAGES.map((s) => [s.id, [] as ReviewRow[]])) as Record<StageId, ReviewRow[]>;
+  const finished: ReviewRow[] = [];
+  const rest: ReviewRow[] = [];
   for (const row of rows) {
     row.stage = rowStage(row, { now, previous: previous?.get(row.key) || null });
     // With PRs on, a lane with no open PR that isn't finished is in Everything else only.
@@ -416,7 +459,7 @@ export function reviewRows({ lanes = [], prs = [], reviewRequested = [], forecas
 //   stuck       rebase when it conflicts with its base and its branch is here, else send back
 //   inProgress  review when your review is requested, else open
 //   others      open (the lane in the map, or the PR's review when it isn't checked out here)
-export function primaryAction(row, { base = null, requested = new Set() } = {}) {
+export function primaryAction(row: RowLike & { stage?: Stage | null }, { base = null, requested = new Set<number>() }: { base?: string | null; requested?: Set<number> } = {}): StepId {
   const { pr, lane } = row;
   if (row.stage === 'ready') return pr ? 'merge' : 'review';
   if (row.stage === 'stuck') return lane?.branch && !lane.isBase && base && conflicted(row) ? 'rebase' : 'sendBack';
@@ -424,7 +467,7 @@ export function primaryAction(row, { base = null, requested = new Set() } = {}) 
   return 'open';
 }
 
-export const STEPS = {
+export const STEPS: Record<StepId, { label: string; keyId: string; icon: string }> = {
   review: { label: 'Review', keyId: 'lanes.review', icon: 'diff' },
   merge: { label: 'Merge', keyId: 'lanes.merge', icon: 'merge' },
   rebase: { label: 'Rebase', keyId: 'lanes.rebase', icon: 'rebase' },
@@ -436,12 +479,13 @@ export const STEPS = {
 // An agent shows as an author (rowAuthors, AK-390), not as a badge. `signal` marks the ones Review
 // shows as glyphs instead (rowSignals).
 // chip: Review's row shows it as a chip after the title (rowChips), so its line leaves it out.
-export function rowBadges(row, { requested = new Set() } = {}) {
+export interface Badge { text: string; kind: string; title: string; signal?: boolean; chip?: boolean; icon?: string; spin?: boolean }
+export function rowBadges(row: RowLike & { worktree?: { changes: number } | null }, { requested = new Set<number>() }: { requested?: Set<number> } = {}): Badge[] {
   const { pr } = row;
-  const out = [];
+  const out: Badge[] = [];
   if (pr?.draft) out.push({ text: 'Draft', kind: 'draft', title: 'A draft pull request' });
   if (pr?.checks === 'success') out.push({ text: 'CI passed', kind: 'ok', title: 'Checks passed', chip: true });
-  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: checksBlock(pr) ? 'warn' : '', title: LETS_MERGE.has(pr.mergeState) ? 'Checks are failing · Not required to merge' : 'Checks are failing', signal: true, chip: true });
+  else if (pr?.checks === 'failure') out.push({ text: 'CI failing', kind: checksBlock(pr) ? 'warn' : '', title: LETS_MERGE.has(pr.mergeState ?? '') ? 'Checks are failing · Not required to merge' : 'Checks are failing', signal: true, chip: true });
   else if (pr?.checks === 'pending') out.push({ text: 'CI running', kind: 'busy', title: 'Checks are still running' });
   if (pr && requested.has(pr.number)) out.push({ text: 'Your review', kind: 'busy', title: 'Your review is requested' });
   else if (pr?.review === 'approved') out.push({ text: 'Approved', kind: 'ok', title: 'Approved', icon: 'check', chip: true });
@@ -459,13 +503,15 @@ export function rowBadges(row, { requested = new Set() } = {}) {
 
 // What to call a reviewer or author: the name (github.js fills it with a bot's login without its
 // "app/" and "[bot]", AK-312), else the login.
-const who = (p) => p.name || p.login || '';
+const who = (p: { name?: string | null; login?: string | null }): string => p.name || p.login || '';
 
 // The name to show for an agent guess (AK-390; git.agentGuess, or { reason: 'bot author', match }):
 // a trailer's value without its <email> and any (note) ("Co-Authored-By: Claude Opus 5.5 (1M context)
 // <noreply@anthropic.com>" → "Claude Opus 5.5"), a bot's name without "[bot]", else the branch
 // prefix capitalised ("codex/" → "Codex", "ai/" → "AI"). null when there's nothing to go on.
-export function agentName(agent) {
+/** An agent guess (git.agentGuess), or a bot author: { reason: 'bot author', match }. */
+export interface AgentHint { reason: string; match: unknown }
+export function agentName(agent: AgentHint | null | undefined): string | null {
   if (!agent?.match) return null;
   const match = String(agent.match);
   if (agent.reason === 'trailer') {
@@ -476,18 +522,19 @@ export function agentName(agent) {
   if (agent.reason === 'bot author') return match.replace(/^app\//, '').replace(/\[bot\]$/i, '').trim() || null;
   const prefix = match.replace(/\/+$/, '').trim();
   if (!prefix) return null;
-  return prefix.length <= 2 ? prefix.toUpperCase() : prefix[0].toUpperCase() + prefix.slice(1);
+  return prefix.length <= 2 ? prefix.toUpperCase() : prefix[0]!.toUpperCase() + prefix.slice(1);
 }
 
 // An agent named in a commit message's trailers (Catch up's reader, AK-390), like git.agentGuess:
 // a Co-Authored-By naming a coding agent, or a trailer only agents write. → { reason, match } or null.
-export function messageAgent(message = '') {
+export function messageAgent(message: unknown = ''): { reason: 'trailer'; match: string } | null {
   for (const line of String(message || '').split('\n')) {
     const m = /^([A-Za-z0-9-]+):\s*(.+)$/.exec(line.trim());
     if (!m) continue;
-    const key = m[1].toLowerCase();
-    if (AGENT_HINTS.trailers.includes(key)) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
-    if (key === 'co-authored-by' && AGENT_HINTS.coauthors.some((w) => m[2].toLowerCase().split(/[^a-z0-9]+/).includes(w))) return { reason: 'trailer', match: `${m[1]}: ${m[2]}` };
+    const [, name = '', value = ''] = m;
+    const key = name.toLowerCase();
+    if (AGENT_HINTS.trailers.includes(key)) return { reason: 'trailer', match: `${name}: ${value}` };
+    if (key === 'co-authored-by' && AGENT_HINTS.coauthors.some((w) => value.toLowerCase().split(/[^a-z0-9]+/).includes(w))) return { reason: 'trailer', match: `${name}: ${value}` };
   }
   return null;
 }
@@ -496,44 +543,47 @@ export function messageAgent(message = '') {
 // opened is that bot alone; a person's PR on an agent-made lane is both ("AK + Claude Opus 5.5").
 // person: { name, key } when the caller knows one without a PR (Catch up's commit author).
 // agents: whether agent-made marks are on; off, only the person shows.
-export function authorsOf({ pr = null, agent = null, person = null, agents = true } = {}) {
-  const out = [];
+export interface Author { name: string; key: string; agent: boolean; title: string }
+export function authorsOf({ pr = null, agent = null, person = null, agents = true }: { pr?: PullRequest | null; agent?: AgentHint | null; person?: { name?: string; key?: string } | null; agents?: boolean } = {}): Author[] {
+  const out: Author[] = [];
   if (pr?.bot) {
     const name = who({ name: pr.authorName, login: pr.author }) || 'Bot';
     return [{ name, key: pr.author || name, agent: true, title: `${name} (a bot opened it)` }];
   }
   // A commit by a bot ("dependabot[bot]") is that bot alone, like a PR a bot opened.
   if (!pr?.author && /\[bot\]$/i.test(person?.name || '')) {
-    const name = person.name.replace(/\[bot\]$/i, '').trim();
-    return [{ name, key: person.key || person.name, agent: true, title: `${name} (a bot)` }];
+    const full = person?.name ?? '';
+    const name = full.replace(/\[bot\]$/i, '').trim();
+    return [{ name, key: person?.key || full, agent: true, title: `${name} (a bot)` }];
   }
   const p = pr?.author ? { name: pr.authorName || pr.author, key: pr.author } : person?.name ? { name: person.name, key: person.key || person.name } : null;
   if (p) out.push({ ...p, agent: false, title: p.key && p.key !== p.name ? `${p.name} (${p.key})` : p.name });
   const name = agents ? agentName(agent) : null;
   if (name && !(p && p.name.toLowerCase() === name.toLowerCase())) {
-    out.push({ name, key: `agent:${name}`, agent: true, title: `${name}: looks agent-made (${agent.reason}: ${agent.match})` });
+    out.push({ name, key: `agent:${name}`, agent: true, title: `${name}: looks agent-made (${agent?.reason}: ${agent?.match})` });
   }
   return out;
 }
 // A review row's authors: its PR's author and its lane's agent guess.
-export const rowAuthors = (row, { agents = false } = {}) => authorsOf({ pr: row?.pr || null, agent: row?.lane?.agent || null, agents });
+export const rowAuthors = (row: RowLike | null | undefined, { agents = false }: { agents?: boolean } = {}): Author[] => authorsOf({ pr: row?.pr || null, agent: row?.lane?.agent || null, agents });
 
 // A PR's reviewers for its header: one entry per person or team, [{ key, name, login, state }],
 // state 'changes' | 'approved' | 'commented' | 'pending'. A request outranks an older review (it was
 // re-requested); dismissed reviews are left out. Changes first, then approvals, comments, pending.
-const REVIEWER_ORDER = { changes: 0, approved: 1, commented: 2, pending: 3 };
-export function reviewers(pr) {
-  const out = new Map();
+const REVIEWER_ORDER: Record<string, number> = { changes: 0, approved: 1, commented: 2, pending: 3 };
+export interface Reviewer { key: string; name: string; login: string | null; state: string; at?: string | null }
+export function reviewers(pr: Pick<PullRequest, 'reviewRequests' | 'reviews'> | null | undefined): Reviewer[] {
+  const out = new Map<string, Reviewer>();
   for (const r of pr?.reviewRequests || []) out.set(`${r.team ? 'team:' : ''}${r.login}`, { key: `${r.team ? 'team:' : ''}${r.login}`, name: who(r), login: r.team ? null : r.login, state: 'pending' });
   for (const r of pr?.reviews || []) {
     if (out.has(r.login) || !(r.state in REVIEWER_ORDER)) continue;
     out.set(r.login, { key: r.login, name: who(r), login: r.login, state: r.state, at: r.submittedAt || null });
   }
-  return [...out.values()].sort((a, b) => REVIEWER_ORDER[a.state] - REVIEWER_ORDER[b.state]);
+  return [...out.values()].sort((a, b) => REVIEWER_ORDER[a.state]! - REVIEWER_ORDER[b.state]!);
 }
 
 // Rows whose title, branch, PR number or author has every word of `query`.
-export function filterRows(rows, query = '') {
+export function filterRows<R extends RowLike & { title: string; branch: string | null }>(rows: R[], query = ''): R[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return rows;
   return rows.filter((r) => {
@@ -546,7 +596,7 @@ export function filterRows(rows, query = '') {
 // approving marks the PR approved and drops your review request, so it re-stages (Ready to merge,
 // or In progress while CI is still running); merging or closing it takes the row away (its lane, if any, goes on to
 // the finished line once its work is on the base). Other actions change nothing here.
-export function applyAction({ prs = [], requested = [] } = {}, number, id) {
+export function applyAction({ prs = [], requested = [] }: { prs?: PullRequest[]; requested?: number[] } = {}, number: number | null | undefined, id: string): { prs: PullRequest[]; requested: number[] } {
   if (number == null || !prs.some((p) => p.number === number)) return { prs, requested };
   const rest = requested.filter((n) => n !== number);
   if (id === 'approve') return { prs: prs.map((p) => (p.number === number ? { ...p, review: 'approved' } : p)), requested: rest };
@@ -557,20 +607,20 @@ export function applyAction({ prs = [], requested = [] } = {}, number, id) {
 }
 
 // The PR number of a row key from reviewRows (`pr:<n>`), or null for a lane's row.
-export const rowPrNumber = (key) => (/^pr:\d+$/.test(key || '') ? Number(key.slice(3)) : null);
+export const rowPrNumber = (key: string | null | undefined): number | null => (/^pr:\d+$/.test(key || '') ? Number((key ?? '').slice(3)) : null);
 
-const NEEDS = ['stuck', 'ready'];
+const NEEDS: StageId[] = ['stuck', 'ready'];
 // Where the selection goes after an action on row `acted`: the next row that still needs you
 // (Stuck or Ready to merge) below where `acted` was in `before` (the keys in the order shown), else the
 // first one that does, else `acted` itself while it's still listed; null lets the list pick its
 // first row. `staged` is the reviewRows result after the action.
-export function nextSelection(before, staged, acted) {
+export function nextSelection(before: readonly string[], staged: Pick<ReviewRowsResult, 'stages' | 'all'>, acted: string): string | null {
   const needs = NEEDS.flatMap((s) => staged.stages[s] || []).filter((r) => r.key !== acted);
   const keys = new Set(needs.map((r) => r.key));
   const i = before.indexOf(acted);
   const below = i >= 0 ? before.slice(i + 1).find((k) => keys.has(k)) : null;
   if (below) return below;
-  if (needs.length) return needs[0].key;
+  if (needs[0]) return needs[0].key;
   return staged.all.some((r) => r.key === acted) ? acted : null;
 }
 
@@ -578,9 +628,9 @@ export function nextSelection(before, staged, acted) {
 // base as a marker; { checks: { text, title } | null, conflict: { title } | null }. The count is
 // passed/total when GitHub's counts reach the renderer (pr.checkCounts), else how many are failing.
 // conflictShown: the row's text already says it conflicts (a stuck row's note), so no marker too.
-export function rowSignals(row, { conflictShown = false } = {}) {
+export function rowSignals(row: RowLike, { conflictShown = false }: { conflictShown?: boolean } = {}): { checks: { text: string; title: string } | null; conflict: { title: string } | null } {
   const { pr } = row;
-  let checks = null;
+  let checks: { text: string; title: string } | null = null;
   if (pr?.checks === 'failure') {
     const failing = pr.failing || [];
     const c = pr.checkCounts;
@@ -600,11 +650,11 @@ export function rowSignals(row, { conflictShown = false } = {}) {
 // GitHub reported them (pr.failing, github.normalizePr). Send back (AK-279) builds on this too.
 // noBase leaves out the conflict with the base, which Review shows as its own note (conflictNote);
 // bareChecks names the failing checks without "CI ✗", which Review's row shows as a glyph (rowSignals).
-export function stuckReason(row, { base = null, max = 2, noBase = false, bareChecks = false } = {}) {
+export function stuckReason(row: RowLike, { base = null, max = 2, noBase = false, bareChecks = false }: { base?: string | null; max?: number; noBase?: boolean; bareChecks?: boolean } = {}): string | null {
   const { pr } = row;
   const conflicts = (row.conflicts || []).filter((c) => !noBase || !c.base);
-  const out = [];
-  const files = (list) => {
+  const out: string[] = [];
+  const files = (list: readonly string[]) => {
     const names = list.slice(0, max).map((f) => f.split('/').pop());
     return `${names.join(', ')}${list.length > max ? ` +${list.length - max} more` : ''}`;
   };
@@ -621,7 +671,7 @@ export function stuckReason(row, { base = null, max = 2, noBase = false, bareChe
 
 // Why M (or Merge…) on a PR with no lane here can't merge it yet (AK-275): null when the row's main
 // action is Merge, else "Not ready: CI failing · changes requested".
-export function mergeBlock(row, { base = null } = {}) {
+export function mergeBlock(row: RowLike & { stage?: Stage | null }, { base = null }: { base?: string | null } = {}): string | null {
   if (primaryAction(row, { base }) === 'merge') return null;
   const { pr } = row;
   const why = [pr?.draft && 'it’s a draft', stuckReason(row, { base }), pr?.checks === 'pending' && 'CI still running',
@@ -631,26 +681,27 @@ export function mergeBlock(row, { base = null } = {}) {
 
 // The sub line's quiet overlap note: "Overlaps #87", or "Overlaps 2 PRs" with the list as its
 // tooltip ("#87 Title: a.js, b.js" per line). null without overlaps.
-export function overlapNote(row) {
+export function overlapNote(row: { overlaps?: readonly Overlap[] }): { text: string; title: string } | null {
   const list = row.overlaps || [];
-  if (!list.length) return null;
-  const text = list.length === 1 ? `Overlaps #${list[0].number}` : `Overlaps ${list.length} PRs`;
+  const [first] = list;
+  if (!first) return null;
+  const text = list.length === 1 ? `Overlaps #${first.number}` : `Overlaps ${list.length} PRs`;
   return { text, title: list.map((o) => `#${o.number} ${o.title}${o.files.length ? `: ${o.files.join(', ')}` : ''}`).join('\n') };
 }
 
 // The pane's merge order line per overlap: { number, files, smaller } where files is
 // "lanes-view.js" (file names, the first `max`, then "+N more") and smaller is null when a size is
 // unknown, else { self, size: { additions, deletions } } for the smaller PR (ties: the older one).
-export function mergeOrder(row, { max = 2 } = {}) {
+export function mergeOrder(row: RowLike & { overlaps?: readonly Overlap[] }, { max = 2 }: { max?: number } = {}): { number: number; files: string | null; smaller: { self: boolean; size: { additions: number; deletions: number } } | null }[] {
   const self = prSize(row.pr);
   return (row.overlaps || []).map((o) => {
     const names = o.files.slice(0, max).map((f) => f.split('/').pop());
     const files = names.length ? `${names.join(', ')}${o.files.length > max ? ` +${o.files.length - max} more` : ''}` : null;
-    let smaller = null;
+    let smaller: { self: boolean; size: { additions: number; deletions: number } } | null = null;
     if (self && o.size) {
       const a = self.additions + self.deletions;
       const b = o.size.additions + o.size.deletions;
-      const mine = a < b || (a === b && row.pr.number < o.number);
+      const mine = a < b || (a === b && (row.pr?.number ?? 0) < o.number);
       smaller = { self: mine, size: mine ? self : o.size };
     }
     return { number: o.number, files, smaller };
@@ -659,7 +710,7 @@ export function mergeOrder(row, { max = 2 } = {}) {
 
 // A row's conflict with its base (AK-305): the forecast's { with, files }, else GitHub's own check
 // ({ with, files: null }), else null.
-export function baseConflict(row, base = null) {
+export function baseConflict(row: RowLike, base: string | null = null): { with: string; files: string[] | null } | null {
   const c = (row.conflicts || []).find((x) => x.base);
   if (c) return { with: c.with, files: c.files || null };
   if (conflicted(row)) return { with: row.pr?.base || base || 'its base', files: null };
@@ -668,7 +719,7 @@ export function baseConflict(row, base = null) {
 
 // Review's note for it, which jumps to the Conflicting files: "Conflicts in 3 files", or
 // "Conflicts with main" until the files are known. `files` (what the pane read) wins over the forecast.
-export function conflictNote(row, { base = null, files = null } = {}) {
+export function conflictNote(row: RowLike, { base = null, files = null }: { base?: string | null; files?: readonly string[] | null } = {}): string | null {
   const c = baseConflict(row, base);
   if (!c) return null;
   const n = (files?.length ? files : c.files)?.length;
@@ -681,23 +732,23 @@ export function conflictNote(row, { base = null, files = null } = {}) {
 // gives nothing, and the one absence shown is "CI didn't run" (evidence.ciMissing).
 
 // A flag-level fact's chip on a row; info-level facts ("tests changed") never get one.
-const FACT_CHIPS = { dependencies: 'deps', ci: 'ci config', 'tests-deleted': 'test deleted', 'tests-skipped': 'tests skipped', modes: 'mode changed', binaries: 'binaries', fragile: 'fragile' };
+const FACT_CHIPS: Record<string, string> = { dependencies: 'deps', ci: 'ci config', 'tests-deleted': 'test deleted', 'tests-skipped': 'tests skipped', modes: 'mode changed', binaries: 'binaries', fragile: 'fragile' };
 // A fact's label in the reader's facts line.
-const FACT_LABELS = {
+const FACT_LABELS: Record<string, (n: number) => string> = {
   dependencies: (n) => (n === 1 ? 'dependency changed' : 'dependencies changed'), ci: () => 'ci config', 'tests-deleted': (n) => (n === 1 ? 'test deleted' : 'tests deleted'),
   'tests-skipped': () => 'tests skipped', modes: () => 'mode changed', binaries: (n) => (n === 1 ? 'binary' : 'binaries'), fragile: () => 'fragile',
   'tests-changed': () => 'tests changed', deleted: () => 'deleted', 'lockfile-drift': () => 'locked versions',
 };
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // "and 3 more" (change-facts.js listed) isn't a detail of its own.
-const realDetails = (f) => (f.details || []).filter((d) => !/^and \d+ more$/.test(d));
-const detailCount = (f) => { const d = f.details || []; const more = /^and (\d+) more$/.exec(d[d.length - 1] || ''); return realDetails(f).length + (more ? +more[1] : 0); };
+const realDetails = (f: ChangeFact): string[] => (f.details || []).filter((d) => !/^and \d+ more$/.test(d));
+const detailCount = (f: ChangeFact): number => { const d = f.details || []; const more = /^and (\d+) more$/.exec(d[d.length - 1] || ''); return realDetails(f).length + (more ? Number(more[1]) : 0); };
 
 // Checks a PR's result counts as failed, as GitHub's rollup does.
 const FAILED = new Set(['failure', 'timed_out', 'action_required', 'startup_failure', 'error', 'cancelled']);
-export const checkFailed = (c) => FAILED.has(c?.result);
+export const checkFailed = (c: { result?: string } | null | undefined): boolean => FAILED.has(c?.result ?? '');
 // evidence.checks → { failed, passed, running, total }
-export function checkTally(checks = []) {
+export function checkTally(checks: readonly { result?: string }[] = []): { failed: number; running: number; passed: number; total: number } {
   const failed = checks.filter(checkFailed).length;
   const running = checks.filter((c) => c.result === 'pending').length;
   return { failed, running, passed: checks.length - failed - running, total: checks.length };
@@ -706,9 +757,10 @@ export function checkTally(checks = []) {
 // The row's compact signals, in order: check result, review state, open threads, media, then change
 // facts. → [{ id, kind ('pass' | 'fail' | 'fact' | ''), icon, text, title }]. The row folds what
 // doesn't fit into "+N" (lanes-view.js), so this returns them all.
-export function rowChips(row, { facts = null, evidence = null, requested = new Set() } = {}) {
+export interface Chip { id: string; kind: string; icon: string | null; text: string; title: string }
+export function rowChips(row: RowLike, { facts = null, evidence = null, requested = new Set<number>() }: { facts?: ChangeFacts | null; evidence?: PrEvidence | null; requested?: Set<number> } = {}): Chip[] {
   const { pr } = row;
-  const out = [];
+  const out: Chip[] = [];
   if (pr?.checks === 'failure') {
     const failing = pr.failing || [];
     const c = pr.checkCounts;
@@ -716,7 +768,7 @@ export function rowChips(row, { facts = null, evidence = null, requested = new S
     const s = rowSignals(row);
     // Checks GitHub merges past (or a draft's) are muted, not red (AK-611).
     const title = s.checks?.title || 'Checks are failing';
-    out.push({ id: 'checks', kind: checksBlock(pr) ? 'fail' : '', icon: 'x', text: failing.length === 1 ? failing[0] : n ? `${n} failed` : 'failed', title: LETS_MERGE.has(pr.mergeState) ? `Not required to merge\n${title}` : title });
+    out.push({ id: 'checks', kind: checksBlock(pr) ? 'fail' : '', icon: 'x', text: failing.length === 1 ? failing[0]! : n ? `${n} failed` : 'failed', title: LETS_MERGE.has(pr.mergeState ?? '') ? `Not required to merge\n${title}` : title });
   } else if (pr?.checks === 'success') {
     const c = pr.checkCounts;
     const counted = c && Number.isSafeInteger(c.passed) && Number.isSafeInteger(c.total) && c.total > 0;
@@ -729,17 +781,18 @@ export function rowChips(row, { facts = null, evidence = null, requested = new S
     else if (pr.review === 'changes') out.push({ id: 'review', kind: '', icon: 'undo', text: 'changes requested', title: 'A reviewer requested changes' });
   }
   const open = evidence?.threads?.open || 0;
-  if (open) out.push({ id: 'threads', kind: '', icon: 'comment', text: plural(open, 'open thread'), title: `${plural(open, 'open review thread')}${evidence.threads.outdated ? `, ${evidence.threads.outdated} on lines that changed since` : ''}` });
+  if (open) out.push({ id: 'threads', kind: '', icon: 'comment', text: plural(open, 'open thread'), title: `${plural(open, 'open review thread')}${evidence?.threads?.outdated ? `, ${evidence?.threads?.outdated} on lines that changed since` : ''}` });
   const media = evidence?.media || [];
   const images = media.filter((m) => m.kind === 'image').length;
   const videos = media.filter((m) => m.kind === 'video').length;
   if (images) out.push({ id: 'images', kind: '', icon: 'image', text: plural(images, 'image'), title: `${plural(images, 'image')} in the description, comments or reviews` });
   if (videos) out.push({ id: 'videos', kind: '', icon: 'play', text: plural(videos, 'video'), title: `${plural(videos, 'video')} in the description, comments or reviews` });
   for (const f of facts?.facts || []) {
-    if (f.level !== 'flag' || !FACT_CHIPS[f.id]) continue;
+    const chip = FACT_CHIPS[f.id];
+    if (f.level !== 'flag' || !chip) continue;
     const d = realDetails(f).slice(0, 5);
     const more = detailCount(f) - d.length;
-    out.push({ id: `fact:${f.id}`, kind: 'fact', icon: null, text: FACT_CHIPS[f.id], title: [f.title, ...d, more ? `and ${more} more` : null].filter(Boolean).join('\n') });
+    out.push({ id: `fact:${f.id}`, kind: 'fact', icon: null, text: chip, title: [f.title, ...d, more ? `and ${more} more` : null].filter(Boolean).join('\n') });
   }
   return out;
 }
@@ -747,7 +800,11 @@ export function rowChips(row, { facts = null, evidence = null, requested = new S
 // The reader's facts line: the size and spread, then one line per fact.
 // → { size: [{ n, label }] (after the +added −deleted), added, deleted, lines: [{ id, label, detail, title, flag }] }
 // or null without facts. No test files changed says nothing: absence is never stated (AK-516).
-export function factLines(facts) {
+export interface FactLines {
+  added: number; deleted: number; size: { n: number | null; label: string; title?: string }[];
+  lines: { id: string; label: string; detail: string; title: string; flag: boolean }[];
+}
+export function factLines(facts: ChangeFacts | null | undefined): FactLines | null {
   if (!facts?.size) return null;
   const z = facts.size;
   const size = [
@@ -756,7 +813,7 @@ export function factLines(facts) {
     z.assets ? { n: z.assets, label: z.assets === 1 ? 'asset' : 'assets' } : null,
     z.generated ? { n: z.generated, label: 'generated' } : null,
     z.lockfiles?.length ? { n: z.lockfiles.length, label: z.lockfiles.length === 1 ? 'lockfile' : 'lockfiles', title: z.lockfiles.map((l) => `${l.path} +${l.added} −${l.deleted}`).join('\n') } : null,
-  ].filter(Boolean);
+  ].filter((x) => x != null);
   const lines = (facts.facts || []).filter((f) => !(f.id === 'tests-changed' && !f.count)).map((f) => {
     const d = realDetails(f);
     const more = detailCount(f) - d.length;
@@ -767,7 +824,7 @@ export function factLines(facts) {
 }
 // The top-level folders the diff touches, when it spans more than one: named up to two ("in
 // apps/desktop, packages/tokens"), else "4 folders" with the list in its tooltip (AK-516).
-function folders(areas = []) {
+function folders(areas: readonly { area: string; files: number; lines: number }[] = []): { n: number | null; label: string; title: string } | null {
   if (!areas || areas.length < 2) return null;
   const title = areas.map((a) => `${a.area === '.' ? 'the repository root' : a.area}: ${plural(a.files, 'file')}, ${a.lines} lines`).join('\n');
   if (areas.length > 2) return { n: areas.length, label: 'folders', title };
@@ -777,8 +834,13 @@ function folders(areas = []) {
 // The evidence strip's tabs, left to right; a tab with nothing in it isn't there. Commits come
 // first (AK-640): commits = { list, count } from branchReview, git only, so it shows without GitHub.
 // → [{ id, label, count?, tally?, kind ('fail' | 'pass' | 'absent' | ''), icon, group ('git' | 'ci' | 'people') }]
-export function evidenceTabs(evidence, commits = null) {
-  const out = [];
+export interface EvidenceTab {
+  id: string; label: string; count?: number; tally?: ReturnType<typeof checkTally>;
+  kind: string; icon: string | null; group: 'git' | 'ci' | 'people';
+}
+type CommitList = { list?: readonly unknown[]; count?: number } | null;
+export function evidenceTabs(evidence: PrEvidence | null | undefined, commits: CommitList = null): EvidenceTab[] {
+  const out: EvidenceTab[] = [];
   if (commits?.list?.length) out.push({ id: 'commits', label: 'Commits', count: Math.max(commits.count || 0, commits.list.length), kind: '', icon: 'commit', group: 'git' });
   if (!evidence) return out;
   if (evidence.checks?.length) {
@@ -791,16 +853,16 @@ export function evidenceTabs(evidence, commits = null) {
   return out;
 }
 // Which tab the strip opens on: Checks when one fails, else Commits when there are some, else none (closed).
-export const evidenceDefault = (evidence, commits = null) => (evidence?.checks?.some(checkFailed) ? 'checks' : commits?.list?.length ? 'commits' : null);
+export const evidenceDefault = (evidence: PrEvidence | null | undefined, commits: CommitList = null): 'checks' | 'commits' | null => (evidence?.checks?.some(checkFailed) ? 'checks' : commits?.list?.length ? 'commits' : null);
 // "3m 05s", "48s"
-export function duration(s) {
-  if (!Number.isFinite(s) || s < 0) return '';
+export function duration(s: unknown): string {
+  if (typeof s !== 'number' || !Number.isFinite(s) || s < 0) return '';
   if (s < 60) return `${Math.round(s)}s`;
   const m = Math.floor(s / 60);
   return m < 60 ? `${m}m ${String(Math.round(s % 60)).padStart(2, '0')}s` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 }
 // A failed check's log lines (evidence.logs: [{ run, log }]), matched by the run in its link.
-export function checkLog(check, logs = []) {
+export function checkLog(check: { url?: string } | null | undefined, logs: readonly { run: unknown; log: string }[] = []): string {
   const run = /\/actions\/runs\/(\d+)/.exec(check?.url || '')?.[1];
   return run ? logs.find((l) => String(l.run) === run)?.log || '' : '';
 }

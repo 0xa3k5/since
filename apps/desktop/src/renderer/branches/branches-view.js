@@ -1,7 +1,7 @@
 import { h, icon, kbd, timeAgo, fullDate, contextMenu, toast, tipFor } from '../lib/ui.ts';
 import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsByLane, withConflicts, conflictText, canRemove, actionWhy, removeLabel, mergeLabel } from '../lanes/lanes.ts';
 import { cleanupPanel } from './cleanup-view.js';
-import { authorsOf } from '../review/review-rows.js';
+import { authorsOf } from '../review/review-rows.ts';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.ts';
 import { branchPreview, laneBadges } from './branch-preview.ts';
 import { authorsStack } from '../review/reader.js';
