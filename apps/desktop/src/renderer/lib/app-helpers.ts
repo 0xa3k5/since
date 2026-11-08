@@ -47,7 +47,7 @@ export interface CommitViewState {
 export interface ReviewTarget {
   lane: { key: string; name: string; rev: string | null };
   base: string | null;
-  source: { name: string; branch: string | null; head: string | null };
+  source: { name: string; branch: string | null; head: string | null; isBase?: boolean };
   pr?: PullRequest & { remote?: string | null };
 }
 

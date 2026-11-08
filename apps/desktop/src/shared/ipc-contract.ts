@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictFile, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, RepoInfo, RestorePreview, Stash, Submodule, SubmoduleHead, WorkStatus, Worktree } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConfigEntry, ConflictFile, ConflictReview, Divergence, FileDiff, FileHistoryPage, FoundRepo, GitInfo, Identity, JournalList, LfsInfo, OperationInfo, ReflogEntry, Refs, Remote, RepoInfo, RestorePreview, Stash, Submodule, SubmoduleHead, WorkStatus, Worktree } from './git-types.ts';
 import type { GhRemote, PrEvidence, PrList, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -68,6 +68,7 @@ export interface GitResults {
   mergeConflicts: ConflictReview;
   fileHistory: FileHistoryPage;
   refs: Refs;
+  remotes: Remote[];
   opInfo: OperationInfo | null;
   status: WorkStatus;
   /** The undo and redo lists, newest last, up to the limit asked for. */

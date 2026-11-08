@@ -6,11 +6,19 @@ import { fileHistoryView } from '../history/file-history-view.ts';
 import { createNav } from './nav.ts';
 import { reviewView } from '../review/review-view.ts';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.ts';
-import { PANES, clampPane, stepPane, defaultSizes } from './pane-size.ts';
+import { PANES, clampPane, stepPane, defaultSizes, type PaneId } from './pane-size.ts';
 import { authorProfile } from '../lib/profile.ts';
 import { approveWhy, draftSwitch } from '../prs/prs.ts';
 import { up } from '../lib/upcalls.ts';
 import { state, tildePath, api, savePref, tip, MOD } from '../lib/app-helpers.ts';
+import type { View } from '../lib/app-helpers.ts';
+import type { ReviewPlace } from '../lanes/lanes-view.ts';
+import type { conflictEditor } from '../commit/conflict-view.ts';
+import type { Ref, Remote, Worktree } from '../../shared/git-types.ts';
+
+type Place = ReturnType<typeof place>;
+// The panes' saved widths; loaded at start, so there.
+const panes = () => state.panes ?? defaultSizes();
 import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl, setTopbarEl, setBannerEl, setContentEl, catchupCount, finishedCount, reviewCount, mapView, branchesPage, commitView, catchupPage, reviewPage, setMapView, setCommitView, setCatchupPage, setBranchesPage, setReviewPage } from './shell.ts';
 import { git, undoTitle, undo, redoTitle, redo, act, aborted } from '../lib/bridge.ts';
 import { refreshAux, refreshHistory, worktreeOf } from '../graph/load.ts';
@@ -31,10 +39,10 @@ import { createCommitView } from '../commit/commit-view.ts';
 
 // Back and forward (⌘[ ⌘], the ‹ › buttons): jumps between views, lanes, commits and pull requests. Arrow
 // keys inside a list aren't jumps. Per window; a different repository starts afresh, a worktree switch is a step.
-const nav = createNav();
+const nav = createNav<Place>();
 let navDepth = 0; // inside a jump: the outermost one records it
 let navigating = false; // putting back a step: record nothing
-let lanesPlace = null; // the lanes row, filter and scroll for the next lanes page (see openLanes)
+let lanesPlace: ReviewPlace | null | undefined = null; // the lanes row, filter and scroll for the next lanes page (see openLanes)
 
 const lanesOpen = () => state.view === 'lanes' && !state.review && !state.fileHistory && !state.quick && !state.split;
 // Names the place on screen; a jump that ends where it started records nothing.
@@ -49,7 +57,7 @@ function place() {
   };
 }
 // Runs a jump and remembers where it came from. Anything it opens later (a picker, a worktree switch) records itself.
-function go(fn) {
+function go<T>(fn: () => T): T {
   if (navDepth || navigating || !state.repo) return fn();
   const from = place();
   navDepth++;
@@ -58,9 +66,9 @@ function go(fn) {
     if (nav.record(from, placeKey())) renderTopbar();
   }
 }
-const jumpTo = (sha) => go(() => { setView('map'); selectCommit(sha, 'center'); });
+const jumpTo = (sha: string) => go(() => { setView('map'); selectCommit(sha, 'center'); });
 
-async function navStep(dir) {
+async function navStep(dir: 'back' | 'forward') {
   if (!state.repo || document.querySelector('.overlay')) return;
   const here = place();
   const to = dir === 'back' ? nav.back(here) : nav.forward(here);
@@ -70,7 +78,7 @@ async function navStep(dir) {
     // Another worktree of this repository: switch to it the usual way first.
     if (to.root !== state.repo.root) {
       const w = state.worktrees.find((x) => x.path === to.root);
-      if (!w || w.missing) { renderTopbar(); return toast('That worktree is gone', { detail: tildePath(to.root) }); }
+      if (!w || w.missing) { renderTopbar(); return toast('That worktree is gone', { detail: tildePath(to.root ?? '') }); }
       // A failed switch toasts and leaves us where we were: take the step back so ⌘[ / ⌘] don't skip an entry.
       try { await up.switchWorktree(w); } finally { if (state.repo?.root !== to.root) nav.undo(dir, here, to); }
       if (state.repo?.root !== to.root) return renderTopbar();
@@ -94,22 +102,23 @@ async function navStep(dir) {
 const goBack = () => navStep('back');
 const goForward = () => navStep('forward');
 // The built-in conflict editor on screen in Commit view, if any.
-let conflictEd = null;
+let conflictEd: ReturnType<typeof conflictEditor> | null = null;
 // Marks a drag of Commit view file rows, so drops from anywhere else are ignored.
 const CV_DRAG_TYPE = 'application/x-since-files';
 
 function renderShell() {
   root.replaceChildren();
   if (!state.repo) return renderWelcome();
-  setSidebarEl(h('aside.sidebar'));
-  setTopbarEl(h('header.topbar'));
-  setBannerEl(h('div.banner-slot'));
-  setContentEl(h('div.content'));
-  root.append(sidebarEl, paneHandle('sidebar', () => root), h('main.main', null, topbarEl, bannerEl, contentEl));
+  const sb = h('aside.sidebar'), tb = h('header.topbar'), bn = h('div.banner-slot'), ct = h('div.content');
+  setSidebarEl(sb);
+  setTopbarEl(tb);
+  setBannerEl(bn);
+  setContentEl(ct);
+  root.append(sb, paneHandle('sidebar', () => root), h('main.main', null, tb, bn, ct));
   applyPanes();
-  sidebarEl.addEventListener('mouseenter', () => sidebarHover(true));
-  sidebarEl.addEventListener('mouseleave', () => sidebarHover(false));
-  root.querySelector('.main').addEventListener('mousedown', () => { if (sidebarMode(sbState()) === 'overlay') setSidebar({ ...state.sidebar, pinned: false, hover: false }); });
+  sb.addEventListener('mouseenter', () => sidebarHover(true));
+  sb.addEventListener('mouseleave', () => sidebarHover(false));
+  root.querySelector('.main')?.addEventListener('mousedown', () => { if (sidebarMode(sbState()) === 'overlay') setSidebar({ ...state.sidebar, pinned: false, hover: false }); });
   renderSidebar();
   applySidebar();
   renderTopbar();
@@ -119,16 +128,16 @@ function renderShell() {
 
 // The view a newly opened repository starts on: Review. Development builds can ask for the Map
 // (SINCE_START_VIEW=map, main.js), which the end-to-end tests do.
-let startView = 'lanes';
+let startView: View = 'lanes';
 
 // The pages at the top of the sidebar (keys 1–8, sidebar.js). Catch up, Review, Map and Commit always show.
 const VIEWS = NAV_ITEMS;
 
-function setView(v) {
+function setView(v: View) {
   if (!state.repo) return;
   go(() => showView(v));
 }
-function showView(v) {
+function showView(v: View) {
   state.quick = null;
   state.split = null;
   state.fileHistory = null;
@@ -157,25 +166,25 @@ async function refreshRemotes() {
   const remotes = await git('remotes').catch(() => []);
   if (JSON.stringify(remotes) === JSON.stringify(state.remotes)) return;
   state.remotes = remotes;
-  $('.sb-origin')?.replaceChildren(...[originLink()].filter(Boolean));
+  $('.sb-origin')?.replaceChildren(...[originLink()].filter((x) => x !== null));
   renderSidebar();
 }
 
 // A person in an avatar group's popover (AK-535): picking them opens their GitHub profile, like personLink.
-function withProfile(p) {
+function withProfile<P extends { name: string; email: string }>(p: P) {
   const prof = authorProfile(p.email, originRemote()?.web);
   return prof ? { ...p, open: () => api.app('external', prof.url) } : p;
 }
 
 // View Author on GitHub (⌘K, the context menu): the selected commit's author.
-function openAuthor(c) {
+function openAuthor(c: { email: string; author?: string }) {
   const p = authorProfile(c.email, originRemote()?.web);
   if (p) api.app('external', p.url);
   else toast(`No GitHub profile found for ${c.author}`, { kind: 'error' });
 }
 
 // ⌘⇧C: the selected commit's page on the origin's web host.
-function copyCommitLink(sha) {
+function copyCommitLink(sha: string) {
   const r = originRemote();
   if (r?.web) copy(`${r.web}/commit/${sha}`, 'Copied link to commit');
   else toast(r ? `${r.name} is not on a web host` : 'This repository has no remotes', { kind: 'error' });
@@ -196,14 +205,14 @@ function renderSidebar() {
 
   // A fold-out list below the divider. A click folds it; a double-click (the second click folds it back) opens its
   // full page, and the header stays highlighted while that page is on screen. Long-press to drag it elsewhere.
-  const onPage = (id) => sectionOf(state.view) === id && !state.review && !state.quick && !state.split && !state.fileHistory;
-  const section = (id, title, items, renderItem, count = items.length) => {
+  const onPage = (id: string) => sectionOf(state.view) === id && !state.review && !state.quick && !state.split && !state.fileHistory;
+  const section = <T,>(id: string, title: string, items: readonly T[], renderItem: (x: T) => Node, count = items.length) => {
     const collapsed = state.collapsed[id];
     const page = SECTION_PAGES.find((p) => p.id === id);
     const fold = () => { state.collapsed[id] = !collapsed; savePref('collapsed', state.collapsed); renderSidebar(); };
     return h('div.sb-section', { 'data-section': id, 'data-reorder': id },
       h('div.sb-section-row' + (onPage(id) ? '.active' : ''), null,
-        dragToReorder(h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2) setView(page.view); }, oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, id); }, 'aria-expanded': String(!collapsed), title: tip(`${title}: double-click for the full page`, `view.${page.view}`) },
+        dragToReorder(h('button.sb-section-head', { onclick: (e) => { fold(); if (e.detail === 2 && page) setView(page.view as View); }, oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, id); }, 'aria-expanded': String(!collapsed), title: tip(`${title}: double-click for the full page`, `view.${page?.view}`) },
           h('span.caret' + (collapsed ? '' : '.open'), null, icon('chevron', 12)), title, h('span.sb-count', null, count), h('span.nav-badge')))),
       collapsed ? null : h('div.sb-items', null, items.slice(0, 300).map(renderItem)),
     );
@@ -215,7 +224,7 @@ function renderSidebar() {
     worktrees: () => section('worktrees', 'Worktrees', state.worktrees, worktreeItem),
   };
 
-  const refItem = (r, label = r.short, nested = false) => h('div.sb-item' + (nested ? '.sb-nested' : '') + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
+  const refItem = (r: Ref, label = r.short, nested = false) => h('div.sb-item' + (nested ? '.sb-nested' : '') + (r.kind === 'branch' && r.short === state.head.branch ? '.current' : '') + (state.selected === r.target && state.view === 'map' ? '.selected-ref' : ''), {
     title: r.short,
     onclick: () => jumpTo(r.target),
     ondblclick: () => r.kind === 'branch' ? checkout(r.short) : null,
@@ -226,12 +235,12 @@ function renderSidebar() {
     r.kind === 'branch' && r.short === state.head.branch ? h('span.dot-head', { title: 'HEAD' }) : null,
     r.kind === 'branch' && (r.ahead || r.behind) ? h('span.sb-track', null, r.ahead ? `${r.ahead}↑` : '', r.behind ? ` ${r.behind}↓` : '') : null,
     r.gone ? h('span.sb-gone', { title: 'Upstream is gone' }, 'Gone') : null,
-    r.kind === 'branch' && worktreeOf(r.short) ? h('span.sb-wt', { title: `Checked out in worktree ${worktreeOf(r.short).name}` }, icon('worktree', 12)) : null,
+    r.kind === 'branch' && worktreeOf(r.short) ? h('span.sb-wt', { title: `Checked out in worktree ${worktreeOf(r.short)?.name}` }, icon('worktree', 12)) : null,
   );
 
   // A click selects the worktree (and its HEAD, on the Map); a double-click or ↵ switches to it. The second click
   // reads e.detail, so it still counts when the first click rebuilt the sidebar.
-  const worktreeItem = (w) => h('div.sb-item.sb-worktree' + (w.current ? '.current' : '') + (w.missing ? '.missing' : '') + (sbWorktree === w.path ? '.selected' : ''), {
+  const worktreeItem = (w: Worktree & { elsewhere?: boolean }) => h('div.sb-item.sb-worktree' + (w.current ? '.current' : '') + (w.missing ? '.missing' : '') + (sbWorktree === w.path ? '.selected' : ''), {
     title: w.path,
     tabIndex: 0,
     'data-path': w.path,
@@ -246,7 +255,7 @@ function renderSidebar() {
     w.missing ? h('span.sb-gone', { title: 'The folder no longer exists' }, 'Missing') : null,
   );
 
-  const remoteItem = (r) => h('div.sb-item', {
+  const remoteItem = (r: Remote) => h('div.sb-item', {
     title: `${r.name}\n${r.label}`,
     ondblclick: () => editRemoteUrl(r),
     oncontextmenu: (e) => { e.preventDefault(); remoteMenu(e.clientX, e.clientY, r); },
@@ -259,7 +268,7 @@ function renderSidebar() {
   const names = [...new Set([...state.remotes.map((r) => r.name), ...groups.keys()])];
   const remoteRows = names.flatMap((name) => {
     const r = state.remotes.find((x) => x.name === name);
-    return [r ? remoteItem(r) : null, ...(groups.get(name) || []).map((b) => refItem(b, b.short.slice(name.length + 1), true))];
+    return [r ? remoteItem(r) : null, ...(groups.get(name) || []).map((b: Ref) => refItem(b, b.short.slice(name.length + 1), true))];
   }).filter(Boolean);
   const addRemoteItem = h('div.sb-item.sb-add', { title: tip('Add remote', 'repo.remotes'), onclick: () => addRemote() }, icon('plus', 14), h('span.sb-label', null, 'Add remote…'));
 
@@ -267,17 +276,17 @@ function renderSidebar() {
     h('div.sb-top', null,
       h('button.icon-btn.sb-toggle', { onclick: toggleSidebar }, icon('sidebar')),
       h('button.repo-switch', { 'aria-haspopup': 'menu', onclick: (e) => up.repoMenu(e.currentTarget) },
-        h('span.repo-icon', null, state.repo.name.slice(0, 1).toUpperCase()),
-        h('span.repo-name', null, state.repo.name),
+        h('span.repo-icon', null, (state.repo?.name ?? '').slice(0, 1).toUpperCase()),
+        h('span.repo-name', null, state.repo?.name),
         icon('chevronDown', 12)),
       h('button.icon-btn', { title: tip('Command menu', 'view.palette'), onclick: up.openPalette }, icon('search')),
     ),
     h('div.sb-origin', null, originLink()),
     h('nav.sb-nav', null, shownNav().map((v) => dragToReorder(h('button.nav-item' + (sectionOf(state.view) === v.id ? '.active' : ''), { onclick: () => setView(v.view), oncontextmenu: (e) => { e.preventDefault(); sectionMenu(e.clientX, e.clientY, v.id); }, 'data-view': v.id, 'data-section': v.id, 'data-reorder': v.id, title: tip(v.label, `view.${v.view}`), 'aria-label': v.label },
-      icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, keymap.keys(`view.${v.view}`).join('')))))),
+      icon(v.icon), h('span', null, v.label), h('span.nav-badge'), h('span.nav-kbd', null, (keymap.keys(`view.${v.view}`) ?? []).join('')))))),
     h('div.sb-divider', { role: 'separator' }),
     h('div.sb-scroll', null,
-      shownSections().map((p) => sections[p.id]())),
+      shownSections().map((p) => (sections as Record<string, (() => HTMLElement) | undefined>)[p.id]?.())),
     // Icons-only stand-ins for the sections above, shown in the rail.
     h('div.sb-rail-items', null, shownSections().map((p) => railItem(p.id, p.label, p.icon))),
     h('div.sb-foot', null,
@@ -295,18 +304,19 @@ function renderSidebar() {
 const shownNav = () => orderedSections(state.sections, 'nav')
   .filter((p) => !p.hidden && (p.id !== 'submodules' || state.submodules.length));
 const shownSections = () => orderedSections(state.sections, 'list').filter((p) => !p.hidden);
-function setSections(next) {
+function setSections(next: typeof state.sections) {
   state.sections = next;
   savePref('sidebarSections', next);
   renderSidebar();
 }
 // Right-click on a sidebar row: move or hide it, or open Preferences → Sidebar.
-function sectionMenu(x, y, id) {
+function sectionMenu(x: number, y: number, id: string) {
   const row = orderedSections(state.sections).find((p) => p.id === id);
+  if (!row) return;
   const shown = (row.group === 'nav' ? shownNav() : shownSections()).map((p) => p.id), i = shown.indexOf(id);
   // Moves step over rows that aren't on screen, so one move always changes what you see.
-  const move = (dir) => {
-    const at = (s, x) => orderedSections(s).findIndex((p) => p.id === x);
+  const move = (dir: number) => {
+    const at = (s: typeof state.sections, x: string | undefined) => orderedSections(s).findIndex((p) => p.id === x);
     let s = state.sections;
     const target = shown[i + dir];
     while (dir < 0 ? at(s, id) > at(s, target) : at(s, id) < at(s, target)) s = moveSection(s, id, dir);
@@ -323,53 +333,53 @@ function sectionMenu(x, y, id) {
 // Long-press a sidebar row, then drag it to a new place in its group (AK-491). Moving before the press holds
 // is a normal click or scroll; Esc cancels the drag. Returns the handle.
 const HOLD_MS = 350;
-function dragToReorder(handle) {
+function dragToReorder<E extends HTMLElement>(handle: E): E {
   handle.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
-    const row = handle.closest('[data-reorder]') || handle, id = row.dataset.reorder;
+    const row = handle.closest<HTMLElement>('[data-reorder]') || handle, id = row.dataset.reorder ?? '';
     const x0 = e.clientX, y0 = e.clientY;
-    let on = false, before = null;
-    const rows = () => (row.parentElement ? [...row.parentElement.querySelectorAll(':scope > [data-reorder]')] : []);
-    const mark = (y) => {
+    let on = false, before: string | null = null;
+    const rows = () => (row.parentElement ? [...row.parentElement.querySelectorAll<HTMLElement>(':scope > [data-reorder]')] : []);
+    const mark = (y: number) => {
       const others = rows().filter((r) => r !== row);
       const next = others.find((r) => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
       before = next?.dataset.reorder ?? null;
       others.forEach((r) => { r.classList.toggle('drop-before', r === next); r.classList.toggle('drop-after', !next && r === others.at(-1)); });
     };
-    const move = (ev) => {
+    const move = (ev: PointerEvent) => {
       if (on) { ev.preventDefault(); mark(ev.clientY); } else if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) end(false);
     };
-    const key = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(false); } };
+    const key = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(false); } };
     const up = () => end(true);
     const cancel = () => end(false);
-    const end = (commit) => {
+    const end = (commit: boolean) => {
       clearTimeout(timer);
       removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true);
       removeEventListener('pointercancel', cancel, true); removeEventListener('keydown', key, true);
       if (!on) return;
       // The click that ends the drag doesn't fold, open or select anything.
-      const eat = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      const eat = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };
       addEventListener('click', eat, true);
       setTimeout(() => removeEventListener('click', eat, true));
-      sidebarEl.classList.remove('sb-reordering');
+      sidebarEl?.classList.remove('sb-reordering');
       [row, ...rows()].forEach((r) => r.classList.remove('dragging', 'drop-before', 'drop-after'));
       if (commit) setSections(placeSection(state.sections, id, before));
     };
-    const timer = setTimeout(() => { on = true; sidebarEl.classList.add('sb-reordering'); row.classList.add('dragging'); mark(y0); }, HOLD_MS);
+    const timer = setTimeout(() => { on = true; sidebarEl?.classList.add('sb-reordering'); row.classList.add('dragging'); mark(y0); }, HOLD_MS);
     addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
     addEventListener('pointercancel', cancel, true); addEventListener('keydown', key, true);
   });
   return handle;
 }
 
-function railItem(id, label, ic) {
+function railItem(id: string, label: string, ic: string) {
   return h('button.icon-btn.sb-rail-item', { title: label, 'aria-label': label, onclick: () => openSidebarAt(id) }, icon(ic));
 }
 
 function renderNavCounts() {
   if (!sidebarEl) return;
   const n = state.status.staged.length + state.status.unstaged.length + state.status.conflicts.length;
-  const set = (id, v, cls) => { const b = sidebarEl.querySelector(`.sb-nav [data-view="${id}"] .nav-badge, [data-section="${id}"] .sb-section-head .nav-badge`); if (b) { b.textContent = v || ''; b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
+  const set = (id: string, v: string | number, cls = '') => { const b = sidebarEl?.querySelector(`.sb-nav [data-view="${id}"] .nav-badge, [data-section="${id}"] .sb-section-head .nav-badge`); if (b) { b.textContent = String(v || ''); b.className = 'nav-badge' + (cls ? ' ' + cls : ''); } };
   set('commit', n, state.status.conflicts.length ? 'warn' : '');
   set('catchup', catchupCount, 'accent');
   set('branches', finishedCount ? `${finishedCount} to clean` : '', 'quiet');
@@ -383,20 +393,21 @@ function renderTopbar() {
     h('div.nav-btns', null,
       h('button.icon-btn', { title: tip('Back', 'view.back'), 'aria-label': 'Back', disabled: !nav.canBack, onclick: goBack }, icon('chevronLeft')),
       h('button.icon-btn', { title: tip('Forward', 'view.forward'), 'aria-label': 'Forward', disabled: !nav.canForward, onclick: goForward }, icon('chevron'))),
-    h('span.crumb-muted', null, state.repo.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : pageLabel(state.view)),
+    h('span.crumb-muted', null, state.repo?.name), icon('chevron', 12), h('span.crumb', null, state.split ? 'Split Commit' : state.quick ? 'Quick View' : state.fileHistory ? 'File History' : state.review ? 'Review' : pageLabel(state.view)),
     state.head.branch ? h('button.head-chip.branch-chip', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: up.branchSwitcher }, icon('branch', 12), state.head.branch) : state.head.oid ? h('button.head-chip.branch-chip.detached', { title: tip('Switch branch', 'repo.branchSwitch'), onclick: up.branchSwitcher }, 'Detached ' + state.head.oid.slice(0, 7)) : h('span.head-chip.detached', null, 'No commits'),
-    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: up.worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo.name) : null,
+    state.worktrees.length > 1 ? h('button.head-chip.wt-chip', { title: tip('Switch worktree', 'repo.worktreeSwitch'), onclick: up.worktreeSwitcher }, icon('worktree', 12), state.worktrees.find((w) => w.current)?.name || state.repo?.name) : null,
     h('span.crumb-muted.history-note', { id: 'history-note' }, state.hist.complete ? '' : `Loading history… ${state.commits.length.toLocaleString()}`),
   );
   const right = h('div.top-right');
   const onMap = state.view === 'map' && !state.quick && !state.split && !state.fileHistory && !state.review;
   if (onMap) {
     const search = h('input.search', { placeholder: 'Search commits', value: state.search, spellcheck: false, id: 'map-search',
-      oninput: (e) => { state.search = e.target.value; mapView?.refresh(); },
+      oninput: (e) => { state.search = (e.target as HTMLInputElement).value; mapView?.refresh(); },
       onkeydown: (e) => {
-        if (e.key === 'Escape') { state.search = ''; e.target.value = ''; e.target.blur(); mapView?.refresh(); }
-        else if (e.key === 'Enter') { go(() => mapView?.pickFirstResult()); e.target.blur(); }
-        else if (e.key === 'ArrowDown') { e.preventDefault(); e.target.blur(); }
+        const t = e.target as HTMLInputElement;
+        if (e.key === 'Escape') { state.search = ''; t.value = ''; t.blur(); mapView?.refresh(); }
+        else if (e.key === 'Enter') { go(() => mapView?.pickFirstResult()); t.blur(); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); t.blur(); }
       } });
     right.append(
       h('div.toggle-group', null,
@@ -418,9 +429,9 @@ function renderTopbar() {
     right.append(h('button.icon-btn.detail-toggle' + (state.detail ? '.on' : ''), { title: tip(detailToggleLabel(), 'map.detail', 'global.detail'), 'aria-pressed': String(state.detail), onclick: toggleDetail }, icon('panelRight')));
   }
   // Background refreshes rebuild the bar; keep the caret in the search field.
-  const typing = document.activeElement?.id === 'map-search' ? document.activeElement : null;
+  const typing = document.activeElement?.id === 'map-search' ? document.activeElement as HTMLInputElement : null;
   topbarEl.replaceChildren(crumbs, right);
-  const search = typing && $('#map-search');
+  const search = typing && ($('#map-search') as HTMLInputElement | null);
   if (search) { search.focus(); search.setSelectionRange(typing.selectionStart, typing.selectionEnd); }
 }
 
@@ -431,10 +442,10 @@ function toggleDetail() {
   mapView?.refresh();
   renderTopbar();
 }
-function toggleChip(label, key) {
+function toggleChip(label: string, key: keyof typeof state.show) {
   return h('button.chip' + (state.show[key] ? '.on' : ''), { onclick: () => toggleShow(key) }, label);
 }
-function toggleShow(key) {
+function toggleShow(key: keyof typeof state.show) {
   state.show[key] = !state.show[key];
   savePref('show', state.show);
   if (key === 'swatches') { setSwatches(state.show.swatches); renderView(); return; }
@@ -452,18 +463,18 @@ function applySidebar() {
   root.classList.toggle('sb-rail', mode === 'rail');
   root.classList.toggle('sb-overlay', mode === 'overlay');
   const label = sidebarToggleLabel(sbState());
-  const btn = sidebarEl.querySelector('.sb-toggle');
+  const btn = sidebarEl.querySelector<HTMLElement>('.sb-toggle');
   if (btn) { btn.title = tip(label, 'view.sidebar'); btn.setAttribute('aria-label', label); btn.setAttribute('aria-expanded', String(mode !== 'rail')); }
   // Don't leave focus inside parts of the sidebar the rail hides.
-  if (mode === 'rail' && sidebarEl.contains(document.activeElement) && !document.activeElement.checkVisibility()) btn?.focus();
+  if (mode === 'rail' && sidebarEl.contains(document.activeElement) && !document.activeElement?.checkVisibility()) btn?.focus();
 }
-function setSidebar(next) {
+function setSidebar(next: typeof state.sidebar) {
   if (next.expanded !== state.sidebar.expanded) savePref('sidebar', { expanded: next.expanded });
   state.sidebar = next;
   applySidebar();
 }
 // True when `e` is the key the app menu owns for `id` (its first single-step binding): the menu handles that one.
-function isMenuKey(id, e) {
+function isMenuKey(id: string, e: KeyboardEvent) {
   const b = keymap.bindings(id).find((x) => !x.includes(' '));
   const k = keymap.fromEvent(e);
   return !!b && !!k && keymap.normalize(b) === keymap.normalize(k);
@@ -472,14 +483,15 @@ function isMenuKey(id, e) {
 // Resizable panes (AK-454): a focusable separator on the pane's edge. Drag it, or focus it and use the arrow keys
 // (⇧ for bigger steps, Home/End for the limits); double-click or Enter resets it. The limits live in pane-size.js.
 function applyPanes() {
-  root.style.setProperty('--sb-w', `${state.panes.sidebar}px`);
-  root.style.setProperty('--cv-w', `${state.panes.commit}px`);
-  root.style.setProperty('--st-w', `${state.panes.stash}px`);
-  root.style.setProperty('--cu-w', `${state.panes.catchup}px`);
-  root.querySelectorAll('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', state.panes[el.dataset.pane]));
+  const p = panes();
+  root.style.setProperty('--sb-w', `${p.sidebar}px`);
+  root.style.setProperty('--cv-w', `${p.commit}px`);
+  root.style.setProperty('--st-w', `${p.stash}px`);
+  root.style.setProperty('--cu-w', `${p.catchup}px`);
+  root.querySelectorAll<HTMLElement>('.pane-handle').forEach((el) => el.setAttribute('aria-valuenow', String((p as Record<string, number>)[el.dataset.pane ?? ''])));
 }
-function setPane(id, px, save = true) {
-  state.panes = { ...state.panes, [id]: px };
+function setPane(id: PaneId, px: number, save = true) {
+  state.panes = { ...panes(), [id]: px };
   applyPanes();
   if (save) savePref('panes', state.panes);
 }
@@ -489,16 +501,16 @@ function resetPanes() {
   savePref('panes', state.panes);
 }
 // `box()` is the element the pane starts at the left edge of and shares its width with.
-function paneHandle(id, box) {
+function paneHandle(id: PaneId, box: () => HTMLElement) {
   const p = PANES[id];
-  const el = h('div.pane-handle', { role: 'separator', tabindex: 0, 'aria-orientation': 'vertical', 'aria-label': p.label, 'aria-valuemin': p.min, 'aria-valuemax': p.max, 'aria-valuenow': state.panes[id], 'data-pane': id, title: tip('Drag to resize, double-click to reset', 'global.resetPanes') });
+  const el = h('div.pane-handle', { role: 'separator', tabindex: 0, 'aria-orientation': 'vertical', 'aria-label': p.label, 'aria-valuemin': p.min, 'aria-valuemax': p.max, 'aria-valuenow': panes()[id], 'data-pane': id, title: tip('Drag to resize, double-click to reset', 'global.resetPanes') });
   el.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     el.setPointerCapture(e.pointerId);
     const b = box().getBoundingClientRect();
     document.body.classList.add('pane-resizing');
-    const onMove = (m) => setPane(id, clampPane(id, m.clientX - b.left, b.width), false);
+    const onMove = (m: PointerEvent) => setPane(id, clampPane(id, m.clientX - b.left, b.width), false);
     const onUp = () => {
       el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', onUp);
@@ -513,7 +525,7 @@ function paneHandle(id, box) {
   el.addEventListener('dblclick', () => setPane(id, p.def));
   el.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const px = stepPane(id, state.panes[id], e.key, e.shiftKey, box().getBoundingClientRect().width);
+    const px = stepPane(id, panes()[id] ?? PANES[id].def, e.key, e.shiftKey, box().getBoundingClientRect().width);
     // Keys that act on the list the handle sits beside (discard, stage) never reach it from here.
     if (px == null) { if (['Backspace', 'Delete', ' '].includes(e.key)) e.stopPropagation(); return; }
     e.preventDefault();
@@ -528,7 +540,7 @@ function toggleSidebar() {
   setSidebar(toggleSidebarState(state.sidebar, window.innerWidth));
 }
 // Narrow windows: hovering the rail opens the overlay; leaving it closes it after a beat.
-function sidebarHover(on) {
+function sidebarHover(on: boolean) {
   clearTimeout(sbHideTimer);
   if (!isNarrow(window.innerWidth)) return;
   if (on) setSidebar({ ...state.sidebar, hover: true });
@@ -540,10 +552,10 @@ function sidebarHoverClose() {
   if (sidebarEl && !sidebarEl.matches(':hover')) setSidebar({ ...state.sidebar, hover: false });
 }
 // A rail icon: open the full sidebar scrolled to that section.
-function openSidebarAt(id) {
+function openSidebarAt(id: string) {
   if (state.collapsed[id]) { state.collapsed[id] = false; savePref('collapsed', state.collapsed); renderSidebar(); }
   setSidebar(isNarrow(window.innerWidth) ? { ...state.sidebar, pinned: true } : { ...state.sidebar, expanded: true });
-  sidebarEl.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });
+  sidebarEl?.querySelector(`[data-section="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });
 }
 let sbNarrow = isNarrow(window.innerWidth);
 
@@ -551,7 +563,7 @@ function renderBanner() {
   if (!bannerEl) return;
   if (!state.opState) return renderLfsBanner();
   const n = state.status.conflicts.length;
-  const name = { rebase: 'Rebase', merge: 'Merge', 'cherry-pick': 'Cherry-pick', revert: 'Revert' }[state.opState];
+  const name = ({ rebase: 'Rebase', merge: 'Merge', 'cherry-pick': 'Cherry-pick', revert: 'Revert' } as Record<string, string>)[state.opState] ?? state.opState;
   bannerEl.replaceChildren(h('div.banner', null,
     icon('warning'),
     h('span', null, state.opInfo ? opSentence(state.opInfo, n) : h('b', null, `${name} in progress`)),
@@ -564,25 +576,26 @@ function renderBanner() {
 
 // Without git-lfs, LFS files check out as pointer text and new ones get committed whole.
 function renderLfsBanner() {
+  if (!bannerEl) return;
   if (!state.lfs?.used || state.lfs.installed || lfsDismissed.has(state.repo?.root)) return bannerEl.replaceChildren();
   bannerEl.replaceChildren(h('div.banner', null,
     icon('warning'),
     h('span', null, h('b', null, 'Git LFS isn’t installed'), ' · this repository stores large files in LFS. They show as pointer text, and staging them may fail or commit them in full.'),
     h('span.spacer'),
     h('button.btn.subtle', { onclick: () => openLfs() }, 'Details'),
-    h('button.btn.subtle', { onclick: () => { lfsDismissed.add(state.repo.root); renderBanner(); } }, 'Dismiss'),
+    h('button.btn.subtle', { onclick: () => { lfsDismissed.add(state.repo?.root); renderBanner(); } }, 'Dismiss'),
   ));
 }
-const lfsDismissed = new Set();
+const lfsDismissed = new Set<string | undefined>();
 
-const LFS_STATES = {
+const LFS_STATES: Record<string, [string, string]> = {
   downloaded: ['Downloaded', 'The working tree holds the real file.'],
   pointer: ['Pointer only', 'Not downloaded: the working tree holds the small LFS pointer text.'],
   missing: ['Deleted', 'Missing from the working tree.'],
 };
 const lfsBadge = () => h('span.badge.lfs', { title: 'Stored with Git LFS' }, 'LFS');
 
-function formatSize(n) {
+function formatSize(n: number | null | undefined) {
   if (n == null) return '';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
@@ -593,12 +606,12 @@ function formatSize(n) {
 async function openLfs() {
   if (!state.repo) return;
   const root = state.repo.root;
-  const lfs = await git('lfs').catch((e) => { toast('Couldn’t read Git LFS status', { kind: 'error', detail: e.message }); return null; });
+  const lfs = await git('lfs').catch((e: Error) => { toast('Couldn’t read Git LFS status', { kind: 'error', detail: e.message }); return null; });
   if (!lfs || state.repo?.root !== root) return;
   state.lfs = lfs;
   renderBanner();
   if (!lfs.used) return toast('This repository doesn’t use Git LFS', { detail: lfs.installed ? lfs.version : 'git-lfs isn’t installed either.' });
-  const count = (k) => lfs.files.filter((f) => f.state === k).length;
+  const count = (k: string) => lfs.files.filter((f) => f.state === k).length;
   const whole = lfs.files.filter((f) => !f.stored).length;
   const summary = [
     lfs.installed ? lfs.version : 'git-lfs isn’t installed. Install it (brew install git-lfs, then git lfs install) to download and commit LFS files correctly.',
@@ -606,8 +619,8 @@ async function openLfs() {
     whole ? `${whole} file${whole > 1 ? 's are' : ' is'} committed or staged in full instead of as an LFS pointer.` : null,
     lfs.patterns.length ? `Tracked patterns: ${lfs.patterns.join('  ')}` : null,
   ];
-  const list = h('div.lfs-list', null, lfs.files.map((f) => h('div.lfs-row', { title: LFS_STATES[f.state][1] },
-    h(`span.lfs-state.lfs-${f.state}`, null, LFS_STATES[f.state][0]),
+  const list = h('div.lfs-list', null, lfs.files.map((f) => h('div.lfs-row', { title: LFS_STATES[f.state]?.[1] },
+    h(`span.lfs-state.lfs-${f.state}`, null, LFS_STATES[f.state]?.[0]),
     h('span.mono.lfs-path', null, f.path),
     !f.stored ? h('span.badge.warn', { title: 'Git stores the whole file here, not an LFS pointer' }, 'Not in LFS') : null,
     h('span.lfs-size', null, formatSize(f.size)),
@@ -630,7 +643,12 @@ function renderView(soft = false) {
   if (state.split) return contentEl.append(splitView(state.split));
   if (state.quick) return contentEl.append(quickView(state.quick));
   setReviewPage(null);
-  if (state.review) { setReviewPage(reviewView({ ...state.review, root: state.repo.root, git, store: localStorage, onClose: up.closeReview, onMerge: state.review.source.branch && !state.review.source.isBase ? () => up.mergeLane(state.review.source, state.review.base) : null, pr: state.review.pr || null, onCommit: (sha, mark) => commitSide(reviewPage.el, sha, mark), onPrAction: up.prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(state.review.pr, prViewer()) : id === 'draft' ? draftSwitch(state.review.pr, prViewer())?.why || null : null) })); return contentEl.append(reviewPage.el); }
+  const rv = state.review;
+  if (rv) {
+    const page = reviewView({ ...rv, root: state.repo?.root ?? '', git, store: localStorage, onClose: up.closeReview, onMerge: rv.source.branch && !rv.source.isBase ? () => up.mergeLane(rv.source, rv.base) : null, pr: rv.pr || null, onCommit: (sha, mark) => commitSide(page.el, sha, mark), onPrAction: up.prDeskAction, prWhy: (id) => (id === 'approve' ? approveWhy(rv.pr, prViewer()) : id === 'draft' ? draftSwitch(rv.pr, prViewer())?.why || null : null) });
+    setReviewPage(page);
+    return contentEl.append(page.el);
+  }
   if (state.fileHistory) return contentEl.append(fileHistoryView({ path: state.fileHistory.path, git, onShow: showCommit, onOpen: (sha, path) => openQuick(sha, path, state.fileHistory), onClose: closeFileHistory }));
   switch (state.view) {
     case 'map': setMapView(createMapView(contentEl)); break;
@@ -647,18 +665,18 @@ function renderView(soft = false) {
 }
 
 // Other modules assign these through setters: an imported binding can't be assigned.
-function setSbNarrow(value) { return (sbNarrow = value); }
-function setLanesPlace(value) { return (lanesPlace = value); }
-function setStartView(value) { return (startView = value); }
+function setSbNarrow(value: boolean) { return (sbNarrow = value); }
+function setLanesPlace(value: ReviewPlace | null | undefined) { return (lanesPlace = value); }
+function setStartView(value: View) { return (startView = value); }
 
 // Lower modules call these through `up` (lib/upcalls.js).
 Object.assign(up, { renderSidebar, renderTopbar, renderBanner, renderView, renderNavCounts, refreshRemotes, originRemote, withProfile, copyCommitLink, toggleDetail, jumpTo, go, lanesOpen, lfsBadge, openAuthor, showView, toggleShow, paneHandle, CV_DRAG_TYPE, setView, openSidebarAt, setSidebar, resetPanes, setSections, place, nav, placeKey, renderShell });
 Object.defineProperties(up, {
-  lanesPlace: { get: () => lanesPlace, set: (value) => { lanesPlace = value; }, enumerable: true },
-  conflictEd: { get: () => conflictEd, set: (value) => { conflictEd = value; }, enumerable: true },
-  navigating: { get: () => navigating, set: (value) => { navigating = value; }, enumerable: true },
-  startView: { get: () => startView, set: (value) => { startView = value; }, enumerable: true },
-  sbHideTimer: { get: () => sbHideTimer, set: (value) => { sbHideTimer = value; }, enumerable: true },
+  lanesPlace: { get: () => lanesPlace, set: (value: ReviewPlace | null | undefined) => { lanesPlace = value; }, enumerable: true },
+  conflictEd: { get: () => conflictEd, set: (value: typeof conflictEd) => { conflictEd = value; }, enumerable: true },
+  navigating: { get: () => navigating, set: (value: boolean) => { navigating = value; }, enumerable: true },
+  startView: { get: () => startView, set: (value: View) => { startView = value; }, enumerable: true },
+  sbHideTimer: { get: () => sbHideTimer, set: (value: number) => { sbHideTimer = value; }, enumerable: true },
 });
 
 export { sbNarrow, applySidebar, setSbNarrow, jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView, VIEWS, setSections, goBack, goForward, openLfs, conflictEd, originRemote, openOrigin, toggleShow, detailToggleLabel, toggleDetail, resetPanes, sbState, toggleSidebar, openAuthor, copyCommitLink, sbHideTimer, setSidebar, isMenuKey, renderSidebar, startView, renderShell, setStartView };

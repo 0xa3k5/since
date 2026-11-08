@@ -409,7 +409,7 @@ test('Review is home: a repository opens on Review, the Map keeps its own key', 
   const fs = require('node:fs');
   const path = require('node:path');
   const app = require('./app-source').appSource();
-  assert.match(app, /let startView = 'lanes';/);
+  assert.match(app, /let startView(?:: View)? = 'lanes';/);
   assert.match(app, /state\.view = (?:up\.)?startView;/);
   const keymap = await import('../src/renderer/palette/keymap.ts');
   assert.ok(keymap.keys('view.map').length);

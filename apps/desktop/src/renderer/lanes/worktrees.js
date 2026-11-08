@@ -32,7 +32,7 @@ import { checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, ap
 import { commitSide } from '../graph/map.ts';
 import { refMenu, canSwitchFrom, switchTarget, switchChanges, switchAndDelete, changesText, showStashAction, copy, checkout, createBranch } from '../graph/commit-actions.ts';
 import { openRepo } from '../settings/prefs-window.ts';
-import { jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView } from '../shell/navigation.js';
+import { jumpTo, lanesPlace, lanesOpen, navigating, navDepth, nav, place, placeKey, renderTopbar, setLanesPlace, paneHandle, setView, renderNavCounts, go, renderView } from '../shell/navigation.ts';
 
 // Worktrees: extra working folders of this repository, each with its own
 // branch or detached HEAD. A window shows one worktree and can switch between them.

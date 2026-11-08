@@ -29,7 +29,7 @@ import { openFileHistory, fileHistoryTarget, openConflicts, openMergetool } from
 import { prList, refreshPrs, createPr, pickPrBranch, pickPr, approvePr, approveTargetWhy, requestChangesPr, togglePrs, hidePrs, pickPrRemote, submoduleSwitcher, checkoutPr, prRemote, prFor, prViewer, toggleDraft } from '../prs/prs-page.ts';
 import { pendingAutostash, applyAutostash, createBranch, canSwitchFrom, checkoutSelected, guarded, checkout } from '../graph/commit-actions.ts';
 import { openRepo, openPrefs, cloneRepo, closeRepo } from '../settings/prefs-window.ts';
-import { VIEWS, setView, setSections, nav, goBack, goForward, openLfs, conflictEd, originRemote, openOrigin, toggleShow, lanesOpen, detailToggleLabel, toggleDetail, resetPanes, sbState, toggleSidebar, openAuthor, copyCommitLink, jumpTo } from '../shell/navigation.js';
+import { VIEWS, setView, setSections, nav, goBack, goForward, openLfs, conflictEd, originRemote, openOrigin, toggleShow, lanesOpen, detailToggleLabel, toggleDetail, resetPanes, sbState, toggleSidebar, openAuthor, copyCommitLink, jumpTo } from '../shell/navigation.ts';
 import { pickPrReview, prDeskAction, mergePrCmd, closePrCmd, openReview, branchSwitcher, addWorktree, worktreeSwitcher, pruneWorktrees, removeWorktree, switchWorktree, openWorktreeWindow, toggleLock, updateSubmodules, openSubmodule, mergeLane, rebaseLane, laneAction, deleteLane, startCleanup, makeChainStack, paneAction, openLane, showBranches } from '../lanes/worktrees.js';
 
 // Command palette
