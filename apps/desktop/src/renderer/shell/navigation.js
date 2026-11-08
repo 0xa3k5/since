@@ -4,7 +4,7 @@ import { opSentence } from '../commit/resolve-text.ts';
 import * as keymap from '../palette/keymap.ts';
 import { fileHistoryView } from '../history/file-history-view.ts';
 import { createNav } from './nav.ts';
-import { reviewView } from '../review/review-view.js';
+import { reviewView } from '../review/review-view.ts';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.ts';
 import { PANES, clampPane, stepPane, defaultSizes } from './pane-size.ts';
 import { authorProfile } from '../lib/profile.ts';

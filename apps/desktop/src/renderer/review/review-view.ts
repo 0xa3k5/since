@@ -1,10 +1,28 @@
-import { h, icon, kbd, toast, loading } from '../lib/ui.ts';
+import { h, icon, kbd, toast, loading, type Child } from '../lib/ui.ts';
 import { renderDiff, statusBadge, fileName, fileRef } from '../commit/diff.ts';
 import { storeKey, readTicks, writeTicks, fileStates, toggleTick, refreshSummary } from './review.ts';
 import * as keymap from '../palette/keymap.ts';
 import { prStatusLine, draftSwitch } from '../prs/prs.ts';
 import { PR_ACTIONS, prActionFor } from '../prs/pr-review.ts';
 import { fileCard, foldShut, commitLines, markCommit } from './reader.ts';
+import type { FileState } from './review.ts';
+import type { git as gitCall } from '../lib/bridge.ts';
+import type { BranchReview, ConflictHunk, ConflictReview, FileDiff } from '../../shared/git-types.ts';
+import type { PullRequest } from '../../shared/github-types.ts';
+
+type BranchFile = BranchReview['files'][number];
+type ConflictFile = ConflictReview['files'][number];
+/** A file's card in the stacked view, with the file and the tip it diffs from. */
+type FileBlock = HTMLElement & { file?: BranchFile; since?: string | null };
+export interface ReviewViewOptions {
+  lane: { key: string; name: string; rev: string | null }; base: string | null; fallback?: string | null; root: string;
+  git: typeof gitCall; store: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>; onClose(): void; onMerge?: (() => void) | null;
+  pr?: (PullRequest & { remote?: string | null }) | null; onPrAction?(id: string): void; prWhy?(id: string): string | null;
+  header?: Child; embedded?: boolean; onKey?: ((id: string) => boolean | undefined) | null; checkConflicts?: boolean;
+  onConflicts?(files: ConflictFile[]): void; onReview?: ((review: BranchReview) => void) | null;
+  onCommit?: ((sha: string, mark: (sha: string | null) => void) => void) | null;
+}
+export interface ReviewView { el: HTMLElement; refresh(): void; showConflicts(): void; hasFile(path: string): boolean; goToLine(path: string, line: number): Promise<boolean>; setDraft(draft: boolean): void }
 
 // Review a branch: its whole change against the base (from the merge-base, as a pull request
 // shows it), one file at a time, with a "reviewed" tick per file (review.js has the rules).
@@ -38,28 +56,28 @@ import { fileCard, foldShut, commitLines, markCommit } from './reader.ts';
 // files column (reader.js commitLines); in Review's pane (stacked) they're the evidence strip's
 // Commits tab, so onReview(review) hands them over. onCommit(sha, mark) opens a commit beside the
 // diff (app.js) and calls mark(sha or null) as it opens and closes.
-export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {}, onReview = null, onCommit = null }) {
+export function reviewView({ lane, base, fallback = null, root, git, store, onClose, onMerge = null, pr = null, onPrAction = () => {}, prWhy = () => null, header = null, embedded = false, onKey = null, checkConflicts = false, onConflicts = () => {}, onReview = null, onCommit = null }: ReviewViewOptions): ReviewView {
   const key = storeKey(root, lane.key);
-  let review = null;
+  let review: BranchReview | null = null;
   let saved = readTicks(store, key);
-  let states = new Map();
-  let current = null;
+  let states = new Map<string, FileState>();
+  let current: string | null = null;
   let delta = false;
   let full = false;
   let seq = 0;
   let timer = 0;
-  let conflicts = null; // [{ path, hunks, inBase, inHead }] once read (checkConflicts)
+  let conflicts: ConflictFile[] | null = null; // once read (checkConflicts)
   let onConflict = false; // `current` is its Conflicting entry, not its Changed one
   let jump = false; // showConflicts() before the conflicts were read
-  let conflictsAt = null;
+  let conflictsAt: string | null = null;
   let allCommits = false; // Show all pressed
-  let openCommit = null; // the commit open beside the diff
+  let openCommit: string | null = null; // the commit open beside the diff
 
   const stacked = Boolean(header); // per-file blocks instead of a files column (AK-373)
-  const diffs = new Map(); // stacked: `${path}@${tip}@${since}` → diff, so re-renders keep their height
-  const folds = new Map(); // stacked: path → folded, set by hand; otherwise reviewed files are folded
-  const fulls = new Set(); // stacked: files showing every line (Show all)
-  let observer = null;
+  const diffs = new Map<string, FileDiff | null>(); // stacked: `${path}@${tip}@${since}` → diff, so re-renders keep their height
+  const folds = new Map<string, boolean>(); // stacked: path → folded, set by hand; otherwise reviewed files are folded
+  const fulls = new Set<string>(); // stacked: files showing every line (Show all)
+  let observer: IntersectionObserver | null = null;
   const meta = h('div.quick-meta');
   const deltaBtn = h('button.chip', { title: 'Only files changed since you last looked (D)', onclick: () => toggleDelta() }, 'Changed since last look');
   const listEl = h('div.file-list.review-list', { role: 'listbox', 'aria-label': 'Files' });
@@ -69,8 +87,8 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   // Draft ↔ ready (AK-610): the switch that applies; onPrAction('draft') flips it on GitHub, then
   // setDraft(draft) relabels it. None once the PR is closed or merged.
   const draftChip = pr && draftSwitch(pr, null) ? h('button.chip', { onclick: () => onPrAction('draft') }) : null;
-  const setDraft = (draft) => {
-    const d = draftChip && draftSwitch({ ...pr, draft }, null);
+  const setDraft = (draft: boolean) => {
+    const d = draftChip && pr && draftSwitch({ ...pr, draft }, null);
     if (!d) return;
     draftChip.classList.toggle('gated', Boolean(prWhy('draft')));
     draftChip.title = prWhy('draft') || 'Happens on GitHub: ⌘Z can’t undo it';
@@ -79,12 +97,12 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   setDraft(Boolean(pr?.draft));
   const side = h('div.quick-side.review-side', null,
     header ? null : h('div.quick-head', null,
-      embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...keymap.keys('review.close'))),
+      embedded ? null : h('button.btn.ghost.small', { onclick: onClose }, icon('chevron', 12), 'Back', kbd(...(keymap.keys('review.close') ?? []))),
       h('div.quick-title', { title: lane.name }, icon(pr ? 'merge' : 'branch', 14), ' ', lane.name),
       pr ? h('div.quick-meta.review-pr', null, [pr.author ? `by ${pr.authorName || pr.author}` : null, `${pr.branch} → ${pr.base}`, prStatusLine(pr) || null].filter(Boolean).join(' · ')) : null,
       meta,
       h('div.review-tools', null, deltaBtn, !pr && onMerge ? h('button.chip', { title: 'Merge and tidy (M)', onclick: () => onMerge() }, 'Merge and tidy…') : null),
-      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...keymap.keys(a.key)))), draftChip) : null),
+      pr ? h('div.review-tools.review-pr-actions', null, PR_ACTIONS.map((a) => h('button.chip' + (a.danger ? '.danger' : '') + (prWhy(a.id) ? '.gated' : ''), { title: prWhy(a.id) || (a.id === 'checkout' ? 'Check out in a new worktree (undoable)' : 'Happens on GitHub: ⌘Z can’t undo it'), onclick: () => onPrAction(a.id) }, icon(a.icon, 12), a.label, kbd(...(keymap.keys(a.key) ?? [])))), draftChip) : null),
     commitsEl,
     listEl,
   );
@@ -110,7 +128,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       ...(header && pr ? [] : [h('span', null, `against ${/^[0-9a-f]{40}$/.test(review.base) ? review.base.slice(0, 7) : review.base}`), ' · ']),
       h('span.review-progress' + (done === review.files.length && done ? '.done' : ''), null, `${done} / ${review.files.length} reviewed`),
       changed ? h('span.review-changed', null, ` · ${changed} changed since you last looked`) : null,
-    ].filter(Boolean));
+    ].filter((x) => x !== null));
     deltaBtn.classList.toggle('on', delta);
     deltaBtn.disabled = !changed && !delta;
   }
@@ -118,15 +136,15 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
   // The branch's commits above the files column.
   function commitsBlock() {
     const list = review?.commits;
-    if (!list?.length) return null;
+    if (!review || !list?.length) return null;
     const count = Math.max(review.commitCount || 0, list.length);
-    const mark = (sha) => { openCommit = sha; markCommit(commitsEl, sha); };
+    const mark = (sha: string | null) => { openCommit = sha; markCommit(commitsEl, sha); };
     return h('section.review-commits', { 'aria-label': 'Commits' },
       h('div.lanes-group.review-files-group', null, 'Commits', h('span.review-files-n', null, String(count))),
       ...commitLines({ list, count, selected: openCommit, onOpen: onCommit ? (sha) => onCommit(sha, mark) : null }, allCommits, () => { allCommits = true; renderList(); }));
   }
 
-  function row(f) {
+  function row(f: BranchFile) {
     const st = states.get(f.path)?.state;
     const [name, dir] = fileName(f.path);
     const on = f.path === current && !onConflict;
@@ -143,7 +161,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     );
   }
 
-  function conflictRow(f) {
+  function conflictRow(f: ConflictFile) {
     const on = f.path === current && onConflict;
     const [name, dir] = fileName(f.path);
     return h('div.file-row.review-row.review-conflict-row' + (on ? '.active' : ''), {
@@ -163,8 +181,8 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     const cs = conflicting();
     const list = entries();
     if (!list.some((e) => e.path === current && e.c === onConflict)) { current = list[0]?.path || null; onConflict = Boolean(list[0]?.c); }
-    const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
-    if (!stacked) commitsEl.replaceChildren(...[commitsBlock()].filter(Boolean));
+    const group = (label: string, n: number, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
+    if (!stacked) commitsEl.replaceChildren(...[commitsBlock()].filter((x) => x !== null));
     listEl.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictRow), group('Changed', files.length)] : []), ...files.map(row));
     if (!files.length) listEl.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     renderMeta();
@@ -172,23 +190,23 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
 
   // A conflicting file: each hunk's base side next to the branch's side, between a few lines of
   // context, with the markers git would write (conflict editor styles, cf-*).
-  function renderConflict(f) {
+  function renderConflict(f: ConflictFile) {
     ++seq;
     const headName = pr ? `#${pr.number}` : lane.rev;
     main.replaceChildren(
       h('div.diff-head', null, h('span.badge.warn', null, 'Conflict'), h('span.mono', null, f.path), h('span.spacer'),
-        h('span.muted', null, `${review.base || 'base'} ← ${headName}`)),
+        h('span.muted', null, `${review?.base || 'base'} ← ${headName}`)),
       h('div.diff-scroll', null, conflictBody(f)),
     );
   }
-  function conflictBody(f) {
-    const baseName = review.base || 'base';
+  function conflictBody(f: ConflictFile) {
+    const baseName = review?.base || 'base';
     const headName = pr ? `#${pr.number}` : lane.rev;
-    const text = (cls) => (l) => h('div.cf-line' + cls, null, l || ' ');
-    const marker = (m) => h('div.cf-line.cf-marker', null, m);
-    const side = (cls, name, list, open, close) => h('div.cf-col' + cls, null,
+    const text = (cls: string) => (l: string) => h('div.cf-line' + cls, null, l || ' ');
+    const marker = (m: string) => h('div.cf-line.cf-marker', null, m);
+    const side = (cls: string, name: string | null, list: string[], open: string, close: string | null) => h('div.cf-col' + cls, null,
       h('div.cf-col-head', null, name), marker(open), ...(list.length ? list.map(text('')) : [h('div.cf-none', null, 'Nothing on this side')]), close ? marker(close) : null);
-    const hunk = (k, i) => h('div.cf-block', null,
+    const hunk = (k: ConflictHunk, i: number) => h('div.cf-block', null,
       h('div.cf-block-head', null, h('span.cf-title', null, `Conflict ${i + 1} of ${f.hunks.length}`), h('span.muted.small', null, `line ${k.line}`)),
       ...k.before.map(text('.ctx')),
       h('div.cf-cols', null, side('.cf-ours', baseName, k.base, `<<<<<<< ${baseName}`, '======='), side('.cf-theirs', headName, k.head, '=======', `>>>>>>> ${headName}`)),
@@ -206,16 +224,16 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     const y = el.scrollTop;
     observer?.disconnect();
     observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver((xs) => {
-      for (const x of xs) if (x.isIntersecting) { observer.unobserve(x.target); fill(x.target); }
+      for (const x of xs) if (x.isIntersecting) { observer?.unobserve(x.target); fill(x.target as FileBlock); }
     }, { root: el, rootMargin: '800px 0px' }) : null;
-    const group = (label, n, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
-    stack.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock), group('Changed', files.length)] : []), ...files.map(fileBlock));
-    if (!files.length) stack.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
+    const group = (label: string, n: number, cls = '') => h('div.lanes-group.review-files-group' + cls, { role: 'presentation' }, label, h('span.review-files-n', null, String(n)));
+    stack?.replaceChildren(...(cs.length ? [group('Conflicting', cs.length, '.conflicting'), ...cs.map(conflictBlock), group('Changed', files.length)] : []), ...files.map(fileBlock));
+    if (!files.length) stack?.append(h('div.empty', null, delta ? 'Nothing changed since you last looked.' : 'No changes against the base.'));
     el.scrollTop = y;
     renderMeta();
   }
 
-  function conflictBlock(f) {
+  function conflictBlock(f: ConflictFile) {
     const on = f.path === current && onConflict;
     const headName = pr ? `#${pr.number}` : lane.rev;
     return h('section.review-file.conflict' + (on ? '.active' : ''), { role: 'listitem', 'data-path': f.path, 'data-conflict': '1', 'aria-label': `${f.path}, conflicts` },
@@ -228,14 +246,14 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
       h('div.review-file-body', null, conflictBody(f)));
   }
 
-  function fileBlock(f) {
+  function fileBlock(f: BranchFile): FileBlock {
     const st = states.get(f.path);
     const reviewed = st?.state === 'reviewed';
     const folded = folds.has(f.path) ? folds.get(f.path) : reviewed;
     const on = f.path === current && !onConflict;
     const since = delta && st?.state === 'changed' ? st.since : null;
     // The shared file card (reader.js), with the status letter, Changed and "since abc1234".
-    const block = fileCard({
+    const block: FileBlock = fileCard({
       path: f.path, shown: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path, add: f.add || 0, del: f.del || 0, cls: on ? '.active' : '',
       checked: reviewed, checkLabel: `Reviewed ${f.path}`, checkTip: reviewed ? 'Reviewed (V to undo)' : 'Mark reviewed (V)',
       onCheck: () => { select(f.path, false); tick(f.path); },
@@ -247,51 +265,54 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     block.since = since;
     if (!folded) {
       const id = diffId(f, since);
-      if (diffs.has(id)) showDiff(block, diffs.get(id));
+      if (diffs.has(id)) showDiff(block, diffs.get(id) ?? null);
       else if (observer) observer.observe(block);
       else fill(block);
     }
     return block;
   }
-  const diffId = (f, since) => `${f.path}@${review?.tip}@${since || ''}`;
-  function showDiff(block, d) {
+  const diffId = (f: BranchFile, since: string | null | undefined) => `${f.path}@${review?.tip}@${since || ''}`;
+  function showDiff(block: FileBlock, d: FileDiff | null | undefined) {
     const f = block.file;
-    block.lastChild.replaceChildren(d ? renderDiff(d, { full: fulls.has(f.path), onShowAll: () => { fulls.add(f.path); showDiff(block, d); } }) : h('div.empty', null, 'No content changes'));
+    if (!f) return;
+    block.lastElementChild?.replaceChildren(d ? renderDiff(d, { full: fulls.has(f.path), onShowAll: () => { fulls.add(f.path); showDiff(block, d); } }) : h('div.empty', null, 'No content changes'));
   }
   // A block's diff, once it comes near the view; the same call the files column makes.
-  async function fill(block) {
+  async function fill(block: FileBlock) {
     const f = block.file;
+    const r = review;
+    if (!f || !r) return;
     const since = block.since;
     const id = diffId(f, since);
-    if (diffs.has(id)) return showDiff(block, diffs.get(id));
-    block.lastChild.replaceChildren(loading('Loading diff…'));
+    if (diffs.has(id)) return showDiff(block, diffs.get(id) ?? null);
+    block.lastElementChild?.replaceChildren(loading('Loading diff…'));
     try {
-      const d = await (since ? git('commitFileDiff', review.tip, { path: f.path }, since) : git('commitFileDiff', review.tip, fileRef(f), review.mergeBase));
+      const d = await (since ? git('commitFileDiff', r.tip, { path: f.path }, since) : git('commitFileDiff', r.tip, fileRef(f), r.mergeBase));
       diffs.set(id, d);
       if (block.isConnected) showDiff(block, d);
     } catch (e) {
-      if (block.isConnected) block.lastChild.replaceChildren(h('div.empty', null, since ? 'The version you reviewed is gone (garbage-collected or never fetched here).' : 'Couldn’t load the diff', h('div.muted.small', null, e.message)));
+      if (block.isConnected) block.lastElementChild?.replaceChildren(h('div.empty', null, since ? 'The version you reviewed is gone (garbage-collected or never fetched here).' : 'Couldn’t load the diff', h('div.muted.small', null, (e as Error).message)));
     }
   }
   // One file's block again, in place (after a tick or a fold), so the rest keeps its scroll.
-  function reblock(path) {
-    const old = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+  function reblock(path: string): FileBlock | null {
+    const old = stack?.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
     const f = review?.files.find((x) => x.path === path);
     if (!old || !f) return null;
     const block = fileBlock(f);
     old.replaceWith(block);
     return block;
   }
-  function fold(path) {
+  function fold(path: string) {
     const f = review?.files.find((x) => x.path === path);
     if (!f) return;
     const now = folds.has(path) ? folds.get(path) : states.get(path)?.state === 'reviewed';
     folds.set(path, !now);
     reblock(path);
     // Folding a file whose header was stuck at the top: bring its header back into view.
-    const b = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+    const b = stack?.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
     if (b && b.getBoundingClientRect().top < el.getBoundingClientRect().top) b.scrollIntoView({ block: 'start' });
-    b?.querySelector('.review-file-fold')?.focus({ preventScroll: true });
+    b?.querySelector<HTMLElement>('.review-file-fold')?.focus({ preventScroll: true });
   }
 
   async function renderFile() {
@@ -300,38 +321,38 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     if (c) return renderConflict(c);
     const f = review?.files.find((x) => x.path === current);
     const n = ++seq;
-    if (!f) { main.replaceChildren(h('div.empty', null, review ? 'Pick a file' : '')); return; }
+    if (!f || !review) { main.replaceChildren(h('div.empty', null, review ? 'Pick a file' : '')); return; }
     const st = states.get(f.path);
     const since = delta && st?.state === 'changed' ? st.since : null;
     main.replaceChildren(loading('Loading diff…'));
     // A delta diffs the file from the tip it was ticked at; the whole review from the merge-base.
     const d = await (since ? git('commitFileDiff', review.tip, { path: f.path }, since) : git('commitFileDiff', review.tip, fileRef(f), review.mergeBase))
-      .catch((e) => { if (n === seq) main.replaceChildren(h('div.empty', null, since ? 'The version you reviewed is gone (garbage-collected or never fetched here).' : 'Couldn’t load the diff', h('div.muted.small', null, e.message))); return undefined; });
+      .catch((e: Error) => { if (n === seq) main.replaceChildren(h('div.empty', null, since ? 'The version you reviewed is gone (garbage-collected or never fetched here).' : 'Couldn’t load the diff', h('div.muted.small', null, e.message))); return undefined; });
     if (n !== seq || d === undefined) return;
     main.replaceChildren(
       h('div.diff-head', null, statusBadge(f.status), h('span.mono', null, f.oldPath ? `${f.oldPath} → ${f.path}` : f.path),
         since ? h('span.muted', null, `since ${since.slice(0, 7)}`) : null,
         h('span.spacer'),
-        h('button.btn.ghost.small', { onclick: () => tick(f.path) }, st?.state === 'reviewed' ? 'Mark not reviewed' : 'Mark reviewed', kbd(...keymap.keys('review.tick')))),
+        h('button.btn.ghost.small', { onclick: () => tick(f.path) }, st?.state === 'reviewed' ? 'Mark not reviewed' : 'Mark reviewed', kbd(...(keymap.keys('review.tick') ?? [])))),
       h('div.diff-scroll', null, d ? renderDiff(d, { full, onShowAll: () => { full = true; renderFile(); } }) : h('div.empty', null, 'No content changes')),
     );
   }
 
-  function select(path, scroll = true, conflict = false) {
+  function select(path: string | null, scroll = true, conflict = false) {
     if (path === current && conflict === onConflict) return;
     current = path;
     onConflict = conflict;
     full = false;
     if (stacked) {
-      stack.querySelectorAll('.review-file').forEach((b) => b.classList.toggle('active', b.dataset.path === path && (b.dataset.conflict === '1') === conflict));
-      if (scroll) stack.querySelector('.review-file.active')?.scrollIntoView({ block: 'start' });
+      stack?.querySelectorAll<HTMLElement>('.review-file').forEach((b) => b.classList.toggle('active', b.dataset.path === path && (b.dataset.conflict === '1') === conflict));
+      if (scroll) stack?.querySelector('.review-file.active')?.scrollIntoView({ block: 'start' });
       return;
     }
-    listEl.querySelectorAll('.review-row').forEach((r) => { const on = r.dataset.path === path && (r.dataset.conflict === '1') === conflict; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
+    listEl.querySelectorAll<HTMLElement>('.review-row').forEach((r) => { const on = r.dataset.path === path && (r.dataset.conflict === '1') === conflict; r.classList.toggle('active', on); r.setAttribute('aria-selected', String(on)); });
     if (scroll) listEl.querySelector('.review-row.active')?.scrollIntoView({ block: 'nearest' });
     return renderFile();
   }
-  function move(d) {
+  function move(d: number) {
     const list = entries();
     const i = list.findIndex((e) => e.path === current && e.c === onConflict);
     const e = list[Math.max(0, Math.min(list.length - 1, i + d))];
@@ -340,6 +361,7 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
 
   // Reads the conflicts against the base once per base and tip (AK-305).
   async function loadConflicts() {
+    if (!review) return;
     const at = `${review.baseSha} ${review.tip}`;
     if (!checkConflicts || conflictsAt === at) return;
     conflictsAt = at;
@@ -354,18 +376,18 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
 
   // Go to line (AK-530): an annotation's or a review thread's line in the file's diff, centred and
   // flashed; the nearest shown line when that one isn't in a hunk. False when the file isn't here.
-  const hasFile = (path) => Boolean(review?.files.some((f) => f.path === path));
-  async function goToLine(path, line) {
+  const hasFile = (path: string) => Boolean(review?.files.some((f) => f.path === path));
+  async function goToLine(path: string, line: number): Promise<boolean> {
     if (!hasFile(path)) return false;
     if (delta) { delta = false; renderList(); }
-    let box;
+    let box: FileBlock | null | undefined;
     if (stacked) {
       if (folds.has(path) ? folds.get(path) : states.get(path)?.state === 'reviewed') fold(path);
       select(path, false);
-      box = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+      box = stack?.querySelector<FileBlock>(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
       if (!box) return false;
       if (!box.querySelector('.diff')) await fill(box);
-      if (!fulls.has(path) && box.querySelector('.diff-more')) { fulls.add(path); showDiff(box, diffs.get(diffId(box.file, box.since))); }
+      if (!fulls.has(path) && box.querySelector('.diff-more') && box.file) { fulls.add(path); showDiff(box, diffs.get(diffId(box.file, box.since))); }
     } else {
       if (current !== path || onConflict) await select(path, true);
       else if (!main.querySelector('.diff')) await renderFile();
@@ -387,14 +409,14 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     jump = false;
     if (delta) { delta = false; renderList(); renderFile(); }
     if (!conflicts.length) return;
-    select(conflicts[0].path, false, true);
-    listRoot.querySelector('.review-files-group.conflicting')?.scrollIntoView({ block: 'start' });
+    select(conflicts[0]!.path, false, true);
+    listRoot?.querySelector('.review-files-group.conflicting')?.scrollIntoView({ block: 'start' });
   }
 
-  function computeStates() { states = new Map(fileStates(saved, review).map((s) => [s.path, s])); }
+  function computeStates() { if (review) states = new Map(fileStates(saved, review).map((s) => [s.path, s])); }
 
   // Ticking moves on to the next file still to review, the way you read a pull request.
-  function tick(path) {
+  function tick(path: string | null) {
     if (!review || !path) return;
     saved = toggleTick(saved, review, path);
     writeTicks(store, key, saved);
@@ -402,16 +424,16 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     computeStates();
     const files = shown();
     const i = files.findIndex((f) => f.path === path);
-    const next = ticked ? files.slice(i + 1).find((f) => states.get(f.path).state !== 'reviewed') : null;
+    const next = ticked ? files.slice(i + 1).find((f) => states.get(f.path)?.state !== 'reviewed') : null;
     const was = current;
     if (stacked) {
       // Ticking folds the file's code; unticking shows it again. Delta mode drops it from the list.
       // The ticked header stays put and the next file comes up under it (AK-523), so V reads on.
-      const card = stack.querySelector(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
-      const shut = ticked && !delta && card && !card.classList.contains('folded');
+      const card = stack?.querySelector<HTMLElement>(`.review-file:not(.conflict)[data-path="${CSS.escape(path)}"]`);
+      const shut = Boolean(ticked && !delta && card && !card.classList.contains('folded'));
       // A file already folded by hand swaps in place too (AK-524): no scroll to the next file.
-      const inPlace = ticked && !delta && card && !shut;
-      const nudge = () => stack.querySelector('.review-file.active > .review-file-head')?.scrollIntoView({ block: 'nearest' });
+      const inPlace = Boolean(ticked && !delta && card && !shut);
+      const nudge = () => stack?.querySelector('.review-file.active > .review-file-head')?.scrollIntoView({ block: 'nearest' });
       folds.delete(path);
       if (delta) renderStack(); else { if (!shut) reblock(path)?.classList.toggle('just-ticked', inPlace); renderMeta(); }
       if (!next || next.path === current) { if (shut) foldShut(card, el, () => reblock(path)); return; }
@@ -437,11 +459,11 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     renderFile();
   }
 
-  async function load() {
-    let r;
+  async function load(): Promise<void> {
+    let r: BranchReview;
     try { r = await git('branchReview', lane.rev, base || undefined); } catch (e) {
       if (fallback) { base = fallback; fallback = null; return load(); } // the stacked PR's base isn't fetched here
-      if (!review) (stacked ? stack : main).replaceChildren(h('div.empty', null, 'Couldn’t review this branch', h('div.muted.small', null, e.message)));
+      if (!review) (stack ?? main).replaceChildren(h('div.empty', null, 'Couldn’t review this branch', h('div.muted.small', null, (e as Error).message)));
       return;
     }
     if (!el.isConnected) return;
@@ -469,13 +491,13 @@ export function reviewView({ lane, base, fallback = null, root, git, store, onCl
     }
     const id = keymap.match('review', e);
     // ↵ on a focused button (a file's chevron or tick) presses it rather than running the pane's ↵.
-    if (id === 'review.checkout' && e.target !== el && e.target.closest?.('button')) return;
+    if (id === 'review.checkout' && e.target !== el && (e.target as Element | null)?.closest?.('button')) return;
     if (id && onKey?.(id)) { e.preventDefault(); e.stopPropagation(); return; }
     if (!id || (!pr && prActionFor(id) && id !== 'review.merge')) return;
     e.preventDefault();
     e.stopPropagation();
     if (id === 'review.close') onClose();
-    else if (pr && prActionFor(id)) onPrAction(prActionFor(id));
+    else if (pr && prActionFor(id)) onPrAction(prActionFor(id) ?? '');
     else if (id === 'review.merge' && onMerge) onMerge();
     else if (id === 'review.next') move(1);
     else if (id === 'review.prev') move(-1);

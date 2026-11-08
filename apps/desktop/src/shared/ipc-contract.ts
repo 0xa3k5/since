@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -55,6 +55,10 @@ export interface GitResults {
   /** The commits on the base that touched each file. */
   baseTouches: Record<string, BaseTouch[]>;
   combinedDiff: CombinedDiff;
+  /** One file's diff in a commit, or between two commits; null when its content didn't change. */
+  commitFileDiff: FileDiff | null;
+  /** What would conflict merging the second commit into the first (git merge-tree, read-only). */
+  mergeConflicts: ConflictReview;
   fileHistory: FileHistoryPage;
   /** A commit's diff against its first parent, one entry per file. */
   commitDiffs: (FileDiff & { path: string })[];
