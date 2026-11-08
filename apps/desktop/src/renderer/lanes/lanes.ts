@@ -11,7 +11,7 @@ export interface LaneConflict { with: string; base: boolean; key: string | null;
 export type ViewLane = Lane & { pr?: PullRequest | null; conflicts?: LaneConflict[] | null; bucket?: BucketId; prTitle?: string | null };
 /** What laneKey needs: a branch, else a worktree path, else the name. */
 type Keyed = { branch?: string | null; worktree?: { path: string } | null; name: string };
-type ActionId = 'rebase' | 'review' | 'delete' | 'checks' | 'merge' | 'open' | 'discard' | 'cleanup';
+export type ActionId = 'rebase' | 'review' | 'delete' | 'checks' | 'merge' | 'open' | 'discard' | 'cleanup';
 
 const HOUR = 3600e3;
 // Uncommitted changes nobody has touched for this long count as stalled work.

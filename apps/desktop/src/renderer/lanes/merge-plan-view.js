@@ -19,7 +19,7 @@ import { h, icon, kbd, toast, contextMenu, tipFor, resolveSheet } from '../lib/u
 import * as keymap from '../palette/keymap.ts';
 import { METHODS, METHOD_NAMES, statusText, forcedText, warningText, startMethod, mergeLabel, unitLabel, rangeLabel, blockerText, mainBlocker, ownBlockers, anywayOnly, groupNeeds, groupChecks, cleanTitle } from './merge-plan.ts';
 import { buildPrompt } from './send-back.ts';
-import { openStackLink } from './stack-link-view.js';
+import { openStackLink } from './stack-link-view.ts';
 import { stackTitle } from '../review/review-rows.js';
 
 // ready / others: inbox PRs ({ number, title, head }) in Review's order; known: every inbox PR

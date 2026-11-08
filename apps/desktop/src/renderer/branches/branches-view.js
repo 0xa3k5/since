@@ -3,7 +3,7 @@ import { ACTIONS, sortLanes, laneKey, laneTitle, keepPrs, loadGuard, conflictsBy
 import { cleanupPanel } from './cleanup-view.js';
 import { authorsOf } from '../review/review-rows.js';
 import { BRANCH_TABS, branchTabs, branchLine, branchDot, filterBranches, isFinished } from './branches.ts';
-import { branchPreview, laneBadges } from './branch-preview.js';
+import { branchPreview, laneBadges } from './branch-preview.ts';
 import { authorsStack } from '../review/reader.js';
 import * as keymap from '../palette/keymap.ts';
 

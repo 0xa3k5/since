@@ -13,7 +13,7 @@ import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.t
 import { reviewPane } from '../review/review-pane.js';
 import { openSendBack } from './send-back-view.js';
 import { openMergePlan } from './merge-plan-view.js';
-import { openStackLink } from './stack-link-view.js';
+import { openStackLink } from './stack-link-view.ts';
 import { loadPrReview, leavesPage } from '../prs/pr-review.ts';
 import { storeKey, readTicks, progress as reviewProgress } from '../review/review.ts';
 import { pageOf } from '../shell/sidebar.ts';

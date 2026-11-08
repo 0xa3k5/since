@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, Divergence, FileDiff, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, BranchReview, Divergence, FileDiff, GitInfo, Stash } from './git-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
 /** A window's tab as its tab strip shows it. */
@@ -49,6 +49,7 @@ export interface GitResults {
   divergence: Divergence;
   /** The diff between two commits, one entry per file. */
   compare: FileDiff[];
+  branchReview: BranchReview;
   /** The label of the step undone or redone; null when there was none. */
   undo: string | null;
   redo: string | null;
@@ -83,6 +84,9 @@ export interface AppResults {
   'ai-generate': IpcResult<string>;
   /** The PR's head, fetched into FETCH_HEAD, and the base to diff against. */
   'pr-review-head': IpcResult<{ sha: string; base: string | null }>;
+  'pr-stack-install': IpcResult<unknown>;
+  /** `failed`: the PR GitHub refused and why; then nothing was linked. */
+  'pr-stack-link': IpcResult<{ failed?: { number: number; reason: string } | null }>;
 }
 export type AppResult<C extends AppChannel> = C extends keyof AppResults ? AppResults[C] : unknown;
 

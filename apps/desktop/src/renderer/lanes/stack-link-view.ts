@@ -6,35 +6,48 @@
 // be unlinked, so it always asks first. Used from Merge plan's Pick step and ⌘K.
 import { h, icon, kbd, toast } from '../lib/ui.ts';
 import * as keymap from '../palette/keymap.ts';
+import type { SinceBridge } from '../../shared/ipc-contract.ts';
+
+export interface StackLinkOptions {
+  /** The chain's PRs, bottom to top. */
+  chain: { prs: number[] };
+  prs?: Map<number, { title?: string; branch?: string }>;
+  base: string; remote: string;
+  /** gh-stack is installed. */
+  extension?: boolean;
+  call: SinceBridge['app'];
+  onLinked?: () => void;
+}
+type Phase = 'install' | 'installing' | 'confirm' | 'linking' | 'linked';
 
 const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
 
 // chain: { prs: [bottom…top] }; prs: Map number → { title, branch }; base / remote: the chain's;
 // extension: gh-stack installed; call: api.app; onLinked() once the stack exists.
 let open = false;
-export function openStackLink({ chain, prs = new Map(), base, remote, extension = true, call, onLinked = () => {} }) {
+export function openStackLink({ chain, prs = new Map(), base, remote, extension = true, call, onLinked = () => {} }: StackLinkOptions): void {
   if (open) return;
   open = true;
   const nums = chain.prs;
-  let phase = extension ? 'confirm' : 'install'; // install | installing | confirm | linking | linked
-  let failed = null; // { number, reason } from the last try
+  let phase: Phase = extension ? 'confirm' : 'install';
+  let failed: { number: number; reason: string } | null = null; // from the last try
   let error = '';
-  const marks = new Map(); // number → busy | ok
+  const marks = new Map<number, 'busy' | 'ok'>();
 
   const title = h('div.dialog-title');
   const body = h('div.dialog-body.stacklink');
   const primary = h('button.btn.primary', { type: 'submit' });
-  const cancel = h('button.btn.ghost', { type: 'button', onclick: () => close() }, 'Cancel', kbd(...keymap.keys('dialog.cancel')));
+  const cancel = h('button.btn.ghost', { type: 'button', onclick: () => close() }, 'Cancel', kbd(...(keymap.keys('dialog.cancel') ?? [])));
   const form = h('form.dialog.stacklink-sheet', { onsubmit: (e) => { e.preventDefault(); next(); } },
     h('div.dialog-head', null, title), body, h('div.dialog-foot', null, cancel, h('span.spacer'), primary));
-  const prev = document.activeElement;
-  const overlay = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, form);
+  const prev = document.activeElement as HTMLElement | null;
+  const overlay: HTMLElement = h('div.overlay', { onmousedown: (e) => { if (e.target === overlay) close(); } }, form);
   overlay.addEventListener('keydown', (e) => { if (keymap.match('dialog', e) === 'dialog.cancel') { e.stopPropagation(); close(); } });
   document.body.append(overlay);
   requestAnimationFrame(() => overlay.classList.add('in'));
 
-  function row(n, i) {
+  function row(n: number, i: number) {
     const p = prs.get(n) || {};
     const fail = failed?.number === n;
     const m = fail ? 'fail' : marks.get(n);
@@ -43,7 +56,7 @@ export function openStackLink({ chain, prs = new Map(), base, remote, extension 
       h('span.stacklink-i', null, lead),
       h('span.stacklink-t', null, h('b', null, `#${n}`), ` ${p.title || ''}`),
       p.branch ? h('span.stacklink-b', null, p.branch) : null,
-      fail ? h('span.stacklink-reason', null, failed.reason) : null);
+      fail && failed ? h('span.stacklink-reason', null, failed.reason) : null);
   }
 
   function render() {
@@ -76,7 +89,7 @@ export function openStackLink({ chain, prs = new Map(), base, remote, extension 
   async function install() {
     phase = 'installing'; error = '';
     render();
-    const res = await call('pr-stack-install', remote).catch((e) => ({ error: { message: e.message } }));
+    const res = await call('pr-stack-install', remote).catch((e: Error) => ({ error: { message: e.message } }));
     if (!open) return;
     if (res?.error) { phase = 'install'; error = res.error.message; render(); return primary.focus(); }
     toast('Installed gh-stack');
@@ -89,7 +102,7 @@ export function openStackLink({ chain, prs = new Map(), base, remote, extension 
     phase = 'linking'; failed = null; error = ''; marks.clear();
     for (const n of nums) marks.set(n, 'busy');
     render();
-    const res = await call('pr-stack-link', remote, base, nums).catch((e) => ({ error: { message: e.message } }));
+    const res = await call('pr-stack-link', remote, base, nums).catch((e: Error) => ({ ok: undefined, error: { message: e.message } }));
     if (!open) return;
     const out = res?.ok;
     if (res?.error || out?.failed) {
