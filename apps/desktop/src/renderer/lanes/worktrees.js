@@ -11,7 +11,7 @@ import { landedEntries } from '../catchup/catchup.ts';
 import { STALE_DAYS, cleanupItem } from '../branches/cleanup.ts';
 import { laneTarget, laneKey, laneTitle, canRemove, switchAway } from './lanes.ts';
 import { reviewPane } from '../review/review-pane.js';
-import { openSendBack } from './send-back-view.js';
+import { openSendBack } from './send-back-view.ts';
 import { openMergePlan } from './merge-plan-view.js';
 import { openStackLink } from './stack-link-view.ts';
 import { loadPrReview, leavesPage } from '../prs/pr-review.ts';

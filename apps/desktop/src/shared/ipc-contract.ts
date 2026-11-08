@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, Blame, BranchReview, ChangeFacts, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -52,6 +52,8 @@ export interface GitResults {
   compare: FileDiff[];
   branchReview: BranchReview;
   changeFacts: ChangeFacts;
+  /** The commits on the base that touched each file. */
+  baseTouches: Record<string, BaseTouch[]>;
   fileHistory: FileHistoryPage;
   /** A commit's diff against its first parent, one entry per file. */
   commitDiffs: (FileDiff & { path: string })[];
@@ -75,6 +77,9 @@ export interface AiState {
   providers: { id: string; label: string; defaultModel?: string }[];
 }
 
+/** The Send back templates in effect: each one's text and where it comes from. */
+export type SendBackTemplates = Record<'conflict' | 'ci' | 'both', { text: string; from: 'repo' | 'default' | 'builtin' }>;
+
 /** What each app channel resolves to, for the channels the TypeScript renderer reads so far. The rest resolve to unknown. */
 export interface AppResults {
   'git-info': IpcResult<GitInfo | null>;
@@ -95,6 +100,11 @@ export interface AppResults {
   'pr-state': PrSettings;
   /** The file the shortcuts went to; null when the save dialog was cancelled. */
   'keymap-export': string | null;
+  'sendback-templates': SendBackTemplates;
+  'sendback-template-save': SendBackTemplates;
+  /** The last lines of the failed GitHub Actions log; null when there's none. */
+  'pr-failed-log': IpcResult<{ log: string | null }>;
+  'pr-comment': IpcResult<unknown>;
   /** `failed`: the PR GitHub refused and why; then nothing was linked. */
   'pr-stack-link': IpcResult<{ failed?: { number: number; reason: string } | null }>;
 }
