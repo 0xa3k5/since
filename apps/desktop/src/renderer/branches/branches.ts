@@ -3,10 +3,13 @@
 // conflict, Idle and Finished. The tabs come from the lane buckets (lanes.js laneBucket) and the
 // Clean up groups (cleanup.js): a finished lane is only ever in Finished.
 
-import { laneBucket, aheadBehind } from '../lanes/lanes.ts';
-import { cleanupGroup } from './cleanup.js';
+import { laneBucket, aheadBehind, type ViewLane } from '../lanes/lanes.ts';
+import { cleanupGroup } from './cleanup.ts';
 
-export const BRANCH_TABS = [
+export type TabId = 'active' | 'agents' | 'conflict' | 'idle' | 'finished';
+interface TabOptions { agents?: boolean; now?: number }
+
+export const BRANCH_TABS: { id: TabId; label: string; keyId: string }[] = [
   { id: 'active', label: 'Active', keyId: 'branches.tabActive' },
   { id: 'agents', label: 'Agent-made', keyId: 'branches.tabAgents' },
   { id: 'conflict', label: 'Would conflict', keyId: 'branches.tabConflict' },
@@ -16,16 +19,16 @@ export const BRANCH_TABS = [
 
 // Finished: merged, shipped, its remote branch deleted, or its folder missing (Clean up's groups,
 // without the opt-in "untouched" one). The base branch never is.
-export const isFinished = (lane) => Boolean(cleanupGroup(lane));
+export const isFinished = (lane: ViewLane): boolean => Boolean(cleanupGroup(lane));
 // Looks agent-made: the lane's own guess (branch prefix, trailers), or a bot opened its PR.
-const isAgent = (lane) => Boolean(lane.agent || lane.pr?.bot);
+const isAgent = (lane: ViewLane): boolean => Boolean(lane.agent || lane.pr?.bot);
 
 // Which tabs a lane is on. Active and Idle split the rest by the lane buckets; Agent-made and Would
 // conflict are views across them (a conflicting lane is still active). `agents`: marks are on.
-function laneTabs(lane, { agents = true, now = Date.now() } = {}) {
+function laneTabs(lane: ViewLane, { agents = true, now = Date.now() }: TabOptions = {}): TabId[] {
   if (isFinished(lane)) return ['finished'];
   const bucket = lane.bucket || laneBucket(lane, now);
-  const out = [bucket === 'idle' || bucket === 'merged' ? 'idle' : 'active'];
+  const out: TabId[] = [bucket === 'idle' || bucket === 'merged' ? 'idle' : 'active'];
   if (agents && isAgent(lane)) out.push('agents');
   if (lane.conflicts?.length) out.push('conflict');
   return out;
@@ -33,18 +36,18 @@ function laneTabs(lane, { agents = true, now = Date.now() } = {}) {
 
 // Lanes per tab: { active: [...], agents: [...], conflict: [...], idle: [...], finished: [...] },
 // each in the order given (sortLanes: the ones that need you first, then the newest).
-export function branchTabs(lanes, opts = {}) {
-  const out = Object.fromEntries(BRANCH_TABS.map((t) => [t.id, []]));
+export function branchTabs<L extends ViewLane>(lanes: readonly L[], opts: TabOptions = {}): Record<TabId, L[]> {
+  const out = Object.fromEntries(BRANCH_TABS.map((t) => [t.id, [] as L[]])) as Record<TabId, L[]>;
   for (const l of lanes) for (const t of laneTabs(l, opts)) out[t].push(l);
   return out;
 }
 
 const DAY = 24 * 3600e3;
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // The row's quiet line after who made it: "↑3 ↓0 · worktree · PR #162 open · 2 uncommitted", or for
 // an idle lane with nothing else to say, "no commits for 41 days".
-export function branchLine(lane, { now = Date.now() } = {}) {
+export function branchLine(lane: ViewLane, { now = Date.now() }: { now?: number } = {}): string {
   const ab = aheadBehind(lane);
   const parts = [
     lane.isBase ? 'base branch' : null,
@@ -60,15 +63,15 @@ export function branchLine(lane, { now = Date.now() } = {}) {
 
 // The row's dot: warn for a predicted conflict, red for failing CI, green for work in progress
 // here (this window, or uncommitted changes), else muted.
-export function branchDot(lane) {
+export function branchDot(lane: ViewLane): 'warn' | 'red' | 'green' | '' {
   if (lane.conflicts?.length) return 'warn';
   if (lane.pr?.checks === 'failure') return 'red';
-  if (lane.worktree?.current || lane.changes > 0) return 'green';
+  if (lane.worktree?.current || (lane.changes ?? 0) > 0) return 'green';
   return '';
 }
 
 // Filter as you type: every word in the branch name, title, worktree path or PR.
-export function filterBranches(lanes, query = '') {
+export function filterBranches<L extends ViewLane>(lanes: L[], query = ''): L[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return lanes;
   return lanes.filter((l) => {

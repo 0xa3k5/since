@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const load = () => import('../src/renderer/branches/branches.js');
+const load = () => import('../src/renderer/branches/branches.ts');
 const NOW = Date.UTC(2026, 9, 16, 12);
 const H = 3600e3;
 const DAY = 24 * H;
@@ -52,7 +52,7 @@ test('filter by branch, title, worktree or PR', async () => {
 });
 
 test('Finished (Clean up): cards in reading order, "Deleted on GitHub", untouched never ticked up front', async () => {
-  const { GROUPS, groupLanes, preselect } = await import('../src/renderer/branches/cleanup.js');
+  const { GROUPS, groupLanes, preselect } = await import('../src/renderer/branches/cleanup.ts');
   assert.deepEqual(GROUPS.map((g) => g.id), ['merged', 'mergedWorktree', 'missing', 'gone', 'old', 'dirty']);
   assert.equal(GROUPS.find((g) => g.id === 'gone').label, 'Deleted on GitHub');
   const groups = groupLanes([lane('old', { activity: NOW - 40 * DAY }), lane('shipped', { done: { reason: 'pr', pr: 9 } })], { days: 30, now: NOW });

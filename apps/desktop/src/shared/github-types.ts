@@ -19,6 +19,8 @@ export interface PullRequest {
   checks?: string | null;
   author?: string;
   authorName?: string;
+  /** The author is a bot. */
+  bot?: boolean;
   url?: string | null;
   updatedAt?: string;
   /** open | closed | merged, on a PR's own state. */

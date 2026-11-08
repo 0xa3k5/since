@@ -1,6 +1,6 @@
 import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor } from '../lib/ui.ts';
 import { laneKey } from '../lanes/lanes.ts';
-import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat } from './cleanup.js';
+import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat } from './cleanup.ts';
 import * as keymap from '../palette/keymap.ts';
 
 // Clean up, the Finished tab of Branches (AK-396): finished branches and worktrees (merged, shipped,
