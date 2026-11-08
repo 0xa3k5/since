@@ -292,7 +292,7 @@ test('the clean-up confirm names worktree-only items and leaves conflicts an abo
   assert.equal(cleanupWhat([{ worktree: { path: '/w' } }]), '1 worktree');
   assert.equal(cleanupWhat([{ branch: 'a' }, { branch: 'b' }]), '2 branches');
   assert.equal(cleanupWhat([{ branch: 'a' }, { worktree: { path: '/w' } }]), '1 branch and 1 worktree');
-  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/branches/cleanup-view.js'), 'utf8');
-  assert.match(src, /dirty\(l\) - \(ops\[k\] \? conflicted\[k\] : 0\)/);
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/branches/cleanup-view.ts'), 'utf8');
+  assert.match(src, /dirty\(l\) - \(ops\[k\] \? conflicted\[k\] \?\? 0 : 0\)/);
   assert.match(src, /title: `Clean up \$\{cleanupWhat\(lanesToGo\)\}\?`/);
 });

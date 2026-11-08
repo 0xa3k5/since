@@ -1,6 +1,26 @@
-import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor } from '../lib/ui.ts';
-import { laneKey } from '../lanes/lanes.ts';
-import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat } from './cleanup.ts';
+import { h, icon, kbd, timeAgo, fullDate, dialog, toast, tipFor, type Child, type Field } from '../lib/ui.ts';
+import { laneKey, type ViewLane } from '../lanes/lanes.ts';
+import { groupLanes, blocked, dirty, preselect, remoteOf, remoteWhere, reason, cleanupItem, summarize, plural, daysValue, cleanupWhat, type CleanupItem, type CleanupLane, type GROUPS } from './cleanup.ts';
+import type { CleanupResult } from '../../shared/git-types.ts';
+
+type Failure = { name: string; message: string };
+/** What git.cleanupLanes did, and the branches deleted on the remote or not. */
+type CleanupOutcome = CleanupResult & { remoteDeleted?: string[]; remoteFailed?: Failure[] };
+/** The operation stopped in an item's worktree ('rebase', …), with its conflicted files, or null. */
+type StoppedOp = string | { op: string; conflicts?: number } | null;
+export interface CleanupPanelOptions {
+  run(items: (CleanupItem & { stash?: true; abort?: true })[], label: string): Promise<CleanupResult>;
+  runRemote(names: string[]): Promise<{ deleted: string[]; failed: Failure[] }>;
+  stoppedOps?(items: CleanupItem[]): Promise<StoppedOp[]>;
+  days?: number; onDays?(n: number): void;
+  onProgress(fn: (p: { done: number; total: number }) => void): () => void;
+  onDone(): unknown; onUndo(): unknown; onBack(): void;
+}
+export interface CleanupPanel {
+  el: HTMLElement; keydown(e: KeyboardEvent): boolean;
+  update(lanes: ViewLane[], base: string | null): void; only(key: string): void;
+  busy(): boolean; go(): Promise<void>; tickAll(): void; toggleRemote(): void; count(): number;
+}
 import * as keymap from '../palette/keymap.ts';
 
 // Clean up, the Finished tab of Branches (AK-396): finished branches and worktrees (merged, shipped,
@@ -13,9 +33,9 @@ import * as keymap from '../palette/keymap.ts';
 // Keys (cleanup scope): ↑/↓ move between cards and rows, Space ticks, ↵ opens or closes a card, A ticks
 // everything safe, R toggles "Also delete them on GitHub", ⌘⌫ cleans up, Esc goes back to Active.
 
-const tildify = (p) => p.replace(/^\/Users\/[^/]+/, '~');
+const tildify = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
 const SHOWN = 50; // rows a card lists before "+ N more"
-const lower = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
+const lower = (s: string | null) => (s ? s[0]!.toLowerCase() + s.slice(1) : s);
 
 // run(items, label) and runRemote(names) call git; stoppedOps(items): per item, the operation stopped
 // in its worktree ('rebase', …, or { op, conflicts }) or null, listed in the confirmation with an abort tick; days: the "untouched for N days" card, set in
@@ -23,30 +43,31 @@ const lower = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
 // onProgress(fn) subscribes to progress and returns an unsubscribe; onDone() refreshes the app (and
 // with it the lanes); onUndo() undoes the last step; onBack() leaves the tab.
 // The panel doesn't load: Branches hands it the lanes (update(lanes, base)).
-export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack }) {
-  let lanes = [];
-  let groups = [];
-  let items = []; // the keyboard's stops: { kind: 'group', id } or { kind: 'lane', key }
-  let base = null;
+export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days = 30, onDays = () => {}, onProgress, onDone, onUndo, onBack }: CleanupPanelOptions): CleanupPanel {
+  let lanes: ViewLane[] = [];
+  let groups: ReturnType<typeof groupLanes> = [];
+  let items: string[] = []; // the keyboard's stops: 'g:<group>' or a laneKey
+  let base: string | null = null;
   let loaded = false;
   let busy = false;
-  let sel = null; // the selected stop's id ('g:<group>' or the laneKey)
-  let only = null; // a laneKey: tick just that one when the lanes next arrive
+  let sel: string | null = null; // the selected stop's id ('g:<group>' or the laneKey)
+  let only: string | null = null; // a laneKey: tick just that one when the lanes next arrive
   let alsoRemote = false;
-  const ticked = new Set();
-  const seen = new Set(); // lanes already offered, so a refresh doesn't re-tick what the user unticked
-  const open = new Set(['merged']); // cards that are open
-  const more = new Set(); // cards showing every row
+  const ticked = new Set<string>();
+  const seen = new Set<string>(); // lanes already offered, so a refresh doesn't re-tick what the user unticked
+  const open = new Set<string>(['merged']); // cards that are open
+  const more = new Set<string>(); // cards showing every row
 
   const verdict = h('div.cleanup-verdict');
   const cards = h('div.cleanup-cards', { role: 'tree', 'aria-label': 'Finished branches', 'aria-multiselectable': 'true' });
   const goBtn = h('button.btn.primary.cleanup-go', { onclick: () => go() });
   const counts = h('span.cleanup-counts');
-  const remoteBox = h('input', { type: 'checkbox', tabIndex: -1, onchange: () => { alsoRemote = remoteBox.checked; render(); } });
+  const remoteBox: HTMLInputElement = h('input', { type: 'checkbox', tabIndex: -1, onchange: () => { alsoRemote = remoteBox.checked; render(); } });
   const remoteText = h('span', null, 'Also delete them on the remote (can’t be undone)');
   const remoteLabel = h('label.check.cleanup-remote-all', { 'data-tip': tipFor('Also delete them on the remote', 'cleanup.remote') }, remoteBox, remoteText);
-  const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), h('span'));
-  const daysBox = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
+  const progressText = h('span');
+  const progress = h('span.cleanup-progress', { role: 'status', 'aria-live': 'polite', hidden: true }, h('span.spinner'), progressText);
+  const daysBox: HTMLInputElement = h('input', { type: 'number', min: 1, max: 365, step: 1, value: String(days), 'aria-label': 'Days before a branch counts as untouched',
     onkeydown: (e) => { if (e.key !== 'Escape') e.stopPropagation(); },
     onchange: () => {
       const n = daysValue(daysBox.value);
@@ -57,14 +78,14 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
   const bar = h('div.cleanup-actionbar', null, goBtn, counts, remoteLabel, progress, daysLabel);
   const el = h('div.cleanup-panel', null, verdict, cards, bar);
 
-  const isOn = (l) => ticked.has(laneKey(l));
+  const isOn = (l: ViewLane) => ticked.has(laneKey(l));
   // Clicks re-render the cards: keys go back to the view, not the removed element.
-  const home = () => (el.closest('[tabindex="0"]') || el).focus({ preventScroll: true });
-  const label = (g) => (g.id === 'old' ? `${g.label} for ${days}+ days` : g.label);
+  const home = () => (el.closest<HTMLElement>('[tabindex="0"]') || el).focus({ preventScroll: true });
+  const label = (g: typeof GROUPS[number]) => (g.id === 'old' ? `${g.label} for ${days}+ days` : g.label);
   // The branch's note: where it merged, or why it's here.
-  const note = (l) => blocked(l) || (l.upstreamGone && !l.done && !l.merged ? 'deleted on GitHub' : lower(reason(l, { days })) || '');
+  const note = (l: ViewLane): string => blocked(l) || (l.upstreamGone && !l.done && !l.merged ? 'deleted on GitHub' : lower(reason(l, { days })) || '');
 
-  function card({ group: g, lanes: ls }) {
+  function card({ group: g, lanes: ls }: { group: typeof GROUPS[number]; lanes: CleanupLane[] }) {
     const can = ls.filter((l) => !blocked(l));
     const all = can.length > 0 && can.every(isOn);
     const some = can.some(isOn);
@@ -92,7 +113,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     return h('details.cleanup-card' + (g.warn ? '.warn' : ''), { open: isOpen }, summary, ...rows, rest);
   }
 
-  function row(l) {
+  function row(l: CleanupLane) {
     const key = laneKey(l);
     const why = blocked(l);
     const n = dirty(l);
@@ -120,7 +141,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     if (only && loaded) { ticked.clear(); if (keys.has(only)) { ticked.add(only); const g = shown.find((l) => laneKey(l) === only)?.group; if (g) open.add(g); sel = only; } only = null; }
     for (const k of ticked) if (!keys.has(k)) ticked.delete(k);
     items = groups.flatMap((g) => [`g:${g.group.id}`, ...(open.has(g.group.id) ? (more.has(g.group.id) ? g.lanes : g.lanes.slice(0, SHOWN)).map(laneKey) : [])]);
-    if (!items.includes(sel)) sel = items[0] ?? null;
+    if (sel === null || !items.includes(sel)) sel = items[0] ?? null;
 
     const finished = shown.filter((l) => l.group !== 'old').length;
     verdict.replaceChildren(...(!loaded ? [h('div.cleanup-big', null, 'Loading…')]
@@ -130,12 +151,13 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
 
     const chosen = selected();
     const s = summarize(chosen);
-    const remoteRefs = chosen.map((l) => remoteOf(l, base)).filter(Boolean), remotes = remoteRefs.length;
-    const where = remoteWhere(remoteRefs.length ? remoteRefs : lanes.map((l) => remoteOf(l, base)).filter(Boolean));
+    const refs = (list: ViewLane[]) => list.map((l) => remoteOf(l, base)).filter((r): r is string => !!r);
+    const remoteRefs = refs(chosen), remotes = remoteRefs.length;
+    const where = remoteWhere(remoteRefs.length ? remoteRefs : refs(lanes));
     remoteText.textContent = `Also delete them on ${where} (can’t be undone)`;
     remoteLabel.dataset.tip = tipFor(`Also delete them on ${where}`, 'cleanup.remote');
     goBtn.disabled = busy || !chosen.length;
-    goBtn.replaceChildren(chosen.length ? `Clean up ${chosen.length}` : 'Clean up', kbd(...keymap.keys('cleanup.run')));
+    goBtn.replaceChildren(chosen.length ? `Clean up ${chosen.length}` : 'Clean up', kbd(...(keymap.keys('cleanup.run') ?? [])));
     counts.textContent = chosen.length ? [chosen.length === 1 ? 'branch' : 'branches', s.worktrees ? plural(s.worktrees, 'worktree') : null].filter(Boolean).join(' · ') : 'Tick what can go';
     remoteBox.checked = alsoRemote && remotes > 0;
     remoteBox.disabled = busy || !remotes;
@@ -144,7 +166,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
   }
 
   const selected = () => groups.flatMap((g) => g.lanes).filter(isOn);
-  function toggle(key) {
+  function toggle(key: string) {
     const l = groups.flatMap((g) => g.lanes).find((x) => laneKey(x) === key);
     if (!l || blocked(l) || busy) return render();
     if (ticked.has(key)) ticked.delete(key);
@@ -154,7 +176,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     }
     render();
   }
-  function tickGroup(id) {
+  function tickGroup(id: string) {
     const g = groups.find((x) => x.group.id === id);
     if (!g || busy) return render();
     const can = g.lanes.filter((l) => !blocked(l));
@@ -163,7 +185,7 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     if (!all && g.group.warn) toast(`${plural(can.length, 'worktree has', 'worktrees have')} uncommitted changes`, { kind: 'error' });
     render();
   }
-  function toggleOpen(id) {
+  function toggleOpen(id: string) {
     if (open.has(id)) open.delete(id); else open.add(id);
     render();
   }
@@ -177,10 +199,10 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     render();
   }
 
-  function move(d) {
+  function move(d: number) {
     if (!items.length) return;
-    const i = items.indexOf(sel);
-    sel = items[Math.max(0, Math.min(items.length - 1, i + d))];
+    const i = sel === null ? -1 : items.indexOf(sel);
+    sel = items[Math.max(0, Math.min(items.length - 1, i + d))] ?? null;
     render();
     el.querySelector('.cleanup-card-head.active, .cleanup-item.active')?.scrollIntoView({ block: 'nearest' });
   }
@@ -195,25 +217,26 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     const picked = lanesToGo.map(cleanupItem);
     const found = await stoppedOps(picked).catch(() => []);
     // An op name, or { op, conflicts }: conflicted files go with the abort, so they aren't uncommitted.
-    const ops = picked.map((_, k) => found[k]?.op ?? found[k] ?? null);
-    const conflicted = picked.map((_, k) => found[k]?.conflicts || 0);
-    const stopped = ops.filter(Boolean);
-    const left = (l, k) => Math.max(0, dirty(l) - (ops[k] ? conflicted[k] : 0));
+    const ops = picked.map((_, k): string | null => { const f = found[k]; return f && typeof f === 'object' ? f.op : f ?? null; });
+    const conflicted = picked.map((_, k) => { const f = found[k]; return f && typeof f === 'object' ? f.conflicts || 0 : 0; });
+    const stopped = ops.filter((o): o is string => !!o);
+    const left = (l: ViewLane, k: number) => Math.max(0, dirty(l) - (ops[k] ? conflicted[k] ?? 0 : 0));
     const stashing = lanesToGo.filter((l, k) => left(l, k) > 0).length;
     // One row per branch with only what changes for it; the warning and its tick only when
     // something can't come back (GitHub branches). Uncommitted changes are stashed, or discarded
     // (undo still has them).
     const rows = lanesToGo.map((l, k) => {
       const n = left(l, k);
+      const ro = remoteOf(l, base);
       return h('div.cleanup-confirm-row', null,
         h('span.cleanup-confirm-name', { title: l.name }, l.name),
         ops[k] ? h('span.cleanup-confirm-tag.warn', null, `${ops[k]} stopped`) : null,
         n ? h('span.cleanup-confirm-tag.warn', null, `${n} uncommitted`) : null,
         l.worktree ? h('span.cleanup-confirm-tag', null, 'worktree') : null,
-        remoteSet.has(laneKey(l)) && gone.has(remoteOf(l, base)) ? h('span.cleanup-confirm-tag', null, remoteOf(l, base).split('/')[0]) : null);
+        ro && remoteSet.has(laneKey(l)) && gone.has(ro) ? h('span.cleanup-confirm-tag', null, ro.split('/')[0]) : null);
     });
-    const content = [h('div.cleanup-confirm-list', null, ...rows)];
-    const fields = [];
+    const content: Child[] = [h('div.cleanup-confirm-list', null, ...rows)];
+    const fields: Field[] = [];
     const lose = remoteNames.length ? [`${remoteNames.length} on ${where}`] : [];
     if (lose.length) {
       content.push(h('p.cleanup-confirm-warn', null, 'This can’t be undone.'));
@@ -226,44 +249,44 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     if (!v) return;
     busy = true;
     progress.hidden = false;
-    progress.lastChild.textContent = 'Cleaning up…';
-    const off = onProgress(({ done, total }) => { progress.lastChild.textContent = `Cleaning up… ${done} of ${total}`; });
+    progressText.textContent = 'Cleaning up…';
+    const off = onProgress(({ done, total }) => { progressText.textContent = `Cleaning up… ${done} of ${total}`; });
     render();
-    let res = null;
-    let error = null;
+    let res: CleanupOutcome | null = null;
+    let error: Error | null = null;
     try {
       res = await run(picked.map((i, k) => ({ ...i, ...(v.stash ? { stash: true } : {}), ...(ops[k] && v.abort ? { abort: true } : {}) })), `Clean up ${cleanupWhat(lanesToGo)}`);
       if (remoteNames.length) {
-        progress.lastChild.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on ${where}…`;
-        const r = await runRemote(remoteNames).catch((err) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));
+        progressText.textContent = `Deleting ${plural(remoteNames.length, 'branch', 'branches')} on ${where}…`;
+        const r = await runRemote(remoteNames).catch((err: Error) => ({ deleted: [], failed: remoteNames.map((name) => ({ name, message: err.message })) }));
         res.remoteDeleted = r.deleted;
         res.remoteFailed = r.failed;
       }
     } catch (err) {
-      error = err;
+      error = err as Error;
     } finally {
       off();
       busy = false;
       progress.hidden = true;
     }
     if (error) toast('Clean up failed', { kind: 'error', detail: error.message });
-    else report(res);
+    else if (res) report(res);
     ticked.clear();
     alsoRemote = false;
     render();
     await onDone();
   }
 
-  function report(res) {
+  function report(res: CleanupOutcome) {
     const done = [res.removed.length ? plural(res.removed.length, 'worktree') + ' removed' : null, res.deleted.length ? plural(res.deleted.length, 'branch', 'branches') + ' deleted' : null, res.remoteDeleted?.length ? `${res.remoteDeleted.length} on ${remoteWhere(res.remoteDeleted)}` : null].filter(Boolean).join(', ');
     if (done) toast(`Cleaned up: ${done}`, { kind: 'success', action: res.removed.length || res.deleted.length ? { label: 'Undo', run: onUndo } : null });
-    const detail = (list) => list.slice(0, 6).map((f) => `${f.name}: ${f.message}`).join('\n') + (list.length > 6 ? `\n…and ${list.length - 6} more` : '');
+    const detail = (list: readonly Failure[]) => list.slice(0, 6).map((f) => `${f.name}: ${f.message}`).join('\n') + (list.length > 6 ? `\n…and ${list.length - 6} more` : '');
     if (res.failed.length) toast(`${plural(res.failed.length, 'branch was', 'branches were')} kept`, { kind: 'error', timeout: 0, detail: detail(res.failed) });
     if (res.remoteFailed?.length) toast(`${plural(res.remoteFailed.length, 'branch was', 'branches were')} not deleted on GitHub`, { kind: 'error', timeout: 0, detail: detail(res.remoteFailed) });
   }
 
   // The panel's keys (cleanup scope); true when one ran.
-  function keydown(e) {
+  function keydown(e: KeyboardEvent): boolean {
     const id = keymap.match('cleanup', e);
     if (!id) return false;
     if (id === 'cleanup.next') move(1);
@@ -285,9 +308,9 @@ export function cleanupPanel({ run, runRemote, stoppedOps = async () => [], days
     el,
     keydown,
     // New lanes (Branches loaded or refreshed); never while a cleanup runs (it refreshes when done).
-    update(next, b) { if (busy) return; lanes = next; base = b; loaded = true; render(); },
+    update(next: ViewLane[], b: string | null) { if (busy) return; lanes = next; base = b; loaded = true; render(); },
     // Tick just this lane (a branch's Clean up), once the lanes are there.
-    only(key) { only = key; if (loaded) render(); },
+    only(key: string) { only = key; if (loaded) render(); },
     busy: () => busy,
     go,
     tickAll,
