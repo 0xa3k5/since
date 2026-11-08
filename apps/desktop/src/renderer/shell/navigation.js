@@ -2,7 +2,7 @@ import { h, $, icon, toast, dialog, contextMenu } from '../lib/ui.ts';
 import { setSwatches } from '../commit/diff.ts';
 import { opSentence } from '../commit/resolve-text.ts';
 import * as keymap from '../palette/keymap.ts';
-import { fileHistoryView } from '../history/file-history-view.js';
+import { fileHistoryView } from '../history/file-history-view.ts';
 import { createNav } from './nav.ts';
 import { reviewView } from '../review/review-view.js';
 import { sidebarMode, toggleSidebarState, sidebarToggleLabel, isNarrow, NAV_ITEMS, SECTION_PAGES, sectionOf, pageLabel, orderedSections, moveSection, placeSection, showSection } from './sidebar.ts';

@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BranchReview, ChangeFacts, Divergence, FileDiff, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, Blame, BranchReview, ChangeFacts, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
 import type { PrEvidence } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -52,6 +52,8 @@ export interface GitResults {
   compare: FileDiff[];
   branchReview: BranchReview;
   changeFacts: ChangeFacts;
+  fileHistory: FileHistoryPage;
+  blame: Blame;
   /** The label of the step undone or redone; null when there was none. */
   undo: string | null;
   redo: string | null;

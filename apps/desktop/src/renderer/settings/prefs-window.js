@@ -4,7 +4,7 @@ import { setSwatches } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { stageMemory } from '../review/review-rows.ts';
 import { orderedSections, moveSection, showSection } from '../shell/sidebar.ts';
-import { tourView } from '../welcome/tour-view.js';
+import { tourView } from '../welcome/tour-view.ts';
 import { AUTOSTASH_DEFAULT } from '../commit/autostash.ts';
 import { prefsWindow } from './prefs-view.js';
 import { prefRows, prRemoteChoice } from './prefs.ts';

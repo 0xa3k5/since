@@ -3,27 +3,30 @@ import * as keymap from '../palette/keymap.ts';
 import {
   LESSONS, TOUR_BRANCH, TOUR_FEATURE, createTour, setLesson, select, moveTip, squash, rebase, cherryPick,
   undoTip, redoTip, filterCommands, tourHint,
+  type TourCommit, type TourState,
 } from './tour.ts';
 
 // Welcome-screen onboarding (state in tour.js): four short lessons on one live mini graph you can
 // poke at. ⌘Z / ⇧⌘Z reach it through the app's undo/redo commands while no repository is open.
 // Returns { el, undo, redo }.
 
-const ROW = 26, LANE_X = [12, 28];
-const cy = (i) => i * ROW + ROW / 2;
+const ROW = 26, LANE_X: [number, number] = [12, 28];
+const cy = (i: number) => i * ROW + ROW / 2;
 
-function lanes(commits) {
+function lanes(commits: readonly TourCommit[]): Element {
   const at = new Map(commits.map((c, i) => [c.sha, i]));
-  const svg = (tag, attrs) => {
+  const svg = (tag: string, attrs: Record<string, string | number>) => {
     const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
     return el;
   };
   const root = svg('svg', { class: 'tour-lanes', width: 40, height: commits.length * ROW, 'aria-hidden': 'true' });
   for (const c of commits) {
     if (!c.parent) continue;
-    const p = commits[at.get(c.parent)];
-    const x1 = LANE_X[c.lane], y1 = cy(at.get(c.sha)), x2 = LANE_X[p.lane], y2 = cy(at.get(c.parent));
+    const pi = at.get(c.parent), ci = at.get(c.sha);
+    const p = pi === undefined ? undefined : commits[pi];
+    if (!p || pi === undefined || ci === undefined) continue;
+    const x1 = LANE_X[c.lane], y1 = cy(ci), x2 = LANE_X[p.lane], y2 = cy(pi);
     const d = x1 === x2 ? `M${x1} ${y1}V${y2}` : `M${x1} ${y1}V${y2 - ROW}C${x1} ${y2 - ROW / 2} ${x2} ${y2 - ROW / 2} ${x2} ${y2 - 4}`;
     root.append(svg('path', { d, class: `lane-${c.lane}` }));
   }
@@ -31,10 +34,10 @@ function lanes(commits) {
   return root;
 }
 
-export function tourView({ mod }) {
+export function tourView({ mod }: { mod: string }): { el: HTMLElement; undo(): void; redo(): void } {
   let s = createTour();
   let query = '';
-  const KEYS = { undo: [mod, 'Z'], redo: [mod, '⇧', 'Z'], palette: [mod, 'K'] };
+  const KEYS: Record<'undo' | 'redo' | 'palette', string[]> = { undo: [mod, 'Z'], redo: [mod, '⇧', 'Z'], palette: [mod, 'K'] };
   const tabs = h('div.tour-tabs', { role: 'tablist', 'aria-label': 'Lessons' });
   const title = h('h2#tour-title');
   const stage = h('div.tour-stage', { id: 'tour-stage', role: 'tabpanel' });
@@ -42,14 +45,14 @@ export function tourView({ mod }) {
   const step = h('span.tour-step');
   const next = h('button.btn.ghost.small', { onclick: () => go(1) });
 
-  const pill = (name, cls) => h('span.pill.tour-pill' + cls, null, icon('branch', 12), name);
-  const go = (d) => {
+  const pill = (name: string, cls: string) => h('span.pill.tour-pill' + cls, null, icon('branch', 12), name);
+  const go = (d: number) => {
     const i = LESSONS.findIndex((l) => l.id === s.lesson);
-    set(setLesson(s, LESSONS[(i + d + LESSONS.length) % LESSONS.length].id));
-    tabs.querySelector('[aria-selected="true"]')?.focus();
+    set(setLesson(s, LESSONS[(i + d + LESSONS.length) % LESSONS.length]!.id));
+    tabs.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
   };
 
-  function onRow(sha) {
+  function onRow(sha: string) {
     set(s.lesson === 'graph' ? moveTip(s, sha) : select(s, sha));
   }
 
@@ -68,13 +71,14 @@ export function tourView({ mod }) {
     rows.addEventListener('keydown', (e) => {
       const id = keymap.match('tour', e);
       // The rewrite lesson answers the Map's own keys (S, R, P), so it follows the user's bindings.
-      const op = { 'commit.squash': squash, 'commit.rebase': rebase, 'commit.cherryPick': cherryPick }[keymap.match('map', e)];
+      const op = ({ 'commit.squash': squash, 'commit.rebase': rebase, 'commit.cherryPick': cherryPick } as Record<string, (t: TourState) => TourState>)[keymap.match('map', e) ?? ''];
+      const t = e.target as HTMLElement;
       if (id === 'tour.next' || id === 'tour.prev') {
         e.preventDefault();
-        (id === 'tour.next' ? e.target.nextElementSibling : e.target.previousElementSibling)?.focus();
+        ((id === 'tour.next' ? t.nextElementSibling : t.previousElementSibling) as HTMLElement | null)?.focus();
       } else if (s.lesson === 'rewrite' && op) {
         e.preventDefault();
-        const here = e.target.dataset?.sha ? select(s, e.target.dataset.sha) : s;
+        const here = t.dataset?.sha ? select(s, t.dataset.sha) : s;
         set(op(here));
       }
     });
@@ -87,14 +91,14 @@ export function tourView({ mod }) {
       const found = filterCommands(query);
       list.replaceChildren(...(found.length ? found.map((c) => h('button.tour-cmd' + (c.lesson ? '' : '.static'), {
         role: 'option',
-        title: c.lesson ? `Show ${LESSONS.find((l) => l.id === c.lesson).label}` : undefined,
-        onclick: () => c.lesson && set(setLesson(s, c.lesson)),
+        title: c.lesson ? `Show ${LESSONS.find((l) => l.id === c.lesson)?.label}` : undefined,
+        onclick: () => { if (c.lesson) set(setLesson(s, c.lesson)); },
       }, icon(c.icon, 14), h('span.tour-msg', null, c.label), c.key ? kbd(c.key) : null))
         : [h('div.tour-empty', null, 'No matching commands')]));
     };
     const input = h('input.input.tour-search', {
       type: 'search', placeholder: 'Search commands…', 'aria-label': 'Search commands', value: query,
-      oninput: (e) => { query = e.target.value; fill(); },
+      oninput: (e) => { query = (e.target as HTMLInputElement).value; fill(); },
       onkeydown: (e) => { if (e.key === 'Enter') list.querySelector('button')?.click(); },
     });
     fill();
@@ -102,7 +106,7 @@ export function tourView({ mod }) {
   }
 
   function render() {
-    const lesson = LESSONS.find((l) => l.id === s.lesson);
+    const lesson = LESSONS.find((l) => l.id === s.lesson) ?? LESSONS[0]!;
     const i = LESSONS.indexOf(lesson);
     tabs.replaceChildren(...LESSONS.map((l) => h('button.tour-tab', {
       role: 'tab', 'aria-selected': String(l === lesson), 'aria-controls': 'tour-stage', tabIndex: l === lesson ? 0 : -1,
@@ -116,23 +120,23 @@ export function tourView({ mod }) {
         h('button.btn.ghost.small', { disabled: !s.redo.length, onclick: () => set(redoTip(s)) }, icon('redo', 14), 'Redo', kbd(...KEYS.redo))));
     }
     const { text, keys } = tourHint(s);
-    hint.replaceChildren(h('span', null, text), keys ? kbd(...KEYS[keys]) : null);
+    hint.replaceChildren(h('span', null, text), ...(keys ? [kbd(...KEYS[keys])] : []));
     step.textContent = `${i + 1} of ${LESSONS.length}`;
-    next.replaceChildren(i === LESSONS.length - 1 ? 'Start over' : `Next: ${LESSONS[i + 1].label}`);
+    next.replaceChildren(i === LESSONS.length - 1 ? 'Start over' : `Next: ${LESSONS[i + 1]?.label}`);
   }
 
   // Re-render, keeping focus on the same row or field.
-  function set(nextState) {
-    const a = document.activeElement;
-    const sha = stage.contains(a) ? a.dataset?.sha : null;
+  function set(nextState: TourState) {
+    const a = document.activeElement as HTMLElement | null;
+    const sha = a && stage.contains(a) ? a.dataset?.sha : null;
     const search = a?.classList?.contains('tour-search');
     s = nextState;
     render();
-    const target = (sha && stage.querySelector(`[data-sha="${CSS.escape(sha)}"]`)) || (search && stage.querySelector('.tour-search'));
+    const target = (sha ? stage.querySelector<HTMLElement>(`[data-sha="${CSS.escape(sha)}"]`) : null) || (search ? stage.querySelector<HTMLElement>('.tour-search') : null);
     // The row was squashed away, or a search result opened another lesson: land on the selection (or the first row)
     // so the keys keep working instead of focus falling back to <body>.
     if (target) target.focus();
-    else if (sha || search) (stage.querySelector(`[data-sha="${CSS.escape(s.sel || '')}"]`) || stage.querySelector('.tour-row, .tour-search'))?.focus();
+    else if (sha || search) (stage.querySelector<HTMLElement>(`[data-sha="${CSS.escape(s.sel || '')}"]`) || stage.querySelector<HTMLElement>('.tour-row, .tour-search'))?.focus();
   }
 
   tabs.addEventListener('keydown', (e) => {

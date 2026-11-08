@@ -7,7 +7,7 @@ interface Snap { commits: TourCommit[]; tip: string }
 /** The pretend repository, the selection and the undo stacks; `last` names what just happened. */
 export interface TourState { commits: TourCommit[]; tip: string; sel: string | null; undo: Snap[]; redo: Snap[]; lesson: string; last?: string | null }
 export interface TourCommand { label: string; icon: string; key?: string; lesson?: string }
-export interface TourHint { text: string; keys: string | null }
+export interface TourHint { text: string; keys: 'undo' | 'redo' | 'palette' | null }
 
 // Newest first. lane 0 is main's line, lane 1 a feature branch that forks off c2.
 export const TOUR_COMMITS: TourCommit[] = [
