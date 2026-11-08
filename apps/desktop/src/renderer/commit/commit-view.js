@@ -10,8 +10,8 @@ import { refreshStatus } from '../graph/load.js';
 import { identityOk } from './identity-check.js';
 import { stashSave } from './stashes.ts';
 import { aiOn, writeMessageWithAi } from './ai-message.ts';
-import { openDifftool } from './external-tools.js';
-import { openMergetool, openFileHistory } from '../history/file-history.js';
+import { openDifftool } from './external-tools.ts';
+import { openMergetool, openFileHistory } from '../history/file-history.ts';
 import { loadCommit, fileRow } from '../graph/map.js';
 import { copy, changesText } from '../graph/commit-actions.js';
 

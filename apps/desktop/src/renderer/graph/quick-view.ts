@@ -2,15 +2,16 @@ import { h, icon, kbd, loading, toast, timeAgo, avatar } from '../lib/ui.ts';
 import { renderDiff, statusBadge, fileRef } from '../commit/diff.ts';
 import * as keymap from '../palette/keymap.ts';
 import { up } from '../lib/upcalls.ts';
-import { state } from '../lib/app-helpers.ts';
+import { state, type QuickBack } from '../lib/app-helpers.ts';
+import type { CommitFile } from '../../shared/git-types.ts';
 import { git } from '../lib/bridge.ts';
-import { openFileHistory, withHistoryMenu } from '../history/file-history.js';
+import { openFileHistory, withHistoryMenu } from '../history/file-history.ts';
 
 // Quick view (full-height commit inspector)
 
 // `back` is the file history the commit was opened from; Esc returns to it.
-function openQuick(...args) { return up.go(() => openQuickNow(...args)); }
-function openQuickNow(sha, path, back = null) {
+function openQuick(...args: Parameters<typeof openQuickNow>) { return up.go(() => openQuickNow(...args)); }
+function openQuickNow(sha: string | null | undefined, path?: string | null, back: QuickBack | null = null) {
   if (!sha) return;
   state.fileHistory = null;
   state.review = null;
@@ -18,12 +19,12 @@ function openQuickNow(sha, path, back = null) {
   up.renderTopbar();
   up.renderView();
 }
-function closeQuick(...args) { return up.go(() => closeQuickNow(...args)); }
+function closeQuick() { return up.go(() => closeQuickNow()); }
 // `back` is { path } (File History) or { review, lanes } (Review, the page or the lanes row it was on).
 function closeQuickNow() {
   const sha = state.quick?.sha;
   const back = state.quick?.back;
-  if (back?.path) return openFileHistory(back.path);
+  if (back && 'path' in back) return openFileHistory(back.path);
   state.quick = null;
   if (back && 'review' in back) { state.review = back.review; up.lanesPlace = back.lanes; up.renderTopbar(); up.renderView(); return; }
   up.renderTopbar();
@@ -31,23 +32,23 @@ function closeQuickNow() {
   if (sha) up.selectCommit(sha, 'center');
 }
 
-function quickView({ sha, path }) {
+function quickView({ sha, path }: { sha: string; path?: string | null }) {
   const el = h('div.quick');
   const side = h('div.quick-side');
   const main = h('div.quick-main', null, loading('Loading commit…'));
   el.append(side, main);
-  let files = [];
+  let files: CommitFile[] = [];
   let current = path;
   let full = false;
 
   (async () => {
-    const c = await up.loadCommit(sha).catch((e) => { main.replaceChildren(h('div.empty', null, e.message)); return null; });
+    const c = await up.loadCommit(sha).catch((e: Error) => { main.replaceChildren(h('div.empty', null, e.message)); return null; });
     if (!c) return;
     files = c.files;
     if (!current && files[0]) current = files[0].path;
     side.replaceChildren(
       h('div.quick-head', null,
-        h('button.btn.ghost.small', { onclick: closeQuick }, icon('chevron', 12), 'Back', kbd(...keymap.keys('quick.close'))),
+        h('button.btn.ghost.small', { onclick: closeQuick }, icon('chevron', 12), 'Back', kbd(...(keymap.keys('quick.close') ?? []))),
         h('div.quick-title', null, c.message.split('\n')[0]),
         h('div.quick-meta', null, avatar(c.author, c.email, 16), c.author, ' · ', timeAgo(c.time), ' · ', h('span.mono', null, c.sha.slice(0, 7))),
       ),
@@ -61,7 +62,7 @@ function quickView({ sha, path }) {
     renderFile();
   })();
 
-  function markActive() { side.querySelectorAll('.file-row').forEach((r) => r.classList.toggle('active', r.dataset.path === current)); }
+  function markActive() { side.querySelectorAll<HTMLElement>('.file-row').forEach((r) => r.classList.toggle('active', r.dataset.path === current)); }
 
   async function renderFile() {
     const f = files.find((x) => x.path === current);
@@ -85,7 +86,8 @@ function quickView({ sha, path }) {
       e.preventDefault();
       const i = files.findIndex((f) => f.path === current);
       const n = Math.max(0, Math.min(files.length - 1, i + (id === 'quick.next' ? 1 : -1)));
-      if (files[n]) { current = files[n].path; full = false; markActive(); renderFile(); side.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
+      const next = files[n];
+      if (next) { current = next.path; full = false; markActive(); renderFile(); side.querySelector('.file-row.active')?.scrollIntoView({ block: 'nearest' }); }
     }
   });
   setTimeout(() => el.focus());

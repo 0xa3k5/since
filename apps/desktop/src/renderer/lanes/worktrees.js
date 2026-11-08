@@ -27,7 +27,7 @@ import { lanesPage, setLanesPage, catchupPage, setCatchupPage, catchupCount, ass
 import { git, updateGit, gitWhy, undo, coalesce, abortAnd, act } from '../lib/bridge.ts';
 import { refreshAll, refreshHistory, worktreeOf } from '../graph/load.js';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll } from '../branches/remote-ops.ts';
-import { showCommit } from '../history/file-history.js';
+import { showCommit } from '../history/file-history.ts';
 import { checkoutPr, mergeReadyPrs, setupPrs, toggleDraft, prRemote, prError, approvePr, requestChangesPr, mergePr, closePr, openPrOnGitHub, updatePrBranch, REMOTE_NOTE, prCall, OWN_PR, refreshPrs, fixMergeGate, prCheckLines, checkFailEl } from '../prs/prs-page.js';
 import { commitSide } from '../graph/map.js';
 import { refMenu, canSwitchFrom, switchTarget, switchChanges, switchAndDelete, changesText, showStashAction, copy, checkout, createBranch } from '../graph/commit-actions.js';

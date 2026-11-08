@@ -9,8 +9,8 @@ import { state, ROW_H, isEditable, prop, personLink } from '../lib/app-helpers.t
 import { mapView, sidebarEl, lanesPage } from '../shell/shell.ts';
 import { git } from '../lib/bridge.ts';
 import { wantDetails, refPill } from './load.js';
-import { withHistoryMenu } from '../history/file-history.js';
-import { openQuick } from './quick-view.js';
+import { withHistoryMenu } from '../history/file-history.ts';
+import { openQuick } from './quick-view.ts';
 
 // Map view
 

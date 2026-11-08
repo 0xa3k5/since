@@ -15,12 +15,12 @@ import { lanesPage, root, sidebarEl, topbarEl, bannerEl, contentEl, setSidebarEl
 import { git, undoTitle, undo, redoTitle, redo, act, aborted } from '../lib/bridge.ts';
 import { refreshAux, refreshHistory, worktreeOf } from '../graph/load.js';
 import { stashSave, stashesView } from '../commit/stashes.ts';
-import { snapshotsView } from '../history/snapshots.js';
+import { snapshotsView } from '../history/snapshots.ts';
 import { editRemoteUrl, remoteMenu, addRemote, fetchAll, pull, push } from '../branches/remote-ops.ts';
 import { reflogView } from '../history/reflog.ts';
 import { splitView } from '../commit/split.ts';
-import { showCommit, closeFileHistory } from '../history/file-history.js';
-import { quickView, openQuick } from '../graph/quick-view.js';
+import { showCommit, closeFileHistory } from '../history/file-history.ts';
+import { quickView, openQuick } from '../graph/quick-view.ts';
 import { prViewer } from '../prs/prs-page.js';
 import { selectCommit, sbWorktree, selectWorktreeItem, commitSide, createMapView } from '../graph/map.js';
 import { copy, checkout, refMenu } from '../graph/commit-actions.js';

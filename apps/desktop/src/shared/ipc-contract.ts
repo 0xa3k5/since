@@ -8,7 +8,7 @@
 // moves to TypeScript.
 
 import type { AppChannel, GitMethod, PushChannel } from './channels.ts';
-import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, Stash } from './git-types.ts';
+import type { Aborted, BaseTouch, Blame, BranchReview, ChangeFacts, CombinedDiff, CommitDetails, ConflictReview, Divergence, FileDiff, FileHistoryPage, GitInfo, RestorePreview, Stash } from './git-types.ts';
 import type { PrEvidence, PrSettings } from './github-types.ts';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -62,6 +62,12 @@ export interface GitResults {
   fileHistory: FileHistoryPage;
   /** One commit's header and message. */
   commit: CommitDetails;
+  /** Every file git tracks at HEAD. */
+  trackedFiles: string[];
+  /** The conflicted files the mergetool left. */
+  mergetool: { remaining: string[] };
+  /** What restoring the refs to before a journal entry would change. */
+  previewRestore: RestorePreview;
   /** A commit's diff against its first parent, one entry per file. */
   commitDiffs: (FileDiff & { path: string })[];
   blame: Blame;

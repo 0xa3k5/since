@@ -20,12 +20,12 @@ import { chooseGit, useGit, act, gitWhy, undoTitle, undo, redoTitle, redo, git }
 import { openIdentity } from '../commit/identity-check.js';
 import { stashSave, applyStash } from '../commit/stashes.ts';
 import { writeMessageWithAi, aiOn, setupAi } from '../commit/ai-message.ts';
-import { snapshotEntries, restoreSnapshot } from '../history/snapshots.js';
-import { openDifftool } from '../commit/external-tools.js';
+import { snapshotEntries, restoreSnapshot } from '../history/snapshots.ts';
+import { openDifftool } from '../commit/external-tools.ts';
 import { fetchAll, pull, push, remotesSwitcher, addRemote, remoteItems } from '../branches/remote-ops.ts';
 import { exportShortcuts, importShortcuts, resetShortcuts, openShortcuts, openSetup } from '../welcome/welcome.ts';
 import { openSplit } from '../commit/split.ts';
-import { openFileHistory, fileHistoryTarget, openConflicts, openMergetool } from '../history/file-history.js';
+import { openFileHistory, fileHistoryTarget, openConflicts, openMergetool } from '../history/file-history.ts';
 import { prList, refreshPrs, createPr, pickPrBranch, pickPr, approvePr, approveTargetWhy, requestChangesPr, togglePrs, hidePrs, pickPrRemote, submoduleSwitcher, checkoutPr, prRemote, prFor, prViewer, toggleDraft } from '../prs/prs-page.js';
 import { pendingAutostash, applyAutostash, createBranch, canSwitchFrom, checkoutSelected, guarded, checkout } from '../graph/commit-actions.js';
 import { openRepo, openPrefs, cloneRepo, closeRepo } from '../settings/prefs-window.js';

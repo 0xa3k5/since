@@ -4,8 +4,7 @@ import * as keymap from '../palette/keymap.ts';
 import { authorProfile } from './profile.ts';
 import { up } from './upcalls.ts';
 import type {
-  ConfigEntry, FileDiff, GitInfo, Head, LfsInfo, OperationInfo, OperationKind, ReflogEntry, Ref, RepoInfo,
-  Remote, Stash, Submodule, WorkStatus, Worktree, JournalList,
+  CommitFile, ConfigEntry, FileDiff, GitInfo, Head, JournalList, LfsInfo, OperationInfo, OperationKind, Ref, ReflogEntry, Remote, RepoInfo, Stash, Submodule, WorkStatus, Worktree,
 } from '../../shared/git-types.ts';
 import type { AiState, Theme } from '../../shared/ipc-contract.ts';
 import type { PullRequest } from '../../shared/github-types.ts';
@@ -22,6 +21,12 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 
 /** A part of the state whose module is still JavaScript. It gets its real type when that module moves (SNC-696). */
 type Later = unknown;
+/** Where the commit viewer's Back goes: a file's history, or Review (the page, and the lanes row it was on). */
+export type QuickBack = { path: string } | { review: ReviewTarget | null; lanes: unknown };
+/** The commit viewer: the commit and the file it opened on; `file` and `parent` once it has read the commit. */
+export interface QuickState { sha: string; path?: string | null; back?: QuickBack | null; file?: CommitFile | null; parent?: string | null }
+/** File history & blame: the file it shows. */
+export interface FileHistoryState { path: string }
 export type View =
   | 'map' | 'commit' | 'lanes' | 'branches' | 'catchup' | 'worktrees' | 'stashes' | 'reflog' | 'snapshots'
   | 'submoduleList' | 'remoteList' | 'tagList';
@@ -60,7 +65,7 @@ export interface AppState {
   byRef: Map<string, Ref[]>;
   selected: string | null;
   detail: boolean;
-  quick: Later;
+  quick: QuickState | null;
   split: SplitState | null;
   status: WorkStatus;
   opState: OperationKind | null;
@@ -84,7 +89,7 @@ export interface AppState {
   theme: Theme;
   prs: Later;
   review?: ReviewTarget | null;
-  fileHistory?: Later;
+  fileHistory?: FileHistoryState | null;
   ai?: AiState | null;
   gitInfo?: GitInfo | null;
 }

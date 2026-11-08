@@ -13,7 +13,7 @@ import { state, api, prop, tildify, parentDir, MOD, keyText } from '../lib/app-h
 import { lanesPage, catchupPage, mapView, reviewPage } from '../shell/shell.ts';
 import { undo, act } from '../lib/bridge.ts';
 import { addRemote, fetchAll } from '../branches/remote-ops.ts';
-import { openQuick } from '../graph/quick-view.js';
+import { openQuick } from '../graph/quick-view.ts';
 
 // Pull requests (read-only), through the user’s GitHub CLI. One user-wide switch (plus a per-repo hide);
 // `gh` only runs on Fetch or Refresh, never in the background. The last result is kept per
