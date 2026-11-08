@@ -1,0 +1,19 @@
+{
+  // Type-checks the build and release scripts that are plain JavaScript (`checkJs`, not strict:
+  // they carry no annotations). Tests, e2e specs and bench stay unchecked: their fixtures pass
+  // partial objects on purpose. The publishing and update-e2e scripts are left out until they
+  // next change, and dev-app-name.js needs casts for `require('electron')`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "checkJs": true,
+    "strict": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": [
+    "scripts/build.js",
+    "scripts/change-facts-fixtures.js",
+    "scripts/homebrew-cask.js",
+    "scripts/render-brand-assets.js",
+    "scripts/update-feed.js"
+  ]
+}

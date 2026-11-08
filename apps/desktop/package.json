@@ -12,7 +12,7 @@
   "scripts": {
     "build": "node scripts/build.js",
     "watch": "node scripts/build.js --watch",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json && tsc -p tsconfig.tools.json",
     "start": "node scripts/dev-app-name.js && node scripts/build.js --dev && electron .",
     "test": "pnpm run typecheck && node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \"test/**/*.test.js\"",
     "test:e2e": "playwright test -c e2e",

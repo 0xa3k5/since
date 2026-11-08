@@ -16,13 +16,15 @@ directly, with undo/redo for every ref change. Positioning: supervise and land a
   - `src/preload/preload.ts`: the sandboxed bridge (`window.since`)
   - `src/shared/channels.ts`: IPC channel names; `src/shared/ipc-contract.ts`: what each channel
     takes and returns, shared by main, preload and renderer
-  - `src/renderer/`: the UI. `app.js` wires the areas together, one folder per area
+  - `src/renderer/`: the UI. `app.ts` wires the areas together, one folder per area
     (`graph/`, `commit/`, `history/`, `lanes/`, `review/`, `prs/`, `branches/`, `catchup/`,
-    `palette/` with `keymap.js`, `shell/`, `settings/`, `welcome/`) and `lib/` (DOM toolkit, helpers).
-    Imports only point down; a lower module calls a higher one through `lib/upcalls.js`
+    `palette/` with `keymap.ts`, `shell/`, `settings/`, `welcome/`) and `lib/` (DOM toolkit, helpers).
+    Imports only point down; a lower module calls a higher one through `lib/upcalls.ts`, and the
+    higher module declares the type of each upcall it registers next to its `Object.assign(up, …)`
   - `scripts/build.js`: builds `src/` into `out/`, which Electron runs and electron-builder packages.
     esbuild transpiles each `.ts` file on its own (no bundling); every other file is copied
-  - `test/` (unit, `node --test`), `e2e/` (Playwright specs)
+  - `test/` (unit, `node --test`) and `e2e/` (Playwright specs) stay JavaScript; `tsconfig.tools.json`
+    type-checks the build and release scripts in `scripts/` (`checkJs`)
 - `apps/web`: the website (Astro).
 - `packages/tokens`: design tokens (`tokens.json` → `tokens.css`), the source of truth for colours.
 - `docs/`: security/network audit (`docs/security.md`), performance notes.
@@ -47,7 +49,7 @@ pnpm only (never `npm`/`npx`/`yarn`, never commit `package-lock.json`).
 - New files are TypeScript: `strict`, erasable syntax only (no enums, namespaces or parameter
   properties), relative imports name the `.ts` file, and no `any` without a comment saying why.
 - New actions get a ⌘K entry. Add a keyboard shortcut only for a frequent action in its context,
-  with the reason in the PR body (keymap in `src/renderer/palette/keymap.js`).
+  with the reason in the PR body (keymap in `src/renderer/palette/keymap.ts`).
 - No instructional or teaching copy in the UI: labels, values, status, errors and short warnings
   about irreversible actions only. Teaching goes on the website docs.
 - Light and dark themes are both first-class for every UI change.

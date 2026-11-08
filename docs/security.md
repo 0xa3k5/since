@@ -50,7 +50,7 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
 
 ### How this was checked
 
-- **Code.** The main process (`main.js`, `git/`, `journal.js`, `ipc.js`) requires none of
+- **Code.** The main process (`main.ts`, `git/`, `journal.ts`, `ipc.ts`) requires none of
   Node's `http`, `https`, `net`, `tls`, `dns` or `dgram` modules, and uses neither Electron's
   `net`, `autoUpdater` nor `crashReporter`. The app has no runtime npm dependencies
   (`test/packaging.test.js` enforces this). The only git subcommands that use the network
@@ -61,7 +61,7 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
 - **GitHub CLI calls.** `github.js` spawns `gh` the same way `ai.js` spawns AI CLIs: the binary
   is resolved on the extended `PATH`, runs in an empty temp folder with prompts off, has a
   30-second timeout after which its whole process group is killed. Every PR call passes `--repo` for a
-  GitHub remote of this repository. `ipc.js` checks what the renderer sends first: the PR number
+  GitHub remote of this repository. `ipc.ts` checks what the renderer sends first: the PR number
   must be a positive integer (`prNumber`) and the remote must be one of this repository's
   remotes (`knownRemote`); merge method and flags are checked against fixed lists
   (`test/ipc.test.js`).
@@ -83,17 +83,17 @@ reach the feed's origin, over HTTPS only (`ipc.requestAllowed`, `updater.feedOri
 | `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` for every window, plus `app.enableSandbox()` for any other renderer | `windows.js` `createWindow`, `lockdown.js` |
 | `webviewTag: false`, `nodeIntegrationInSubFrames: false`, `webSecurity: true`, `allowRunningInsecureContent: false`, `navigateOnDragDrop: false`, `safeDialogs: true` | `createWindow` |
 | DevTools only in development builds (or with `SINCE_DEVTOOLS=1`) | `createWindow`, View menu |
-| Narrow preload API: `since.git(method, …)`, `since.app(channel, …)` and four listen-only event channels. No Node objects cross the bridge | `preload.js` |
+| Narrow preload API: `since.git(method, …)`, `since.app(channel, …)` and four listen-only event channels. No Node objects cross the bridge | `preload.ts` |
 | Strict CSP: `default-src 'none'`, scripts and styles only from the bundle, no inline script or style, no `eval`, no remote origins, `object-src`, `base-uri`, `form-action` and `frame-src` all `'none'`; `media-src` only the main process's `since-media:` scheme (PR videos) | `renderer/index.html` |
 | No navigation, redirects, `window.open` or `<webview>` in any webContents. `http(s)` links open in the default browser; everything else is dropped | `web-contents-created` handler |
 | Every permission request (camera, notifications, clipboard-read, HID, USB, …) is denied | `lockDownSession` |
 | Network requests other than `file:`/`data:`/DevTools/`since-media:` (served by the main process, PR videos) are cancelled in every session; the updater's own session may also reach the update feed's host over HTTPS | `lockDownSession` |
 | IPC only from our own page: each handler checks the sender is the main frame of `renderer/index.html` in the app bundle | `handle()` in `handlers/handle.js` |
-| Every IPC argument is validated before use (below) | `ipc.js` |
+| Every IPC argument is validated before use (below) | `ipc.ts` |
 
 ### IPC argument validation
 
-Each of the 64 git methods has a schema in `ipc.js`; methods without one are refused. The checks
+Each of the 64 git methods has a schema in `ipc.ts`; methods without one are refused. The checks
 are aimed at what a compromised renderer could try:
 
 - **Option injection.** Ref and revision arguments may not start with `-` and may not contain
@@ -103,7 +103,7 @@ are aimed at what a compromised renderer could try:
   *Reveal in Finder* also resolve the path and refuse anything outside the repository root.
 - **Worktree folders.** The worktree calls (`worktreeChanges`, `lockWorktree`, `unlockWorktree`,
   `removeWorktree`) and `app:open-window`, `app:terminal` and `app:reveal` take an absolute
-  folder; main.js accepts it only if it is in the open repository's `git worktree list`
+  folder; the main process accepts it only if it is in the open repository's `git worktree list`
   (`ipc.knownWorktree`). *Reveal* takes either that or a repository-relative path. A new
   worktree (`addWorktree`) is checked for shape only: branch and base are revisions, and git
   creates the folder.
